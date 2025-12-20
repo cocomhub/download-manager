@@ -1,69 +1,238 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        /* Custom scrollbar for better look */
+        
+         ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+         ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+         ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+        
+         ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="app" class="container mx-auto px-4 py-8">
-        <header class="mb-8 flex justify-between items-center">
-            <h1 class="text-3xl font-bold text-gray-800">Download Manager</h1>
-            <button @click="fetchTasks" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded shadow transition">
-                Refresh
-            </button>
-        </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Task List -->
-            <div class="col-span-1 bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Tasks</h2>
-                <ul class="space-y-3">
-                    <li v-for="task in tasks" :key="task.id" 
-                        @click="selectTask(task.id)"
-                        class="cursor-pointer p-3 rounded border border-gray-200 hover:bg-blue-50 transition"
-                        :class="{'bg-blue-50 border-blue-300': selectedTaskId === task.id}">
-                        <div class="flex justify-between items-center">
-                            <span class="font-medium text-gray-800">{{ task.id }}</span>
-                            <span class="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">{{ task.type }}</span>
-                        </div>
-                        <div class="mt-2 text-sm text-gray-500">
-                            Progress: {{ task.completed }} / {{ task.total }}
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                            <div class="bg-green-500 h-1.5 rounded-full" :style="{ width: (task.total ? (task.completed / task.total * 100) : 0) + '%' }"></div>
-                        </div>
-                    </li>
-                </ul>
+<body class="bg-gray-100 h-screen overflow-hidden flex">
+    <div id="app" class="flex w-full h-full">
+        <!-- Sidebar: Task List -->
+        <aside class="w-64 bg-white shadow-md flex flex-col z-10">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h1 class="text-xl font-bold text-gray-800">Tasks</h1>
+                <button @click="fetchTasks" class="text-blue-500 hover:text-blue-700" title="Refresh">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
             </div>
+            <div class="flex-1 overflow-y-auto p-2 space-y-2">
+                <div v-for="task in tasks" :key="task.id" @click="selectTask(task.id)" class="cursor-pointer p-3 rounded-lg border transition-all duration-200 group" :class="selectedTaskId === task.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'">
 
-            <!-- Task Details -->
-            <div class="col-span-1 md:col-span-2 bg-white rounded-lg shadow p-6">
-                <div v-if="selectedTask">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-xl font-semibold text-gray-700">Details: {{ selectedTask.id }}</h2>
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="font-medium text-gray-800 truncate pr-2" :title="task.id">{{ task.id }}</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 whitespace-nowrap">{{ task.type }}</span>
                     </div>
 
-                    <div class="overflow-x-auto">
+                    <div class="flex justify-between text-xs text-gray-500 mt-2">
+                        <span>{{ task.completed }} / {{ task.total }}</span>
+                        <span>{{ task.total ? Math.round(task.completed / task.total * 100) : 0 }}%</span>
+                    </div>
+
+                    <div class="w-full bg-gray-200 rounded-full h-1.5 mt-1 overflow-hidden">
+                        <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" :style="{ width: (task.total ? (task.completed / task.total * 100) : 0) + '%' }"></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden relative">
+            <!-- Top Bar -->
+            <header class="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm z-10">
+                <div class="flex items-center space-x-4 flex-1">
+                    <h2 class="text-xl font-semibold text-gray-700 truncate" v-if="selectedTask">
+                        {{ selectedTask.id }}
+                    </h2>
+                    <h2 class="text-xl font-semibold text-gray-500" v-else>Select a Task</h2>
+                </div>
+
+                <div class="flex items-center space-x-4" v-if="selectedTask">
+                    <!-- Actions -->
+                    <button @click="retryAllFailed" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
+                        <i class="fas fa-redo mr-1"></i> Retry Failed
+                    </button>
+
+                    <!-- Sort -->
+                    <select v-model="sortBy" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="default">Default Sort</option>
+                        <option value="date_desc">Date (Newest)</option>
+                        <option value="date_asc">Date (Oldest)</option>
+                        <option value="duration_desc">Duration (Longest)</option>
+                        <option value="name_asc">Name (A-Z)</option>
+                    </select>
+
+                    <!-- Search Box -->
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" v-model="searchQuery" class="pl-10 pr-4 py-2 border rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 transition-all" placeholder="Search name or tag...">
+                    </div>
+
+                    <!-- View Toggle -->
+                    <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
+                        <button @click="viewMode = 'grid'" class="px-3 py-1.5 rounded-md transition-all" :class="viewMode === 'grid' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                            <i class="fas fa-th-large mr-1"></i> Grid
+                        </button>
+                        <button @click="viewMode = 'list'" class="px-3 py-1.5 rounded-md transition-all" :class="viewMode === 'list' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                            <i class="fas fa-list mr-1"></i> List
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+                <div v-if="selectedTask">
+                    <!-- Grid View (Best for TKTube/Images) -->
+                    <div v-if="viewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        <div v-for="obj in filteredObjects" :key="obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" draggable="true" @dragstart="dragStart($event, obj)"
+                            @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
+
+                            <!-- Cover Image Area -->
+                            <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="hoverObj = obj" @mouseleave="hoverObj = null">
+
+                                <!-- Video Preview on Hover -->
+                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black">
+                                </video>
+
+                                <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
+                                <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+                                    <i class="fas fa-file-image text-4xl"></i>
+                                </div>
+
+                                <!-- Play Button Overlay (Completed) -->
+                                <div v-if="isVideo(obj) && obj.status === 'completed'" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                    <div class="bg-white/90 text-blue-600 rounded-full w-12 h-12 flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-110 transition-transform">
+                                        <i class="fas fa-play ml-1 text-xl"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Status Badge -->
+                                <div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-20">
+                                    <span class="px-2 py-1 text-xs font-bold rounded-md shadow-sm uppercase tracking-wide" :class="{
+                                              'bg-green-500 text-white': obj.status === 'completed',
+                                              'bg-blue-500 text-white': obj.status === 'downloading',
+                                              'bg-red-500 text-white': obj.status === 'failed',
+                                              'bg-gray-500 text-white': obj.status === 'pending'
+                                          }">
+                                        {{ obj.status }}
+                                    </span>
+                                    <!-- Retry Button (Grid View) -->
+                                    <button v-if="obj.status === 'failed'" @click.stop="retryObject(obj)" class="px-2 py-1 text-xs bg-white text-red-600 font-bold rounded-md shadow-sm hover:bg-red-50 transition">
+                                        <i class="fas fa-redo"></i> Retry
+                                    </button>
+                                </div>
+
+                                <!-- Duration Badge -->
+                                <div v-if="getDuration(obj)" class="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1.5 py-0.5 rounded font-mono z-20">
+                                    {{ getDuration(obj) }}
+                                </div>
+                            </div>
+
+                            <!-- Content -->
+                            <div class="p-4 flex-1 flex flex-col">
+                                <h3 class="font-semibold text-gray-800 text-sm line-clamp-2 mb-2 leading-snug" :title="getTitle(obj)">
+                                    {{ getTitle(obj) }}
+                                </h3>
+
+                                <div class="flex justify-between items-center text-xs text-gray-500 mb-2">
+                                    <span>{{ getDate(obj) }}</span>
+                                    <span v-if="obj.status === 'downloading'">{{ obj.progress }}%</span>
+                                </div>
+
+                                <!-- Tags -->
+                                <div class="flex flex-wrap gap-1 mb-3 max-h-16 overflow-hidden">
+                                    <span v-for="tag in getTags(obj).slice(0, 5)" :key="tag" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200 cursor-pointer" @click.stop="searchQuery = tag">
+                                        #{{ tag }}
+                                    </span>
+                                </div>
+
+                                <div class="mt-auto">
+                                    <!-- Progress Bar -->
+                                    <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
+                                        <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: (obj.progress || 0) + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- List View -->
+                    <div v-else class="bg-white rounded-lg shadow overflow-hidden">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File / URL</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-for="obj in selectedTask.objects" :key="obj.url">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        <div class="truncate max-w-xs" :title="obj.url">{{ obj.url }}</div>
-                                        <div class="text-xs text-gray-500">{{ getFileName(obj.save_path) }}</div>
+                                <tr v-for="obj in filteredObjects" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center">
+                                            <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="hoverObj = obj" @mouseleave="hoverObj = null">
+                                                <!-- Tiny Preview -->
+                                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black">
+                                                </video>
+                                                <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
+                                                <i v-else class="fas fa-file text-gray-400"></i>
+                                            </div>
+                                            <div class="ml-4">
+                                                <div class="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs" :title="getTitle(obj)">{{ getTitle(obj) }}</div>
+                                                <div class="text-xs text-gray-500 truncate max-w-xs">{{ obj.url }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                                        <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
+                                        <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex flex-wrap gap-1 max-w-xs">
+                                            <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">
+                                                {{ tag }}
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                            :class="{
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" :class="{
                                                 'bg-green-100 text-green-800': obj.status === 'completed',
                                                 'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
                                                 'bg-red-100 text-red-800': obj.status === 'failed',
@@ -72,12 +241,20 @@
                                             {{ obj.status }}
                                         </span>
                                     </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <div class="w-24 bg-gray-200 rounded-full h-1.5">
+                                            <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
+                                        </div>
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <a v-if="obj.status === 'completed'" 
-                                           :href="getFileUrl(obj.save_path)" 
-                                           target="_blank"
-                                           class="text-indigo-600 hover:text-indigo-900 mr-3">
-                                            Preview
+                                        <button v-if="obj.status === 'failed'" @click="retryObject(obj)" class="text-red-600 hover:text-red-900 mr-3">
+                                            <i class="fas fa-redo"></i> Retry
+                                        </button>
+                                        <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3">
+                                            <i class="fas fa-play"></i> Play
+                                        </button>
+                                        <a v-else-if="obj.status === 'completed'" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900">
+                                            Open
                                         </a>
                                     </td>
                                 </tr>
@@ -85,15 +262,40 @@
                         </table>
                     </div>
                 </div>
-                <div v-else class="text-center text-gray-500 py-12">
-                    Select a task to view details
+
+                <!-- Empty State -->
+                <div v-else class="h-full flex flex-col items-center justify-center text-gray-400">
+                    <i class="fas fa-tasks text-6xl mb-4 text-gray-300"></i>
+                    <p class="text-lg">Select a task from the sidebar to view details</p>
                 </div>
             </div>
+        </main>
+
+        <!-- Video Modal -->
+        <div v-if="currentVideo" class="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4 backdrop-blur-sm" @click.self="closeVideo">
+            <div class="bg-black rounded-lg shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-screen">
+                <div class="flex justify-between items-center p-4 bg-gray-900 text-white">
+                    <h3 class="text-lg font-medium truncate pr-4">{{ getTitle(currentVideo) }}</h3>
+                    <button @click="closeVideo" class="text-gray-400 hover:text-white transition">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div class="relative bg-black flex-1 flex items-center justify-center aspect-video">
+                    <video :src="getVideoUrl(currentVideo)" controls autoplay class="w-full h-full max-h-[80vh] outline-none"></video>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hover Preview Config Toggle (Floating) -->
+        <div class="fixed bottom-4 right-4 bg-white p-3 rounded-full shadow-lg z-40 cursor-pointer hover:bg-gray-50" @click="enablePreview = !enablePreview" :title="enablePreview ? 'Disable Hover Preview' : 'Enable Hover Preview'">
+            <i class="fas" :class="enablePreview ? 'fa-eye text-blue-500' : 'fa-eye-slash text-gray-400'"></i>
         </div>
     </div>
 
     <script>
-        const { createApp } = Vue
+        const {
+            createApp
+        } = Vue
 
         createApp({
             data() {
@@ -101,13 +303,56 @@
                     tasks: [],
                     selectedTaskId: null,
                     selectedTask: null,
-                    timer: null
+                    viewMode: 'grid', // 'grid' or 'list'
+                    searchQuery: '',
+                    sortBy: 'default',
+                    currentVideo: null,
+                    hoverObj: null,
+                    enablePreview: true,
+                    timer: null,
+                    draggedItem: null
+                }
+            },
+            computed: {
+                filteredObjects() {
+                    if (!this.selectedTask || !this.selectedTask.objects) return []
+
+                    let objs = [...this.selectedTask.objects]
+
+                    // Filter
+                    const query = this.searchQuery.toLowerCase().trim()
+                    if (query) {
+                        objs = objs.filter(obj => {
+                            const title = this.getTitle(obj).toLowerCase()
+                            const tags = this.getTags(obj).map(t => t.toLowerCase())
+                            return title.includes(query) || tags.some(t => t.includes(query))
+                        })
+                    }
+
+                    // Sort
+                    if (this.sortBy !== 'default') {
+                        objs.sort((a, b) => {
+                            switch (this.sortBy) {
+                                case 'date_desc':
+                                    return (this.getDate(b) || '').localeCompare(this.getDate(a) || '')
+                                case 'date_asc':
+                                    return (this.getDate(a) || '').localeCompare(this.getDate(b) || '')
+                                case 'duration_desc':
+                                    return (this.getDuration(b) || '').localeCompare(this.getDuration(a) || '')
+                                case 'name_asc':
+                                    return this.getTitle(a).localeCompare(this.getTitle(b))
+                                default:
+                                    return 0
+                            }
+                        })
+                    }
+
+                    return objs
                 }
             },
             mounted() {
                 this.fetchTasks()
-                // Auto refresh every 3 seconds
-                this.timer = setInterval(this.fetchTasks, 3000)
+                this.timer = setInterval(this.fetchTasks, 2000)
             },
             beforeUnmount() {
                 if (this.timer) clearInterval(this.timer)
@@ -118,8 +363,7 @@
                         const res = await fetch('/api/tasks')
                         const data = await res.json()
                         this.tasks = data
-                        
-                        // If a task is selected, refresh its details too
+
                         if (this.selectedTaskId) {
                             this.fetchTaskDetails(this.selectedTaskId)
                         }
@@ -129,40 +373,180 @@
                 },
                 selectTask(id) {
                     this.selectedTaskId = id
+                    this.searchQuery = '' // Reset search on change
                     this.fetchTaskDetails(id)
                 },
                 async fetchTaskDetails(id) {
                     try {
                         const res = await fetch(`/api/tasks/${id}`)
                         const data = await res.json()
+                            // If dragging, don't overwrite local list immediately to avoid jitter?
+                            // Or simple: Just overwrite.
+                            // Ideally we should merge status updates but keep order if we are editing locally?
+                            // But since sort happens in computed, order is derived.
+                            // If 'default' sort, order is from backend.
                         this.selectedTask = data
                     } catch (e) {
                         console.error("Failed to fetch task details", e)
                     }
                 },
-                getFileName(path) {
-                    return path.split('/').pop()
+                getTitle(obj) {
+                    if (obj.metadata && obj.metadata.title) return obj.metadata.title
+                    return obj.url.split('/').pop()
                 },
-                getFileUrl(path) {
-                    // This logic assumes the server maps /files/ to the downloads root
-                    // And path stored in DB is relative or absolute.
-                    // Based on current setup, paths are like "build/test/downloads/task1/robots.txt"
-                    // And FileServer serves "build/test/downloads" at "/files/"
-                    
-                    // We need to strip "build/test/downloads/" from the path
+                getTags(obj) {
+                    if (obj.extra && obj.extra.tags) return obj.extra.tags
+                    return []
+                },
+                getDuration(obj) {
+                    if (obj.metadata && obj.metadata.duration) return obj.metadata.duration
+                    return ''
+                },
+                getDate(obj) {
+                    if (obj.metadata && obj.metadata.date) return obj.metadata.date
+                    return ''
+                },
+                getPreviewUrl(obj) {
+                    if (obj.extra && obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
+                    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+                    return null
+                },
+                isVideo(obj) {
+                    if (obj.extra && obj.extra.files) {
+                        return obj.extra.files.some(f => f.type === 'video')
+                    }
+                    return obj.save_path.endsWith('.mp4') || obj.save_path.endsWith('.webm')
+                },
+                getCoverImage(obj) {
+                    // 1. Local cover (prefetch)
+                    if (obj.extra && obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
+
+                    // 2. Check composite files for image (High res)
+                    if (obj.extra && obj.extra.files) {
+                        const img = obj.extra.files.find(f => f.type === 'image')
+                        if (img) return this.pathToUrl(img.path)
+                    }
+                    if (obj.save_path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+                        return this.pathToUrl(obj.save_path)
+                    }
+                    return null
+                },
+                getVideoUrl(obj) {
+                    if (obj.extra && obj.extra.files) {
+                        const vid = obj.extra.files.find(f => f.type === 'video')
+                        if (vid) return this.pathToUrl(vid.path)
+                    }
+                    return this.pathToUrl(obj.save_path)
+                },
+                getFileUrl(obj) {
+                    return this.pathToUrl(obj.save_path)
+                },
+                pathToUrl(path) {
+                    if (!path) return '#'
                     const prefix = "build/test/downloads/"
-                    if (path.startsWith(prefix)) {
-                        return "/files/" + path.substring(prefix.length)
+                    let relativePath = path
+                    if (path.includes(prefix)) {
+                        relativePath = path.split(prefix)[1]
+                    } else {
+                        const parts = path.split('/downloads/')
+                        if (parts.length > 1) {
+                            relativePath = parts[1]
+                        }
                     }
-                    // Handle case where path might be relative "./build/..."
-                    if (path.startsWith("./" + prefix)) {
-                        return "/files/" + path.substring(prefix.length + 2)
+                    return "/files/" + relativePath
+                },
+                handleCardClick(obj) {
+                    if (this.isVideo(obj) && obj.status === 'completed') {
+                        this.playVideo(obj)
+                    } else if (obj.status === 'completed') {
+                        window.open(this.getFileUrl(obj), '_blank')
                     }
-                    
-                    return "#"
+                },
+                async retryObject(obj) {
+                    try {
+                        await fetch(`/api/tasks/${this.selectedTaskId}/retry`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: obj.url
+                            })
+                        })
+                        obj.status = 'pending'
+                        obj.progress = 0
+                    } catch (e) {
+                        console.error("Failed to retry object", e)
+                    }
+                },
+                async retryAllFailed() {
+                    if (!confirm("Retry all failed downloads in this task?")) return
+                    try {
+                        await fetch(`/api/tasks/${this.selectedTaskId}/retry`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({})
+                        })
+                        this.fetchTaskDetails(this.selectedTaskId)
+                    } catch (e) {
+                        console.error("Failed to retry all", e)
+                    }
+                },
+                playVideo(obj) {
+                    this.currentVideo = obj
+                },
+                closeVideo() {
+                    this.currentVideo = null
+                },
+                // Drag and Drop
+                dragStart(event, item) {
+                    this.draggedItem = item
+                    event.dataTransfer.effectAllowed = 'move'
+                },
+                async drop(event, targetItem) {
+                    event.preventDefault()
+                    if (this.draggedItem === targetItem) return
+
+                    // Only allow reorder if default sort
+                    if (this.sortBy !== 'default') {
+                        alert("Please switch to Default Sort to reorder items.")
+                        return
+                    }
+
+                    // Find indices
+                    const oldIndex = this.selectedTask.objects.findIndex(o => o.url === this.draggedItem.url)
+                    const newIndex = this.selectedTask.objects.findIndex(o => o.url === targetItem.url)
+
+                    if (oldIndex === -1 || newIndex === -1) return
+
+                    // Optimistic update locally
+                    const item = this.selectedTask.objects.splice(oldIndex, 1)[0]
+                    this.selectedTask.objects.splice(newIndex, 0, item)
+
+                    // Call API
+                    try {
+                        await fetch(`/api/tasks/${this.selectedTaskId}/reorder`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: this.draggedItem.url,
+                                new_index: newIndex
+                            })
+                        })
+                    } catch (e) {
+                        console.error("Failed to reorder", e)
+                            // Revert?
+                    }
+
+                    this.draggedItem = null
                 }
             }
         }).mount('#app')
     </script>
 </body>
+
 </html>

@@ -41,7 +41,7 @@ func NewManager(cfg *config.Config) *Manager {
 	return &Manager{
 		cfg:             cfg,
 		tasks:           make(map[string]core.Task),
-		downloader:      downloader.NewProxyWgetDownloader(cfg.Downloader),
+		downloader:      downloader.NewWgetDownloader(cfg.Downloader),
 		stopChan:        make(chan struct{}),
 		activeDownloads: make(map[string]int),
 	}
@@ -129,12 +129,22 @@ func (m *Manager) processTask(t core.Task) {
 
 	slog.Debug("Task concurrency", "task_id", t.ID(), "active", active, "limit", limit)
 
+	// If active >= limit, we stop scheduling new downloads.
+	// But we MUST check if we actually have slots.
+	// Note: 'active' counts currently running downloads.
 	if active >= limit {
 		slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
 
+	// Calculate remaining slots
+	slotsAvailable := limit - active
+
 	// Only fetch objects if we have capacity
+	// IMPORTANT: Pass slotsAvailable to GetDownloadObjects if possible, or filter result size.
+	// But Task interface doesn't support 'limit' arg in GetDownloadObjects.
+	// We rely on Manager to slice the result.
+
 	objs, err := t.GetDownloadObjects()
 	if err != nil {
 		slog.Error("Error getting objects for task", "task_id", t.ID(), "error", err)
@@ -146,8 +156,7 @@ func (m *Manager) processTask(t core.Task) {
 		return
 	}
 
-	// Schedule downloads up to limit
-	slotsAvailable := limit - active
+	// Schedule downloads up to available slots
 	count := 0
 
 	for _, obj := range objs {
@@ -159,14 +168,23 @@ func (m *Manager) processTask(t core.Task) {
 			slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
 			continue
 		}
+
+		// Double check concurrency before launching goroutine (in case of race with other ticks, though ticker is single threaded usually)
+		// But here we are in single scan loop.
+		// However, activeDownloads is updated in download goroutine start? No, we update it BEFORE `go m.download`.
+
 		slog.Info("Object scheduled for download", "task_id", t.ID(), "url", obj.URL)
 
 		m.mu.Lock()
 		m.activeDownloads[t.ID()]++
+		active++ // Local counter update
 		m.mu.Unlock()
 
 		go m.download(t, obj)
 		count++
+
+		// Update slots locally
+		slotsAvailable--
 	}
 
 	if count > 0 {
@@ -196,7 +214,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 // New API methods
 func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 	var summaries []map[string]interface{}
-	for id, t := range m.tasks {
+	// Iterate using config order to maintain consistency
+	for _, tCfg := range m.cfg.Tasks {
+		id := tCfg.ID
+		t, ok := m.tasks[id]
+		if !ok {
+			continue
+		}
+
 		summary := map[string]interface{}{
 			"id":   id,
 			"type": t.Type(),
@@ -239,4 +264,79 @@ func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// RetryObject resets the status of an object to pending
+func (m *Manager) RetryObject(taskID, url string) error {
+	t, ok := m.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+
+	// Need to access task objects.
+	// Currently Task interface is simple. We can cast to specific implementation or extend interface.
+	// Or use GetAllObjects and find it.
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		for _, obj := range objs {
+			if obj.URL == url {
+				if obj.Status == model.StatusCompleted {
+					return fmt.Errorf("object already completed")
+				}
+				// Reset status
+				t.UpdateStatus(obj, model.StatusPending, nil)
+				obj.Progress = 0
+				// Trigger scan immediately? Or let next ticker handle it.
+				// Let's trigger scan
+				go m.processTask(t)
+				return nil
+			}
+		}
+		return fmt.Errorf("object not found")
+	}
+	return fmt.Errorf("task does not support object access")
+}
+
+// ReorderObject moves an object to a new position
+func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
+	t, ok := m.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+
+	if st, ok := t.(interface {
+		SetObjectIndex(url string, newIndex int) error
+	}); ok {
+		return st.SetObjectIndex(url, newIndex)
+	}
+	return fmt.Errorf("task does not support reordering")
+}
+
+// RetryAllFailed resets all failed objects in a task
+func (m *Manager) RetryAllFailed(taskID string) error {
+	t, ok := m.tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		count := 0
+		for _, obj := range objs {
+			if obj.Status == model.StatusFailed {
+				t.UpdateStatus(obj, model.StatusPending, nil)
+				obj.Progress = 0
+				count++
+			}
+		}
+		if count > 0 {
+			go m.processTask(t)
+		}
+		return nil
+	}
+	return fmt.Errorf("task does not support object access")
 }

@@ -8,6 +8,7 @@ type DownloadObject struct {
 	Metadata map[string]string      `json:"metadata" bson:"metadata"`
 	Extra    map[string]interface{} `json:"extra" bson:"extra"`
 	Status   string                 `json:"status" bson:"status"` // pending, downloading, completed, failed
+	Progress int                    `json:"progress" bson:"progress"`
 }
 
 const (
