@@ -1,0 +1,10 @@
+server:
+  scan_interval: 5
+
+tasks:
+  - id: "task-001"
+    type: "simple_url_list"
+    save_dir: "./build/test/downloads/task1"
+    urls:
+      - "https://www.google.com/robots.txt"
+      - "https://www.bing.com/robots.txt"
