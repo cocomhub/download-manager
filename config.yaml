@@ -7,6 +7,11 @@ mongo:
   - name: "suixi-mini"
     uri: "mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin"
 
+downloader:
+  proxies:
+    - "http://129.226.212.209:18080"
+    - "http://43.159.49.114:18080"
+
 tasks:
   - id: "task-file-001"
     type: "simple_url_list"
@@ -31,3 +36,18 @@ tasks:
         collection: "task_mongo_001"
     urls:
       - "https://www.bing.com/robots.txt"
+
+  - id: "rctd_task"
+    type: "tktube"
+    save_dir: "./build/test/downloads/tktube"
+    storage:
+      type: "file"
+      config:
+        path: "./build/test/downloads/tktube/rctd/rctd_history.json"
+    extra:
+      subtype: "tag"
+      keyword: "RCTD"
+      page_start: 1
+      page_end: 2
+      max_concurrent: 2
+      scraper_path: "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get"

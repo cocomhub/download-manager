@@ -1,9 +1,10 @@
 package config
 
 type Config struct {
-	Server ServerConfig  `yaml:"server"`
-	Mongo  []MongoSource `yaml:"mongo"`
-	Tasks  []TaskConfig  `yaml:"tasks"`
+	Server     ServerConfig     `yaml:"server"`
+	Mongo      []MongoSource    `yaml:"mongo"`
+	Tasks      []TaskConfig     `yaml:"tasks"`
+	Downloader DownloaderConfig `yaml:"downloader"`
 }
 
 type ServerConfig struct {
@@ -23,9 +24,14 @@ type StorageConfig struct {
 }
 
 type TaskConfig struct {
-	ID      string        `yaml:"id"`
-	Type    string        `yaml:"type"`
-	URLs    []string      `yaml:"urls"`
-	SaveDir string        `yaml:"save_dir"`
-	Storage StorageConfig `yaml:"storage"`
+	ID      string                 `yaml:"id"`
+	Type    string                 `yaml:"type"`
+	URLs    []string               `yaml:"urls"`
+	SaveDir string                 `yaml:"save_dir"`
+	Storage StorageConfig          `yaml:"storage"`
+	Extra   map[string]interface{} `yaml:"extra"`
+}
+
+type DownloaderConfig struct {
+	Proxies []string `yaml:"proxies"`
 }

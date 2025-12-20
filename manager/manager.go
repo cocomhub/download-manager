@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"download-manager/config"
@@ -17,6 +18,11 @@ type Manager struct {
 	tasks      map[string]core.Task
 	downloader core.Downloader
 	stopChan   chan struct{}
+
+	// Concurrency control
+	activeDownloads map[string]int // TaskID -> Active Count
+	mu              sync.Mutex
+	downloadingObj  sync.Map
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -32,10 +38,11 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 
 	return &Manager{
-		cfg:        cfg,
-		tasks:      make(map[string]core.Task),
-		downloader: downloader.NewWgetDownloader(),
-		stopChan:   make(chan struct{}),
+		cfg:             cfg,
+		tasks:           make(map[string]core.Task),
+		downloader:      downloader.NewProxyWgetDownloader(cfg.Downloader),
+		stopChan:        make(chan struct{}),
+		activeDownloads: make(map[string]int),
 	}
 }
 
@@ -101,33 +108,81 @@ func (m *Manager) loadTasks() {
 }
 
 func (m *Manager) scan() {
-	fmt.Println("Scanning tasks...")
+	// fmt.Println("Scanning tasks...") // Reduce log noise
 	for _, t := range m.tasks {
 		go m.processTask(t)
 	}
 }
 
 func (m *Manager) processTask(t core.Task) {
+	// Check concurrency limit
+	m.mu.Lock()
+	active := m.activeDownloads[t.ID()]
+	m.mu.Unlock()
+
+	limit := 10 // Default limit
+	// Check if task supports concurrency limit
+	if ct, ok := t.(interface{ GetConcurrency() int }); ok {
+		limit = ct.GetConcurrency()
+	}
+
+	fmt.Printf("Task %s concurrency limit (%d/%d)\n", t.ID(), active, limit)
+
+	if active >= limit {
+		fmt.Printf("Task %s reached concurrency limit (%d/%d)\n", t.ID(), active, limit)
+		return
+	}
+
+	// Only fetch objects if we have capacity
 	objs, err := t.GetDownloadObjects()
 	if err != nil {
 		fmt.Printf("Error getting objects for task %s: %v\n", t.ID(), err)
 		return
 	}
+	fmt.Printf("Task %s has %d objects to download\n", t.ID(), len(objs))
 
 	if len(objs) == 0 {
 		return
 	}
 
-	fmt.Printf("Task %s has %d pending objects\n", t.ID(), len(objs))
+	// Schedule downloads up to limit
+	slotsAvailable := limit - active
+	count := 0
 
 	for _, obj := range objs {
-		// In a real system, we would use a worker pool/semaphore here
-		// to limit concurrent downloads.
+		if count >= slotsAvailable {
+			break
+		}
+
+		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj.URL); loaded {
+			fmt.Printf("Task %s object %s is already downloading\n", t.ID(), obj.URL)
+			continue
+		}
+		fmt.Printf("Task %s object %s is scheduled for download\n", t.ID(), obj.URL)
+
+		m.mu.Lock()
+		m.activeDownloads[t.ID()]++
+		m.mu.Unlock()
+
 		go m.download(t, obj)
+		count++
+	}
+
+	if count > 0 {
+		fmt.Printf("Task %s scheduled %d new downloads\n", t.ID(), count)
 	}
 }
 
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
+	defer func() {
+		m.mu.Lock()
+		m.activeDownloads[t.ID()]--
+		m.mu.Unlock()
+
+		// Remove from downloadingObj map
+		m.downloadingObj.Delete(obj.URL)
+	}()
+
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
 	err := m.downloader.Download(obj)
 	if err != nil {
@@ -141,23 +196,11 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 	var summaries []map[string]interface{}
 	for id, t := range m.tasks {
-		// This is a bit hacky as we don't have a standardized way to get ALL objects
-		// or stats from the Task interface. We might need to expand the Task interface.
-		// For now, let's assume we can cast to *SimpleTask or add a method to interface.
-		// A better way is to add GetStatus() to Task interface.
-		// Let's modify Task interface? Or just do what we can.
-		// Actually, SimpleTask has objects.
-
-		// For the sake of this requirement without major refactor of interface:
-		// We'll inspect via type assertion or expand interface.
-		// Expanding interface is cleaner.
-
 		summary := map[string]interface{}{
 			"id":   id,
 			"type": t.Type(),
 		}
 
-		// Let's try to get stats if possible
 		if st, ok := t.(interface {
 			GetAllObjects() []*model.DownloadObject
 		}); ok {

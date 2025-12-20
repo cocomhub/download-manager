@@ -27,4 +27,7 @@ func init() {
 	Register("simple_url_list", func(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
 		return NewSimpleTask(cfg.ID, cfg.URLs, cfg.SaveDir, store), nil
 	})
+	Register("tktube", func(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
+		return NewTktubeTask(cfg, store)
+	})
 }
