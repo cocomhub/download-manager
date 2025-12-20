@@ -3,6 +3,7 @@ package task
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -104,30 +105,30 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		// Reverse order: pageEnd -> pageStart
 		for i := t.pageStart; i <= t.pageEnd; i++ {
 			url := t.buildPageURL(i)
-			fmt.Printf("[TktubeTask] Scraping page %d: %s\n", i, url)
+			slog.Info("Scraping page", "task_id", t.id, "page", i, "url", url)
 
 			htmlContent, err := t.runScraper(url)
 			if err != nil {
-				fmt.Printf("[TktubeTask] Failed to scrape page %d: %v\n", i, err)
+				slog.Error("Failed to scrape page", "task_id", t.id, "page", i, "error", err)
 				continue
 			}
-			fmt.Printf("[TktubeTask] Successfully scraped page %d(Size: %d).\n", i, len(htmlContent))
+			slog.Debug("Successfully scraped page", "task_id", t.id, "page", i, "size", len(htmlContent))
 
 			videos, err := t.parseHomePage(htmlContent)
 			if err != nil {
-				fmt.Printf("[TktubeTask] Failed to parse page %d: %v\n", i, err)
+				slog.Error("Failed to parse page", "task_id", t.id, "page", i, "error", err)
 				continue
 			}
 
 			// Append to videoItems
 			t.videoItems = append(t.videoItems, videos...)
-			fmt.Printf("[TktubeTask] Found %d videos on page %d.\n", len(videos), i)
+			slog.Info("Found videos on page", "task_id", t.id, "count", len(videos), "page", i)
 		}
 		for i := 0; i < len(t.videoItems)/2; i++ {
 			t.videoItems[i], t.videoItems[len(t.videoItems)-1-i] = t.videoItems[len(t.videoItems)-1-i], t.videoItems[i]
 		}
 		t.initialized = true
-		fmt.Printf("[TktubeTask] Initialization done. Found %d videos.\n", len(t.videoItems))
+		slog.Info("Initialization done", "task_id", t.id, "total_videos", len(t.videoItems))
 	}
 
 	// 2. Check current pending objects
@@ -153,17 +154,17 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
 				t.objects = append(t.objects, storedObj)
 				if storedObj.Status == model.StatusCompleted {
-					fmt.Printf("[TktubeTask] Already completed: %s\n", v.title)
+					slog.Debug("Already completed", "task_id", t.id, "title", v.title)
 					continue
 				}
 			}
 		}
 
 		// Parse details (Blocking call)
-		fmt.Printf("[TktubeTask] Parsing video details: %s\n", v.title)
+		slog.Info("Parsing video details", "task_id", t.id, "title", v.title)
 		videoInfo, err := t.parseVideoPage(v.href)
 		if err != nil {
-			fmt.Printf("[TktubeTask] Failed to parse video %s: %v\n", v.title, err)
+			slog.Error("Failed to parse video", "task_id", t.id, "title", v.title, "error", err)
 			continue
 		}
 

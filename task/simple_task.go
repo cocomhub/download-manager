@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -72,12 +73,12 @@ func NewSimpleTask(id string, urls []string, saveDir string, store core.Storage)
 				// If we just started and storage says "downloading", it means it crashed.
 				// Reset to pending.
 				if obj.Status == model.StatusDownloading {
-					fmt.Printf("[Task %s] Found zombie downloading state for %s, resetting to pending\n", id, u)
+					slog.Warn("Found zombie downloading state, resetting to pending", "task_id", id, "url", u)
 					obj.Status = model.StatusPending
 					// We should probably sync this reset back to storage immediately or lazily
 					// Let's sync immediately to be safe
 					if err := store.Update(obj); err != nil {
-						fmt.Printf("[Task %s] Failed to reset zombie state: %v\n", id, err)
+						slog.Error("Failed to reset zombie state", "task_id", id, "error", err)
 					}
 				}
 			}
@@ -117,15 +118,15 @@ func (t *SimpleTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 
 	// Print log
 	if err != nil {
-		fmt.Printf("[Task %s] Object %s failed: %v\n", t.id, obj.URL, err)
+		slog.Error("Object failed", "task_id", t.id, "url", obj.URL, "error", err)
 	} else {
-		fmt.Printf("[Task %s] Object %s status updated to: %s\n", t.id, obj.URL, status)
+		slog.Info("Object status updated", "task_id", t.id, "url", obj.URL, "status", status)
 	}
 
 	// Update storage
 	if t.store != nil {
 		if storeErr := t.store.Update(obj); storeErr != nil {
-			fmt.Printf("[Task %s] Failed to update storage: %v\n", t.id, storeErr)
+			slog.Error("Failed to update storage", "task_id", t.id, "error", storeErr)
 		}
 	}
 

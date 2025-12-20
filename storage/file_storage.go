@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -137,7 +138,7 @@ func (s *FileStorage) flushAsync() {
 
 	if s.dirty {
 		if err := s.saveLocked(); err != nil {
-			fmt.Printf("Error saving file storage: %v\n", err)
+			slog.Error("Error saving file storage", "error", err)
 		}
 	}
 }

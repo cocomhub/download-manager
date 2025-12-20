@@ -3,11 +3,21 @@ server:
   lock_file: "./build/test/download-manager.lock"
   http_port: 8080
 
+log:
+  level: "info"
+  console: true
+  filename: "./build/test/logs/app.log"
+  max_size: 10 # MB
+  max_backups: 3
+  max_age: 28 # days
+  compress: true
+
 mongo:
   - name: "suixi-mini"
     uri: "mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin"
 
 downloader:
+  log_dir: "./build/test/logs/downloader"
   proxies:
     - "http://129.226.212.209:18080"
     - "http://43.159.49.114:18080"

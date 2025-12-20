@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 	if len(mongoConfigs) > 0 {
 		if err := storage.InitMongoClients(mongoConfigs); err != nil {
-			fmt.Printf("Warning: Failed to init mongo clients: %v\n", err)
+			slog.Warn("Failed to init mongo clients", "error", err)
 		}
 	}
 
@@ -47,7 +48,7 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 func (m *Manager) Start() {
-	fmt.Println("Manager started...")
+	slog.Info("Manager started")
 	m.loadTasks()
 
 	interval := time.Duration(m.cfg.Server.ScanInterval) * time.Second
@@ -65,7 +66,7 @@ func (m *Manager) Start() {
 		case <-ticker.C:
 			m.scan()
 		case <-m.stopChan:
-			fmt.Println("Manager stopping...")
+			slog.Info("Manager stopping")
 			return
 		}
 	}
@@ -91,24 +92,24 @@ func (m *Manager) loadTasks() {
 
 		store, err := storage.NewStorage(storeType, tCfg.Storage.Config)
 		if err != nil {
-			fmt.Printf("Failed to create storage for task %s: %v\n", tCfg.ID, err)
+			slog.Error("Failed to create storage for task", "task_id", tCfg.ID, "error", err)
 			continue
 		}
 
 		// Create task using factory
 		t, err := task.NewTask(tCfg, store)
 		if err != nil {
-			fmt.Printf("Failed to create task %s: %v\n", tCfg.ID, err)
+			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue
 		}
 
 		m.tasks[tCfg.ID] = t
-		fmt.Printf("Task loaded: %s (Storage: %s)\n", tCfg.ID, storeType)
+		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
 	}
 }
 
 func (m *Manager) scan() {
-	// fmt.Println("Scanning tasks...") // Reduce log noise
+	slog.Debug("Scanning tasks")
 	for _, t := range m.tasks {
 		go m.processTask(t)
 	}
@@ -126,20 +127,20 @@ func (m *Manager) processTask(t core.Task) {
 		limit = ct.GetConcurrency()
 	}
 
-	fmt.Printf("Task %s concurrency limit (%d/%d)\n", t.ID(), active, limit)
+	slog.Debug("Task concurrency", "task_id", t.ID(), "active", active, "limit", limit)
 
 	if active >= limit {
-		fmt.Printf("Task %s reached concurrency limit (%d/%d)\n", t.ID(), active, limit)
+		slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
 
 	// Only fetch objects if we have capacity
 	objs, err := t.GetDownloadObjects()
 	if err != nil {
-		fmt.Printf("Error getting objects for task %s: %v\n", t.ID(), err)
+		slog.Error("Error getting objects for task", "task_id", t.ID(), "error", err)
 		return
 	}
-	fmt.Printf("Task %s has %d objects to download\n", t.ID(), len(objs))
+	slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
 
 	if len(objs) == 0 {
 		return
@@ -155,10 +156,10 @@ func (m *Manager) processTask(t core.Task) {
 		}
 
 		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj.URL); loaded {
-			fmt.Printf("Task %s object %s is already downloading\n", t.ID(), obj.URL)
+			slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
 			continue
 		}
-		fmt.Printf("Task %s object %s is scheduled for download\n", t.ID(), obj.URL)
+		slog.Info("Object scheduled for download", "task_id", t.ID(), "url", obj.URL)
 
 		m.mu.Lock()
 		m.activeDownloads[t.ID()]++
@@ -169,7 +170,7 @@ func (m *Manager) processTask(t core.Task) {
 	}
 
 	if count > 0 {
-		fmt.Printf("Task %s scheduled %d new downloads\n", t.ID(), count)
+		slog.Info("Task scheduled new downloads", "task_id", t.ID(), "count", count)
 	}
 }
 

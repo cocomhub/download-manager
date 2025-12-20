@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"download-manager/model"
@@ -32,7 +33,7 @@ func InitMongoClients(configs []struct{ Name, URI string }) error {
 		}
 		cancelPing()
 		mongoClients[cfg.Name] = client
-		fmt.Printf("Connected to Mongo source: %s\n", cfg.Name)
+		slog.Info("Connected to Mongo source", "source", cfg.Name)
 	}
 	return nil
 }

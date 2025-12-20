@@ -2,9 +2,20 @@ package config
 
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`
+	Log        LogConfig        `yaml:"log"`
 	Mongo      []MongoSource    `yaml:"mongo"`
 	Tasks      []TaskConfig     `yaml:"tasks"`
 	Downloader DownloaderConfig `yaml:"downloader"`
+}
+
+type LogConfig struct {
+	Level      string `yaml:"level"`
+	Filename   string `yaml:"filename"`
+	MaxSize    int    `yaml:"max_size"`    // megabytes
+	MaxBackups int    `yaml:"max_backups"` // max number of old log files to retain
+	MaxAge     int    `yaml:"max_age"`     // max number of days to retain old log files
+	Compress   bool   `yaml:"compress"`
+	Console    bool   `yaml:"console"`
 }
 
 type ServerConfig struct {
@@ -34,4 +45,5 @@ type TaskConfig struct {
 
 type DownloaderConfig struct {
 	Proxies []string `yaml:"proxies"`
+	LogDir  string   `yaml:"log_dir"`
 }

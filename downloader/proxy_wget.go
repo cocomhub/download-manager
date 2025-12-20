@@ -3,6 +3,7 @@ package downloader
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 type ProxyWgetDownloader struct {
 	proxies   []string
+	logDir    string
 	cacheFile string
 }
 
@@ -37,8 +39,15 @@ func NewProxyWgetDownloader(cfg config.DownloaderConfig) *ProxyWgetDownloader {
 		}
 	}
 
+	logDir := cfg.LogDir
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		slog.Error("Failed to create log directory", "dir", logDir, "error", err)
+		logDir = ""
+	}
+
 	return &ProxyWgetDownloader{
 		proxies:   proxies,
+		logDir:    logDir,
 		cacheFile: filepath.Join(home, ".config/myproxy/cache"),
 	}
 }
@@ -105,10 +114,25 @@ func (d *ProxyWgetDownloader) downloadSingle(targetURL, savePath string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	// Prepare log file for wget output
+	var f *os.File
+	var logFile string
+	if d.logDir != "" {
+		logFile = filepath.Join(d.logDir, filepath.Base(savePath)+"."+time.Now().Format("20060102150405")+".wget.log")
+		var err error
+		f, err = os.Create(logFile)
+		if err != nil {
+			slog.Warn("Failed to create wget log file", "file", logFile, "error", err)
+			// Proceed without logging to file if creation fails
+		} else {
+			defer f.Close()
+		}
+	}
+
 	// Determine connection mode (direct or proxy)
 	proxyURL, err := d.determineProxy(targetURL)
 	if err != nil {
-		fmt.Printf("[ProxyWget] Proxy selection failed: %v. Falling back to direct.\n", err)
+		slog.Warn("Proxy selection failed, falling back to direct", "downloader", "proxy_wget", "error", err)
 	}
 
 	// Build wget command
@@ -118,22 +142,30 @@ func (d *ProxyWgetDownloader) downloadSingle(targetURL, savePath string) error {
 	// Add proxy if selected
 	env := os.Environ()
 	if proxyURL != "" {
-		fmt.Printf("[ProxyWget] Using proxy: %s\n", proxyURL)
+		slog.Info("Using proxy", "downloader", "proxy_wget", "proxy", proxyURL)
 		args = append(args, "-e", "use_proxy=yes")
 		args = append(args, "-e", "http_proxy="+proxyURL)
 		args = append(args, "-e", "https_proxy="+proxyURL)
 	} else {
-		fmt.Printf("[ProxyWget] Using direct connection\n")
+		slog.Info("Using direct connection", "downloader", "proxy_wget")
 	}
 
 	args = append(args, "-O", savePath, targetURL)
 
 	cmd := exec.Command("wget", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	cmd.Env = env
 
-	fmt.Printf("[ProxyWget] Starting download: %s -> %s\n", targetURL, savePath)
+	// Redirect output to log file if available
+	if f != nil {
+		cmd.Stdout = f
+		cmd.Stderr = f
+		slog.Info("Starting download", "downloader", "proxy_wget", "url", targetURL, "path", savePath, "wget_log", logFile)
+	} else {
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		slog.Info("Starting download", "downloader", "proxy_wget", "url", targetURL, "path", savePath)
+	}
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("wget execution failed: %w", err)
 	}
