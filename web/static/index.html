@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app" class="container mx-auto px-4 py-8">
+        <header class="mb-8 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-800">Download Manager</h1>
+            <button @click="fetchTasks" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded shadow transition">
+                Refresh
+            </button>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Task List -->
+            <div class="col-span-1 bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Tasks</h2>
+                <ul class="space-y-3">
+                    <li v-for="task in tasks" :key="task.id" 
+                        @click="selectTask(task.id)"
+                        class="cursor-pointer p-3 rounded border border-gray-200 hover:bg-blue-50 transition"
+                        :class="{'bg-blue-50 border-blue-300': selectedTaskId === task.id}">
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium text-gray-800">{{ task.id }}</span>
+                            <span class="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">{{ task.type }}</span>
+                        </div>
+                        <div class="mt-2 text-sm text-gray-500">
+                            Progress: {{ task.completed }} / {{ task.total }}
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                            <div class="bg-green-500 h-1.5 rounded-full" :style="{ width: (task.total ? (task.completed / task.total * 100) : 0) + '%' }"></div>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Task Details -->
+            <div class="col-span-1 md:col-span-2 bg-white rounded-lg shadow p-6">
+                <div v-if="selectedTask">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-semibold text-gray-700">Details: {{ selectedTask.id }}</h2>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File / URL</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="obj in selectedTask.objects" :key="obj.url">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        <div class="truncate max-w-xs" :title="obj.url">{{ obj.url }}</div>
+                                        <div class="text-xs text-gray-500">{{ getFileName(obj.save_path) }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                            :class="{
+                                                'bg-green-100 text-green-800': obj.status === 'completed',
+                                                'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
+                                                'bg-red-100 text-red-800': obj.status === 'failed',
+                                                'bg-gray-100 text-gray-800': obj.status === 'pending'
+                                            }">
+                                            {{ obj.status }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <a v-if="obj.status === 'completed'" 
+                                           :href="getFileUrl(obj.save_path)" 
+                                           target="_blank"
+                                           class="text-indigo-600 hover:text-indigo-900 mr-3">
+                                            Preview
+                                        </a>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div v-else class="text-center text-gray-500 py-12">
+                    Select a task to view details
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    tasks: [],
+                    selectedTaskId: null,
+                    selectedTask: null,
+                    timer: null
+                }
+            },
+            mounted() {
+                this.fetchTasks()
+                // Auto refresh every 3 seconds
+                this.timer = setInterval(this.fetchTasks, 3000)
+            },
+            beforeUnmount() {
+                if (this.timer) clearInterval(this.timer)
+            },
+            methods: {
+                async fetchTasks() {
+                    try {
+                        const res = await fetch('/api/tasks')
+                        const data = await res.json()
+                        this.tasks = data
+                        
+                        // If a task is selected, refresh its details too
+                        if (this.selectedTaskId) {
+                            this.fetchTaskDetails(this.selectedTaskId)
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch tasks", e)
+                    }
+                },
+                selectTask(id) {
+                    this.selectedTaskId = id
+                    this.fetchTaskDetails(id)
+                },
+                async fetchTaskDetails(id) {
+                    try {
+                        const res = await fetch(`/api/tasks/${id}`)
+                        const data = await res.json()
+                        this.selectedTask = data
+                    } catch (e) {
+                        console.error("Failed to fetch task details", e)
+                    }
+                },
+                getFileName(path) {
+                    return path.split('/').pop()
+                },
+                getFileUrl(path) {
+                    // This logic assumes the server maps /files/ to the downloads root
+                    // And path stored in DB is relative or absolute.
+                    // Based on current setup, paths are like "build/test/downloads/task1/robots.txt"
+                    // And FileServer serves "build/test/downloads" at "/files/"
+                    
+                    // We need to strip "build/test/downloads/" from the path
+                    const prefix = "build/test/downloads/"
+                    if (path.startsWith(prefix)) {
+                        return "/files/" + path.substring(prefix.length)
+                    }
+                    // Handle case where path might be relative "./build/..."
+                    if (path.startsWith("./" + prefix)) {
+                        return "/files/" + path.substring(prefix.length + 2)
+                    }
+                    
+                    return "#"
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

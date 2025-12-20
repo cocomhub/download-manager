@@ -8,6 +8,7 @@ import (
 	"download-manager/core"
 	"download-manager/downloader"
 	"download-manager/model"
+	"download-manager/storage"
 	"download-manager/task"
 )
 
@@ -19,6 +20,17 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.Config) *Manager {
+	// Initialize Mongo Clients if configured
+	var mongoConfigs []struct{ Name, URI string }
+	for _, m := range cfg.Mongo {
+		mongoConfigs = append(mongoConfigs, struct{ Name, URI string }{m.Name, m.URI})
+	}
+	if len(mongoConfigs) > 0 {
+		if err := storage.InitMongoClients(mongoConfigs); err != nil {
+			fmt.Printf("Warning: Failed to init mongo clients: %v\n", err)
+		}
+	}
+
 	return &Manager{
 		cfg:        cfg,
 		tasks:      make(map[string]core.Task),
@@ -53,6 +65,7 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) Stop() {
+	// Ideally close mongo clients here too, but they are global in storage pkg currently
 	close(m.stopChan)
 }
 
@@ -62,12 +75,28 @@ func (m *Manager) loadTasks() {
 			continue
 		}
 
-		// Factory pattern could be used here
-		if tCfg.Type == "simple_url_list" {
-			t := task.NewSimpleTask(tCfg.ID, tCfg.URLs, tCfg.SaveDir)
-			m.tasks[tCfg.ID] = t
-			fmt.Printf("Task loaded: %s\n", tCfg.ID)
+		// Create storage
+		// If storage type is not specified, default to memory (transient)
+		storeType := tCfg.Storage.Type
+		if storeType == "" {
+			storeType = "memory"
 		}
+
+		store, err := storage.NewStorage(storeType, tCfg.Storage.Config)
+		if err != nil {
+			fmt.Printf("Failed to create storage for task %s: %v\n", tCfg.ID, err)
+			continue
+		}
+
+		// Create task using factory
+		t, err := task.NewTask(tCfg, store)
+		if err != nil {
+			fmt.Printf("Failed to create task %s: %v\n", tCfg.ID, err)
+			continue
+		}
+
+		m.tasks[tCfg.ID] = t
+		fmt.Printf("Task loaded: %s (Storage: %s)\n", tCfg.ID, storeType)
 	}
 }
 
@@ -106,4 +135,64 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	} else {
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
 	}
+}
+
+// New API methods
+func (m *Manager) GetTaskSummaries() []map[string]interface{} {
+	var summaries []map[string]interface{}
+	for id, t := range m.tasks {
+		// This is a bit hacky as we don't have a standardized way to get ALL objects
+		// or stats from the Task interface. We might need to expand the Task interface.
+		// For now, let's assume we can cast to *SimpleTask or add a method to interface.
+		// A better way is to add GetStatus() to Task interface.
+		// Let's modify Task interface? Or just do what we can.
+		// Actually, SimpleTask has objects.
+
+		// For the sake of this requirement without major refactor of interface:
+		// We'll inspect via type assertion or expand interface.
+		// Expanding interface is cleaner.
+
+		summary := map[string]interface{}{
+			"id":   id,
+			"type": t.Type(),
+		}
+
+		// Let's try to get stats if possible
+		if st, ok := t.(interface {
+			GetAllObjects() []*model.DownloadObject
+		}); ok {
+			objs := st.GetAllObjects()
+			summary["total"] = len(objs)
+			completed := 0
+			for _, o := range objs {
+				if o.Status == model.StatusCompleted {
+					completed++
+				}
+			}
+			summary["completed"] = completed
+		}
+
+		summaries = append(summaries, summary)
+	}
+	return summaries
+}
+
+func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
+	t, ok := m.tasks[id]
+	if !ok {
+		return nil, fmt.Errorf("task not found")
+	}
+
+	result := map[string]interface{}{
+		"id":   t.ID(),
+		"type": t.Type(),
+	}
+
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		result["objects"] = st.GetAllObjects()
+	}
+
+	return result, nil
 }

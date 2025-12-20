@@ -1,10 +1,33 @@
 server:
   scan_interval: 5
+  lock_file: "./build/test/download-manager.lock"
+  http_port: 8080
+
+mongo:
+  - name: "suixi-mini"
+    uri: "mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin"
 
 tasks:
-  - id: "task-001"
+  - id: "task-file-001"
     type: "simple_url_list"
     save_dir: "./build/test/downloads/task1"
+    storage:
+      type: "file"
+      config:
+        path: "./build/test/downloads/task1/status.json"
+        save_interval: "2" # Save every 2 seconds
     urls:
-      - "https://www.google.com/robots.txt"
+      - "https://www.baidu.com/robots.txt"
+      - "https://www.bing.com/robots.txt"
+
+  - id: "task-mongo-001"
+    type: "simple_url_list"
+    save_dir: "./build/test/downloads/task2"
+    storage:
+      type: "mongo"
+      config:
+        source: "suixi-mini"
+        database: "download_manager"
+        collection: "task_mongo_001"
+    urls:
       - "https://www.bing.com/robots.txt"

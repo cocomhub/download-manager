@@ -1,12 +1,13 @@
 package downloader
 
 import (
-	"download-manager/core"
-	"download-manager/model"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"download-manager/core"
+	"download-manager/model"
 )
 
 type WgetDownloader struct{}

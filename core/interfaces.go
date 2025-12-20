@@ -1,6 +1,21 @@
 package core
 
-import "download-manager/model"
+import (
+	"download-manager/model"
+)
+
+// Storage 定义下载状态存储的行为
+type Storage interface {
+	// Get 获取单个对象状态
+	Get(id string) (*model.DownloadObject, error)
+	// Update 更新单个对象的状态
+	Update(obj *model.DownloadObject) error
+	// Delete 删除对象状态
+	Delete(id string) error
+	// Search 搜索对象 (简单起见，返回所有或根据filter返回)
+	// 在本系统中，通常用于获取该Task下的所有对象状态
+	Search(filter interface{}) ([]*model.DownloadObject, error)
+}
 
 // Task 定义下载任务的行为
 type Task interface {

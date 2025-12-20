@@ -2,11 +2,12 @@ package model
 
 // DownloadObject 代表一个具体的下载对象
 type DownloadObject struct {
-	URL      string                 `json:"url"`
-	SavePath string                 `json:"save_path"`
-	Metadata map[string]string      `json:"metadata"`
-	Extra    map[string]interface{} `json:"extra"`
-	Status   string                 `json:"status"` // pending, downloading, completed, failed
+	TaskID   string                 `json:"task_id,omitempty" bson:"task_id,omitempty"`
+	URL      string                 `json:"url" bson:"url"`
+	SavePath string                 `json:"save_path" bson:"save_path"`
+	Metadata map[string]string      `json:"metadata" bson:"metadata"`
+	Extra    map[string]interface{} `json:"extra" bson:"extra"`
+	Status   string                 `json:"status" bson:"status"` // pending, downloading, completed, failed
 }
 
 const (
