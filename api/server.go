@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"download-manager/config"
 	"download-manager/manager"
 
 	"github.com/gorilla/mux"
@@ -25,6 +26,8 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
+	r.HandleFunc("/api/config", s.getConfig).Methods("GET")
+	r.HandleFunc("/api/config", s.updateConfig).Methods("POST")
 
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
@@ -104,6 +107,26 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.mgr.ReorderObject(id, req.URL, req.NewIndex); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := s.mgr.GetConfig()
+	json.NewEncoder(w).Encode(cfg)
+}
+
+func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
+	var newCfg config.Config
+	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.mgr.UpdateConfig(&newCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,17 +30,21 @@ type TktubeTask struct {
 	id          string
 	taskType    string // "tag", "model", "search"
 	keyword     string
-	pageStart   int
-	pageEnd     int
+	pageStart   int // Configured start page (usually 1)
+	pageEnd     int // Configured end page (can be overridden by auto-detection)
 	saveDir     string
 	scraperPath string
 	concurrency int
+	refreshInt  int // Refresh interval in seconds
 
 	objects       []*model.DownloadObject
 	store         core.Storage
 	mu            sync.Mutex
 	initialized   bool
 	prefetchQueue chan *model.DownloadObject
+
+	// Set to track existing URLs for quick lookup
+	knownURLs map[string]bool
 }
 
 // Ensure TktubeTask implements core.Task
@@ -61,7 +66,6 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 		if v, ok := extra[key].(int); ok {
 			return v
 		}
-		// yaml might decode as float64?
 		if v, ok := extra[key].(float64); ok {
 			return int(v)
 		}
@@ -70,23 +74,24 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 
 	subtype := getString("subtype", "tag")
 	keyword := getString("keyword", "")
-	pageStart := getInt("page_start", 1)
-	pageEnd := getInt("page_end", 1)
 	scraperPath := getString("scraper_path", DefaultScraperPath)
 	concurrency := getInt("max_concurrent", 2)
+	refreshInt := getInt("refresh_interval", 3600) // Default 1 hour
 
 	t := &TktubeTask{
 		id:            cfg.ID,
 		taskType:      subtype,
 		keyword:       keyword,
-		pageStart:     pageStart,
-		pageEnd:       pageEnd,
+		pageStart:     1,
+		pageEnd:       1,
 		saveDir:       cfg.SaveDir,
 		scraperPath:   scraperPath,
 		concurrency:   concurrency,
+		refreshInt:    refreshInt,
 		objects:       make([]*model.DownloadObject, 0),
 		store:         store,
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
+		knownURLs:     make(map[string]bool),
 	}
 
 	// Start prefetch workers
@@ -109,79 +114,17 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	// 1. Initialize (Scrape all pages) if not done
 	if !t.initialized {
-		var allVideos []videoItem
-
-		for i := t.pageStart; i <= t.pageEnd; i++ {
-			url := t.buildPageURL(i)
-			slog.Info("Scraping page", "task_id", t.id, "page", i, "url", url)
-
-			htmlContent, err := t.runScraper(url)
-			if err != nil {
-				slog.Error("Failed to scrape page", "task_id", t.id, "page", i, "error", err)
-				continue
-			}
-			slog.Debug("Successfully scraped page", "task_id", t.id, "page", i, "size", len(htmlContent))
-
-			videos, err := t.parseHomePage(htmlContent)
-			if err != nil {
-				slog.Error("Failed to parse page", "task_id", t.id, "page", i, "error", err)
-				continue
-			}
-
-			// Append to videoItems
-			allVideos = append(allVideos, videos...)
-			slog.Info("Found videos on page", "task_id", t.id, "count", len(videos), "page", i)
-		}
-
-		// Convert ALL videos to objects immediately
-		for _, v := range allVideos {
-			obj := t.createObjectFromVideoItem(v)
-
-			// Deduplication / Restore Status
-			if t.store != nil {
-				if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
-					obj = storedObj // Use stored state
-					obj.TaskID = t.id
-				}
-			}
-			t.objects = append(t.objects, obj)
-
-			// Queue for prefetch if needed
-			if obj.Status == model.StatusPending {
-				select {
-				case t.prefetchQueue <- obj:
-				default:
-					// Queue full, will catch up later
-				}
-			}
-		}
-
+		t.scrapeAllPages()
 		t.initialized = true
-		slog.Info("Initialization done", "task_id", t.id, "total_objects", len(t.objects))
+
+		// Start periodic refresh
+		go t.startPeriodicRefresh()
 	} else {
-		// Fill prefetch queue periodically if not full
-		// This is simple "refill" logic
-		for _, obj := range t.objects {
-			if obj.Status == model.StatusPending {
-				// Check if prefetch needed
-				_, hasLocalPreview := obj.Extra["local_preview"]
-				if !hasLocalPreview {
-					select {
-					case t.prefetchQueue <- obj:
-					default:
-						// Buffer full
-						goto QueueFull
-					}
-				}
-			}
-		}
-	QueueFull:
+		// Try to queue pending objects for prefetch if needed
+		t.queuePendingPrefetches()
 	}
 
 	// 2. Return pending objects that are ready for download
-	// Manager calls this to get *Main Download* candidates.
-	// We filter based on concurrency and readiness.
-
 	activeCount := 0
 	for _, obj := range t.objects {
 		if obj.Status == model.StatusDownloading {
@@ -190,15 +133,11 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	slog.Debug("Active count", "task_id", t.id, "count", activeCount)
 
-	// Find candidates to return
 	candidates := make([]*model.DownloadObject, 0)
 
 	for _, obj := range t.objects {
-		slog.Debug("Check object", "url", obj.URL, "status", obj.Status)
 		if obj.Status != model.StatusCompleted {
-			// Candidates for main download
-			// Logic: Return objects to fill concurrency slots.
-			if len(candidates)+activeCount < t.concurrency+2 { // Buffer +2
+			if len(candidates)+activeCount < t.concurrency+2 {
 				// Check if resolved
 				if _, hasFiles := obj.Extra["files"]; !hasFiles {
 					if err := t.resolveVideoDetails(obj); err != nil {
@@ -214,6 +153,258 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 
 	return candidates, nil
+}
+
+// --- Scraping Logic ---
+
+func (t *TktubeTask) scrapeAllPages() {
+	// First scrape page 1 to get total pages and initial items
+	page1URL := t.buildPageURL(t.pageStart)
+	slog.Info("Scraping first page to detect total pages", "task_id", t.id, "url", page1URL)
+
+	html, err := t.runScraper(page1URL)
+	if err != nil {
+		slog.Error("Failed to scrape first page", "error", err)
+		return
+	}
+
+	// Parse total pages
+	totalPages := t.parseTotalPages(html)
+	if totalPages > t.pageEnd {
+		slog.Info("Detected more pages", "old_end", t.pageEnd, "new_end", totalPages)
+		t.pageEnd = totalPages
+	}
+
+	// Parse items from page 1
+	items1, err := t.parseHomePage(html)
+	if err == nil {
+		t.addVideoItems(items1)
+	}
+
+	// Scrape remaining pages
+	// We iterate from start+1 to end.
+	// Note: If we want "newest first" and pages are 1..N (newest on 1),
+	// we have page 1.
+	// If we want to scrape EVERYTHING, we just loop.
+	for i := t.pageStart + 1; i <= t.pageEnd; i++ {
+		url := t.buildPageURL(i)
+		slog.Info("Scraping page", "task_id", t.id, "page", i)
+
+		html, err := t.runScraper(url)
+		if err != nil {
+			slog.Error("Failed to scrape page", "page", i, "error", err)
+			continue
+		}
+
+		items, err := t.parseHomePage(html)
+		if err != nil {
+			slog.Error("Failed to parse page", "page", i, "error", err)
+			continue
+		}
+
+		t.addVideoItems(items)
+	}
+
+	slog.Info("Initialization done", "task_id", t.id, "total_objects", len(t.objects))
+}
+
+func (t *TktubeTask) startPeriodicRefresh() {
+	ticker := time.NewTicker(time.Duration(t.refreshInt) * time.Second)
+	for range ticker.C {
+		t.refreshLatest()
+	}
+}
+
+func (t *TktubeTask) refreshLatest() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	slog.Info("Refreshing task", "task_id", t.id)
+
+	// Start from page 1 and go until we find a duplicate
+	page := 1
+	newCount := 0
+
+	for {
+		url := t.buildPageURL(page)
+		html, err := t.runScraper(url)
+		if err != nil {
+			slog.Error("Refresh failed on page", "page", page, "error", err)
+			break
+		}
+
+		items, err := t.parseHomePage(html)
+		if err != nil {
+			break
+		}
+
+		if len(items) == 0 {
+			break
+		}
+
+		pageNewCount := 0
+		foundExisting := false
+
+		// Process items
+		// Since we append to t.objects, we need to insert at beginning if we want order?
+		// But objects slice order might not matter if UI sorts by date.
+		// However, for consistency, let's just append and let UI sort.
+
+		for _, v := range items {
+			if t.knownURLs[v.href] {
+				foundExisting = true
+				continue
+			}
+
+			// New item
+			obj := t.createObjectFromVideoItem(v)
+
+			// Check storage just in case (persistence across restarts)
+			if t.store != nil {
+				if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
+					// It was in DB but not in memory (shouldn't happen if loaded correctly,
+					// but here we are "refreshing").
+					// If we loaded everything at start, knownURLs should have it.
+					// So this is truly new.
+				}
+			}
+
+			t.objects = append(t.objects, obj)
+			t.knownURLs[v.href] = true
+			t.queuePrefetch(obj)
+
+			pageNewCount++
+			newCount++
+		}
+
+		if foundExisting {
+			// We found an item we already have, so we assume we caught up
+			// But maybe there are "gaps" if items were deleted on source?
+			// Usually "foundExisting" on page 1 means we are up to date.
+			// But if we found 5 new and 5 existing, we stop after this page?
+			// Or we continue until a page has ALL existing?
+			// Let's stop if we found ANY existing, assuming strict chronological order.
+			// Actually, if page 1 has [New, New, Old, Old], we processed New, skipped Old.
+			// We should probably stop if ALL items on page are Old?
+			// Or if we encounter the *first* Old item?
+			// If we stop at first old item, we might miss others if order changed slightly.
+			// Safer: Stop if *entire page* consists of known URLs.
+
+			allKnown := true
+			for _, v := range items {
+				if !t.knownURLs[v.href] {
+					allKnown = false
+					break
+				}
+			}
+			if allKnown {
+				break
+			}
+		}
+
+		page++
+		// Safety break
+		if page > 100 {
+			break
+		}
+	}
+
+	if newCount > 0 {
+		slog.Info("Refresh finished", "task_id", t.id, "new_items", newCount)
+	}
+}
+
+func (t *TktubeTask) addVideoItems(items []videoItem) {
+	for _, v := range items {
+		if t.knownURLs[v.href] {
+			continue
+		}
+
+		obj := t.createObjectFromVideoItem(v)
+
+		// Deduplication / Restore Status from DB
+		if t.store != nil {
+			if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
+				obj = storedObj
+				obj.TaskID = t.id
+			}
+		}
+
+		t.objects = append(t.objects, obj)
+		t.knownURLs[v.href] = true
+
+		t.queuePrefetch(obj)
+	}
+}
+
+func (t *TktubeTask) parseTotalPages(html string) int {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return 0
+	}
+
+	// Find .pagination .last
+	// <li class="last"><a ... data-parameters="...;from:24">最後</a></li>
+	// Extract 'from:24'
+
+	var lastPage int
+	doc.Find(".pagination .last a").Each(func(i int, s *goquery.Selection) {
+		params, exists := s.Attr("data-parameters")
+		if exists {
+			// "sort_by:post_date;from:24"
+			parts := strings.Split(params, ";")
+			for _, p := range parts {
+				if strings.HasPrefix(p, "from:") {
+					valStr := strings.TrimPrefix(p, "from:")
+					if val, err := strconv.Atoi(valStr); err == nil {
+						lastPage = val
+					}
+				}
+			}
+		}
+	})
+
+	// Fallback: check .page links if .last not found (e.g. few pages)
+	if lastPage == 0 {
+		doc.Find(".pagination .page a").Each(func(i int, s *goquery.Selection) {
+			params, exists := s.Attr("data-parameters")
+			if exists {
+				parts := strings.Split(params, ";")
+				for _, p := range parts {
+					if strings.HasPrefix(p, "from:") {
+						valStr := strings.TrimPrefix(p, "from:")
+						if val, err := strconv.Atoi(valStr); err == nil {
+							if val > lastPage {
+								lastPage = val
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+
+	return lastPage
+}
+
+func (t *TktubeTask) queuePendingPrefetches() {
+	for _, obj := range t.objects {
+		if obj.Status == model.StatusPending {
+			// Check if prefetch needed
+			_, hasLocalPreview := obj.Extra["local_preview"]
+			if !hasLocalPreview {
+				t.queuePrefetch(obj)
+			}
+		}
+	}
+}
+
+func (t *TktubeTask) queuePrefetch(obj *model.DownloadObject) {
+	select {
+	case t.prefetchQueue <- obj:
+	default:
+		// Queue full, ignore
+	}
 }
 
 // --- Prefetch Logic ---
@@ -234,47 +425,63 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 		return
 	}
 
+	// Check if already prefetched (double check)
+	t.mu.Lock()
+	_, hasPreview := obj.Extra["local_preview"]
+	_, hasCover := obj.Extra["local_cover"]
+	t.mu.Unlock()
+
+	if hasPreview && hasCover {
+		return
+	}
+
 	// 1. Preview Video
 	previewURL, _ := obj.Extra["preview_url"].(string)
-	if previewURL != "" {
-		if _, ok := obj.Extra["local_preview"]; !ok {
-			// Download
-			baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
-			path := filepath.Join(t.saveDir, t.keyword, baseName+"_preview.mp4")
+	if previewURL != "" && !hasPreview {
+		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
+		path := filepath.Join(t.saveDir, t.keyword, baseName+"_preview.mp4")
 
-			if err := t.simpleDownload(previewURL, path); err == nil {
-				t.mu.Lock()
-				obj.Extra["local_preview"] = path
-				if t.store != nil {
-					t.store.Update(obj)
-				}
-				t.mu.Unlock()
-				slog.Debug("Prefetched preview", "title", obj.Metadata["title"])
-			} else {
-				slog.Warn("Failed to prefetch preview", "url", previewURL, "error", err)
+		if err := t.simpleDownload(previewURL, path); err == nil {
+			t.mu.Lock()
+			obj.Extra["local_preview"] = path
+			if t.store != nil {
+				t.store.Update(obj)
 			}
+			t.mu.Unlock()
+			slog.Debug("Prefetched preview", "title", obj.Metadata["title"])
+		} else {
+			slog.Warn("Failed to prefetch preview, retrying later", "url", previewURL, "error", err)
+			// Re-queue for retry?
+			// Simple backoff or re-add to queue
+			// To avoid infinite loop on bad URL, maybe check retry count?
+			// For now, just re-queue with non-blocking
+			go func() {
+				time.Sleep(10 * time.Second)
+				t.queuePrefetch(obj)
+			}()
+			return // Don't try cover if preview failed? Or try cover anyway? Try cover.
 		}
 	}
 
-	// 2. Cover Image (Thumb from list)
-	// Currently we don't store thumb URL separately, it was in `videoItem` but lost if not in Metadata?
-	// Ah, we didn't save thumb URL in `createObjectFromVideoItem`.
-	// We need to fix that.
+	// 2. Cover Image
 	thumbURL, _ := obj.Extra["thumb_url"].(string)
-	if thumbURL != "" {
-		if _, ok := obj.Extra["local_cover"]; !ok {
-			baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
-			path := filepath.Join(t.saveDir, t.keyword, baseName+"_thumb.jpg")
+	if thumbURL != "" && !hasCover {
+		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
+		path := filepath.Join(t.saveDir, t.keyword, baseName+"_thumb.jpg")
 
-			if err := t.simpleDownload(thumbURL, path); err == nil {
-				t.mu.Lock()
-				obj.Extra["local_cover"] = path
-				if t.store != nil {
-					t.store.Update(obj)
-				}
-				t.mu.Unlock()
-				slog.Debug("Prefetched cover", "title", obj.Metadata["title"])
+		if err := t.simpleDownload(thumbURL, path); err == nil {
+			t.mu.Lock()
+			obj.Extra["local_cover"] = path
+			if t.store != nil {
+				t.store.Update(obj)
 			}
+			t.mu.Unlock()
+			slog.Debug("Prefetched cover", "title", obj.Metadata["title"])
+		} else {
+			go func() {
+				time.Sleep(10 * time.Second)
+				t.queuePrefetch(obj)
+			}()
 		}
 	}
 }
@@ -289,8 +496,6 @@ func (t *TktubeTask) simpleDownload(url, path string) error {
 		return err
 	}
 
-	// Use wget for consistency/robustness, or http.Get
-	// Let's use http.Get for speed on small files
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -300,9 +505,6 @@ func (t *TktubeTask) simpleDownload(url, path string) error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
-
-	data, err := os.ReadFile(path) // Check partially? No, just overwrite or temp
-	_ = data
 
 	// Write to temp first
 	tmp := path + ".tmp"
@@ -450,9 +652,6 @@ func (t *TktubeTask) SetObjectIndex(url string, newIndex int) error {
 
 	// Insert
 	t.objects = append(t.objects[:newIndex], append([]*model.DownloadObject{obj}, t.objects[newIndex:]...)...)
-
-	// If priority changed, we might want to prioritize prefetch too?
-	// For now, simple queue append (FIFO) is used for prefetch.
 
 	return nil
 }

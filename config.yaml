@@ -57,7 +57,5 @@ tasks:
     extra:
       subtype: "tag"
       keyword: "RCTD"
-      page_start: 1
-      page_end: 2
-      max_concurrent: 2
-      scraper_path: "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get"
+      max_concurrent: 1
+      scraper_path: "./bin/scraper_get"

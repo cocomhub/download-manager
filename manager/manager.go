@@ -3,8 +3,11 @@ package manager
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"download-manager/config"
 	"download-manager/core"
@@ -78,6 +81,10 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) loadTasks() {
+	// Note: Caller must hold lock if concurrent access is possible
+	// But Start calls it before ticker, so it's fine.
+	// UpdateConfig calls it under lock.
+
 	for _, tCfg := range m.cfg.Tasks {
 		if _, exists := m.tasks[tCfg.ID]; exists {
 			continue
@@ -110,7 +117,15 @@ func (m *Manager) loadTasks() {
 
 func (m *Manager) scan() {
 	slog.Debug("Scanning tasks")
+
+	m.mu.Lock()
+	tasks := make([]core.Task, 0, len(m.tasks))
 	for _, t := range m.tasks {
+		tasks = append(tasks, t)
+	}
+	m.mu.Unlock()
+
+	for _, t := range tasks {
 		go m.processTask(t)
 	}
 }
@@ -130,8 +145,6 @@ func (m *Manager) processTask(t core.Task) {
 	slog.Debug("Task concurrency", "task_id", t.ID(), "active", active, "limit", limit)
 
 	// If active >= limit, we stop scheduling new downloads.
-	// But we MUST check if we actually have slots.
-	// Note: 'active' counts currently running downloads.
 	if active >= limit {
 		slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
@@ -141,10 +154,6 @@ func (m *Manager) processTask(t core.Task) {
 	slotsAvailable := limit - active
 
 	// Only fetch objects if we have capacity
-	// IMPORTANT: Pass slotsAvailable to GetDownloadObjects if possible, or filter result size.
-	// But Task interface doesn't support 'limit' arg in GetDownloadObjects.
-	// We rely on Manager to slice the result.
-
 	objs, err := t.GetDownloadObjects()
 	if err != nil {
 		slog.Error("Error getting objects for task", "task_id", t.ID(), "error", err)
@@ -168,10 +177,6 @@ func (m *Manager) processTask(t core.Task) {
 			slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
 			continue
 		}
-
-		// Double check concurrency before launching goroutine (in case of race with other ticks, though ticker is single threaded usually)
-		// But here we are in single scan loop.
-		// However, activeDownloads is updated in download goroutine start? No, we update it BEFORE `go m.download`.
 
 		slog.Info("Object scheduled for download", "task_id", t.ID(), "url", obj.URL)
 
@@ -203,7 +208,17 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	}()
 
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
-	err := m.downloader.Download(obj)
+
+	// Access downloader safely?
+	// In UpdateConfig we replace m.downloader.
+	// Since we don't lock here, it might be racey.
+	// But replacing interface value is atomic-ish on some archs, but not guaranteed.
+	// Let's grab lock to get downloader reference.
+	m.mu.Lock()
+	dl := m.downloader
+	m.mu.Unlock()
+
+	err := dl.Download(obj)
 	if err != nil {
 		t.UpdateStatus(obj, model.StatusFailed, err)
 	} else {
@@ -213,6 +228,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 // New API methods
 func (m *Manager) GetTaskSummaries() []map[string]interface{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	var summaries []map[string]interface{}
 	// Iterate using config order to maintain consistency
 	for _, tCfg := range m.cfg.Tasks {
@@ -247,7 +265,10 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 }
 
 func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
+	m.mu.Lock()
 	t, ok := m.tasks[id]
+	m.mu.Unlock()
+
 	if !ok {
 		return nil, fmt.Errorf("task not found")
 	}
@@ -268,14 +289,14 @@ func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
 
 // RetryObject resets the status of an object to pending
 func (m *Manager) RetryObject(taskID, url string) error {
+	m.mu.Lock()
 	t, ok := m.tasks[taskID]
+	m.mu.Unlock()
+
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
 
-	// Need to access task objects.
-	// Currently Task interface is simple. We can cast to specific implementation or extend interface.
-	// Or use GetAllObjects and find it.
 	if st, ok := t.(interface {
 		GetAllObjects() []*model.DownloadObject
 	}); ok {
@@ -288,8 +309,7 @@ func (m *Manager) RetryObject(taskID, url string) error {
 				// Reset status
 				t.UpdateStatus(obj, model.StatusPending, nil)
 				obj.Progress = 0
-				// Trigger scan immediately? Or let next ticker handle it.
-				// Let's trigger scan
+				// Trigger scan immediately
 				go m.processTask(t)
 				return nil
 			}
@@ -301,7 +321,10 @@ func (m *Manager) RetryObject(taskID, url string) error {
 
 // ReorderObject moves an object to a new position
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
+	m.mu.Lock()
 	t, ok := m.tasks[taskID]
+	m.mu.Unlock()
+
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
@@ -316,7 +339,10 @@ func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 
 // RetryAllFailed resets all failed objects in a task
 func (m *Manager) RetryAllFailed(taskID string) error {
+	m.mu.Lock()
 	t, ok := m.tasks[taskID]
+	m.mu.Unlock()
+
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
@@ -339,4 +365,70 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 		return nil
 	}
 	return fmt.Errorf("task does not support object access")
+}
+
+// --- Config Management ---
+
+func (m *Manager) GetConfig() *config.Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg
+}
+
+func (m *Manager) UpdateConfig(newCfg *config.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Save to file
+	data, err := yaml.Marshal(newCfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile("config.yaml", data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	// Update internal config
+	m.cfg = newCfg
+
+	// Reload Downloader
+	m.downloader = downloader.NewWgetDownloader(newCfg.Downloader)
+
+	// Reload Tasks (Add new ones)
+	// We call loadTasks logic directly here since we hold lock and loadTasks expects it?
+	// Actually loadTasks was designed to run without lock or before start.
+	// But it accesses m.tasks.
+	// Let's duplicate the logic or extract it safely.
+	// Since we hold m.mu, we can just update m.tasks.
+
+	for _, tCfg := range m.cfg.Tasks {
+		if _, exists := m.tasks[tCfg.ID]; exists {
+			continue
+		}
+
+		// Create storage
+		storeType := tCfg.Storage.Type
+		if storeType == "" {
+			storeType = "memory"
+		}
+
+		store, err := storage.NewStorage(storeType, tCfg.Storage.Config)
+		if err != nil {
+			slog.Error("Failed to create storage for task", "task_id", tCfg.ID, "error", err)
+			continue
+		}
+
+		// Create task using factory
+		t, err := task.NewTask(tCfg, store)
+		if err != nil {
+			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
+			continue
+		}
+
+		m.tasks[tCfg.ID] = t
+		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
+	}
+
+	slog.Info("Configuration updated")
+	return nil
 }
