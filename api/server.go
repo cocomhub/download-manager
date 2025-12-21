@@ -28,6 +28,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
 	r.HandleFunc("/api/config", s.getConfig).Methods("GET")
 	r.HandleFunc("/api/config", s.updateConfig).Methods("POST")
+	r.HandleFunc("/api/downloads", s.getActiveDownloads).Methods("GET")
 
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
@@ -131,4 +132,9 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) getActiveDownloads(w http.ResponseWriter, r *http.Request) {
+	actives := s.mgr.GetActiveDownloads()
+	json.NewEncoder(w).Encode(actives)
 }

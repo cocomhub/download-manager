@@ -2,6 +2,7 @@ server:
   scan_interval: 5
   lock_file: "./build/test/download-manager.lock"
   http_port: 8080
+  work_dir: "./build/test"
 
 log:
   level: "debug"
@@ -23,29 +24,29 @@ downloader:
     - "http://43.159.49.114:18080"
 
 tasks:
-  # - id: "task-file-001"
-  #   type: "simple_url_list"
-  #   save_dir: "./build/test/downloads/task1"
-  #   storage:
-  #     type: "file"
-  #     config:
-  #       path: "./build/test/downloads/task1/status.json"
-  #       save_interval: "2" # Save every 2 seconds
-  #   urls:
-  #     - "https://www.baidu.com/robots.txt"
-  #     - "https://www.bing.com/robots.txt"
+  - id: "task-file-001"
+    type: "simple_url_list"
+    save_dir: "./build/test/downloads/task1"
+    storage:
+      type: "file"
+      config:
+        path: "./build/test/downloads/task1/status.json"
+        save_interval: "2" # Save every 2 seconds
+    urls:
+      - "https://www.baidu.com/robots.txt"
+      - "https://www.bing.com/robots.txt"
 
-  # - id: "task-mongo-001"
-  #   type: "simple_url_list"
-  #   save_dir: "./build/test/downloads/task2"
-  #   storage:
-  #     type: "mongo"
-  #     config:
-  #       source: "suixi-mini"
-  #       database: "download_manager"
-  #       collection: "task_mongo_001"
-  #   urls:
-  #     - "https://www.bing.com/robots.txt"
+  - id: "task-mongo-001"
+    type: "simple_url_list"
+    save_dir: "./build/test/downloads/task2"
+    storage:
+      type: "mongo"
+      config:
+        source: "suixi-mini"
+        database: "download_manager"
+        collection: "task_mongo_001"
+    urls:
+      - "https://www.bing.com/robots.txt"
 
   - id: "rctd_task"
     type: "tktube"
@@ -57,5 +58,18 @@ tasks:
     extra:
       subtype: "tag"
       keyword: "RCTD"
+      max_concurrent: 1
+      scraper_path: "./bin/scraper_get"
+
+  - id: "nhdtc_task"
+    type: "tktube"
+    save_dir: "./build/test/downloads/tktube"
+    storage:
+      type: "file"
+      config:
+        path: "./build/test/downloads/tktube/nhdtc/nhdtc_history.json"
+    extra:
+      subtype: "tag"
+      keyword: "NHDTC"
       max_concurrent: 1
       scraper_path: "./bin/scraper_get"

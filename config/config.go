@@ -22,6 +22,7 @@ type ServerConfig struct {
 	ScanInterval int    `yaml:"scan_interval" json:"scan_interval"` // seconds
 	LockFile     string `yaml:"lock_file" json:"lock_file"`
 	HTTPPort     int    `yaml:"http_port" json:"http_port"` // Add port for web UI
+	WorkDir      string `yaml:"work_dir" json:"work_dir"`   // Working directory for cache etc
 }
 
 type MongoSource struct {
@@ -44,6 +45,7 @@ type TaskConfig struct {
 }
 
 type DownloaderConfig struct {
-	Proxies []string `yaml:"proxies" json:"proxies"`
-	LogDir  string   `yaml:"log_dir" json:"log_dir"`
+	Proxies          []string `yaml:"proxies" json:"proxies"`
+	LogDir           string   `yaml:"log_dir" json:"log_dir"`
+	GlobalConcurrent int      `yaml:"global_concurrent" json:"global_concurrent"`
 }

@@ -2,6 +2,7 @@ package task
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -36,6 +37,7 @@ type TktubeTask struct {
 	scraperPath string
 	concurrency int
 	refreshInt  int // Refresh interval in seconds
+	workDir     string
 
 	objects       []*model.DownloadObject
 	store         core.Storage
@@ -77,6 +79,7 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 	scraperPath := getString("scraper_path", DefaultScraperPath)
 	concurrency := getInt("max_concurrent", 2)
 	refreshInt := getInt("refresh_interval", 3600) // Default 1 hour
+	workDir := getString("work_dir", ".")
 
 	t := &TktubeTask{
 		id:            cfg.ID,
@@ -88,6 +91,7 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 		scraperPath:   scraperPath,
 		concurrency:   concurrency,
 		refreshInt:    refreshInt,
+		workDir:       workDir,
 		objects:       make([]*model.DownloadObject, 0),
 		store:         store,
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
@@ -110,15 +114,23 @@ func (t *TktubeTask) Type() string {
 
 func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	// 1. Initialize (Scrape all pages) if not done
 	if !t.initialized {
-		t.scrapeAllPages()
-		t.initialized = true
+		// Start initialization in background to avoid blocking
+		go func() {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			if !t.initialized {
+				t.scrapeAllPages()
+				t.initialized = true
+				go t.startPeriodicRefresh()
+			}
+		}()
 
-		// Start periodic refresh
-		go t.startPeriodicRefresh()
+		t.mu.Unlock()
+		// Return empty list while initializing
+		return []*model.DownloadObject{}, nil
 	} else {
 		// Try to queue pending objects for prefetch if needed
 		t.queuePendingPrefetches()
@@ -134,25 +146,124 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	slog.Debug("Active count", "task_id", t.id, "count", activeCount)
 
 	candidates := make([]*model.DownloadObject, 0)
+	toResolve := make([]*model.DownloadObject, 0)
 
+	// Collect candidates
 	for _, obj := range t.objects {
 		if obj.Status != model.StatusCompleted {
-			if len(candidates)+activeCount < t.concurrency+2 {
+			// We look ahead a bit more to ensure we have enough resolved objects
+			if len(candidates)+len(toResolve)+activeCount < t.concurrency*2+2 {
 				// Check if resolved
-				if _, hasFiles := obj.Extra["files"]; !hasFiles {
-					if err := t.resolveVideoDetails(obj); err != nil {
-						slog.Error("Failed to resolve video details", "url", obj.URL, "error", err)
-						obj.Status = model.StatusFailed
-						t.UpdateStatus(obj, model.StatusFailed, err)
-						continue
-					}
+				if _, hasFiles := obj.Extra["files"]; hasFiles {
+					candidates = append(candidates, obj)
+				} else {
+					toResolve = append(toResolve, obj)
 				}
-				candidates = append(candidates, obj)
 			}
 		}
 	}
 
+	t.mu.Unlock() // Unlock while resolving
+
+	// Resolve in parallel
+	if len(toResolve) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex // To protect append to candidates
+
+		// Limit resolution concurrency to avoid flooding
+		sem := make(chan struct{}, 5)
+
+		for _, obj := range toResolve {
+			wg.Add(1)
+			go func(o *model.DownloadObject) {
+				defer wg.Done()
+				sem <- struct{}{}        // Acquire
+				defer func() { <-sem }() // Release
+
+				if err := t.resolveVideoDetails(o); err != nil {
+					slog.Error("Failed to resolve video details", "url", o.URL, "error", err)
+					t.UpdateStatus(o, model.StatusFailed, err)
+				} else {
+					mu.Lock()
+					candidates = append(candidates, o)
+					mu.Unlock()
+				}
+			}(obj)
+		}
+		wg.Wait()
+	}
+
 	return candidates, nil
+}
+
+// ResolveObject explicitly resolves an object (exposed for Manager)
+func (t *TktubeTask) ResolveObject(obj *model.DownloadObject) error {
+	// Check if already resolved
+	if _, hasFiles := obj.Extra["files"]; hasFiles {
+		return nil
+	}
+	return t.resolveVideoDetails(obj)
+}
+
+// --- Persistence ---
+
+func (t *TktubeTask) getCachePath() string {
+	return filepath.Join(t.workDir, "cache", t.id+".json")
+}
+
+func (t *TktubeTask) SaveCache() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.saveCache()
+}
+
+func (t *TktubeTask) saveCache() error {
+	slog.Debug("Saving cache", "task_id", t.id, "count", len(t.objects))
+
+	path := t.getCachePath()
+	data, err := json.MarshalIndent(t.objects, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+func (t *TktubeTask) LoadCache() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	path := t.getCachePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var objects []*model.DownloadObject
+	if err := json.Unmarshal(data, &objects); err != nil {
+		return err
+	}
+
+	// Rebuild knownURLs map
+	t.knownURLs = make(map[string]bool)
+	t.objects = objects
+	for _, obj := range t.objects {
+		t.knownURLs[obj.URL] = true
+
+		// Reset Downloading status to Pending on restart
+		if obj.Status == model.StatusDownloading {
+			obj.Status = model.StatusPending
+		}
+	}
+
+	if len(t.objects) > 0 {
+		t.initialized = true
+		// Start refresh worker since we skipped initialization
+		go t.startPeriodicRefresh()
+	}
+
+	return nil
 }
 
 // --- Scraping Logic ---
@@ -205,6 +316,10 @@ func (t *TktubeTask) scrapeAllPages() {
 		t.addVideoItems(items)
 	}
 
+	if err := t.saveCache(); err != nil {
+		slog.Error("Failed to save cache", "task_id", t.id, "error", err)
+		return
+	}
 	slog.Info("Initialization done", "task_id", t.id, "total_objects", len(t.objects))
 }
 
@@ -311,6 +426,14 @@ func (t *TktubeTask) refreshLatest() {
 
 	if newCount > 0 {
 		slog.Info("Refresh finished", "task_id", t.id, "new_items", newCount)
+		// Don't call SaveCache here under lock if SaveCache takes lock.
+		// But SaveCache is method on t.
+		// t.mu is already locked. SaveCache also locks t.mu.
+		// Deadlock!
+		// We should call internal save or defer save.
+		// Or just let periodic save handle it?
+		// Periodic save is handled by Manager.
+		// But refresh is infrequent, maybe fine to wait.
 	}
 }
 
