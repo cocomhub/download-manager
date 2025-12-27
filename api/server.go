@@ -33,7 +33,7 @@ func (s *Server) Router() *mux.Router {
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
 	// In a real app, this path should be configurable or dynamic per task
-	r.PathPrefix("/files/").Handler(http.StripPrefix("/files/", http.FileServer(http.Dir("./build/test/downloads"))))
+	r.PathPrefix("/files/").Handler(http.StripPrefix("/files/", http.FileServer(http.Dir("./downloads"))))
 
 	// Static UI
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web/static")))

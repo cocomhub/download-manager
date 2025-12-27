@@ -27,6 +27,8 @@ type Task interface {
 	UpdateStatus(obj *model.DownloadObject, status string, err error) error
 	// Type 返回任务类型
 	Type() string
+	// Close 关闭任务，执行清理或持久化操作
+	Close() error
 }
 
 // Downloader 定义下载器的行为

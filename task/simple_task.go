@@ -98,6 +98,16 @@ func (t *SimpleTask) Type() string {
 	return "simple_url_list"
 }
 
+func (t *SimpleTask) Close() error {
+	// Flush storage if supported
+	if t.store != nil {
+		if flusher, ok := t.store.(interface{ ForceFlush() error }); ok {
+			return flusher.ForceFlush()
+		}
+	}
+	return nil
+}
+
 func (t *SimpleTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -32,6 +32,7 @@ type Manager struct {
 	activeDownloads map[string]int // TaskID -> Active Count (Just for stats/per-task limit if needed)
 	mu              sync.Mutex
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
+	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
 
 	// Global Rate Limiting
 	downloadQueue chan *downloadRequest
@@ -176,11 +177,13 @@ func (m *Manager) loadTasks() {
 
 		// Try load cache
 		if ct, ok := t.(interface{ LoadCache() error }); ok {
-			if err := ct.LoadCache(); err != nil {
-				slog.Warn("Failed to load task cache", "task_id", tCfg.ID, "error", err)
-			} else {
-				slog.Info("Task cache loaded", "task_id", tCfg.ID)
-			}
+			go func() {
+				if err := ct.LoadCache(); err != nil {
+					slog.Warn("Failed to load task cache", "task_id", tCfg.ID, "error", err)
+				} else {
+					slog.Info("Task cache loaded", "task_id", tCfg.ID)
+				}
+			}()
 		}
 
 		m.tasks[tCfg.ID] = t
@@ -202,6 +205,10 @@ func (m *Manager) saveAllCaches() {
 				slog.Error("Failed to save task cache", "task_id", t.ID(), "error", err)
 			}
 		}
+		// Also close task to flush storage
+		if err := t.Close(); err != nil {
+			slog.Error("Failed to close task", "task_id", t.ID(), "error", err)
+		}
 	}
 }
 
@@ -216,34 +223,36 @@ func (m *Manager) scan() {
 	m.mu.Unlock()
 
 	for _, t := range tasks {
-		// Run processTask in goroutine to not block scan loop?
-		// But processTask pushes to channel, which might block.
-		// If channel is full, we want to skip or wait?
-		// Better to run sequentially to avoid flooding queue with one task?
-		// No, we want fairness.
+		// Check if task is already being processed
+		if _, processing := m.processingTask.LoadOrStore(t.ID(), true); processing {
+			continue
+		}
+
 		go m.processTask(t)
 	}
 }
 
 func (m *Manager) processTask(t core.Task) {
+	defer m.processingTask.Delete(t.ID())
+
 	// Check per-task concurrency limit (soft limit for scheduling?)
 	// If global limit is used, task limit might be redundant or acts as "fairness" limit.
 	// Let's keep it.
-
-	m.mu.Lock()
-	active := m.activeDownloads[t.ID()]
-	m.mu.Unlock()
 
 	limit := 10 // Default limit
 	if ct, ok := t.(interface{ GetConcurrency() int }); ok {
 		limit = ct.GetConcurrency()
 	}
 
+	m.mu.Lock()
+	active := m.activeDownloads[t.ID()]
 	// If active >= limit, we stop scheduling new downloads for this task.
 	if active >= limit {
+		m.mu.Unlock()
 		slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
+	m.mu.Unlock()
 
 	// Calculate remaining slots
 	slotsAvailable := limit - active
@@ -254,11 +263,11 @@ func (m *Manager) processTask(t core.Task) {
 		slog.Error("Error getting objects for task", "task_id", t.ID(), "error", err)
 		return
 	}
-	slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
 
 	if len(objs) == 0 {
 		return
 	}
+	slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
 
 	// Schedule downloads up to available slots
 	count := 0

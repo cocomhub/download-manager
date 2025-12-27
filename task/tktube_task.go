@@ -73,6 +73,12 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 		}
 		return def
 	}
+	getBool := func(key string, def bool) bool {
+		if v, ok := extra[key].(bool); ok {
+			return v
+		}
+		return def
+	}
 
 	subtype := getString("subtype", "tag")
 	keyword := getString("keyword", "")
@@ -80,6 +86,10 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 	concurrency := getInt("max_concurrent", 2)
 	refreshInt := getInt("refresh_interval", 3600) // Default 1 hour
 	workDir := getString("work_dir", ".")
+	saveDir := cfg.SaveDir
+	if getBool("save_dir_add_keyword", false) {
+		saveDir = filepath.Join(cfg.SaveDir, keyword)
+	}
 
 	t := &TktubeTask{
 		id:            cfg.ID,
@@ -87,7 +97,7 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 		keyword:       keyword,
 		pageStart:     1,
 		pageEnd:       1,
-		saveDir:       cfg.SaveDir,
+		saveDir:       saveDir,
 		scraperPath:   scraperPath,
 		concurrency:   concurrency,
 		refreshInt:    refreshInt,
@@ -110,6 +120,21 @@ func (t *TktubeTask) ID() string {
 
 func (t *TktubeTask) Type() string {
 	return "tktube_" + t.taskType
+}
+
+func (t *TktubeTask) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Flush storage if supported
+	if t.store != nil {
+		if flusher, ok := t.store.(interface{ ForceFlush() error }); ok {
+			if err := flusher.ForceFlush(); err != nil {
+				slog.Error("Failed to flush storage", "task_id", t.id, "error", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
@@ -143,7 +168,9 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			activeCount++
 		}
 	}
-	slog.Debug("Active count", "task_id", t.id, "count", activeCount)
+	if activeCount != 0 {
+		slog.Debug("Active count", "task_id", t.id, "count", activeCount)
+	}
 
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
@@ -159,6 +186,9 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				} else {
 					toResolve = append(toResolve, obj)
 				}
+			} else {
+				// Stop if we have enough candidates
+				break
 			}
 		}
 	}
@@ -251,9 +281,25 @@ func (t *TktubeTask) LoadCache() error {
 	for _, obj := range t.objects {
 		t.knownURLs[obj.URL] = true
 
+		// Sync with storage to get latest status (in case JSON cache is stale)
+		if t.store != nil {
+			if storedObj, err := t.store.Get(obj.URL); err == nil && storedObj != nil {
+				// Only use stored object if it belongs to this task (or has no owner)
+				if storedObj.TaskID == "" || storedObj.TaskID == t.id {
+					obj.Status = storedObj.Status
+					obj.Metadata = storedObj.Metadata
+					obj.Extra = storedObj.Extra
+					// Ensure TaskID is set
+					obj.TaskID = t.id
+				}
+			}
+		}
+
 		// Reset Downloading status to Pending on restart
 		if obj.Status == model.StatusDownloading {
 			obj.Status = model.StatusPending
+			// Clear files list to trigger re-resolution
+			obj.Extra["files"] = nil
 		}
 	}
 
@@ -290,6 +336,9 @@ func (t *TktubeTask) scrapeAllPages() {
 	items1, err := t.parseHomePage(html)
 	if err == nil {
 		t.addVideoItems(items1)
+	} else {
+		slog.Error("Failed to parse first page", "error", err)
+		return
 	}
 
 	// Scrape remaining pages
@@ -377,10 +426,11 @@ func (t *TktubeTask) refreshLatest() {
 			// Check storage just in case (persistence across restarts)
 			if t.store != nil {
 				if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
-					// It was in DB but not in memory (shouldn't happen if loaded correctly,
-					// but here we are "refreshing").
-					// If we loaded everything at start, knownURLs should have it.
-					// So this is truly new.
+					// Found in DB, check ownership
+					if storedObj.TaskID == "" || storedObj.TaskID == t.id {
+						obj = storedObj
+						obj.TaskID = t.id
+					}
 				}
 			}
 
@@ -562,7 +612,7 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 	previewURL, _ := obj.Extra["preview_url"].(string)
 	if previewURL != "" && !hasPreview {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
-		path := filepath.Join(t.saveDir, t.keyword, baseName+"_preview.mp4")
+		path := filepath.Join(t.saveDir, baseName+"_preview.mp4")
 
 		if err := t.simpleDownload(previewURL, path); err == nil {
 			t.mu.Lock()
@@ -590,7 +640,7 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 	thumbURL, _ := obj.Extra["thumb_url"].(string)
 	if thumbURL != "" && !hasCover {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
-		path := filepath.Join(t.saveDir, t.keyword, baseName+"_thumb.jpg")
+		path := filepath.Join(t.saveDir, baseName+"_thumb.jpg")
 
 		if err := t.simpleDownload(thumbURL, path); err == nil {
 			t.mu.Lock()
@@ -646,6 +696,14 @@ func (t *TktubeTask) simpleDownload(url, path string) error {
 	f.Write(buf.Bytes())
 	f.Close()
 
+	modTimeStr := resp.Header.Get("Last-Modified")
+	if modTimeStr != "" {
+		modTime, err := time.Parse(time.RFC1123, modTimeStr)
+		if err == nil {
+			os.Chtimes(tmp, modTime, modTime)
+		}
+	}
+
 	return os.Rename(tmp, path)
 }
 
@@ -655,8 +713,8 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 
 	return &model.DownloadObject{
 		TaskID:   t.id,
-		URL:      v.href,                                               // Page URL as ID
-		SavePath: filepath.Join(t.saveDir, t.keyword, baseName+".mp4"), // Temporary path
+		URL:      v.href,                                    // Page URL as ID
+		SavePath: filepath.Join(t.saveDir, baseName+".mp4"), // Temporary path
 		Metadata: map[string]string{
 			"title":    v.title,
 			"page_url": v.href,
@@ -681,25 +739,26 @@ func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
 
 	// Update Object
 	baseName := videoInfo.title
-	baseName = strings.ReplaceAll(baseName, "/", "_")
 
 	// Main Video Download
 	// We also include the High Res Image here
 	files := []map[string]string{
 		{
 			"url":  videoInfo.imageURL,
-			"path": filepath.Join(t.saveDir, t.keyword, baseName+".jpg"),
+			"path": filepath.Join(t.saveDir, baseName+".jpg"),
 			"type": "image",
 		},
 		{
 			"url":  videoInfo.videoURL,
-			"path": filepath.Join(t.saveDir, t.keyword, baseName+".mp4"),
+			"path": filepath.Join(t.saveDir, baseName+".mp4"),
 			"type": "video",
 		},
 	}
 
+	t.mu.Lock()
 	obj.Extra["tags"] = videoInfo.tags
 	obj.Extra["files"] = files
+	t.mu.Unlock()
 
 	// Update storage
 	if t.store != nil {
@@ -833,6 +892,8 @@ func (t *TktubeTask) parseHomePage(html string) ([]videoItem, error) {
 		var title string
 		s.Find(".title").First().Each(func(i int, s *goquery.Selection) {
 			title = strings.TrimSpace(s.Text())
+			title = strings.ReplaceAll(title, "/", "／")
+			title = strings.TrimRight(title, ".")
 		})
 
 		// Preview URL
@@ -884,7 +945,9 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 	info := &detailedVideoInfo{}
 
 	// Title
-	info.title = doc.Find("h1").Text()
+	info.title = strings.TrimSpace(doc.Find("h1").Text())
+	info.title = strings.ReplaceAll(info.title, "/", "／")
+	info.title = strings.TrimRight(info.title, ".")
 
 	// Info items
 	doc.Find(".info>.item").Each(func(i int, s *goquery.Selection) {

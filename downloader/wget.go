@@ -51,7 +51,7 @@ func (d *WgetDownloader) Name() string {
 
 func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
 	// Check for composite download (files in Extra)
-	if filesVal, ok := obj.Extra["files"]; ok {
+	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
 
 		// Handle different types depending on source (memory vs JSON)
@@ -69,6 +69,13 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
 					fileList = append(fileList, m)
 				}
 			}
+		}
+
+		if len(fileList) == 0 {
+			// If "files" key exists but we couldn't parse it or it's empty,
+			// it's a data integrity issue. Do NOT fallback to single file download
+			// because obj.URL might be a web page, not a file.
+			return fmt.Errorf("composite download error: 'files' metadata found but empty or invalid format")
 		}
 
 		if len(fileList) > 0 {
