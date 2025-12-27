@@ -130,8 +130,15 @@
 
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+                <!-- Loading State -->
+                <div v-if="isLoadingTask" class="h-full flex flex-col items-center justify-center">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+                    <p class="text-gray-500">Loading task details...</p>
+                </div>
+
                 <!-- Active Downloads View -->
-                <div v-if="viewMode === 'downloads'" class="space-y-6">
+                <div v-else-if="viewMode === 'downloads'" class="space-y-6">
+
                     <h2 class="text-xl font-bold text-gray-800 mb-4">Active Downloads</h2>
                     <div class="bg-white rounded-lg shadow overflow-hidden">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -453,7 +460,8 @@
                         max_concurrent: 1,
                         refresh_interval: 3600
                     },
-                    loading: false
+                    loading: false,
+                    isLoadingTask: false
                 }
             },
             computed: {
@@ -498,19 +506,18 @@
                 // ... (Existing methods kept, adding new ones)
                 async fetchTasks() {
                     try {
-                        this.loading = true
+                        // this.loading = true // Don't show global spinner on poll
                         const res = await fetch('/api/tasks')
                         const data = await res.json()
-                        this.tasks = data
+                        this.tasks = data || []
 
                         // Also fetch active downloads
                         const dlRes = await fetch('/api/downloads')
-                        this.activeDownloads = await dlRes.json()
+                        this.activeDownloads = await dlRes.json() || []
 
-                        if (this.selectedTaskId && !this.selectedTask) {
-                            this.fetchTaskDetails(this.selectedTaskId)
-                        } else if (this.selectedTaskId) {
-                            // Silent update if needed, but fetchTaskDetails handles main data
+                        // Always refresh selected task if active
+                        if (this.selectedTaskId) {
+                            this.fetchTaskDetails(this.selectedTaskId, true)
                         }
                     } catch (e) {
                         console.error(e)
@@ -524,15 +531,19 @@
                     if (this.viewMode === 'downloads') {
                         this.viewMode = 'grid'
                     }
-                    this.fetchTaskDetails(id)
+                    this.fetchTaskDetails(id, false)
                 },
-                async fetchTaskDetails(id) {
+                async fetchTaskDetails(id, background = false) {
+                    if (!background) this.isLoadingTask = true
                     try {
                         const res = await fetch(`/api/tasks/${id}`)
+                        if (!res.ok) throw new Error("Failed to fetch task details")
                         const data = await res.json()
                         this.selectedTask = data
                     } catch (e) {
                         console.error(e)
+                    } finally {
+                        if (!background) this.isLoadingTask = false
                     }
                 },
 
@@ -696,10 +707,8 @@
                 },
                 pathToUrl(path) {
                     if (!path) return '#';
-                    const prefix = "build/test/downloads/";
-                    if (path.includes(prefix)) return "/files/" + path.split(prefix)[1];
                     const parts = path.split('/downloads/');
-                    if (parts.length > 1) return "/files/" + parts[1];
+                    if (parts.length > 1) return "/files/" + encodeURIComponent(parts[1]);
                     return "/files/" + path
                 },
                 handleCardClick(obj) {

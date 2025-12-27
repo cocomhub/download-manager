@@ -296,10 +296,10 @@ func (t *TktubeTask) LoadCache() error {
 		}
 
 		// Reset Downloading status to Pending on restart
-		if obj.Status == model.StatusDownloading {
+		if obj.Status != model.StatusCompleted {
 			obj.Status = model.StatusPending
 			// Clear files list to trigger re-resolution
-			obj.Extra["files"] = nil
+			delete(obj.Extra, "files")
 		}
 	}
 

@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"io/fs"
+	"log"
 	"net/http"
 
 	"download-manager/config"
 	"download-manager/manager"
+	"download-manager/web"
 
 	"github.com/gorilla/mux"
 )
@@ -36,7 +39,11 @@ func (s *Server) Router() *mux.Router {
 	r.PathPrefix("/files/").Handler(http.StripPrefix("/files/", http.FileServer(http.Dir("./downloads"))))
 
 	// Static UI
-	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web/static")))
+	subFS, err := fs.Sub(web.StaticFS, "static")
+	if err != nil {
+		log.Fatal("Failed to embed static files:", err)
+	}
+	r.PathPrefix("/").Handler(http.FileServer(http.FS(subFS)))
 
 	return r
 }

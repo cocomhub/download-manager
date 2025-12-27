@@ -69,13 +69,16 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
 					fileList = append(fileList, m)
 				}
 			}
+		} else {
+			slog.Error("Composite download with unknown files metadata type", "type", fmt.Sprintf("%T", filesVal), "task_id", obj.TaskID)
+			return fmt.Errorf("composite download error: unknown 'files' metadata type. extra: %+v", obj.Extra)
 		}
 
 		if len(fileList) == 0 {
 			// If "files" key exists but we couldn't parse it or it's empty,
 			// it's a data integrity issue. Do NOT fallback to single file download
 			// because obj.URL might be a web page, not a file.
-			return fmt.Errorf("composite download error: 'files' metadata found but empty or invalid format")
+			return fmt.Errorf("composite download error: 'files' metadata found but empty or invalid format. extra: %+v", obj.Extra)
 		}
 
 		if len(fileList) > 0 {

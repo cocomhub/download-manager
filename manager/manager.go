@@ -320,6 +320,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj)
 	if err != nil {
+		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, model.StatusFailed, err)
 	} else {
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
@@ -344,7 +345,7 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 
 // New API methods
 func (m *Manager) GetActiveDownloads() []map[string]interface{} {
-	var actives []map[string]interface{}
+	actives := make([]map[string]interface{}, 0)
 	m.downloadingObj.Range(func(key, value interface{}) bool {
 		obj := value.(*model.DownloadObject)
 		actives = append(actives, map[string]interface{}{
@@ -413,7 +414,11 @@ func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
 	if st, ok := t.(interface {
 		GetAllObjects() []*model.DownloadObject
 	}); ok {
-		result["objects"] = st.GetAllObjects()
+		objs := st.GetAllObjects()
+		if objs == nil {
+			objs = make([]*model.DownloadObject, 0)
+		}
+		result["objects"] = objs
 	}
 
 	return result, nil
