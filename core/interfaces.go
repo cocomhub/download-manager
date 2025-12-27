@@ -38,3 +38,24 @@ type Downloader interface {
 	// Name 返回下载器名称
 	Name() string
 }
+
+// EventType 定义事件类型
+type EventType string
+
+const (
+	EventTaskUpdate     EventType = "task_update"      // 任务统计更新 (单任务)
+	EventTaskListChange EventType = "task_list_change" // 任务列表变动 (添加/删除任务)
+	EventObjectUpdate   EventType = "object_update"    // 对象状态/进度更新
+)
+
+// Event 系统事件
+type Event struct {
+	Type    EventType   `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+// EventBus 定义事件总线行为
+type EventBus interface {
+	Subscribe() <-chan Event
+	Unsubscribe(ch <-chan Event)
+}

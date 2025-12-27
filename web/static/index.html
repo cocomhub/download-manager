@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Manager</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="libs/cdn.tailwindcss.com/3.4.17"></script>
+    <script src="libs/cdn.staticfile.org/vue/3.3.4/vue.global.js"></script>
+    <link href="https://cdn.staticfile.org/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         .line-clamp-2 {
             display: -webkit-box;
@@ -44,6 +44,8 @@
                 <h1 class="text-xl font-bold text-gray-800">Tasks</h1>
                 <div class="flex space-x-3">
                     <div v-if="loading" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                    <div v-if="eventSource && eventSource.readyState === 1" class="h-3 w-3 rounded-full bg-green-500" title="Connected"></div>
+                    <div v-else class="h-3 w-3 rounded-full bg-red-500" title="Disconnected"></div>
                     <button @click="openConfig" class="text-gray-500 hover:text-gray-700" title="Settings">
                         <i class="fas fa-cog"></i>
                     </button>
@@ -107,6 +109,28 @@
                         <option value="duration_desc">Duration (Longest)</option>
                         <option value="name_asc">Name (A-Z)</option>
                     </select>
+
+                    <!-- Pagination -->
+                    <div class="flex items-center space-x-2 border-l pl-4 border-gray-200">
+                        <select v-model="pagination.limit" @change="changeLimit" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" title="Items per page">
+                            <option :value="25">25</option>
+                            <option :value="50">50</option>
+                            <option :value="100">100</option>
+                            <option value="all">All</option>
+                        </select>
+                        <div class="flex items-center space-x-1" v-if="pagination.limit !== 'all'">
+                            <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                <i class="fas fa-chevron-left"></i>
+                             </button>
+                            <select v-model.number="pagination.page" @change="changePage(pagination.page)" class="text-sm border-none bg-transparent focus:ring-0 cursor-pointer font-medium text-center w-12">
+                                <option v-for="p in Math.ceil(pagination.total / pagination.limit) || 1" :key="p" :value="p">{{ p }}</option>
+                             </select>
+                            <span class="text-gray-400 text-xs">/ {{ Math.ceil(pagination.total / pagination.limit) || 1 }}</span>
+                            <button @click="changePage(pagination.page + 1)" :disabled="pagination.page * pagination.limit >= pagination.total" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                <i class="fas fa-chevron-right"></i>
+                             </button>
+                        </div>
+                    </div>
 
                     <!-- Search Box -->
                     <div class="relative">
@@ -435,11 +459,19 @@
                     viewMode: 'grid',
                     searchQuery: '',
                     sortBy: 'default',
+                    pagination: {
+                        page: 1,
+                        limit: 50,
+                        total: 0
+                    },
                     currentVideo: null,
                     hoverObj: null,
                     enablePreview: true,
                     timer: null,
+                    searchTimer: null,
                     draggedItem: null,
+                    eventSource: null,
+                    abortController: null,
 
                     // Config & Modals
                     fullConfig: null,
@@ -467,42 +499,126 @@
             computed: {
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
-                    let objs = [...this.selectedTask.objects]
-                    const query = this.searchQuery.toLowerCase().trim()
-                    if (query) {
-                        objs = objs.filter(obj => {
-                            const title = this.getTitle(obj).toLowerCase()
-                            const tags = this.getTags(obj).map(t => t.toLowerCase())
-                            return title.includes(query) || tags.some(t => t.includes(query))
-                        })
-                    }
-                    if (this.sortBy !== 'default') {
-                        objs.sort((a, b) => {
-                            switch (this.sortBy) {
-                                case 'date_desc':
-                                    return (this.getDate(b) || '').localeCompare(this.getDate(a) || '')
-                                case 'date_asc':
-                                    return (this.getDate(a) || '').localeCompare(this.getDate(b) || '')
-                                case 'duration_desc':
-                                    return (this.getDuration(b) || '').localeCompare(this.getDuration(a) || '')
-                                case 'name_asc':
-                                    return this.getTitle(a).localeCompare(this.getTitle(b))
-                                default:
-                                    return 0
-                            }
-                        })
-                    }
-                    return objs
+                    return this.selectedTask.objects
+                }
+            },
+            watch: {
+                sortBy() {
+                    this.pagination.page = 1
+                    this.fetchTaskDetails(this.selectedTaskId)
+                },
+                searchQuery(newVal) {
+                    // Debounce search
+                    if (this.searchTimer) clearTimeout(this.searchTimer)
+                    this.searchTimer = setTimeout(() => {
+                        this.pagination.page = 1
+                        this.fetchTaskDetails(this.selectedTaskId)
+                    }, 500)
                 }
             },
             mounted() {
                 this.fetchTasks()
-                this.timer = setInterval(this.fetchTasks, 2000)
+                    // Use SSE instead of polling for tasks and downloads
+                this.initSSE()
+
+                // Keep a slow poll as backup/health check
+                this.timer = setInterval(this.fetchTasks, 30000)
             },
             beforeUnmount() {
                 if (this.timer) clearInterval(this.timer)
+                if (this.eventSource) this.eventSource.close()
+                if (this.abortController) this.abortController.abort()
             },
             methods: {
+                initSSE() {
+                    if (this.eventSource) this.eventSource.close()
+                    this.eventSource = new EventSource('/api/events')
+
+                    this.eventSource.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data)
+                            this.handleEvent(data)
+                        } catch (e) {
+                            console.error("SSE Parse Error", e)
+                        }
+                    }
+
+                    this.eventSource.onerror = (e) => {
+                        console.error("SSE Error", e);
+                        // Optionally, show a toast notification
+                        this.showToast("Connection lost. Reconnecting...", "error");
+                    }
+                },
+                handleEvent(event) {
+                    if (event.type === 'object_update') {
+                        const obj = event.payload
+
+                        // Update active downloads list
+                        if (obj.status === 'downloading') {
+                            const idx = this.activeDownloads.findIndex(d => d.url === obj.url)
+                            if (idx >= 0) {
+                                this.activeDownloads[idx] = {
+                                    task_id: obj.task_id,
+                                    url: obj.url,
+                                    title: (obj.metadata && obj.metadata.title) || obj.url,
+                                    progress: obj.progress,
+                                    status: obj.status
+                                }
+                            } else {
+                                this.activeDownloads.push({
+                                    task_id: obj.task_id,
+                                    url: obj.url,
+                                    title: (obj.metadata && obj.metadata.title) || obj.url,
+                                    progress: obj.progress,
+                                    status: obj.status
+                                })
+                            }
+                        } else {
+                            // Remove from active downloads if completed/failed
+                            const idx = this.activeDownloads.findIndex(d => d.url === obj.url)
+                            if (idx >= 0) this.activeDownloads.splice(idx, 1)
+
+                            // Toast Notification
+                            if (obj.status === 'completed') {
+                                this.showToast(`Download completed: ${this.getTitle(obj)}`, 'success')
+                            } else if (obj.status === 'failed') {
+                                this.showToast(`Download failed: ${this.getTitle(obj)}`, 'error')
+                            }
+                        }
+
+                        // Update current task view if relevant
+                        if (this.selectedTask && this.selectedTask.objects) {
+                            const currentObj = this.selectedTask.objects.find(o => o.url === obj.url)
+                            if (currentObj) {
+                                currentObj.status = obj.status
+                                currentObj.progress = obj.progress
+                                if (obj.metadata) currentObj.metadata = obj.metadata
+                            }
+                        }
+                    } else if (event.type === 'task_update') {
+                        const summary = event.payload
+                        const idx = this.tasks.findIndex(t => t.id === summary.id)
+                        if (idx >= 0) {
+                            // Update existing task summary
+                            this.tasks[idx] = {...this.tasks[idx],
+                                ...summary
+                            }
+                        }
+                    } else if (event.type === 'task_list_change') {
+                        this.fetchTasks()
+                    }
+                },
+                showToast(message, type = 'info') {
+                    // Simple toast implementation
+                    const toast = document.createElement('div')
+                    toast.className = `fixed bottom-4 left-4 px-4 py-2 rounded shadow-lg text-white text-sm z-50 transition-opacity duration-300 ${type === 'error' ? 'bg-red-500' : 'bg-green-500'}`
+                    toast.textContent = message
+                    document.body.appendChild(toast)
+                    setTimeout(() => {
+                        toast.style.opacity = '0'
+                        setTimeout(() => toast.remove(), 300)
+                    }, 3000)
+                },
                 // ... (Existing methods kept, adding new ones)
                 async fetchTasks() {
                     try {
@@ -528,22 +644,72 @@
                 selectTask(id) {
                     this.selectedTaskId = id
                     this.searchQuery = ''
+                    this.pagination.page = 1
                     if (this.viewMode === 'downloads') {
                         this.viewMode = 'grid'
                     }
                     this.fetchTaskDetails(id, false)
                 },
+                changePage(p) {
+                    if (p < 1) return
+                    if (this.pagination.limit !== 'all' && p > Math.ceil(this.pagination.total / this.pagination.limit)) return
+                    this.pagination.page = p
+                    this.fetchTaskDetails(this.selectedTaskId)
+                },
+                changeLimit() {
+                    this.pagination.page = 1
+                    this.fetchTaskDetails(this.selectedTaskId)
+                },
                 async fetchTaskDetails(id, background = false) {
-                    if (!background) this.isLoadingTask = true
+                    if (!background) {
+                        this.isLoadingTask = true
+                            // Abort previous request if exists
+                        if (this.abortController) this.abortController.abort()
+                        this.abortController = new AbortController()
+                    }
+
                     try {
-                        const res = await fetch(`/api/tasks/${id}`)
+                        let url = `/api/tasks/${id}?page=${this.pagination.page}`
+                        if (this.pagination.limit !== 'all') {
+                            url += `&limit=${this.pagination.limit}`
+                        } else {
+                            url += `&limit=all`
+                        }
+
+                        if (this.searchQuery) {
+                            url += `&search=${encodeURIComponent(this.searchQuery)}`
+                        }
+
+                        if (this.sortBy !== 'default') {
+                            url += `&sort=${this.sortBy}`
+                        }
+
+                        const options = background ? {} : {
+                            signal: this.abortController.signal
+                        }
+                        const res = await fetch(url, options)
                         if (!res.ok) throw new Error("Failed to fetch task details")
                         const data = await res.json()
                         this.selectedTask = data
+
+                        if (data.total !== undefined) {
+                            this.pagination.total = data.total
+                                // If backend adjusted page/limit
+                            this.pagination.page = data.page
+                            if (data.limit === -1 || data.limit === 0) {
+                                this.pagination.limit = 'all'
+                            } else {
+                                this.pagination.limit = data.limit
+                            }
+                        }
                     } catch (e) {
+                        if (e.name === 'AbortError') return;
                         console.error(e)
                     } finally {
-                        if (!background) this.isLoadingTask = false
+                        if (!background) {
+                            this.isLoadingTask = false
+                            this.abortController = null
+                        }
                     }
                 },
 

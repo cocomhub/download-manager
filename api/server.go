@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 
 	"download-manager/config"
 	"download-manager/manager"
@@ -32,6 +33,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/config", s.getConfig).Methods("GET")
 	r.HandleFunc("/api/config", s.updateConfig).Methods("POST")
 	r.HandleFunc("/api/downloads", s.getActiveDownloads).Methods("GET")
+	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
 
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
@@ -57,7 +59,26 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	details, err := s.mgr.GetTaskDetails(id)
+	page := 1
+	limit := 50 // Default
+
+	if pStr := r.URL.Query().Get("page"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if lStr == "all" {
+			limit = -1
+		} else if l, err := strconv.Atoi(lStr); err == nil {
+			limit = l
+		}
+	}
+
+	search := r.URL.Query().Get("search")
+	sortBy := r.URL.Query().Get("sort")
+
+	details, err := s.mgr.GetTaskDetails(id, page, limit, search, sortBy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -144,4 +165,46 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getActiveDownloads(w http.ResponseWriter, r *http.Request) {
 	actives := s.mgr.GetActiveDownloads()
 	json.NewEncoder(w).Encode(actives)
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	// Set headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Flush immediately to establish connection
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	flusher.Flush()
+
+	// Subscribe to manager events
+	eventChan := s.mgr.Subscribe()
+	defer s.mgr.Unsubscribe(eventChan)
+
+	// Listen for client disconnect
+	notify := r.Context().Done()
+
+	for {
+		select {
+		case <-notify:
+			return
+		case event := <-eventChan:
+			data, err := json.Marshal(event)
+			if err != nil {
+				continue
+			}
+			// SSE format: "data: ...\n\n"
+			// Using "event" field for type if needed, but we put type in payload
+			// Let's just send data
+			w.Write([]byte("data: "))
+			w.Write(data)
+			w.Write([]byte("\n\n"))
+			flusher.Flush()
+		}
+	}
 }

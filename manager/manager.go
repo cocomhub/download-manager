@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +36,13 @@ type Manager struct {
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
 	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
 
+	// Event Bus
+	subscribers map[<-chan core.Event]chan core.Event
+	eventMu     sync.RWMutex
+
+	// Progress Deduplication
+	lastProgress sync.Map // URL -> int
+
 	// Global Rate Limiting
 	downloadQueue chan *downloadRequest
 	workerWg      sync.WaitGroup
@@ -63,6 +72,37 @@ func NewManager(cfg *config.Config) *Manager {
 		stopChan:        make(chan struct{}),
 		activeDownloads: make(map[string]int),
 		downloadQueue:   make(chan *downloadRequest, globalLimit*2), // Buffer size
+		subscribers:     make(map[<-chan core.Event]chan core.Event),
+	}
+}
+
+func (m *Manager) Subscribe() <-chan core.Event {
+	m.eventMu.Lock()
+	defer m.eventMu.Unlock()
+	ch := make(chan core.Event, 100) // Buffer to prevent blocking
+	m.subscribers[ch] = ch
+	return ch
+}
+
+func (m *Manager) Unsubscribe(ch <-chan core.Event) {
+	m.eventMu.Lock()
+	defer m.eventMu.Unlock()
+	if c, ok := m.subscribers[ch]; ok {
+		close(c)
+		delete(m.subscribers, ch)
+	}
+}
+
+func (m *Manager) publish(e core.Event) {
+	m.eventMu.RLock()
+	defer m.eventMu.RUnlock()
+	for _, ch := range m.subscribers {
+		select {
+		case ch <- e:
+		default:
+			// Drop event if consumer is too slow
+			slog.Warn("Dropping event for slow subscriber", "type", e.Type)
+		}
 	}
 }
 
@@ -98,8 +138,12 @@ func (m *Manager) Start() {
 	// Save cache ticker
 	cacheTicker := time.NewTicker(5 * time.Minute)
 
+	// Progress broadcast ticker
+	progressTicker := time.NewTicker(1 * time.Second)
+
 	defer ticker.Stop()
 	defer cacheTicker.Stop()
+	defer progressTicker.Stop()
 
 	// Immediate scan on start
 	m.scan()
@@ -108,6 +152,8 @@ func (m *Manager) Start() {
 		select {
 		case <-ticker.C:
 			m.scan()
+		case <-progressTicker.C:
+			m.broadcastProgress()
 		case <-cacheTicker.C:
 			m.saveAllCaches()
 		case <-m.stopChan:
@@ -297,9 +343,54 @@ func (m *Manager) processTask(t core.Task) {
 			// Queue full, abort scheduling for now
 			// Remove from downloadingObj map since we didn't schedule it
 			m.downloadingObj.Delete(obj.URL)
-			return
 		}
 	}
+	m.BroadcastTaskUpdate(t.ID())
+}
+
+func (m *Manager) broadcastProgress() {
+	m.downloadingObj.Range(func(key, value interface{}) bool {
+		obj := value.(*model.DownloadObject)
+
+		// Check if progress has changed
+		last, loaded := m.lastProgress.LoadOrStore(obj.URL, -1)
+		if !loaded || last.(int) != obj.Progress {
+			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.lastProgress.Store(obj.URL, obj.Progress)
+		}
+		return true
+	})
+}
+
+func (m *Manager) BroadcastTaskUpdate(taskID string) {
+	m.mu.Lock()
+	t, ok := m.tasks[taskID]
+	m.mu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	summary := map[string]interface{}{
+		"id":   taskID,
+		"type": t.Type(),
+	}
+
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		summary["total"] = len(objs)
+		completed := 0
+		for _, o := range objs {
+			if o.Status == model.StatusCompleted {
+				completed++
+			}
+		}
+		summary["completed"] = completed
+	}
+
+	m.publish(core.Event{Type: core.EventTaskUpdate, Payload: summary})
 }
 
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
@@ -310,9 +401,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 		// Remove from downloadingObj map
 		m.downloadingObj.Delete(obj.URL)
+		m.lastProgress.Delete(obj.URL)
+
+		// Broadcast task update on finish
+		m.BroadcastTaskUpdate(t.ID())
 	}()
 
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 
 	m.mu.Lock()
 	dl := m.downloader
@@ -325,6 +421,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	} else {
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
 	}
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 }
 
 // forceDownload bypasses the queue and runs immediately
@@ -397,7 +494,7 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 	return summaries
 }
 
-func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
+func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]interface{}, error) {
 	m.mu.Lock()
 	t, ok := m.tasks[id]
 	m.mu.Unlock()
@@ -418,7 +515,90 @@ func (m *Manager) GetTaskDetails(id string) (map[string]interface{}, error) {
 		if objs == nil {
 			objs = make([]*model.DownloadObject, 0)
 		}
-		result["objects"] = objs
+
+		// Filter by search query
+		if search != "" {
+			search = strings.ToLower(strings.TrimSpace(search))
+			var filtered []*model.DownloadObject
+			for _, obj := range objs {
+				match := false
+				if strings.Contains(strings.ToLower(obj.URL), search) {
+					match = true
+				} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
+					match = true
+				} else if tags, ok := obj.Extra["tags"].([]interface{}); ok {
+					for _, t := range tags {
+						if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
+							match = true
+							break
+						}
+					}
+				}
+
+				if match {
+					filtered = append(filtered, obj)
+				}
+			}
+			objs = filtered
+		}
+
+		// Sort objects
+		sort.Slice(objs, func(i, j int) bool {
+			switch sortBy {
+			case "date_asc":
+				return objs[i].Metadata["date"] < objs[j].Metadata["date"]
+			case "date_desc":
+				return objs[i].Metadata["date"] > objs[j].Metadata["date"]
+			case "name_asc":
+				titleI := objs[i].Metadata["title"]
+				if titleI == "" {
+					titleI = objs[i].URL
+				}
+				titleJ := objs[j].Metadata["title"]
+				if titleJ == "" {
+					titleJ = objs[j].URL
+				}
+				return strings.ToLower(titleI) < strings.ToLower(titleJ)
+			case "duration_desc":
+				return objs[i].Metadata["duration"] > objs[j].Metadata["duration"]
+			default:
+				// Default: Date Desc, then URL Asc
+				dateI := objs[i].Metadata["date"]
+				dateJ := objs[j].Metadata["date"]
+				if dateI != dateJ {
+					return dateI > dateJ
+				}
+				return objs[i].URL < objs[j].URL
+			}
+		})
+
+		total := len(objs)
+		var pagedObjs []*model.DownloadObject
+
+		if limit <= 0 {
+			// All
+			pagedObjs = objs
+			page = 1
+			limit = total
+		} else {
+			if page < 1 {
+				page = 1
+			}
+			start := (page - 1) * limit
+			if start > total {
+				start = total
+			}
+			end := start + limit
+			if end > total {
+				end = total
+			}
+			pagedObjs = objs[start:end]
+		}
+
+		result["objects"] = pagedObjs
+		result["total"] = total
+		result["page"] = page
+		result["limit"] = limit
 	}
 
 	return result, nil
@@ -566,5 +746,6 @@ func (m *Manager) UpdateConfig(newCfg *config.Config) error {
 	}
 
 	slog.Info("Configuration updated")
+	m.publish(core.Event{Type: core.EventTaskListChange, Payload: nil})
 	return nil
 }
