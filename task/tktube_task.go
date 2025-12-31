@@ -211,7 +211,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				defer func() { <-sem }() // Release
 
 				if err := t.resolveVideoDetails(o); err != nil {
-					slog.Error("Failed to resolve video details", "url", o.URL, "error", err)
+					slog.Error("Failed to resolve video details", "task_id", t.id, "url", o.URL, "error", err)
 					t.UpdateStatus(o, model.StatusFailed, err)
 				} else {
 					mu.Lock()
@@ -328,7 +328,7 @@ func (t *TktubeTask) scrapeAllPages() {
 	// Parse total pages
 	totalPages := t.parseTotalPages(html)
 	if totalPages > t.pageEnd {
-		slog.Info("Detected more pages", "old_end", t.pageEnd, "new_end", totalPages)
+		slog.Info("Detected more pages", "task_id", t.id, "old_end", t.pageEnd, "new_end", totalPages)
 		t.pageEnd = totalPages
 	}
 
@@ -337,7 +337,7 @@ func (t *TktubeTask) scrapeAllPages() {
 	if err == nil {
 		t.addVideoItems(items1)
 	} else {
-		slog.Error("Failed to parse first page", "error", err)
+		slog.Error("Failed to parse first page", "task_id", t.id, "error", err)
 		return
 	}
 
@@ -348,17 +348,17 @@ func (t *TktubeTask) scrapeAllPages() {
 	// If we want to scrape EVERYTHING, we just loop.
 	for i := t.pageStart + 1; i <= t.pageEnd; i++ {
 		url := t.buildPageURL(i)
-		slog.Info("Scraping page", "task_id", t.id, "page", i)
+		slog.Info("Scraping All pages", "task_id", t.id, "page", i, "url", url)
 
 		html, err := t.runScraper(url)
 		if err != nil {
-			slog.Error("Failed to scrape page", "page", i, "error", err)
+			slog.Error("Failed to scrape page", "task_id", t.id, "page", i, "error", err)
 			continue
 		}
 
 		items, err := t.parseHomePage(html)
 		if err != nil {
-			slog.Error("Failed to parse page", "page", i, "error", err)
+			slog.Error("Failed to parse page", "task_id", t.id, "page", i, "error", err)
 			continue
 		}
 
@@ -380,25 +380,35 @@ func (t *TktubeTask) startPeriodicRefresh() {
 }
 
 func (t *TktubeTask) refreshLatest() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	slog.Info("Refreshing task", "task_id", t.id, "keyword", t.keyword)
 
-	slog.Info("Refreshing task", "task_id", t.id)
-
-	// Start from page 1 and go until we find a duplicate
 	page := 1
-	newCount := 0
+	maxPages := -1
+	var newObjects []*model.DownloadObject
 
 	for {
 		url := t.buildPageURL(page)
+		slog.Info("Scraping latest page", "task_id", t.id, "page", page, "url", url)
+
+		// 1. Scrape (No Lock)
 		html, err := t.runScraper(url)
 		if err != nil {
-			slog.Error("Refresh failed on page", "page", page, "error", err)
+			slog.Error("Refresh failed on page", "task_id", t.id, "page", page, "error", err)
 			break
 		}
 
+		if maxPages == -1 {
+			maxPages = t.parseTotalPages(html)
+			if maxPages > t.pageEnd {
+				slog.Info("Detected more pages", "task_id", t.id, "old_end", t.pageEnd, "new_end", maxPages)
+				t.pageEnd = maxPages
+			}
+		}
+
+		// 2. Parse (No Lock)
 		items, err := t.parseHomePage(html)
 		if err != nil {
+			slog.Error("Parse failed on page", "task_id", t.id, "page", page, "error", err)
 			break
 		}
 
@@ -406,24 +416,22 @@ func (t *TktubeTask) refreshLatest() {
 			break
 		}
 
-		pageNewCount := 0
-		foundExisting := false
+		// 3. Process Items (Lock)
+		t.mu.Lock()
 
-		// Process items
-		// Since we append to t.objects, we need to insert at beginning if we want order?
-		// But objects slice order might not matter if UI sorts by date.
-		// However, for consistency, let's just append and let UI sort.
+		var pageNewObjects []*model.DownloadObject
+		allKnown := true
 
 		for _, v := range items {
 			if t.knownURLs[v.href] {
-				foundExisting = true
 				continue
 			}
+			allKnown = false
 
 			// New item
 			obj := t.createObjectFromVideoItem(v)
 
-			// Check storage just in case (persistence across restarts)
+			// Check storage just in case
 			if t.store != nil {
 				if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
 					// Found in DB, check ownership
@@ -434,56 +442,41 @@ func (t *TktubeTask) refreshLatest() {
 				}
 			}
 
-			t.objects = append(t.objects, obj)
 			t.knownURLs[v.href] = true
+			pageNewObjects = append(pageNewObjects, obj)
 			t.queuePrefetch(obj)
-
-			pageNewCount++
-			newCount++
 		}
 
-		if foundExisting {
-			// We found an item we already have, so we assume we caught up
-			// But maybe there are "gaps" if items were deleted on source?
-			// Usually "foundExisting" on page 1 means we are up to date.
-			// But if we found 5 new and 5 existing, we stop after this page?
-			// Or we continue until a page has ALL existing?
-			// Let's stop if we found ANY existing, assuming strict chronological order.
-			// Actually, if page 1 has [New, New, Old, Old], we processed New, skipped Old.
-			// We should probably stop if ALL items on page are Old?
-			// Or if we encounter the *first* Old item?
-			// If we stop at first old item, we might miss others if order changed slightly.
-			// Safer: Stop if *entire page* consists of known URLs.
+		t.mu.Unlock()
 
-			allKnown := true
-			for _, v := range items {
-				if !t.knownURLs[v.href] {
-					allKnown = false
-					break
-				}
-			}
-			if allKnown {
-				break
-			}
+		// Append pageNewObjects to newObjects
+		newObjects = append(newObjects, pageNewObjects...)
+
+		if allKnown {
+			slog.Info("Found all known items on page, stopping refresh", "task_id", t.id, "page", page)
+			break
 		}
 
 		page++
-		// Safety break
-		if page > 100 {
+		if page > maxPages {
+			slog.Info("Hit max page limit for refresh", "task_id", t.id, "limit", maxPages)
 			break
 		}
 	}
 
-	if newCount > 0 {
-		slog.Info("Refresh finished", "task_id", t.id, "new_items", newCount)
-		// Don't call SaveCache here under lock if SaveCache takes lock.
-		// But SaveCache is method on t.
-		// t.mu is already locked. SaveCache also locks t.mu.
-		// Deadlock!
-		// We should call internal save or defer save.
-		// Or just let periodic save handle it?
-		// Periodic save is handled by Manager.
-		// But refresh is infrequent, maybe fine to wait.
+	if len(newObjects) > 0 {
+		t.mu.Lock()
+		// Prepend newObjects to t.objects
+		t.objects = append(newObjects, t.objects...)
+		t.mu.Unlock()
+
+		slog.Info("Refresh finished", "task_id", t.id, "new_items", len(newObjects))
+
+		if err := t.SaveCache(); err != nil {
+			slog.Error("Failed to save cache after refresh", "task_id", t.id, "error", err)
+		}
+	} else {
+		slog.Info("No new items found", "task_id", t.id)
 	}
 }
 
@@ -621,9 +614,9 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 				t.store.Update(obj)
 			}
 			t.mu.Unlock()
-			slog.Debug("Prefetched preview", "title", obj.Metadata["title"])
+			slog.Debug("Prefetched preview", "task_id", t.id, "title", obj.Metadata["title"])
 		} else {
-			slog.Warn("Failed to prefetch preview, retrying later", "url", previewURL, "error", err)
+			slog.Warn("Failed to prefetch preview, retrying later", "task_id", t.id, "url", previewURL, "error", err)
 			// Re-queue for retry?
 			// Simple backoff or re-add to queue
 			// To avoid infinite loop on bad URL, maybe check retry count?
@@ -649,7 +642,7 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 				t.store.Update(obj)
 			}
 			t.mu.Unlock()
-			slog.Debug("Prefetched cover", "title", obj.Metadata["title"])
+			slog.Debug("Prefetched cover", "task_id", t.id, "title", obj.Metadata["title"])
 		} else {
 			go func() {
 				time.Sleep(10 * time.Second)
@@ -886,6 +879,15 @@ func (t *TktubeTask) parseHomePage(html string) ([]videoItem, error) {
 		a := s.Find("a")
 		href, exists := a.Attr("href")
 		if !exists {
+			return
+		}
+		href = strings.TrimSpace(href)
+		// Normalize relative hrefs to absolute
+		if strings.HasPrefix(href, "/") {
+			href = "https://tktube.com" + href
+		}
+		// Basic sanity check to avoid corrupted values
+		if !strings.HasPrefix(href, "http") {
 			return
 		}
 

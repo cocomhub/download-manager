@@ -209,8 +209,8 @@
                             @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
 
                             <!-- Cover Image Area -->
-                            <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="hoverObj = obj" @mouseleave="hoverObj = null">
-                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black"></video>
+                            <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
                                 <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
                                 <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
                                     <i class="fas fa-file-image text-4xl"></i>
@@ -270,8 +270,8 @@
                                 <tr v-for="obj in filteredObjects" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
                                     <td class="px-6 py-4">
                                         <div class="flex items-center">
-                                            <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="hoverObj = obj" @mouseleave="hoverObj = null">
-                                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black"></video>
+                                            <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
                                                 <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
                                                 <i v-else class="fas fa-file text-gray-400"></i>
                                             </div>
@@ -325,14 +325,150 @@
         </main>
 
         <!-- Video Modal -->
-        <div v-if="currentVideo" class="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4 backdrop-blur-sm" @click.self="closeVideo">
-            <div class="bg-black rounded-lg shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-screen">
-                <div class="flex justify-between items-center p-4 bg-gray-900 text-white">
-                    <h3 class="text-lg font-medium truncate pr-4">{{ getTitle(currentVideo) }}</h3>
-                    <button @click="closeVideo" class="text-gray-400 hover:text-white transition"><i class="fas fa-times text-xl"></i></button>
+        <div v-if="currentVideo" class="fixed inset-0 bg-black bg-opacity-95 z-50 flex items-center justify-center p-4 backdrop-blur-sm outline-none" @keydown.esc="closeVideo" tabindex="0" ref="videoModal" @mousemove="onMouseMove" @mouseleave="showControls = false">
+            <div class="bg-black rounded-lg shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col max-h-screen relative group select-none transition-cursor duration-300" :class="{ 'cursor-none': !showControls && isPlaying }">
+                <!-- Header (Auto-hide) -->
+                <div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-20 transition-opacity duration-300 flex justify-between items-center" :class="{ 'opacity-0 pointer-events-none': !showControls && isPlaying, 'opacity-100': showControls || !isPlaying }">
+                    <h3 class="text-lg font-medium text-white truncate pr-4 text-shadow">{{ getTitle(currentVideo) }}</h3>
+                    <button @click="closeVideo" class="text-gray-300 hover:text-white transition bg-black/20 hover:bg-black/40 rounded-full p-2 w-10 h-10 flex items-center justify-center backdrop-blur-sm"><i class="fas fa-times text-xl"></i></button>
                 </div>
-                <div class="relative bg-black flex-1 flex items-center justify-center aspect-video">
-                    <video :src="getVideoUrl(currentVideo)" controls autoplay class="w-full h-full max-h-[80vh] outline-none"></video>
+
+                <!-- Video Player Container -->
+                <div class="relative bg-black flex-1 flex items-center justify-center aspect-video cursor-pointer group/video" @click="togglePlay" @dblclick="toggleFullscreen">
+                    <video ref="videoPlayer" :src="getVideoUrl(currentVideo)" class="w-full h-full max-h-[85vh] outline-none" preload="metadata" autoplay @timeupdate="updateProgress" @loadedmetadata="onLoadedMetadata" @ended="onEnded" @play="isPlaying = true" @pause="isPlaying = false"
+                        @waiting="isBuffering = true" @playing="isBuffering = false"></video>
+
+                    <!-- Settings Panel -->
+                    <div v-if="showVideoSettings" class="absolute right-4 bottom-20 w-64 bg-black/90 backdrop-blur border border-gray-700 rounded-lg shadow-xl p-4 z-30 text-white select-none" @click.stop>
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-700 pb-2">
+                            <h4 class="font-bold text-sm">Player Settings</h4>
+                            <button @click="showVideoSettings = false" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                        </div>
+
+                        <div class="space-y-4 text-sm">
+                            <div>
+                                <label class="block text-gray-400 mb-1">Skip Interval</label>
+                                <div class="grid grid-cols-4 gap-2">
+                                    <button v-for="sec in [5, 10, 15, 30]" :key="sec" @click="videoSettings.skipInterval = sec; saveVideoSettings()" class="px-2 py-1 rounded border border-gray-600 hover:border-blue-500 hover:text-blue-400 transition" :class="videoSettings.skipInterval === sec ? 'bg-blue-600 border-blue-600 text-white hover:text-white' : ''">
+                                        {{ sec }}s
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-400 mb-1">Default Speed</label>
+                                <select v-model.number="videoSettings.defaultSpeed" @change="saveVideoSettings" class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 focus:border-blue-500 outline-none">
+                                    <option :value="0.5">0.5x</option>
+                                    <option :value="1.0">1.0x (Normal)</option>
+                                    <option :value="1.25">1.25x</option>
+                                    <option :value="1.5">1.5x</option>
+                                    <option :value="2.0">2.0x</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center justify-between">
+                                <label class="text-gray-400">Auto Play</label>
+                                <input type="checkbox" v-model="videoSettings.autoPlay" @change="saveVideoSettings" class="accent-blue-600">
+                            </div>
+
+                            <div class="pt-2 border-t border-gray-700">
+                                <button @click="resetVideoSettings" class="w-full py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition">
+                                    Reset to Defaults
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Loading Spinner -->
+                    <div v-if="isBuffering" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500"></div>
+                    </div>
+
+                    <!-- Play/Pause Icon Overlay (Animation) -->
+                    <div v-if="showPlayIcon" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="bg-black/50 rounded-full p-6 backdrop-blur-sm animate-ping" style="animation-duration: 0.5s;">
+                            <i class="fas text-4xl text-white" :class="isPlaying ? 'fa-play' : 'fa-pause'"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls Bar -->
+                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-10 pb-4 px-6 z-20 transition-opacity duration-300" :class="{ 'opacity-0 pointer-events-none': !showControls && isPlaying, 'opacity-100': showControls || !isPlaying }"
+                    @click.stop>
+
+                    <!-- Progress Bar -->
+                    <div class="relative w-full h-1.5 bg-gray-600/50 rounded-full cursor-pointer mb-4 group/progress hover:h-2.5 transition-all" @click="seekClick" @mousemove="handleHoverProgress" @mouseleave="hoverTime = null">
+                        <!-- Buffer Bar -->
+                        <div class="absolute top-0 left-0 h-full bg-gray-400/30 rounded-full pointer-events-none" :style="{ width: (buffered / duration * 100) + '%' }"></div>
+                        <!-- Play Progress -->
+                        <div class="absolute top-0 left-0 h-full bg-blue-500 rounded-full pointer-events-none flex items-center justify-end" :style="{ width: (currentTime / duration * 100) + '%' }">
+                            <div class="w-3.5 h-3.5 bg-white rounded-full shadow-lg transform scale-0 group-hover/progress:scale-100 transition-transform"></div>
+                        </div>
+                        <!-- Hover Tooltip -->
+                        <div v-if="hoverTime !== null" class="absolute bottom-full mb-2 bg-black text-white text-xs rounded border border-gray-700 shadow-lg transform -translate-x-1/2 pointer-events-none flex flex-col items-center overflow-hidden z-30" :style="{ left: hoverProgressPosition + '%' }">
+                            <!-- Preview Video -->
+                            <div v-if="enablePreview" class="w-32 h-20 bg-gray-900 relative">
+                                <video v-if="hoverTime !== null" ref="previewVideo" :src="getVideoUrl(currentVideo)" class="w-full h-full object-cover" muted playsinline preload="metadata" @loadeddata="$event.target.currentTime = hoverTime"></video>
+                            </div>
+                            <div class="px-2 py-1 bg-black/80 w-full text-center">
+                                {{ formatTime(hoverTime) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center text-white">
+                        <!-- Left Controls -->
+                        <div class="flex items-center gap-6">
+                            <button @click="togglePlay" class="hover:text-blue-400 transition w-8 text-center" title="Play/Pause (Space)">
+                                <i class="fas text-xl" :class="isPlaying ? 'fa-pause' : 'fa-play'"></i>
+                            </button>
+
+                            <div class="flex items-center gap-2">
+                                <button @click="skip(-videoSettings.skipInterval)" class="hover:text-blue-400 transition text-sm focus:outline-none" :title="'Rewind ' + videoSettings.skipInterval + 's (Left/J)'">
+                                    <i class="fas fa-undo"></i> {{ videoSettings.skipInterval }}s
+                                </button>
+                                <button @click="skip(videoSettings.skipInterval)" class="hover:text-blue-400 transition text-sm focus:outline-none" :title="'Forward ' + videoSettings.skipInterval + 's (Right/L)'">
+                                    <i class="fas fa-redo"></i> {{ videoSettings.skipInterval }}s
+                                </button>
+                            </div>
+
+                            <span class="text-sm font-mono text-gray-300 select-none">
+                                {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+                            </span>
+                        </div>
+
+                        <!-- Right Controls -->
+                        <div class="flex items-center gap-6">
+                            <!-- Settings -->
+                            <button @click="showVideoSettings = !showVideoSettings" class="hover:text-blue-400 transition focus:outline-none" title="Settings">
+                                <i class="fas fa-cog"></i>
+                            </button>
+
+                            <!-- Volume -->
+                            <div class="flex items-center gap-2 group/volume">
+                                <button @click="toggleMute" class="hover:text-blue-400 transition w-6">
+                                    <i class="fas" :class="volumeIcon"></i>
+                                </button>
+                                <input type="range" min="0" max="1" step="0.1" v-model.number="volume" @input="updateVolume" class="w-20 h-1 accent-blue-500 opacity-0 group-hover/volume:opacity-100 transition-opacity cursor-pointer">
+                            </div>
+
+                            <!-- Speed -->
+                            <div class="relative group/speed pb-2">
+                                <button class="text-sm font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition min-w-[3rem]">{{ playbackRate }}x</button>
+                                <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 pb-3 bg-transparent hidden group-hover/speed:block">
+                                    <div class="bg-gray-900/95 border border-gray-700 rounded-lg shadow-xl flex flex-col overflow-hidden backdrop-blur">
+                                        <button v-for="rate in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]" :key="rate" @click="setSpeed(rate)" class="px-4 py-2 text-sm hover:bg-blue-600 hover:text-white transition text-center whitespace-nowrap" :class="playbackRate === rate ? 'text-blue-400 font-bold' : 'text-gray-300'">
+                                            {{ rate }}x
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button @click="toggleFullscreen" class="hover:text-blue-400 transition" title="Fullscreen (F)">
+                                <i class="fas fa-expand"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -465,8 +601,35 @@
                         total: 0
                     },
                     currentVideo: null,
+                    // Video Player State
+                    isPlaying: false,
+                    isBuffering: false,
+                    currentTime: 0,
+                    duration: 0,
+                    buffered: 0,
+                    volume: 1,
+                    isMuted: false,
+                    playbackRate: 1.0,
+                    showControls: true,
+                    controlsTimer: null,
+                    showPlayIcon: false,
+                    hoverTime: null,
+                    hoverProgressPosition: 0,
+
                     hoverObj: null,
+                    hoverTimer: null,
                     enablePreview: true,
+                    previewTimer: null,
+
+                    // Video Settings
+                    showVideoSettings: false,
+                    videoSettings: {
+                        skipInterval: 10, // seconds
+                        defaultSpeed: 1.0,
+                        defaultVolume: 1.0,
+                        autoPlay: true
+                    },
+
                     timer: null,
                     searchTimer: null,
                     draggedItem: null,
@@ -497,12 +660,32 @@
                 }
             },
             computed: {
+                volumeIcon() {
+                    if (this.isMuted || this.volume === 0) return 'fa-volume-mute';
+                    if (this.volume < 0.5) return 'fa-volume-down';
+                    return 'fa-volume-up';
+                },
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
                     return this.selectedTask.objects
                 }
             },
             watch: {
+                currentVideo(val) {
+                    if (val) {
+                        this.$nextTick(() => {
+                            window.addEventListener('keydown', this.handleKeydown);
+                            // Reset state
+                            this.isPlaying = true;
+                            this.playbackRate = 1.0;
+                            this.showControls = true;
+                            // Auto focus for keyboard control
+                            if (this.$refs.videoModal) this.$refs.videoModal.focus();
+                        });
+                    } else {
+                        window.removeEventListener('keydown', this.handleKeydown);
+                    }
+                },
                 sortBy() {
                     this.pagination.page = 1
                     this.fetchTaskDetails(this.selectedTaskId)
@@ -523,6 +706,7 @@
 
                 // Keep a slow poll as backup/health check
                 this.timer = setInterval(this.fetchTasks, 30000)
+                this.loadVideoSettings();
             },
             beforeUnmount() {
                 if (this.timer) clearInterval(this.timer)
@@ -530,6 +714,221 @@
                 if (this.abortController) this.abortController.abort()
             },
             methods: {
+                setHoverObj(obj) {
+                    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+                    this.hoverTimer = setTimeout(() => {
+                        this.hoverObj = obj;
+                    }, 600); // 600ms delay to prevent flooding
+                },
+                clearHoverObj() {
+                    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+                    this.hoverObj = null;
+                },
+                // Video Player Methods
+                loadVideoSettings() {
+                    try {
+                        const saved = localStorage.getItem('dm_video_settings');
+                        if (saved) {
+                            this.videoSettings = {...this.videoSettings,
+                                ...JSON.parse(saved)
+                            };
+                        }
+                    } catch (e) {
+                        console.error("Failed to load video settings", e);
+                    }
+                },
+                saveVideoSettings() {
+                    try {
+                        localStorage.setItem('dm_video_settings', JSON.stringify(this.videoSettings));
+                    } catch (e) {
+                        console.error("Failed to save video settings", e);
+                    }
+                },
+                resetVideoSettings() {
+                    this.videoSettings = {
+                        skipInterval: 10,
+                        defaultSpeed: 1.0,
+                        defaultVolume: 1.0,
+                        autoPlay: true
+                    };
+                    this.saveVideoSettings();
+                },
+                onLoadedMetadata() {
+                    const video = this.$refs.videoPlayer;
+                    if (!video) return;
+                    this.duration = video.duration;
+
+                    // Apply defaults
+                    if (this.currentVideo) {
+                        video.playbackRate = this.videoSettings.defaultSpeed;
+                        this.playbackRate = this.videoSettings.defaultSpeed;
+
+                        video.volume = this.videoSettings.defaultVolume;
+                        this.volume = this.videoSettings.defaultVolume;
+
+                        if (this.videoSettings.autoPlay) {
+                            video.play().catch(e => console.log("Autoplay prevented", e));
+                            this.isPlaying = true;
+                        } else {
+                            video.pause();
+                            this.isPlaying = false;
+                        }
+                    }
+
+                    this.isMuted = video.muted;
+                },
+                updateProgress() {
+                    const video = this.$refs.videoPlayer;
+                    if (!video) return;
+                    this.currentTime = video.currentTime;
+                    if (video.buffered.length > 0) {
+                        for (let i = 0; i < video.buffered.length; i++) {
+                            if (video.buffered.start(i) <= video.currentTime && video.buffered.end(i) >= video.currentTime) {
+                                this.buffered = video.buffered.end(i);
+                                break;
+                            }
+                        }
+                    }
+                },
+                onEnded() {
+                    this.isPlaying = false;
+                    this.showControls = true;
+                },
+                togglePlay() {
+                    const video = this.$refs.videoPlayer;
+                    if (!video) return;
+                    if (video.paused) {
+                        video.play();
+                        this.isPlaying = true;
+                    } else {
+                        video.pause();
+                        this.isPlaying = false;
+                    }
+                    this.showPlayIcon = true;
+                    setTimeout(() => this.showPlayIcon = false, 500);
+                },
+                seekClick(e) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const percent = (e.clientX - rect.left) / rect.width;
+                    const video = this.$refs.videoPlayer;
+                    if (video) {
+                        video.currentTime = percent * this.duration;
+                    }
+                },
+                handleHoverProgress(e) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const percent = (e.clientX - rect.left) / rect.width;
+                    this.hoverProgressPosition = Math.min(Math.max(percent * 100, 0), 100);
+                    const time = percent * this.duration;
+                    this.hoverTime = Math.max(0, Math.min(time, this.duration));
+
+                    if (this.enablePreview && this.$refs.previewVideo) {
+                        // Debounce video seek to avoid lag
+                        if (this.previewTimer) clearTimeout(this.previewTimer);
+                        this.previewTimer = setTimeout(() => {
+                            if (this.$refs.previewVideo) {
+                                this.$refs.previewVideo.currentTime = this.hoverTime;
+                            }
+                        }, 50);
+                    }
+                },
+                skip(seconds) {
+                    const video = this.$refs.videoPlayer;
+                    // Ensure seconds is a number
+                    const s = Number(seconds);
+                    if (video && !isNaN(s)) video.currentTime += s;
+                },
+                setSpeed(rate) {
+                    const video = this.$refs.videoPlayer;
+                    if (video) {
+                        video.playbackRate = rate;
+                        this.playbackRate = rate;
+                    }
+                },
+                toggleMute() {
+                    const video = this.$refs.videoPlayer;
+                    if (video) {
+                        video.muted = !video.muted;
+                        this.isMuted = video.muted;
+                        if (!this.isMuted && this.volume === 0) {
+                            this.volume = 1;
+                            video.volume = 1;
+                        }
+                    }
+                },
+                updateVolume() {
+                    const video = this.$refs.videoPlayer;
+                    if (video) {
+                        video.volume = this.volume;
+                        this.isMuted = video.volume === 0;
+                        video.muted = this.isMuted;
+                    }
+                },
+                toggleFullscreen() {
+                    const video = this.$refs.videoPlayer;
+                    if (!video) return;
+                    const container = video.parentElement.parentElement; // videoModal > container > videoWrapper
+                    // Use container if possible for custom controls, otherwise video
+                    const target = container || video;
+
+                    if (!document.fullscreenElement) {
+                        if (target.requestFullscreen) target.requestFullscreen();
+                        else if (video.requestFullscreen) video.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                },
+                onMouseMove() {
+                    this.showControls = true;
+                    if (this.controlsTimer) clearTimeout(this.controlsTimer);
+                    this.controlsTimer = setTimeout(() => {
+                        if (this.isPlaying) this.showControls = false;
+                    }, 3000);
+                },
+                formatTime(seconds) {
+                    if (!seconds || isNaN(seconds)) return "00:00";
+                    const h = Math.floor(seconds / 3600);
+                    const m = Math.floor((seconds % 3600) / 60);
+                    const s = Math.floor(seconds % 60);
+                    if (h > 0) {
+                        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    }
+                    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                },
+                handleKeydown(e) {
+                    if (!this.currentVideo) return;
+
+                    // Prevent default scrolling for common video keys
+                    // Also prevent default for space to avoid scrolling or button re-triggering
+                    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyF', 'KeyK', 'KeyJ', 'KeyL', 'KeyM'].includes(e.code)) {
+                        e.preventDefault();
+                    }
+
+                    // Use code for position-based keys, key for letter/character keys to support layouts better
+                    const key = e.key.toLowerCase();
+                    const code = e.code;
+
+                    if (code === 'Space' || key === 'k') {
+                        this.togglePlay();
+                    } else if (code === 'ArrowRight' || key === 'l') {
+                        this.skip(this.videoSettings.skipInterval);
+                    } else if (code === 'ArrowLeft' || key === 'j') {
+                        this.skip(-this.videoSettings.skipInterval);
+                    } else if (code === 'ArrowUp') {
+                        this.volume = Math.min(1, this.volume + 0.1);
+                        this.updateVolume();
+                    } else if (code === 'ArrowDown') {
+                        this.volume = Math.max(0, this.volume - 0.1);
+                        this.updateVolume();
+                    } else if (key === 'f') {
+                        this.toggleFullscreen();
+                    } else if (key === 'm') {
+                        this.toggleMute();
+                    } else if (code === 'Escape') {
+                        this.closeVideo();
+                    }
+                },
+
                 initSSE() {
                     if (this.eventSource) this.eventSource.close()
                     this.eventSource = new EventSource('/api/events')
@@ -886,6 +1285,22 @@
                 },
                 closeVideo() {
                     this.currentVideo = null
+                    this.isPlaying = false
+                    this.currentTime = 0
+                    this.duration = 0
+                    this.buffered = 0
+                    this.showControls = true
+                    if (this.controlsTimer) clearTimeout(this.controlsTimer)
+                        // Reset hover preview
+                    this.hoverTime = null
+                    if (this.previewTimer) clearTimeout(this.previewTimer)
+                    if (this.$refs.previewVideo) {
+                        try {
+                            this.$refs.previewVideo.pause()
+                            this.$refs.previewVideo.src = ''
+                            this.$refs.previewVideo.load()
+                        } catch (e) {}
+                    }
                 },
 
                 // Drag & Drop

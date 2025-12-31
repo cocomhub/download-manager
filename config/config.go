@@ -19,6 +19,7 @@ type LogConfig struct {
 }
 
 type ServerConfig struct {
+	DisableScan  bool   `yaml:"disable_scan" json:"disable_scan"`
 	ScanInterval int    `yaml:"scan_interval" json:"scan_interval"` // seconds
 	LockFile     string `yaml:"lock_file" json:"lock_file"`
 	HTTPPort     int    `yaml:"http_port" json:"http_port"` // Add port for web UI
@@ -48,4 +49,7 @@ type DownloaderConfig struct {
 	Proxies          []string `yaml:"proxies" json:"proxies"`
 	LogDir           string   `yaml:"log_dir" json:"log_dir"`
 	GlobalConcurrent int      `yaml:"global_concurrent" json:"global_concurrent"`
+	ForceProxy       bool     `yaml:"force_proxy" json:"force_proxy"`
+	MaxRetries       int      `yaml:"max_retries" json:"max_retries"`
+	Type             string   `yaml:"type" json:"type"`
 }

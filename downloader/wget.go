@@ -21,9 +21,10 @@ import (
 )
 
 type WgetDownloader struct {
-	logDir    string
-	proxies   []string
-	cacheFile string
+	logDir     string
+	proxies    []string
+	cacheFile  string
+	forceProxy bool
 }
 
 // Ensure WgetDownloader implements core.Downloader
@@ -39,9 +40,10 @@ func NewWgetDownloader(cfg config.DownloaderConfig) *WgetDownloader {
 	home, _ := os.UserHomeDir()
 
 	return &WgetDownloader{
-		logDir:    logDir,
-		proxies:   cfg.Proxies,
-		cacheFile: filepath.Join(home, ".config/download-manager/proxy_cache"),
+		logDir:     logDir,
+		proxies:    cfg.Proxies,
+		cacheFile:  filepath.Join(home, ".config/download-manager/proxy_cache"),
+		forceProxy: cfg.ForceProxy,
 	}
 }
 
@@ -162,21 +164,25 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	// Add User-Agent
 	args = append(args, "--header", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
+	url := subObj.URL
 	// Add proxy arguments if selected
 	env := os.Environ()
 	if proxyURL != "" {
-		slog.Info("Using proxy", "url", subObj.URL, "proxy", proxyURL)
+		url = strings.TrimPrefix(url, "http://")
+		url = strings.TrimPrefix(url, "https://")
+		url = proxyURL + "/" + url
+		slog.Info("Using proxy", "url", url, "proxy", proxyURL)
 		// Set both environment variables and command line args to be safe,
 		// but typically environment variables are enough for wget if not using --no-proxy
 		// Using -e http_proxy=... works well with wget
-		args = append(args, "-e", "use_proxy=yes")
-		args = append(args, "-e", "http_proxy="+proxyURL)
-		args = append(args, "-e", "https_proxy="+proxyURL)
+		// args = append(args, "-e", "use_proxy=yes")
+		// args = append(args, "-e", "http_proxy="+proxyURL)
+		// args = append(args, "-e", "https_proxy="+proxyURL)
 	} else {
-		slog.Debug("Using direct connection", "url", subObj.URL)
+		slog.Debug("Using direct connection", "url", url)
 	}
 
-	args = append(args, "-O", subObj.SavePath, subObj.URL)
+	args = append(args, "-O", subObj.SavePath, url)
 
 	cmd := exec.Command("wget", args...)
 	cmd.Env = env
@@ -278,6 +284,10 @@ func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
 }
 
 func (d *WgetDownloader) checkDirect(url string) bool {
+	if d.forceProxy {
+		return false
+	}
+
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 	}

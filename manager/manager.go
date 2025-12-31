@@ -68,7 +68,7 @@ func NewManager(cfg *config.Config) *Manager {
 	return &Manager{
 		cfg:             cfg,
 		tasks:           make(map[string]core.Task),
-		downloader:      downloader.NewWgetDownloader(cfg.Downloader),
+		downloader:      downloader.New(cfg.Downloader),
 		stopChan:        make(chan struct{}),
 		activeDownloads: make(map[string]int),
 		downloadQueue:   make(chan *downloadRequest, globalLimit*2), // Buffer size
@@ -186,6 +186,8 @@ func (m *Manager) loadTasks() {
 	// But Start calls it before ticker, so it's fine.
 	// UpdateConfig calls it under lock.
 
+	var wg sync.WaitGroup
+
 	for _, tCfg := range m.cfg.Tasks {
 		if _, exists := m.tasks[tCfg.ID]; exists {
 			continue
@@ -223,7 +225,9 @@ func (m *Manager) loadTasks() {
 
 		// Try load cache
 		if ct, ok := t.(interface{ LoadCache() error }); ok {
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				if err := ct.LoadCache(); err != nil {
 					slog.Warn("Failed to load task cache", "task_id", tCfg.ID, "error", err)
 				} else {
@@ -235,6 +239,7 @@ func (m *Manager) loadTasks() {
 		m.tasks[tCfg.ID] = t
 		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
 	}
+	wg.Wait()
 }
 
 func (m *Manager) saveAllCaches() {
@@ -259,7 +264,11 @@ func (m *Manager) saveAllCaches() {
 }
 
 func (m *Manager) scan() {
-	slog.Debug("Scanning tasks")
+	// slog.Debug("Scanning tasks")
+
+	if m.cfg.Server.DisableScan {
+		return
+	}
 
 	m.mu.Lock()
 	tasks := make([]core.Task, 0, len(m.tasks))
@@ -295,7 +304,7 @@ func (m *Manager) processTask(t core.Task) {
 	// If active >= limit, we stop scheduling new downloads for this task.
 	if active >= limit {
 		m.mu.Unlock()
-		slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
+		// slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
 	m.mu.Unlock()
@@ -726,7 +735,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config) error {
 	os.MkdirAll(m.cfg.Server.WorkDir+"/cache", 0755)
 
 	// Reload Downloader
-	m.downloader = downloader.NewWgetDownloader(newCfg.Downloader)
+	m.downloader = downloader.New(newCfg.Downloader)
 
 	// Resize worker pool?
 	// It's complex to resize pool at runtime.
