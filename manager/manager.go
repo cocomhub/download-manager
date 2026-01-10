@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -35,6 +37,7 @@ type Manager struct {
 	mu              sync.Mutex
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
 	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
+	failedCount     sync.Map // URL -> int (Failed download attempts)
 
 	// Event Bus
 	subscribers map[<-chan core.Event]chan core.Event
@@ -322,7 +325,7 @@ func (m *Manager) processTask(t core.Task) {
 	if len(objs) == 0 {
 		return
 	}
-	slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
+	// slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
 
 	// Schedule downloads up to available slots
 	count := 0
@@ -333,7 +336,7 @@ func (m *Manager) processTask(t core.Task) {
 		}
 
 		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded { // Store obj instead of URL
-			slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
+			// slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
 			continue
 		}
 
@@ -427,6 +430,27 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	if err != nil {
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, model.StatusFailed, err)
+
+		if errors.Is(err, downloader.ErrNoTry) {
+			if ft, ok := t.(core.FailedTask); ok {
+				ft.MarkAsFailed(obj, err)
+			}
+		}
+
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return
+		}
+
+		// Increment failed count
+		if count, ok := m.failedCount.LoadOrStore(obj.URL, 0); ok {
+			m.failedCount.Store(obj.URL, count.(int)+1)
+			// Check if max retries reached
+			if count.(int)+1 >= 5 {
+				if ft, ok := t.(core.FailedTask); ok {
+					ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
+				}
+			}
+		}
 	} else {
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
 	}

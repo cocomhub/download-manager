@@ -47,6 +47,8 @@ type TktubeTask struct {
 
 	// Set to track existing URLs for quick lookup
 	knownURLs map[string]bool
+
+	markAsFailed sync.Map
 }
 
 // Ensure TktubeTask implements core.Task
@@ -168,9 +170,9 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			activeCount++
 		}
 	}
-	if activeCount != 0 {
-		slog.Debug("Active count", "task_id", t.id, "count", activeCount)
-	}
+	// if activeCount != 0 {
+	// 	slog.Debug("Active count", "task_id", t.id, "count", activeCount)
+	// }
 
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
@@ -178,6 +180,10 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// Collect candidates
 	for _, obj := range t.objects {
 		if obj.Status != model.StatusCompleted {
+			// Check if failed
+			if _, ok := t.markAsFailed.Load(obj.URL); ok {
+				continue
+			}
 			// We look ahead a bit more to ensure we have enough resolved objects
 			if len(candidates)+len(toResolve)+activeCount < t.concurrency*2+2 {
 				// Check if resolved
@@ -224,6 +230,10 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 
 	return candidates, nil
+}
+
+func (t *TktubeTask) MarkAsFailed(obj *model.DownloadObject, err error) {
+	t.markAsFailed.Store(obj.URL, err)
 }
 
 // ResolveObject explicitly resolves an object (exposed for Manager)
@@ -837,11 +847,11 @@ func (t *TktubeTask) buildPageURL(page int) string {
 	ts := time.Now().UnixMilli()
 	switch t.taskType {
 	case "tag":
-		return fmt.Sprintf("https://tktube.com/tags/%s/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=%d&_=%d", t.keyword, page, ts)
+		return fmt.Sprintf("http://129.226.212.209:18080/tktube.com/tags/%s/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=%d&_=%d", t.keyword, page, ts)
 	case "model":
-		return fmt.Sprintf("https://tktube.com/models/%s/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=%d&_=%d", t.keyword, page, ts)
+		return fmt.Sprintf("http://129.226.212.209:18080/tktube.com/models/%s/?mode=async&function=get_block&block_id=list_videos_common_videos_list&sort_by=post_date&from=%d&_=%d", t.keyword, page, ts)
 	case "search":
-		return fmt.Sprintf("https://tktube.com/zh/search/?q=%s&mode=async&function=get_block&block_id=list_videos_videos_list_search_result&category_ids=&sort_by=post_date&from_videos=%d&from_albums=%d&_=%d", t.keyword, page, page, ts)
+		return fmt.Sprintf("http://129.226.212.209:18080/tktube.com/zh/search/?q=%s&mode=async&function=get_block&block_id=list_videos_videos_list_search_result&category_ids=&sort_by=post_date&from_videos=%d&from_albums=%d&_=%d", t.keyword, page, page, ts)
 	default:
 		return ""
 	}

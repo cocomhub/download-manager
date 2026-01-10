@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,6 +128,10 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject) error {
 	return d.downloadFile(obj, true, obj)
 }
 
+var (
+	ErrNoTry = errors.New("no try left")
+)
+
 // downloadFile 使用原生 HTTP 客户端下载文件 [6,7](@ref)
 func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject) (err error) {
 	// 确保目录存在
@@ -205,7 +210,7 @@ func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackP
 
 	defer func() {
 		if err != nil {
-			fmt.Fprintf(f, "Download failed: %v\n", err)
+			fmt.Fprintf(f, "%s Download failed: %v\n", time.Now().Format(time.RFC3339Nano), err)
 		}
 	}()
 
@@ -230,9 +235,18 @@ startDownload:
 	}
 
 	// 设置请求头模拟浏览器行为 [7](@ref)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("accept", "*/*")
+	req.Header.Set("cache-control", "no-cache")
+	req.Header.Set("pragma", "no-cache")
+	req.Header.Set("priority", "i")
+	req.Header.Set("referer", "https://tktube.com/zh/videos/351341/nhdtb-991-10-sex2/")
+	req.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"macOS"`)
+	req.Header.Set("sec-fetch-dest", "video")
+	req.Header.Set("sec-fetch-mode", "no-cors")
+	req.Header.Set("sec-fetch-site", "same-origin")
+	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
 
 	var resp *http.Response
 
@@ -244,6 +258,9 @@ startDownload:
 
 		resp, err = client.Do(nreq)
 		if err != nil {
+			if resp != nil && resp.StatusCode == http.StatusForbidden {
+				return fmt.Errorf("%w: HTTP request failed: %w", ErrNoTry, err)
+			}
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
@@ -300,11 +317,18 @@ startDownload:
 		// 执行请求
 		resp, err = client.Do(req)
 		if err != nil {
+			if resp != nil && resp.StatusCode == http.StatusForbidden {
+				return fmt.Errorf("%w: HTTP request failed: %w", ErrNoTry, err)
+			}
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
 		printResponseHeaders(f, resp)
+	}
+
+	if resp.ContentLength == 146 || resp.ContentLength == -1 {
+		return fmt.Errorf("%w: invalid content length: %d", ErrNoTry, resp.ContentLength)
 	}
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
@@ -318,6 +342,11 @@ startDownload:
 	// 检查响应状态
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
 		return fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	if strings.Contains(resp.Header.Get("Content-Type"), "text") &&
+		(strings.Contains(url, "mp4") || strings.Contains(url, "jpg")) {
+		return fmt.Errorf("%w: invalid content type: %s", ErrNoTry, resp.Header.Get("Content-Type"))
 	}
 
 	// 处理断点续传的响应 [10](@ref)
@@ -370,16 +399,29 @@ startDownload:
 	var reader io.Reader = resp.Body
 	if trackProgress && progressObj != nil && totalSize > 0 {
 		lastProgress := 0.0
+		lastDownloaded := startOffset
 		lastUpdate := time.Now()
 		reader = &progressReader{
 			reader:     resp.Body,
 			total:      totalSize,
 			downloaded: startOffset,
-			onProgress: func(progress float64) {
+			onProgress: func(progress float64, downloaded, totalSize int64) {
 				progressObj.Progress = int(progress)
 				if f != nil && (progress-lastProgress > 0.5 || time.Since(lastUpdate) >= 10*time.Second) {
-					fmt.Fprintf(f, "%s Progress: %v%%\n", time.Now().Format(time.RFC3339Nano), progress)
+					bps := float64(downloaded-lastDownloaded) / (time.Since(lastUpdate).Seconds())
+
+					index := 0
+					suffixs := []string{"B/s", "KB/s", "MB/s"}
+					x := float64(1)
+					for bps > 1024 && index < len(suffixs)-1 {
+						bps /= 1024
+						x *= 1024
+						index++
+					}
+
+					fmt.Fprintf(f, "%s Progress: %.3f%%  %.2f %s expected time: %.2f s\n", time.Now().Format(time.RFC3339Nano), progress, bps, suffixs[index], (float64(totalSize-downloaded) / bps / x))
 					lastProgress = progress
+					lastDownloaded = downloaded
 					lastUpdate = time.Now()
 				}
 			},
@@ -466,7 +508,7 @@ type progressReader struct {
 	reader     io.Reader
 	total      int64
 	downloaded int64
-	onProgress func(float64)
+	onProgress func(float64, int64, int64)
 }
 
 func (pr *progressReader) Read(p []byte) (int, error) {
@@ -475,7 +517,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 		pr.downloaded += int64(n)
 		if pr.total > 0 {
 			progress := float64(pr.downloaded) / float64(pr.total) * 100
-			pr.onProgress(progress)
+			pr.onProgress(progress, pr.downloaded, pr.total)
 		}
 	}
 	return n, err

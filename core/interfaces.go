@@ -31,6 +31,11 @@ type Task interface {
 	Close() error
 }
 
+type FailedTask interface {
+	// MarkAsFailed 标记任务为失败状态
+	MarkAsFailed(obj *model.DownloadObject, err error)
+}
+
 // Downloader 定义下载器的行为
 type Downloader interface {
 	// Download 执行下载

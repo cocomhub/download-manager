@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"sync"
 )
 
 func New(config config.DownloaderConfig) core.Downloader {
@@ -18,6 +19,14 @@ func New(config config.DownloaderConfig) core.Downloader {
 		return NewNativeHTTPDownloader(config)
 	}
 }
+
+var (
+	bufferPool = sync.Pool{
+		New: func() any {
+			return make([]byte, 64*1024)
+		},
+	}
+)
 
 // ComputeFileMD5 计算文件的MD5校验值，返回Base64和十六进制两种格式
 func ComputeFileMD5(filePath string) (string, string, error) {
@@ -31,8 +40,12 @@ func ComputeFileMD5(filePath string) (string, string, error) {
 	// 创建MD5哈希器
 	hasher := md5.New()
 
+	// 从池子里获取缓冲区
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+
 	// 将文件内容拷贝到哈希器，适合大文件[1,3](@ref)
-	if _, err := io.Copy(hasher, file); err != nil {
+	if _, err := io.CopyBuffer(hasher, file, buf); err != nil {
 		return "", "", err
 	}
 
