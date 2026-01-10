@@ -33,6 +33,27 @@
          ::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
         }
+        
+        .diff-add {
+            background-color: #e6ffed;
+        }
+        
+        .diff-del {
+            background-color: #ffeef0;
+        }
+        
+        .diff-mod {
+            background-color: #fff5b1;
+        }
+        
+        .diff-code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+        }
+        
+        .diff-mark {
+            background-color: rgba(255, 200, 0, 0.4);
+        }
     </style>
 </head>
 
@@ -98,8 +119,14 @@
                 <div class="flex items-center space-x-4" v-if="selectedTask">
                     <!-- Actions -->
                     <button @click="retryAllFailed" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
-                        <i class="fas fa-redo mr-1"></i> Retry Failed
-                    </button>
+                            <i class="fas fa-redo mr-1"></i> Retry Failed
+                        </button>
+                    <button @click="toggleTaskConfigPanel" class="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
+                            <i class="fas fa-sliders-h mr-1"></i> 任务配置
+                        </button>
+                    <button @click="openEditTask" class="text-sm bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
+                            <i class="fas fa-edit mr-1"></i> 编辑任务
+                        </button>
 
                     <!-- Sort -->
                     <select v-model="sortBy" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -154,6 +181,30 @@
 
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+                <!-- Task Config Panel (toggle) -->
+                <div v-if="selectedTask && showTaskConfigPanel" class="fixed right-6 bottom-6 w-80 z-50">
+                    <div class="bg-white rounded-lg shadow-lg p-4 border">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-3">任务配置</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">并发上限</label>
+                                <input type="number" v-model.number="taskConfigForm.concurrency" min="1" max="100" class="w-full border rounded px-2 py-1 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-600 mb-1">刷新间隔（秒）</label>
+                                <input type="number" v-model.number="taskConfigForm.refresh_interval" min="10" class="w-full border rounded px-2 py-1 text-sm">
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                <span v-if="selectedTask.supports && selectedTask.supports.concurrency && selectedTask.supports.refresh_interval">保存后立即生效</span>
+                                <span v-else>未实现动态更新，保存后重启生效</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <button @click="showTaskConfigPanel = false" class="px-3 py-1.5 text-gray-600 hover:text-gray-800 text-sm">关闭</button>
+                                <button @click="saveTaskConfig" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">保存任务配置</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <!-- Loading State -->
                 <div v-if="isLoadingTask" class="h-full flex flex-col items-center justify-center">
                     <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
@@ -505,10 +556,305 @@
                             </div>
                         </div>
                     </div>
+                    <div class="mb-6 border-t pt-4">
+                        <h4 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Logging Settings</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Level</label>
+                                <select v-model="configForm.log_level" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="debug">debug</option>
+                                    <option value="info">info</option>
+                                    <option value="warn">warn</option>
+                                    <option value="error">error</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Log File Path</label>
+                                <input type="text" v-model="configForm.log_filename" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./logs/app.log">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Max Size (MB)</label>
+                                <input type="number" v-model.number="configForm.log_max_size" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Max Backups</label>
+                                <input type="number" v-model.number="configForm.log_max_backups" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Max Age (days)</label>
+                                <input type="number" v-model.number="configForm.log_max_age" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <label class="text-sm font-medium text-gray-700">Compress</label>
+                                <input type="checkbox" v-model="configForm.log_compress" class="accent-blue-600">
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <label class="text-sm font-medium text-gray-700">Console Output</label>
+                                <input type="checkbox" v-model="configForm.log_console" class="accent-blue-600">
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">敏感配置（端口、数据库连接等）不在此界面显示与修改。</p>
+                    </div>
                 </div>
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
                     <button @click="showConfigModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
                     <button @click="saveConfig" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">Save Changes</button>
+                    <button @click="openConfigHistory" class="px-4 py-2 text-gray-600 hover:text-gray-800">历史配置</button>
+                </div>
+            </div>
+        </div>
+        <!-- Config History Modal -->
+        <div v-if="showHistoryModal" class="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-[95vw] max-w-[95vw] flex flex-col max-h-[92vh]">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h3 class="text-lg font-bold text-gray-800">历史配置与回滚</h3>
+                    <button @click="showHistoryModal = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-4 flex-1 overflow-y-auto space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">左侧版本</label>
+                            <select v-model="diffForm.left" class="w-full border rounded px-2 py-1 text-sm">
+                                <option value="current">当前配置</option>
+                                <option v-for="h in configHistory" :key="h.filename" :value="h.filename">{{ h.filename }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">右侧版本</label>
+                            <select v-model="diffForm.right" class="w-full border rounded px-2 py-1 text-sm">
+                                <option value="current">当前配置</option>
+                                <option v-for="h in configHistory" :key="h.filename + '-r'" :value="h.filename">{{ h.filename }}</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="viewConfigDiff" class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">查看差异</button>
+                            <button @click="clearConfigDiff" class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800">清空</button>
+                        </div>
+                    </div>
+                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-gray-600">文件名</th>
+                                <th class="px-4 py-2 text-left text-gray-600">标签</th>
+                                <th class="px-4 py-2 text-left text-gray-600">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr v-for="h in configHistory" :key="h.filename">
+                                <td class="px-4 py-2">{{ h.filename }}</td>
+                                <td class="px-4 py-2">
+                                    <span v-for="t in (h.tags||[])" :key="t" class="inline-block bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded mr-1 mb-1">{{ t }}</span>
+                                </td>
+                                <td class="px-4 py-2">
+                                    <button @click="prepareRollback(h.filename)" class="text-red-600 hover:text-red-800">回滚</button>
+                                    <button @click="addConfigTagRow(h.filename)" class="ml-2 text-blue-600 hover:text-blue-800">标签+</button>
+                                    <button @click="addConfigNoteRow(h.filename)" class="ml-2 text-green-600 hover:text-green-800">记录+</button>
+                                    <div class="mt-1">
+                                        <div v-for="n in (h.notes||[]).slice(-2)" :key="n.timestamp" class="text-xs text-gray-500">
+                                            <span>{{ new Date(n.timestamp*1000).toLocaleString() }}</span>
+                                            <span class="ml-1">{{ n.author || '未知' }}</span>
+                                            <span class="ml-1">{{ n.message }}</span>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="configHistory.length === 0">
+                                <td colspan="2" class="px-4 py-6 text-center text-gray-500">暂无历史备份</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="configDiff" class="mt-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">差异项</h4>
+                        <div class="mb-3">
+                            <div class="flex items-center gap-2 text-xs">
+                                <label><input type="checkbox" v-model="diffOptions.ignore_ws" class="mr-1">忽略空白</label>
+                                <label><input type="checkbox" v-model="diffOptions.ignore_comments" class="mr-1">忽略注释</label>
+                                <label><input type="checkbox" v-model="diffOptions.side_by_side" class="mr-1">并排查看</label>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <h5 class="text-xs text-gray-500 mb-1">路径差异</h5>
+                            <div class="flex items-center gap-2 mb-2 text-xs">
+                                <select v-model="pathFilter" class="border rounded px-2 py-1">
+                                    <option value="">全部</option>
+                                    <option value="server.">server</option>
+                                    <option value="downloader.">downloader</option>
+                                    <option value="task_scan.">task_scan</option>
+                                    <option value="log.">log</option>
+                                    <option value="tasks.">tasks</option>
+                                </select>
+                            </div>
+                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-gray-600">路径</th>
+                                        <th class="px-3 py-2 text-left text-gray-600">左值</th>
+                                        <th class="px-3 py-2 text-left text-gray-600">右值</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="c in filteredChanges" :key="c.path">
+                                        <td class="px-3 py-2">{{ c.path }}</td>
+                                        <td class="px-3 py-2"><pre class="whitespace-pre-wrap">{{ fmt(c.a) }}</pre></td>
+                                        <td class="px-3 py-2"><pre class="whitespace-pre-wrap">{{ fmt(c.b) }}</pre></td>
+                                    </tr>
+                                    <tr v-if="!filteredChanges.length">
+                                        <td colspan="3" class="px-4 py-6 text-center text-gray-500">无差异</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="mt-2 text-xs">
+                                <label class="mr-2">添加标签</label>
+                                <input v-model="tagForm.tag" class="border rounded px-2 py-1" placeholder="如：上线前配置">
+                                <button @click="addConfigTag()" class="ml-2 bg-blue-600 text-white px-2 py-1 rounded">添加</button>
+                                <span v-if="tagForm.message" class="ml-2 text-gray-500">{{ tagForm.message }}</span>
+                            </div>
+                            <div class="mt-2 text-xs text-gray-600">
+                                <span v-if="selectedBackupTags.length">当前备份标签：{{ selectedBackupTags.join(', ') }}</span>
+                                <div v-if="selectedBackupNotes.length" class="mt-1">
+                                    <div v-for="n in selectedBackupNotes" :key="n.timestamp" class="text-gray-500">
+                                        <span>{{ new Date(n.timestamp*1000).toLocaleString() }}</span>
+                                        <span class="ml-2">{{ n.author || '未知' }}</span>
+                                        <span class="ml-2">{{ n.message }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-xs">
+                                <label class="mr-2">发布记录</label>
+                                <input v-model="noteForm.message" class="border rounded px-2 py-1" placeholder="如：上线前检查通过">
+                                <input v-model="noteForm.author" class="border rounded px-2 py-1 ml-2" placeholder="作者">
+                                <button @click="addConfigNote()" class="ml-2 bg-blue-600 text-white px-2 py-1 rounded">记录</button>
+                                <span v-if="noteForm.messageText" class="ml-2 text-gray-500">{{ noteForm.messageText }}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <h5 class="text-xs text-gray-500 mb-1">行级差异</h5>
+                            <div v-if="diffOptions.side_by_side" class="grid grid-cols-2 gap-3">
+                                <pre class="diff-code bg-gray-50 border rounded p-2 overflow-auto max-h-64">{{ diffOptions.ignore_ws || diffOptions.ignore_comments ? (configDiff.left_norm || configDiff.left_yaml) : configDiff.left_yaml }}</pre>
+                                <pre class="diff-code bg-gray-50 border rounded p-2 overflow-auto max-h-64">{{ diffOptions.ignore_ws || diffOptions.ignore_comments ? (configDiff.right_norm || configDiff.right_yaml) : configDiff.right_yaml }}</pre>
+                            </div>
+                            <div v-else class="diff-code border rounded overflow-auto max-h-64">
+                                <div v-for="row in collapsedLineDiff" :key="row.idx" :class="{'diff-add': row.type==='add', 'diff-del': row.type==='del', 'diff-mod': row.type==='mod'}" class="px-2 py-1">
+                                    <template v-if="row.type === 'fold'">
+                                        <button @click="row.expanded = !row.expanded" class="text-xs text-blue-600">折叠 {{ row.count }} 行未变化（点击展开/折叠）</button>
+                                        <div v-if="row.expanded">
+                                            <div v-for="sr in row.rows" :key="sr.idx" class="px-2 py-1">
+                                                <span class="text-gray-400 mr-2">{{ sr.leftNo || '' }}{{ sr.rightNo ? '|' + sr.rightNo : '' }}</span>
+                                                <span v-html="sr.render"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <template v-else>
+                                        <span class="text-gray-400 mr-2">{{ row.leftNo || '' }}{{ row.rightNo ? '|' + row.rightNo : '' }}</span>
+                                        <span v-html="row.render"></span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
+                    <button @click="showHistoryModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Task Modal -->
+        <div v-if="showEditTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h3 class="text-lg font-bold text-gray-800">Edit Task</h3>
+                    <button @click="showEditTaskModal = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-6 flex-1 overflow-y-auto">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Task ID</label>
+                            <input type="text" v-model="editTask.id" disabled class="w-full border border-gray-300 rounded-md p-2 bg-gray-100">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
+                            <select v-model="editTask.type" class="w-full border border-gray-300 rounded-md p-2">
+                                <option value="simple_url_list">Simple URL List</option>
+                                <option value="tktube">TKTube</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Save Directory</label>
+                            <input type="text" v-model="editTask.save_dir" class="w-full border border-gray-300 rounded-md p-2" placeholder="./downloads/mytask">
+                        </div>
+                        <div v-if="editTask.type === 'simple_url_list'">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">URLs (One per line)</label>
+                            <textarea v-model="editTask.urls_text" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm"></textarea>
+                        </div>
+                        <div v-if="editTask.type === 'tktube'">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Keyword</label>
+                            <input type="text" v-model="editTask.keyword" class="w-full border border-gray-300 rounded-md p-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Subtype</label>
+                            <select v-model="editTask.subtype" class="w-full border border-gray-300 rounded-md p-2">
+                                <option value="tag">Tag</option>
+                                <option value="keyword">Keyword</option>
+                            </select>
+                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Max Concurrent</label>
+                            <input type="number" v-model.number="editTask.max_concurrent" class="w-full border border-gray-300 rounded-md p-2" min="1" max="100">
+                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Refresh Interval</label>
+                            <input type="number" v-model.number="editTask.refresh_interval" class="w-full border border-gray-300 rounded-md p-2" min="10">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Storage Type</label>
+                                <select v-model="editTask.storage_type" class="w-full border border-gray-300 rounded-md p-2">
+                                    <option value="file">File</option>
+                                    <option value="mongo">Mongo</option>
+                                    <option value="memory">Memory</option>
+                                </select>
+                            </div>
+                            <div v-if="editTask.storage_type==='file'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">File Path</label>
+                                <input type="text" v-model="editTask.storage_config.path" class="w-full border border-gray-300 rounded-md p-2">
+                            </div>
+                            <div v-if="editTask.storage_type==='mongo'" class="col-span-2 grid grid-cols-3 gap-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                                    <input type="text" v-model="editTask.storage_config.source" class="w-full border border-gray-300 rounded-md p-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Database</label>
+                                    <input type="text" v-model="editTask.storage_config.database" class="w-full border border-gray-300 rounded-md p-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Collection</label>
+                                    <input type="text" v-model="editTask.storage_config.collection" class="w-full border border-gray-300 rounded-md p-2">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
+                    <button @click="showEditTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
+                    <button @click="saveEditTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">Save</button>
+                </div>
+            </div>
+        </div>
+        <!-- Rollback Confirm Modal -->
+        <div v-if="showRollbackConfirm" class="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-2xl w-[90vw] max-w-[90vw] flex flex-col max-h-[90vh]">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h3 class="text-lg font-bold text-gray-800">确认回滚</h3>
+                    <button @click="showRollbackConfirm = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-4 flex-1 overflow-y-auto space-y-4">
+                    <p class="text-sm text-gray-600">将从当前配置回滚到：{{ rollbackTarget }}</p>
+                    <div v-if="rollbackDiff" class="diff-code border rounded overflow-auto max-h-[70vh]">
+                        <div v-for="row in rollbackLineDiff" :key="'rb-'+row.idx" :class="{'diff-add': row.type==='add', 'diff-del': row.type==='del', 'diff-mod': row.type==='mod'}" class="px-2 py-1">
+                            <span class="text-gray-400 mr-2">{{ row.leftNo || '' }}{{ row.rightNo ? '|' + row.rightNo : '' }}</span>
+                            <span v-html="row.render"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
+                    <button @click="showRollbackConfirm = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                    <button @click="confirmRollback" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 shadow-sm transition">确认回滚</button>
                 </div>
             </div>
         </div>
@@ -536,6 +882,34 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Save Directory</label>
                             <input type="text" v-model="newTask.save_dir" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./downloads/mytask">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Storage Type</label>
+                                <select v-model="newTask.storage_type" class="w-full border border-gray-300 rounded-md p-2">
+                                    <option value="file">File</option>
+                                    <option value="mongo">Mongo</option>
+                                    <option value="memory">Memory</option>
+                                </select>
+                            </div>
+                            <div v-if="newTask.storage_type==='file'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">File Path</label>
+                                <input type="text" v-model="newTask.storage_config.path" class="w-full border border-gray-300 rounded-md p-2" :placeholder="newTask.save_dir + '/' + (newTask.id||'task') + '_history.json'">
+                            </div>
+                            <div v-if="newTask.storage_type==='mongo'" class="col-span-2 grid grid-cols-3 gap-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                                    <input type="text" v-model="newTask.storage_config.source" class="w-full border border-gray-300 rounded-md p-2" placeholder="suixi-mini">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Database</label>
+                                    <input type="text" v-model="newTask.storage_config.database" class="w-full border border-gray-300 rounded-md p-2" placeholder="download_db">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Collection</label>
+                                    <input type="text" v-model="newTask.storage_config.collection" class="w-full border border-gray-300 rounded-md p-2" placeholder="objects">
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Simple URL Fields -->
@@ -640,20 +1014,72 @@
                     fullConfig: null,
                     showConfigModal: false,
                     showAddTaskModal: false,
+                    showHistoryModal: false,
+                    showTaskConfigPanel: false,
+                    uiDefaults: null,
+                    showEditTaskModal: false,
+                    editTask: null,
                     configForm: {
                         proxies: '',
                         scan_interval: 10,
-                        global_concurrent: 5
+                        global_concurrent: 5,
+                        log_level: 'info',
+                        log_filename: '',
+                        log_max_size: 100,
+                        log_max_backups: 3,
+                        log_max_age: 7,
+                        log_compress: false,
+                        log_console: true
                     },
                     newTask: {
                         id: '',
                         type: 'tktube',
-                        save_dir: './build/downloads',
+                        save_dir: './downloads',
                         urls_text: '',
                         keyword: '',
                         subtype: 'tag',
                         max_concurrent: 1,
+                        refresh_interval: 3600,
+                        storage_type: 'file',
+                        storage_config: {
+                            path: '',
+                            source: '',
+                            database: '',
+                            collection: ''
+                        }
+                    },
+                    taskConfigForm: {
+                        concurrency: 1,
                         refresh_interval: 3600
+                    },
+                    configHistory: [],
+                    diffForm: {
+                        left: 'current',
+                        right: 'current'
+                    },
+                    configDiff: null,
+                    lineDiff: [],
+                    collapsedLineDiff: [],
+                    diffOptions: {
+                        ignore_ws: false,
+                        ignore_comments: false,
+                        side_by_side: false
+                    },
+                    pathFilter: '',
+                    showRollbackConfirm: false,
+                    rollbackTarget: null,
+                    rollbackDiff: null,
+                    rollbackLineDiff: [],
+                    tagForm: {
+                        tag: '',
+                        message: ''
+                    },
+                    selectedBackupTags: [],
+                    selectedBackupNotes: [],
+                    noteForm: {
+                        message: '',
+                        author: '',
+                        messageText: ''
                     },
                     loading: false,
                     isLoadingTask: false
@@ -668,6 +1094,11 @@
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
                     return this.selectedTask.objects
+                },
+                filteredChanges() {
+                    if (!this.configDiff || !this.configDiff.changes) return []
+                    if (!this.pathFilter) return this.configDiff.changes
+                    return this.configDiff.changes.filter(c => c.path.startsWith(this.pathFilter))
                 }
             },
             watch: {
@@ -707,6 +1138,7 @@
                 // Keep a slow poll as backup/health check
                 this.timer = setInterval(this.fetchTasks, 30000)
                 this.loadVideoSettings();
+                this.initUiDefaults();
             },
             beforeUnmount() {
                 if (this.timer) clearInterval(this.timer)
@@ -723,6 +1155,25 @@
                 clearHoverObj() {
                     if (this.hoverTimer) clearTimeout(this.hoverTimer);
                     this.hoverObj = null;
+                },
+                async initUiDefaults() {
+                    try {
+                        const uiRes = await fetch('/ui.json')
+                        const uiBase = uiRes.ok ? await uiRes.json() : {}
+                        const svrRes = await fetch('/api/config/server')
+                        const svr = svrRes.ok ? await svrRes.json() : {}
+                        const svrUi = (svr && svr.ui_defaults) || {}
+                        const localUi = JSON.parse(localStorage.getItem('dm_ui_defaults') || '{}')
+                        const merged = {...uiBase,
+                            ...svrUi,
+                            ...localUi
+                        }
+                        this.uiDefaults = merged
+                        if (merged.default_save_dir) this.newTask.save_dir = merged.default_save_dir
+                        if (typeof merged.diff_side_by_side === 'boolean') this.diffOptions.side_by_side = merged.diff_side_by_side
+                        if (typeof merged.diff_ignore_ws === 'boolean') this.diffOptions.ignore_ws = merged.diff_ignore_ws
+                        if (typeof merged.diff_ignore_comment === 'boolean') this.diffOptions.ignore_comments = merged.diff_ignore_comment
+                    } catch (e) {}
                 },
                 // Video Player Methods
                 loadVideoSettings() {
@@ -1090,6 +1541,8 @@
                         if (!res.ok) throw new Error("Failed to fetch task details")
                         const data = await res.json()
                         this.selectedTask = data
+                        if (data.concurrency !== undefined) this.taskConfigForm.concurrency = data.concurrency
+                        if (data.refresh_interval !== undefined) this.taskConfigForm.refresh_interval = data.refresh_interval
 
                         if (data.total !== undefined) {
                             this.pagination.total = data.total
@@ -1115,13 +1568,27 @@
                 // Config Management
                 async openConfig() {
                     try {
-                        const res = await fetch('/api/config')
-                        this.fullConfig = await res.json()
-
-                        // Populate Form
-                        this.configForm.proxies = (this.fullConfig.downloader.proxies || []).join('\n')
-                        this.configForm.scan_interval = this.fullConfig.server.scan_interval || 10
-                        this.configForm.global_concurrent = this.fullConfig.downloader.global_concurrent || 5
+                        const [serverRes, logRes] = await Promise.all([
+                            fetch('/api/config/server'),
+                            fetch('/api/config/log')
+                        ])
+                        const serverCfg = await serverRes.json()
+                        const logCfg = await logRes.json()
+                        this.fullConfig = {
+                            task_scan: serverCfg.task_scan,
+                            downloader: serverCfg.downloader,
+                            log: logCfg
+                        }
+                        this.configForm.proxies = (serverCfg.downloader.proxies || []).join('\n')
+                        this.configForm.scan_interval = serverCfg.task_scan.interval || 10
+                        this.configForm.global_concurrent = serverCfg.downloader.global_concurrent || 5
+                        this.configForm.log_level = logCfg.level || 'info'
+                        this.configForm.log_filename = logCfg.filename || ''
+                        this.configForm.log_max_size = logCfg.max_size || 100
+                        this.configForm.log_max_backups = logCfg.max_backups || 3
+                        this.configForm.log_max_age = logCfg.max_age || 7
+                        this.configForm.log_compress = !!logCfg.compress
+                        this.configForm.log_console = !!logCfg.console
 
                         this.showConfigModal = true
                     } catch (e) {
@@ -1130,24 +1597,516 @@
                 },
                 async saveConfig() {
                     try {
-                        // Update fullConfig object
-                        this.fullConfig.downloader.proxies = this.configForm.proxies.split('\n').map(s => s.trim()).filter(s => s)
-                        this.fullConfig.server.scan_interval = this.configForm.scan_interval
-                        this.fullConfig.downloader.global_concurrent = this.configForm.global_concurrent
-
-                        const res = await fetch('/api/config', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
+                        const serverPayload = {
+                            task_scan: {
+                                disable: this.fullConfig.task_scan.disable || false,
+                                interval: this.configForm.scan_interval
                             },
-                            body: JSON.stringify(this.fullConfig)
-                        })
-                        if (!res.ok) throw new Error("Save failed")
+                            downloader: {
+                                proxies: this.configForm.proxies.split('\n').map(s => s.trim()).filter(s => s),
+                                global_concurrent: this.configForm.global_concurrent,
+                                force_proxy: this.fullConfig.downloader.force_proxy || false,
+                                max_retries: this.fullConfig.downloader.max_retries || 3,
+                                type: this.fullConfig.downloader.type || 'native'
+                            }
+                        }
+                        const logPayload = {
+                            level: this.configForm.log_level,
+                            filename: this.configForm.log_filename,
+                            max_size: this.configForm.log_max_size,
+                            max_backups: this.configForm.log_max_backups,
+                            max_age: this.configForm.log_max_age,
+                            compress: this.configForm.log_compress,
+                            console: this.configForm.log_console
+                        }
+                        const [serverSave, logSave] = await Promise.all([
+                            fetch('/api/config/server', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(serverPayload)
+                            }),
+                            fetch('/api/config/log', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(logPayload)
+                            })
+                        ])
+                        if (!serverSave.ok) throw new Error("Server config save failed")
+                        if (!logSave.ok) throw new Error("Log config save failed")
 
                         this.showConfigModal = false
                         alert("Configuration saved successfully!")
                     } catch (e) {
                         alert("Error saving config: " + e.message)
+                    }
+                },
+                async openConfigHistory() {
+                    try {
+                        const res = await fetch('/api/config/history')
+                        const list = await res.json() || []
+                        this.configHistory = list.map(it => {
+                            let tags = []
+                            let notes = []
+                            if (it.meta) {
+                                try {
+                                    const obj = JSON.parse(it.meta)
+                                    if (obj && Array.isArray(obj.tags)) tags = obj.tags
+                                    if (obj && Array.isArray(obj.notes)) notes = obj.notes
+                                } catch (e) {}
+                            }
+                            return {...it,
+                                tags,
+                                notes
+                            }
+                        })
+                        this.selectedBackupTags = []
+                        this.selectedBackupNotes = []
+                        this.tagForm = {
+                            tag: '',
+                            message: ''
+                        }
+                        this.configDiff = null
+                        this.diffForm = {
+                            left: 'current',
+                            right: 'current'
+                        }
+                        this.showHistoryModal = true
+                    } catch (e) {
+                        alert("Failed to load history")
+                    }
+                },
+                async addConfigTag() {
+                    try {
+                        if (!this.diffForm.right || this.diffForm.right === 'current') {
+                            this.tagForm.message = '请先在右侧选择某个备份版本'
+                            return
+                        }
+                        const res = await fetch('/api/config/tag', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename: this.diffForm.right,
+                                tag: this.tagForm.tag
+                            })
+                        })
+                        if (!res.ok) throw new Error('添加标签失败')
+                        this.tagForm.message = '已添加'
+                            // refresh tags for selected
+                        await this.openConfigHistory()
+                        const sel = this.configHistory.find(h => h.filename === this.diffForm.right)
+                        this.selectedBackupTags = (sel && sel.tags) || []
+                        this.selectedBackupNotes = (sel && sel.notes) || []
+                    } catch (e) {
+                        this.tagForm.message = '失败: ' + e.message
+                    }
+                },
+                async addConfigTagRow(filename) {
+                    const tag = prompt('输入标签')
+                    if (!tag) return
+                    try {
+                        const res = await fetch('/api/config/tag', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename,
+                                tag
+                            })
+                        })
+                        if (!res.ok) throw new Error('添加标签失败')
+                        await this.openConfigHistory()
+                    } catch (e) {
+                        alert('添加失败: ' + e.message)
+                    }
+                },
+                async addConfigNote() {
+                    try {
+                        if (!this.diffForm.right || this.diffForm.right === 'current') {
+                            this.noteForm.messageText = '请先选择备份版本'
+                            return
+                        }
+                        const res = await fetch('/api/config/note', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename: this.diffForm.right,
+                                message: this.noteForm.message,
+                                author: this.noteForm.author
+                            })
+                        })
+                        if (!res.ok) throw new Error('记录失败')
+                        this.noteForm.messageText = '已记录'
+                        await this.openConfigHistory()
+                        const sel = this.configHistory.find(h => h.filename === this.diffForm.right)
+                        this.selectedBackupNotes = (sel && sel.notes) || []
+                    } catch (e) {
+                        this.noteForm.messageText = '失败: ' + e.message
+                    }
+                },
+                async addConfigNoteRow(filename) {
+                    const message = prompt('记录内容')
+                    if (!message) return
+                    const author = prompt('作者')
+                    try {
+                        const res = await fetch('/api/config/note', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename,
+                                message,
+                                author
+                            })
+                        })
+                        if (!res.ok) throw new Error('记录失败')
+                        await this.openConfigHistory()
+                    } catch (e) {
+                        alert('记录失败: ' + e.message)
+                    }
+                },
+                async viewConfigDiff() {
+                    try {
+                        const qs = `ignore_ws=${this.diffOptions.ignore_ws?1:0}&ignore_comments=${this.diffOptions.ignore_comments?1:0}`
+                        const url = `/api/config/diff?left=${encodeURIComponent(this.diffForm.left)}&right=${encodeURIComponent(this.diffForm.right)}&${qs}`
+                        const res = await this.fetchWithTimeout(url)
+                        if (!res.ok) throw new Error("Diff failed")
+                        this.configDiff = await res.json()
+                        const left = (this.configDiff.left_norm || this.configDiff.left_yaml || '')
+                        const right = (this.configDiff.right_norm || this.configDiff.right_yaml || '')
+                        this.lineDiff = this.buildLineDiff(left, right)
+                        this.collapsedLineDiff = this.collapseSameBlocks(this.lineDiff)
+                    } catch (e) {
+                        alert("获取差异失败: " + e.message)
+                    }
+                },
+                clearConfigDiff() {
+                    this.configDiff = null
+                    this.lineDiff = []
+                    this.collapsedLineDiff = []
+                },
+                fmt(val) {
+                    if (val === null || val === undefined) return ''
+                    if (typeof val === 'object') return JSON.stringify(val, null, 2)
+                    return String(val)
+                },
+                collapseSameBlocks(rows) {
+                    const out = []
+                    let i = 0
+                    const threshold = 8
+                    while (i < rows.length) {
+                        if (rows[i].type === 'same') {
+                            let j = i
+                            while (j < rows.length && rows[j].type === 'same') j++
+                                const count = j - i
+                            if (count > threshold) {
+                                const block = rows.slice(i, j).map((r, idx) => ({...r,
+                                    idx
+                                }))
+                                out.push({
+                                    type: 'fold',
+                                    count,
+                                    expanded: false,
+                                    rows: block,
+                                    idx: out.length
+                                })
+                            } else {
+                                for (let k = i; k < j; k++) out.push(rows[k])
+                            }
+                            i = j
+                        } else {
+                            out.push(rows[i]);
+                            i++
+                        }
+                    }
+                    return out
+                },
+                async fetchWithTimeout(url, opts = {}, timeoutMs = 10000) {
+                    const controller = new AbortController()
+                    const id = setTimeout(() => controller.abort(), timeoutMs)
+                    try {
+                        const res = await fetch(url, {...opts,
+                            signal: controller.signal
+                        })
+                        clearTimeout(id)
+                        return res
+                    } catch (e) {
+                        clearTimeout(id)
+                        throw e
+                    }
+                },
+                buildLineDiff(left, right) {
+                    const a = left.split('\n')
+                    const b = right.split('\n')
+                    const diff = this.patienceDiff(a, b)
+                    const rows = []
+                    let ai = 0,
+                        bi = 0
+                    for (const h of diff) {
+                        if (h.type === 'same') {
+                            for (let k = 0; k < h.count; k++) {
+                                rows.push({
+                                    type: 'same',
+                                    leftNo: ai + 1,
+                                    rightNo: bi + 1,
+                                    render: this.escapeHTML(a[ai])
+                                })
+                                ai++;
+                                bi++
+                            }
+                        } else if (h.type === 'del') {
+                            for (let k = 0; k < h.count; k++) {
+                                rows.push({
+                                    type: 'del',
+                                    leftNo: ai + 1,
+                                    rightNo: null,
+                                    render: '<span>- ' + this.escapeHTML(a[ai]) + '</span>'
+                                })
+                                ai++
+                            }
+                        } else if (h.type === 'add') {
+                            for (let k = 0; k < h.count; k++) {
+                                rows.push({
+                                    type: 'add',
+                                    leftNo: null,
+                                    rightNo: bi + 1,
+                                    render: '<span>+ ' + this.escapeHTML(b[bi]) + '</span>'
+                                })
+                                bi++
+                            }
+                        } else if (h.type === 'mod') {
+                            const leftLine = a[ai] || ''
+                            const rightLine = b[bi] || ''
+                            const modRender = this.highlightCharDiff(leftLine, rightLine)
+                            rows.push({
+                                type: 'mod',
+                                leftNo: ai + 1,
+                                rightNo: bi + 1,
+                                render: modRender
+                            })
+                            ai++;
+                            bi++
+                        }
+                    }
+                    rows.forEach((r, idx) => r.idx = idx)
+                    return rows
+                },
+                patienceDiff(a, b) {
+                    const aMap = new Map(),
+                        bMap = new Map()
+                    for (let i = 0; i < a.length; i++) {
+                        const s = a[i];
+                        const arr = aMap.get(s) || [];
+                        arr.push(i);
+                        aMap.set(s, arr)
+                    }
+                    for (let j = 0; j < b.length; j++) {
+                        const s = b[j];
+                        const arr = bMap.get(s) || [];
+                        arr.push(j);
+                        bMap.set(s, arr)
+                    }
+                    const pairs = []
+                    aMap.forEach((aiArr, s) => {
+                        const biArr = bMap.get(s);
+                        if (aiArr && aiArr.length === 1 && biArr && biArr.length === 1) {
+                            pairs.push({
+                                ai: aiArr[0],
+                                bi: biArr[0]
+                            })
+                        }
+                    })
+                    pairs.sort((p, q) => p.ai - q.ai)
+                    const lisIdx = this.longestIncreasingSequence(pairs.map(p => p.bi))
+                    const anchors = lisIdx.map(idx => pairs[idx])
+                    const result = []
+                    let aStart = 0,
+                        bStart = 0
+                    for (const anchor of anchors) {
+                        const aEnd = anchor.ai,
+                            bEnd = anchor.bi
+                        result.push(...this.simpleBlockDiff(a.slice(aStart, aEnd), b.slice(bStart, bEnd)))
+                        result.push({
+                            type: 'same',
+                            count: 1
+                        })
+                        aStart = aEnd + 1;
+                        bStart = bEnd + 1
+                    }
+                    result.push(...this.simpleBlockDiff(a.slice(aStart), b.slice(bStart)))
+                    return result
+                },
+                longestIncreasingSequence(arr) {
+                    const piles = [],
+                        last = []
+                    for (let i = 0; i < arr.length; i++) {
+                        let lo = 0,
+                            hi = piles.length
+                        while (lo < hi) {
+                            const mid = (lo + hi) >> 1
+                            if (piles[mid][piles[mid].length - 1] < arr[i]) lo = mid + 1
+                            else hi = mid
+                        }
+                        if (!piles[lo]) piles[lo] = []
+                        piles[lo].push(arr[i])
+                        last[lo] = {
+                            val: arr[i],
+                            idx: i,
+                            prev: last[lo - 1] || null
+                        }
+                    }
+                    const res = []
+                    let node = last[piles.length - 1] || null
+                    while (node) {
+                        res.push(node.idx);
+                        node = node.prev
+                    }
+                    res.reverse();
+                    return res
+                },
+                simpleBlockDiff(aBlock, bBlock) {
+                    const res = []
+                    let i = 0,
+                        j = 0
+                    while (i < aBlock.length && j < bBlock.length) {
+                        if (aBlock[i] === bBlock[j]) {
+                            res.push({
+                                type: 'same',
+                                count: 1
+                            });
+                            i++;
+                            j++
+                        } else {
+                            res.push({
+                                type: 'mod',
+                                count: 1
+                            });
+                            i++;
+                            j++
+                        }
+                    }
+                    if (i < aBlock.length) res.push({
+                        type: 'del',
+                        count: aBlock.length - i
+                    })
+                    if (j < bBlock.length) res.push({
+                        type: 'add',
+                        count: bBlock.length - j
+                    })
+                    return res
+                },
+                escapeHTML(s) {
+                    return s.replace(/[&<>]/g, c => ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;'
+                    }[c]))
+                },
+                highlightCharDiff(a, b) {
+                    const ap = a,
+                        bp = b
+                    let start = 0
+                    const minLen = Math.min(ap.length, bp.length)
+                    while (start < minLen && ap[start] === bp[start]) start++
+                        let enda = ap.length - 1,
+                            endb = bp.length - 1
+                    while (enda >= start && endb >= start && ap[enda] === bp[endb]) {
+                        enda--;
+                        endb--;
+                    }
+                    const leftPart = this.escapeHTML(ap.slice(0, start))
+                    const leftDiff = '<mark class="diff-mark">' + this.escapeHTML(ap.slice(start, enda + 1)) + '</mark>'
+                    const leftTail = this.escapeHTML(ap.slice(enda + 1))
+                    const rightPart = this.escapeHTML(bp.slice(0, start))
+                    const rightDiff = '<mark class="diff-mark">' + this.escapeHTML(bp.slice(start, endb + 1)) + '</mark>'
+                    const rightTail = this.escapeHTML(bp.slice(endb + 1))
+                    return `<div><span>- ${leftPart}${leftDiff}${leftTail}</span></div><div><span>+ ${rightPart}${rightDiff}${rightTail}</span></div>`
+                },
+                async viewConfigDiff() {
+                    try {
+                        const qs = `ignore_ws=${this.diffOptions.ignore_ws?1:0}&ignore_comments=${this.diffOptions.ignore_comments?1:0}`
+                        const url = `/api/config/diff?left=${encodeURIComponent(this.diffForm.left)}&right=${encodeURIComponent(this.diffForm.right)}&${qs}`
+                        const res = await this.fetchWithTimeout(url)
+                        if (!res.ok) throw new Error("Diff failed")
+                        this.configDiff = await res.json()
+                        const left = (this.configDiff.left_norm || this.configDiff.left_yaml || '')
+                        const right = (this.configDiff.right_norm || this.configDiff.right_yaml || '')
+                        this.lineDiff = this.buildLineDiff(left, right)
+                        this.collapsedLineDiff = this.collapseSameBlocks(this.lineDiff)
+                    } catch (e) {
+                        alert("获取差异失败: " + e.message)
+                    }
+                },
+                clearConfigDiff() {
+                    this.configDiff = null
+                    this.lineDiff = []
+                    this.collapsedLineDiff = []
+                },
+                async prepareRollback(filename) {
+                    try {
+                        this.rollbackTarget = filename
+                        const qs = `ignore_ws=${this.diffOptions.ignore_ws?1:0}&ignore_comments=${this.diffOptions.ignore_comments?1:0}`
+                        const res = await this.fetchWithTimeout(`/api/config/diff?left=current&right=${encodeURIComponent(filename)}&${qs}`)
+                        if (!res.ok) throw new Error('Diff failed')
+                        this.rollbackDiff = await res.json()
+                        const left = (this.rollbackDiff.left_norm || this.rollbackDiff.left_yaml || '')
+                        const right = (this.rollbackDiff.right_norm || this.rollbackDiff.right_yaml || '')
+                        this.rollbackLineDiff = this.buildLineDiff(left, right)
+                        this.showRollbackConfirm = true
+                    } catch (e) {
+                        alert('加载回滚差异失败: ' + e.message)
+                    }
+                },
+                async confirmRollback() {
+                    try {
+                        const res = await fetch('/api/config/rollback', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename: this.rollbackTarget
+                            })
+                        })
+                        if (!res.ok) throw new Error('Rollback failed')
+                        this.showRollbackConfirm = false
+                        this.showHistoryModal = false
+                        this.fetchTasks()
+                        this.showToast('配置已回滚', 'success')
+                    } catch (e) {
+                        alert('回滚失败: ' + e.message)
+                    }
+                },
+                toggleTaskConfigPanel() {
+                    this.showTaskConfigPanel = !this.showTaskConfigPanel
+                },
+                async rollbackConfig(filename) {
+                    if (!confirm(`确认回滚到 ${filename} ?`)) return
+                    try {
+                        const res = await fetch('/api/config/rollback', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename
+                            })
+                        })
+                        if (!res.ok) throw new Error("Rollback failed")
+                        this.showHistoryModal = false
+                        this.fetchTasks()
+                        this.showToast("配置已回滚", "success")
+                    } catch (e) {
+                        alert("回滚失败: " + e.message)
                     }
                 },
 
@@ -1157,14 +2116,93 @@
                     this.newTask = {
                         id: '',
                         type: 'tktube',
-                        save_dir: './build/downloads',
+                        save_dir: (this.uiDefaults && this.uiDefaults.default_save_dir) || './downloads',
                         urls_text: '',
                         keyword: '',
                         subtype: 'tag',
                         max_concurrent: 1,
-                        refresh_interval: 3600
+                        refresh_interval: 3600,
+                        storage_type: 'file',
+                        storage_config: {
+                            path: '',
+                            source: '',
+                            database: '',
+                            collection: ''
+                        }
                     }
                     this.showAddTaskModal = true
+                },
+                openEditTask() {
+                    if (!this.selectedTask) return
+                    this.editTask = {
+                        id: this.selectedTask.id,
+                        type: this.selectedTask.type,
+                        save_dir: this.selectedTask.save_dir || ((this.uiDefaults && this.uiDefaults.default_save_dir) || './downloads'),
+                        urls_text: Array.isArray((this.selectedTask.extra && this.selectedTask.extra.urls) || this.selectedTask.urls) ? ((this.selectedTask.extra && this.selectedTask.extra.urls) || this.selectedTask.urls).join('\n') : '',
+                        keyword: (this.selectedTask.extra && this.selectedTask.extra.keyword) || '',
+                        subtype: (this.selectedTask.extra && this.selectedTask.extra.subtype) || 'tag',
+                        max_concurrent: (this.selectedTask.extra && (this.selectedTask.extra.max_concurrent || 1)) || 1,
+                        refresh_interval: (this.selectedTask.extra && (this.selectedTask.extra.refresh_interval || 3600)) || 3600,
+                        storage_type: (this.selectedTask.storage && this.selectedTask.storage.type) || 'file',
+                        storage_config: (this.selectedTask.storage && this.selectedTask.storage.config) || {
+                            path: '',
+                            source: '',
+                            database: '',
+                            collection: ''
+                        }
+                    }
+                    this.showEditTaskModal = true
+                },
+                async saveEditTask() {
+                    try {
+                        const taskConfig = {
+                            id: this.editTask.id,
+                            type: this.editTask.type,
+                            save_dir: this.editTask.save_dir,
+                            storage: {
+                                type: this.editTask.storage_type,
+                                config: {}
+                            },
+                            extra: {}
+                        }
+                        if (this.editTask.storage_type === 'file') {
+                            taskConfig.storage.config = {
+                                path: (this.editTask.storage_config && this.editTask.storage_config.path) || `${this.editTask.save_dir}/${this.editTask.id}_history.json`
+                            }
+                        } else if (this.editTask.storage_type === 'mongo') {
+                            taskConfig.storage.config = {
+                                source: (this.editTask.storage_config && this.editTask.storage_config.source) || 'suixi-mini',
+                                database: (this.editTask.storage_config && this.editTask.storage_config.database) || 'download_db',
+                                collection: (this.editTask.storage_config && this.editTask.storage_config.collection) || this.editTask.id
+                            }
+                        }
+                        if (this.editTask.type === 'simple_url_list') {
+                            taskConfig.extra = {
+                                urls: this.editTask.urls_text.split('\n').map(s => s.trim()).filter(s => s)
+                            }
+                        } else if (this.editTask.type === 'tktube') {
+                            taskConfig.extra = {
+                                keyword: this.editTask.keyword,
+                                subtype: this.editTask.subtype,
+                                max_concurrent: this.editTask.max_concurrent,
+                                refresh_interval: this.editTask.refresh_interval,
+                                scraper_path: "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get"
+                            }
+                        }
+                        const res = await this.fetchWithTimeout(`/api/tasks/${encodeURIComponent(this.editTask.id)}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(taskConfig)
+                        })
+                        if (!res.ok) throw new Error('保存失败')
+                        this.showEditTaskModal = false
+                        await this.fetchTasks()
+                        alert('Task updated!')
+                    } catch (e) {
+                        alert('Error updating task: ' + e.message)
+                    }
                 },
                 async saveNewTask() {
                     if (!this.newTask.id) {
@@ -1173,47 +2211,49 @@
                     }
 
                     try {
-                        // Fetch latest config first
-                        const res = await fetch('/api/config')
-                        const config = await res.json()
-
                         // Construct Task Config
                         const taskConfig = {
                             id: this.newTask.id,
                             type: this.newTask.type,
                             save_dir: this.newTask.save_dir,
                             storage: {
-                                type: 'file',
-                                config: {
-                                    path: `${this.newTask.save_dir}/${this.newTask.id}_history.json`
-                                }
+                                type: this.newTask.storage_type,
+                                config: {}
                             },
                             extra: {}
                         }
+                        if (this.newTask.storage_type === 'file') {
+                            taskConfig.storage.config = {
+                                path: this.newTask.storage_config.path || `${this.newTask.save_dir}/${this.newTask.id}_history.json`
+                            }
+                        } else if (this.newTask.storage_type === 'mongo') {
+                            taskConfig.storage.config = {
+                                source: this.newTask.storage_config.source || 'suixi-mini',
+                                database: this.newTask.storage_config.database || 'download_db',
+                                collection: this.newTask.storage_config.collection || this.newTask.id
+                            }
+                        }
 
                         if (this.newTask.type === 'simple_url_list') {
-                            taskConfig.urls = this.newTask.urls_text.split('\n').map(s => s.trim()).filter(s => s)
+                            taskConfig.extra = {
+                                urls: this.newTask.urls_text.split('\n').map(s => s.trim()).filter(s => s)
+                            }
                         } else if (this.newTask.type === 'tktube') {
                             taskConfig.extra = {
                                 keyword: this.newTask.keyword,
                                 subtype: this.newTask.subtype,
                                 max_concurrent: this.newTask.max_concurrent,
-                                refresh_interval: this.newTask.refresh_interval,
-                                scraper_path: "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get" // Default for now
+                                refresh_interval: this.newTask.refresh_interval
                             }
                         }
 
-                        // Append
-                        config.tasks = config.tasks || []
-                        config.tasks.push(taskConfig)
-
-                        // Save
-                        const saveRes = await fetch('/api/config', {
+                        // Create via task API
+                        const saveRes = await this.fetchWithTimeout('/api/tasks', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
                             },
-                            body: JSON.stringify(config)
+                            body: JSON.stringify(taskConfig)
                         })
                         if (!saveRes.ok) throw new Error("Save failed")
 
@@ -1222,6 +2262,48 @@
                         alert("Task created!")
                     } catch (e) {
                         alert("Error creating task: " + e.message)
+                    }
+                },
+                async saveTaskConfig() {
+                    try {
+                        const supports = this.selectedTask.supports || {}
+                        if (supports.concurrency || supports.refresh_interval) {
+                            const payload = {
+                                concurrency: this.taskConfigForm.concurrency,
+                                refresh_interval: this.taskConfigForm.refresh_interval
+                            }
+                            const res = await fetch(`/api/tasks/${this.selectedTaskId}/config`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(payload)
+                            })
+                            if (!res.ok) throw new Error("保存失败")
+                            this.showToast("任务配置已生效", "success")
+                        } else {
+                            // Fallback: update in config and save
+                            const cfgRes = await fetch('/api/config')
+                            const cfg = await cfgRes.json()
+                            const idx = (cfg.tasks || []).findIndex(t => t.id === this.selectedTaskId)
+                            if (idx >= 0) {
+                                const extra = cfg.tasks[idx].extra || {}
+                                extra.max_concurrent = this.taskConfigForm.concurrency
+                                extra.refresh_interval = this.taskConfigForm.refresh_interval
+                                cfg.tasks[idx].extra = extra
+                                const saveRes = await fetch('/api/config', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify(cfg)
+                                })
+                                if (!saveRes.ok) throw new Error("保存失败")
+                                this.showToast("已保存，重启后生效", "success")
+                            }
+                        }
+                    } catch (e) {
+                        alert("保存任务配置失败: " + e.message)
                     }
                 },
 

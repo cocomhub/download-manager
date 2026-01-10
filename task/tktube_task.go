@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,14 +15,11 @@ import (
 
 	"download-manager/config"
 	"download-manager/core"
+	"download-manager/downloader"
 	"download-manager/model"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/dop251/goja"
-)
-
-const (
-	DefaultScraperPath = "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get"
 )
 
 // TktubeTask implements core.Task for Tktube
@@ -34,10 +30,8 @@ type TktubeTask struct {
 	pageStart   int // Configured start page (usually 1)
 	pageEnd     int // Configured end page (can be overridden by auto-detection)
 	saveDir     string
-	scraperPath string
 	concurrency int
 	refreshInt  int // Refresh interval in seconds
-	workDir     string
 
 	objects       []*model.DownloadObject
 	store         core.Storage
@@ -49,12 +43,13 @@ type TktubeTask struct {
 	knownURLs map[string]bool
 
 	markAsFailed sync.Map
+	dl           core.Downloader
 }
 
 // Ensure TktubeTask implements core.Task
 var _ core.Task = &TktubeTask{}
 
-func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, error) {
+func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	extra := cfg.Extra
 	if extra == nil {
 		extra = make(map[string]interface{})
@@ -84,10 +79,8 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 
 	subtype := getString("subtype", "tag")
 	keyword := getString("keyword", "")
-	scraperPath := getString("scraper_path", DefaultScraperPath)
 	concurrency := getInt("max_concurrent", 2)
 	refreshInt := getInt("refresh_interval", 3600) // Default 1 hour
-	workDir := getString("work_dir", ".")
 	saveDir := cfg.SaveDir
 	if getBool("save_dir_add_keyword", false) {
 		saveDir = filepath.Join(cfg.SaveDir, keyword)
@@ -100,10 +93,8 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 		pageStart:     1,
 		pageEnd:       1,
 		saveDir:       saveDir,
-		scraperPath:   scraperPath,
 		concurrency:   concurrency,
 		refreshInt:    refreshInt,
-		workDir:       workDir,
 		objects:       make([]*model.DownloadObject, 0),
 		store:         store,
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
@@ -114,6 +105,10 @@ func NewTktubeTask(cfg config.TaskConfig, store core.Storage) (*TktubeTask, erro
 	go t.startPrefetchWorkers(3) // 3 parallel prefetchers
 
 	return t, nil
+}
+
+func (t *TktubeTask) SetDownloader(d core.Downloader) {
+	t.dl = d
 }
 
 func (t *TktubeTask) ID() string {
@@ -248,7 +243,7 @@ func (t *TktubeTask) ResolveObject(obj *model.DownloadObject) error {
 // --- Persistence ---
 
 func (t *TktubeTask) getCachePath() string {
-	return filepath.Join(t.workDir, "cache", t.id+".json")
+	return filepath.Join(config.GetWorkDir(), "cache", t.id+".json")
 }
 
 func (t *TktubeTask) SaveCache() error {
@@ -383,8 +378,15 @@ func (t *TktubeTask) scrapeAllPages() {
 }
 
 func (t *TktubeTask) startPeriodicRefresh() {
-	ticker := time.NewTicker(time.Duration(t.refreshInt) * time.Second)
-	for range ticker.C {
+	for {
+		t.mu.Lock()
+		ri := t.refreshInt
+		t.mu.Unlock()
+		if ri <= 0 {
+			ri = 3600
+		}
+		timer := time.NewTimer(time.Duration(ri) * time.Second)
+		<-timer.C
 		t.refreshLatest()
 	}
 }
@@ -617,7 +619,7 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
 		path := filepath.Join(t.saveDir, baseName+"_preview.mp4")
 
-		if err := t.simpleDownload(previewURL, path); err == nil {
+		if err := t.downloadFile(previewURL, path); err == nil {
 			t.mu.Lock()
 			obj.Extra["local_preview"] = path
 			if t.store != nil {
@@ -645,7 +647,7 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
 		path := filepath.Join(t.saveDir, baseName+"_thumb.jpg")
 
-		if err := t.simpleDownload(thumbURL, path); err == nil {
+		if err := t.downloadFile(thumbURL, path); err == nil {
 			t.mu.Lock()
 			obj.Extra["local_cover"] = path
 			if t.store != nil {
@@ -662,16 +664,28 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 	}
 }
 
-func (t *TktubeTask) simpleDownload(url, path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil // Exists
-	}
-
+func (t *TktubeTask) downloadFile(url, path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
+	if t.dl == nil {
+		return t.simpleDownload(url, path)
+	}
+
+	obj := &model.DownloadObject{
+		TaskID:   t.id,
+		URL:      url,
+		SavePath: path,
+		Metadata: map[string]string{"type": "image"},
+		Extra:    map[string]interface{}{},
+		Status:   model.StatusPending,
+	}
+	return t.dl.Download(obj)
+}
+
+func (t *TktubeTask) simpleDownload(url, path string) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -802,6 +816,33 @@ func (t *TktubeTask) GetConcurrency() int {
 	return t.concurrency
 }
 
+func (t *TktubeTask) GetRefreshInterval() int {
+	return t.refreshInt
+}
+
+func (t *TktubeTask) SetConcurrency(n int) error {
+	if n < 1 {
+		n = 1
+	}
+	if n > 100 {
+		n = 100
+	}
+	t.mu.Lock()
+	t.concurrency = n
+	t.mu.Unlock()
+	return nil
+}
+
+func (t *TktubeTask) SetRefreshInterval(sec int) error {
+	if sec < 10 {
+		sec = 10
+	}
+	t.mu.Lock()
+	t.refreshInt = sec
+	t.mu.Unlock()
+	return nil
+}
+
 // SetObjectIndex moves an object to a new position (for reordering)
 func (t *TktubeTask) SetObjectIndex(url string, newIndex int) error {
 	t.mu.Lock()
@@ -858,15 +899,7 @@ func (t *TktubeTask) buildPageURL(page int) string {
 }
 
 func (t *TktubeTask) runScraper(url string) (string, error) {
-	cmd := exec.Command(t.scraperPath, url)
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("scraper failed: %v, stderr: %s", err, stderr.String())
-	}
-	return out.String(), nil
+	return downloader.Scrape(url)
 }
 
 type videoItem struct {

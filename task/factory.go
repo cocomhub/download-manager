@@ -7,7 +7,7 @@ import (
 	"download-manager/core"
 )
 
-type Factory func(cfg config.TaskConfig, store core.Storage) (core.Task, error)
+type Factory func(cfg config.Task, store core.Storage) (core.Task, error)
 
 var factories = make(map[string]Factory)
 
@@ -15,7 +15,7 @@ func Register(typ string, f Factory) {
 	factories[typ] = f
 }
 
-func NewTask(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
+func NewTask(cfg config.Task, store core.Storage) (core.Task, error) {
 	f, ok := factories[cfg.Type]
 	if !ok {
 		return nil, fmt.Errorf("unknown task type: %s", cfg.Type)
@@ -24,10 +24,25 @@ func NewTask(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
 }
 
 func init() {
-	Register("simple_url_list", func(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
-		return NewSimpleTask(cfg.ID, cfg.URLs, cfg.SaveDir, store), nil
+	Register("simple_url_list", func(cfg config.Task, store core.Storage) (core.Task, error) {
+		var urls []string
+		if cfg.Extra != nil {
+			if v, ok := cfg.Extra["urls"]; ok {
+				switch vv := v.(type) {
+				case []string:
+					urls = vv
+				case []interface{}:
+					for _, it := range vv {
+						if s, ok := it.(string); ok && s != "" {
+							urls = append(urls, s)
+						}
+					}
+				}
+			}
+		}
+		return NewSimpleTask(cfg.ID, urls, cfg.SaveDir, store), nil
 	})
-	Register("tktube", func(cfg config.TaskConfig, store core.Storage) (core.Task, error) {
+	Register("tktube", func(cfg config.Task, store core.Storage) (core.Task, error) {
 		return NewTktubeTask(cfg, store)
 	})
 }

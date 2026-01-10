@@ -30,7 +30,7 @@ type NativeHTTPDownloader struct {
 
 var _ core.Downloader = &NativeHTTPDownloader{}
 
-func NewNativeHTTPDownloader(cfg config.DownloaderConfig) *NativeHTTPDownloader {
+func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 	logDir := cfg.LogDir
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		slog.Error("Failed to create log directory", "dir", logDir, "error", err)

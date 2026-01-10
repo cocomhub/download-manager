@@ -1,75 +1,52 @@
 server:
-  scan_interval: 5
-  lock_file: "./build/test/download-manager.lock"
-  http_port: 8080
-  work_dir: "./build/test"
-
+    http_port: 8080
+    work_dir: ./build/test
+    lock_file: ./build/test/download-manager.lock
 log:
-  level: "debug"
-  console: true
-  filename: "./build/test/logs/app.log"
-  max_size: 10 # MB
-  max_backups: 3
-  max_age: 28 # days
-  compress: true
-
+    level: debug
+    filename: ./build/test/logs/app.log
+    max_size: 10 # MB
+    max_backups: 3
+    max_age: 28 # days
+    console: true
+    compress: true
 mongo:
-  - name: "suixi-mini"
-    uri: "mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin"
-
+    - name: suixi-mini
+      uri: mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin
 downloader:
-  log_dir: "./build/test/logs/downloader"
-  proxies:
-    - "http://129.226.212.209:18080"
-    - "http://43.159.49.114:18080"
-
+    type: native
+    global_concurrent: 2
+    max_retries: 3
+    log_dir: ./build/test/logs/downloader
+    force_proxy: false
+    proxies:
+        - http://129.226.212.209:18080
+        - http://43.159.49.114:18080
+task_scan:
+    disable: false
+    interval: 5
 tasks:
-  - id: "task-file-001"
-    type: "simple_url_list"
-    save_dir: "./build/test/downloads/task1"
-    storage:
-      type: "file"
-      config:
-        path: "./build/test/downloads/task1/status.json"
-        save_interval: "2" # Save every 2 seconds
-    urls:
-      - "https://www.baidu.com/robots.txt"
-      - "https://www.bing.com/robots.txt"
-
-  - id: "task-mongo-001"
-    type: "simple_url_list"
-    save_dir: "./build/test/downloads/task2"
-    storage:
-      type: "mongo"
-      config:
-        source: "suixi-mini"
-        database: "download_manager"
-        collection: "task_mongo_001"
-    urls:
-      - "https://www.bing.com/robots.txt"
-
-  - id: "rctd_task"
-    type: "tktube"
-    save_dir: "./build/test/downloads/tktube"
-    storage:
-      type: "file"
-      config:
-        path: "./build/test/downloads/tktube/rctd/rctd_history.json"
-    extra:
-      subtype: "tag"
-      keyword: "RCTD"
-      max_concurrent: 1
-      scraper_path: "./bin/scraper_get"
-
-  - id: "nhdtc_task"
-    type: "tktube"
-    save_dir: "./build/test/downloads/tktube"
-    storage:
-      type: "file"
-      config:
-        path: "./build/test/downloads/tktube/nhdtc/nhdtc_history.json"
-    extra:
-      subtype: "tag"
-      keyword: "NHDTC"
-      max_concurrent: 1
-      scraper_path: "./bin/scraper_get"
+    - id: task-file-001
+      type: simple_url_list
+      urls:
+        - https://www.baidu.com/robots.txt
+        - https://www.bing.com/robots.txt
+      save_dir: ./build/test/downloads/task1
+      storage:
+        type: file
+        config:
+            path: ./build/test/downloads/task1/status.json
+            save_interval: "2"
+      extra: {}
+    - id: task-mongo-001
+      type: simple_url_list
+      urls:
+        - https://www.bing.com/robots.txt
+      save_dir: ./build/test/downloads/task2
+      storage:
+        type: mongo
+        config:
+            collection: task_mongo_001
+            database: download_manager
+            source: suixi-mini
+      extra: {}

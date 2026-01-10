@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-func New(config config.DownloaderConfig) core.Downloader {
+func New(config config.Downloader) core.Downloader {
 	switch config.Type {
 	case "wget":
 		return NewWgetDownloader(config)

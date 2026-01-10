@@ -30,7 +30,7 @@ type WgetDownloader struct {
 // Ensure WgetDownloader implements core.Downloader
 var _ core.Downloader = &WgetDownloader{}
 
-func NewWgetDownloader(cfg config.DownloaderConfig) *WgetDownloader {
+func NewWgetDownloader(cfg config.Downloader) *WgetDownloader {
 	logDir := cfg.LogDir
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		slog.Error("Failed to create log directory", "dir", logDir, "error", err)

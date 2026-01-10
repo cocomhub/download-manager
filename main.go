@@ -3,85 +3,46 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"gopkg.in/natefinch/lumberjack.v2"
-	"gopkg.in/yaml.v3"
-
 	"download-manager/api"
 	"download-manager/config"
+	"download-manager/logutil"
 	"download-manager/manager"
 )
 
-func initLogger(cfg config.LogConfig) {
-	var level slog.Level
-	switch cfg.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
-		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
+var (
+	configFile  = flag.String("config", "config.yaml", "Path to configuration file")
+	versionFlag = flag.Bool("version", false, "Print version and build info")
+)
 
-	var writers []io.Writer
+var (
+	Version = "dev"
+	BuildAt = "unknown"
+)
 
-	if cfg.Console {
-		writers = append(writers, os.Stdout)
-	}
-
-	if cfg.Filename != "" {
-		fileWriter := &lumberjack.Logger{
-			Filename:   cfg.Filename,
-			MaxSize:    cfg.MaxSize, // megabytes
-			MaxBackups: cfg.MaxBackups,
-			MaxAge:     cfg.MaxAge, // days
-			Compress:   cfg.Compress,
-		}
-		writers = append(writers, fileWriter)
-	}
-
-	var w io.Writer
-	if len(writers) > 0 {
-		w = io.MultiWriter(writers...)
-	} else {
-		w = io.Discard
-	}
-
-	logger := slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{
-		Level: level,
-	}))
-	slog.SetDefault(logger)
+func init() {
+	flag.Parse()
 }
 
 func main() {
-	configFile := flag.String("config", "config.yaml", "Path to configuration file")
-	flag.Parse()
-
-	// Read config first to get lock file path
-	data, err := os.ReadFile(*configFile)
-	if err != nil {
-		fmt.Printf("Error reading config file: %v\n", err)
-		os.Exit(1)
+	if *versionFlag {
+		fmt.Printf("Version: %s, Build At: %s\n", Version, BuildAt)
+		os.Exit(0)
 	}
 
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Printf("Error parsing config file: %v\n", err)
+	cfg, err := config.Init(*configFile)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Initialize Logger
-	initLogger(cfg.Log)
+	logutil.InitLogger(cfg.Log)
 
 	// Ensure single instance with file lock
 	lockFile := cfg.Server.LockFile
@@ -102,7 +63,7 @@ func main() {
 	}
 	defer syscall.Flock(lockFd, syscall.LOCK_UN)
 
-	mgr := manager.NewManager(&cfg)
+	mgr := manager.NewManager(cfg)
 
 	// Start Manager
 	go mgr.Start()
@@ -117,7 +78,7 @@ func main() {
 			port = 8080 // Default port
 		}
 
-		slog.Info("Starting HTTP server", "port", port)
+		slog.Info("Starting HTTP server", "port", port, "version", Version, "build_at", BuildAt)
 		slog.Info("Web UI available", "url", fmt.Sprintf("http://localhost:%d", port))
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), router); err != nil {
 			slog.Error("HTTP server failed", "error", err)
@@ -129,5 +90,5 @@ func main() {
 	<-quit
 
 	mgr.Stop()
-	slog.Info("Server exited")
+	slog.Info("Server exited", "version", Version, "build_at", BuildAt)
 }
