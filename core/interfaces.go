@@ -44,13 +44,41 @@ type Downloader interface {
 	Name() string
 }
 
+// SharedRegistry 用于跨任务共享基于 URL 的对象状态
+type SharedRegistry interface {
+	Get(url string) (*model.DownloadObject, error)
+	Update(obj *model.DownloadObject) error
+	Delete(url string) error
+}
+
+// SharedRegistrySetter 任务可实现该接口以接收共享注册表
+type SharedRegistrySetter interface {
+	SetSharedRegistry(reg SharedRegistry)
+}
+
+// DownloaderSetter 任务可实现该接口以接收下载器
+type DownloaderSetter interface {
+	SetDownloader(d Downloader)
+}
+
+// CacheLoader 任务可实现该接口以加载缓存
+type CacheLoader interface {
+	LoadCache() error
+}
+
+// CacheSaver 任务可实现该接口以保存缓存
+type CacheSaver interface {
+	SaveCache() error
+}
+
 // EventType 定义事件类型
 type EventType string
 
 const (
-	EventTaskUpdate     EventType = "task_update"      // 任务统计更新 (单任务)
-	EventTaskListChange EventType = "task_list_change" // 任务列表变动 (添加/删除任务)
-	EventObjectUpdate   EventType = "object_update"    // 对象状态/进度更新
+	EventTaskUpdate         EventType = "task_update"          // 任务统计更新 (单任务)
+	EventTaskListChange     EventType = "task_list_change"     // 任务列表变动 (添加/删除任务)
+	EventObjectUpdate       EventType = "object_update"        // 对象状态/进度更新
+	EventSharedObjectUpdate EventType = "shared_object_update" // 共享对象状态更新
 )
 
 // Event 系统事件

@@ -28,6 +28,7 @@ type NativeHTTPDownloader struct {
 	forceProxy bool
 	maxRetries int
 	client     *http.Client
+	dLimiter   *DomainLimiter
 }
 
 var _ core.Downloader = &NativeHTTPDownloader{}
@@ -58,6 +59,13 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 		forceProxy: cfg.ForceProxy,
 		maxRetries: cfg.MaxRetries,
 		client:     client,
+		dLimiter:   NewDomainLimiter(),
+	}
+}
+
+func (d *NativeHTTPDownloader) ApplyDomainLimits(limits map[string]int) {
+	for host, max := range limits {
+		d.dLimiter.Set(host, max)
 	}
 }
 
@@ -231,6 +239,8 @@ startDownload:
 	cnt++
 
 	fmt.Fprintf(f, "Requesting URL: %s (Attempt %d)\n\n", url, cnt)
+	d.dLimiter.Acquire(subObj.URL)
+	defer d.dLimiter.Release(subObj.URL)
 	slog.Info("Starting download", "downloader", "native_http",
 		"url", url, "path", subObj.SavePath, "log", logFile, "attempt", cnt)
 

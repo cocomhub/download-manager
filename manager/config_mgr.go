@@ -22,8 +22,9 @@ type AuditInfo struct {
 }
 
 func (m *Manager) GetConfig() *config.Config {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if v := m.cfgVal.Load(); v != nil {
+		return v.(*config.Config)
+	}
 	return m.cfg
 }
 

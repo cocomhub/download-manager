@@ -17,6 +17,7 @@ type SimpleTask struct {
 	saveDir string
 	objects []*model.DownloadObject
 	store   core.Storage
+	shared  core.SharedRegistry
 	mu      sync.Mutex
 }
 
@@ -98,6 +99,14 @@ func (t *SimpleTask) Type() string {
 	return "simple_url_list"
 }
 
+func (t *SimpleTask) GetStorage() core.Storage {
+	return t.store
+}
+
+func (t *SimpleTask) SetSharedRegistry(reg core.SharedRegistry) {
+	t.shared = reg
+}
+
 func (t *SimpleTask) Close() error {
 	// Flush storage if supported
 	if t.store != nil {
@@ -111,6 +120,15 @@ func (t *SimpleTask) Close() error {
 func (t *SimpleTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	// Sync from shared registry if available
+	if t.shared != nil {
+		for _, obj := range t.objects {
+			if storedObj, err := t.shared.Get(obj.URL); err == nil && storedObj != nil {
+				*obj = *storedObj
+			}
+		}
+	}
 
 	var pending []*model.DownloadObject
 	for _, obj := range t.objects {
@@ -138,6 +156,10 @@ func (t *SimpleTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 		if storeErr := t.store.Update(obj); storeErr != nil {
 			slog.Error("Failed to update storage", "task_id", t.id, "error", storeErr)
 		}
+	}
+	// Update shared registry
+	if t.shared != nil {
+		_ = t.shared.Update(obj)
 	}
 
 	return nil

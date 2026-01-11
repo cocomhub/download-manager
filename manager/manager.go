@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"download-manager/config"
@@ -27,7 +28,8 @@ type downloadRequest struct {
 
 type Manager struct {
 	cfg            *config.Config
-	tasks          map[string]core.Task
+	cfgVal         atomic.Value
+	tasks          sync.Map
 	downloader     core.Downloader
 	stopChan       chan struct{}
 	workerStop     chan struct{}
@@ -43,6 +45,7 @@ type Manager struct {
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
 	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
 	failedCount     sync.Map // URL -> int (Failed download attempts)
+	metrics         sync.Map // TaskID -> *taskMetrics
 
 	// Event Bus
 	subscribers map[<-chan core.Event]chan core.Event
@@ -54,6 +57,15 @@ type Manager struct {
 	// Global Rate Limiting
 	downloadQueue chan *downloadRequest
 	workerWg      sync.WaitGroup
+
+	// Global shared URL state registry
+	urlRegistry *URLStateRegistry
+}
+
+type taskMetrics struct {
+	avgLatencyMs float64
+	failures     int
+	completed    int
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -73,16 +85,21 @@ func NewManager(cfg *config.Config) *Manager {
 		globalLimit = 5 // Default
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		cfg:             cfg,
-		tasks:           make(map[string]core.Task),
 		downloader:      downloader.New(cfg.Downloader),
 		stopChan:        make(chan struct{}),
 		workerStop:      make(chan struct{}),
 		activeDownloads: make(map[string]int),
 		downloadQueue:   make(chan *downloadRequest, max(globalLimit*2, 10)), // Buffer size
 		subscribers:     make(map[<-chan core.Event]chan core.Event),
+		urlRegistry:     NewURLStateRegistry(),
 	}
+	mgr.cfgVal.Store(cfg)
+	if nd, ok := mgr.downloader.(*downloader.NativeHTTPDownloader); ok {
+		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
+	}
+	return mgr
 }
 
 func (m *Manager) GetDownloadRootDir() string {
@@ -95,6 +112,13 @@ func (m *Manager) Subscribe() <-chan core.Event {
 	ch := make(chan core.Event, 100) // Buffer to prevent blocking
 	m.subscribers[ch] = ch
 	return ch
+}
+
+func (m *Manager) currentCfg() *config.Config {
+	if v := m.cfgVal.Load(); v != nil {
+		return v.(*config.Config)
+	}
+	return m.cfg
 }
 
 func (m *Manager) Unsubscribe(ch <-chan core.Event) {
@@ -142,7 +166,7 @@ func (m *Manager) Start() {
 	m.schedulerStop = make(chan struct{})
 	go m.scheduler()
 
-	interval := time.Duration(m.cfg.TaskScan.Interval) * time.Second
+	interval := time.Duration(m.currentCfg().TaskScan.Interval) * time.Second
 	if interval == 0 {
 		interval = 10 * time.Second
 	}
@@ -153,10 +177,12 @@ func (m *Manager) Start() {
 
 	// Progress broadcast ticker
 	progressTicker := time.NewTicker(1 * time.Second)
+	alignTicker := time.NewTicker(5 * time.Minute)
 
 	defer ticker.Stop()
 	defer cacheTicker.Stop()
 	defer progressTicker.Stop()
+	defer alignTicker.Stop()
 
 	// Immediate scan on start
 	m.scan()
@@ -169,6 +195,8 @@ func (m *Manager) Start() {
 			m.broadcastProgress()
 		case <-cacheTicker.C:
 			m.saveAllCaches()
+		case <-alignTicker.C:
+			m.alignStorages()
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
 			close(m.schedulerStop)
@@ -183,6 +211,28 @@ func (m *Manager) Start() {
 	}
 }
 
+func (m *Manager) alignStorages() {
+	tasks := make([]core.Task, 0, 64)
+	m.tasks.Range(func(key, value any) bool {
+		tasks = append(tasks, value.(core.Task))
+		return true
+	})
+	for _, t := range tasks {
+		if sp, ok := t.(core.StorageProvider); ok {
+			st := sp.GetStorage()
+			if st != nil {
+				list, err := st.Search(nil)
+				if err == nil {
+					for _, obj := range list {
+						m.urlRegistry.Update(obj)
+						m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+					}
+				}
+			}
+		}
+	}
+}
+
 func (m *Manager) Stop() {
 	// Ideally close mongo clients here too, but they are global in storage pkg currently
 	close(m.stopChan)
@@ -191,16 +241,15 @@ func (m *Manager) Stop() {
 func (m *Manager) scan() {
 	// slog.Debug("Scanning tasks")
 
-	if m.cfg.TaskScan.Disable {
+	if m.currentCfg().TaskScan.Disable {
 		return
 	}
 
-	m.mu.Lock()
-	tasks := make([]core.Task, 0, len(m.tasks))
-	for _, t := range m.tasks {
-		tasks = append(tasks, t)
-	}
-	m.mu.Unlock()
+	tasks := make([]core.Task, 0, 64)
+	m.tasks.Range(func(key, value any) bool {
+		tasks = append(tasks, value.(core.Task))
+		return true
+	})
 
 	for _, t := range tasks {
 		// Check if task is already being processed
@@ -312,19 +361,53 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 func (m *Manager) scheduler() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	weights := make(map[string]int)
+	lastUpdate := time.Now()
 	for {
 		select {
 		case <-m.schedulerStop:
 			return
 		case <-ticker.C:
-			// round-robin over tasks
-			m.mu.Lock()
-			ids := make([]string, 0, len(m.tasks))
-			for id := range m.tasks {
-				ids = append(ids, id)
+			if time.Since(lastUpdate) > 2*time.Second {
+				weights = make(map[string]int)
+				m.tasks.Range(func(key, value any) bool {
+					id := key.(string)
+					w := 1
+					w += max(0, len(m.getTaskQueue(id))/8)
+					if v, ok := m.metrics.Load(id); ok {
+						mt := v.(*taskMetrics)
+						if mt.avgLatencyMs > 5000 {
+							w -= 1
+						}
+						if mt.failures > 0 {
+							w -= min(mt.failures, 2)
+						}
+						if w < 1 {
+							w = 1
+						}
+					}
+					w = min(w, 8)
+					weights[id] = w
+					return true
+				})
+				lastUpdate = time.Now()
 			}
-			m.mu.Unlock()
+			ids := make([]string, 0, 64)
+			m.tasks.Range(func(key, value any) bool {
+				ids = append(ids, key.(string))
+				return true
+			})
+			expanded := make([]string, 0, 64)
 			for _, id := range ids {
+				w := weights[id]
+				if w <= 0 {
+					w = 1
+				}
+				for i := 0; i < w; i++ {
+					expanded = append(expanded, id)
+				}
+			}
+			for _, id := range expanded {
 				q := m.getTaskQueue(id)
 				select {
 				case req := <-q:
@@ -356,6 +439,7 @@ func (m *Manager) broadcastProgress() {
 		last, loaded := m.lastProgress.LoadOrStore(obj.URL, -1)
 		if !loaded || last.(int) != obj.Progress {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			m.lastProgress.Store(obj.URL, obj.Progress)
 		}
 		return true
@@ -363,9 +447,7 @@ func (m *Manager) broadcastProgress() {
 }
 
 func (m *Manager) BroadcastTaskUpdate(taskID string) {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
+	t, ok := m.getTask(taskID)
 
 	if !ok {
 		return
@@ -389,11 +471,32 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 		}
 		summary["completed"] = completed
 	}
+	{
+		lk := m.getTaskLock(taskID)
+		lk.Lock()
+		summary["active"] = m.activeDownloads[taskID]
+		lk.Unlock()
+	}
+	q := m.getTaskQueue(taskID)
+	summary["backlog"] = len(q)
+	if v, ok := m.metrics.Load(taskID); ok {
+		mt := v.(*taskMetrics)
+		summary["avg_latency_ms"] = mt.avgLatencyMs
+		summary["failures"] = mt.failures
+	}
 
 	m.publish(core.Event{Type: core.EventTaskUpdate, Payload: summary})
 }
 
+func (m *Manager) getTask(id string) (core.Task, bool) {
+	if v, ok := m.tasks.Load(id); ok {
+		return v.(core.Task), true
+	}
+	return nil, false
+}
+
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
+	start := time.Now()
 	defer func() {
 		m.mu.Lock()
 		m.activeDownloads[t.ID()]--
@@ -409,6 +512,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
 	m.mu.Lock()
 	dl := m.downloader
@@ -441,8 +545,19 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	} else {
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			mt := v.(*taskMetrics)
+			mt.completed++
+			elapsed := time.Since(start).Seconds() * 1000
+			if mt.avgLatencyMs == 0 {
+				mt.avgLatencyMs = elapsed
+			} else {
+				mt.avgLatencyMs = (mt.avgLatencyMs*0.7 + elapsed*0.3)
+			}
+		}
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 }
 
 // forceDownload bypasses the queue and runs immediately
@@ -472,6 +587,7 @@ func (m *Manager) GetActiveDownloads() []map[string]interface{} {
 			"title":    obj.Metadata["title"],
 			"progress": obj.Progress,
 			"status":   obj.Status, // Should be 'downloading'
+			"owners":   m.urlRegistry.Owners(obj.URL),
 		})
 		return true
 	})
@@ -479,14 +595,11 @@ func (m *Manager) GetActiveDownloads() []map[string]interface{} {
 }
 
 func (m *Manager) GetTaskSummaries() []map[string]interface{} {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	var summaries []map[string]interface{}
 	// Iterate using config order to maintain consistency
-	for _, tCfg := range m.cfg.Tasks {
+	for _, tCfg := range m.currentCfg().Tasks {
 		id := tCfg.ID
-		t, ok := m.tasks[id]
+		t, ok := m.getTask(id)
 		if !ok {
 			continue
 		}
@@ -516,17 +629,16 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 }
 
 func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]interface{}, error) {
-	m.mu.Lock()
-	t, ok := m.tasks[id]
+	t, ok := m.getTask(id)
 	// also locate config entry for readonly fields
 	var tCfg *config.Task
-	for i := range m.cfg.Tasks {
-		if m.cfg.Tasks[i].ID == id {
-			tCfg = &m.cfg.Tasks[i]
+	cfg := m.currentCfg()
+	for i := range cfg.Tasks {
+		if cfg.Tasks[i].ID == id {
+			tCfg = &cfg.Tasks[i]
 			break
 		}
 	}
-	m.mu.Unlock()
 
 	if !ok {
 		return nil, fmt.Errorf("task not found")
@@ -666,9 +778,7 @@ func hasMethod(i interface{}, name string) bool {
 
 // RetryObject resets the status of an object to pending and forces download
 func (m *Manager) RetryObject(taskID, url string) error {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
+	t, ok := m.getTask(taskID)
 
 	if !ok {
 		return fmt.Errorf("task not found")
@@ -709,9 +819,7 @@ func (m *Manager) RetryObject(taskID, url string) error {
 
 // ReorderObject moves an object to a new position
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
+	t, ok := m.getTask(taskID)
 
 	if !ok {
 		return fmt.Errorf("task not found")
@@ -727,9 +835,7 @@ func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 
 // RetryAllFailed resets all failed objects in a task
 func (m *Manager) RetryAllFailed(taskID string) error {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
+	t, ok := m.getTask(taskID)
 
 	if !ok {
 		return fmt.Errorf("task not found")
@@ -784,10 +890,9 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 			}
 		}
 	}
-	// Apply in-memory config under lock
-	m.mu.Lock()
+	// Apply in-memory config
 	m.cfg = newCfg
-	m.mu.Unlock()
+	m.cfgVal.Store(newCfg)
 	// Reload components
 	m.downloader = downloader.New(newCfg.Downloader)
 	logutil.InitLogger(newCfg.Log)
@@ -804,13 +909,15 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 }
 
 func (m *Manager) UpdateLogConfig(newLog logutil.LogConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cfg.Log = newLog
-	m.cfg.ValidateAndClamp()
-	if err := config.Save(config.GetConfigFilePath(), m.cfg); err != nil {
+	cur := m.GetConfig()
+	cfgCopy := *cur
+	cfgCopy.Log = newLog
+	cfgCopy.ValidateAndClamp()
+	if err := config.Save(config.GetConfigFilePath(), &cfgCopy); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	logutil.InitLogger(newLog)
+	m.cfg = &cfgCopy
+	m.cfgVal.Store(&cfgCopy)
 	return nil
 }

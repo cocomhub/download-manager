@@ -437,6 +437,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"force_proxy":       cfg.Downloader.ForceProxy,
 			"max_retries":       cfg.Downloader.MaxRetries,
 			"type":              cfg.Downloader.Type,
+			"domain_limits":     cfg.Downloader.DomainLimits,
 		},
 		"ui_defaults": map[string]interface{}{
 			"default_save_dir":    cfg.Server.UIDefaults.DefaultSaveDir,
@@ -473,6 +474,9 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Downloader.Type != "" {
 		cur.Downloader.Type = req.Downloader.Type
+	}
+	if req.Downloader.DomainLimits != nil {
+		cur.Downloader.DomainLimits = req.Downloader.DomainLimits
 	}
 	cur.Server.UIDefaults = req.UIDefaults
 	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{

@@ -11,8 +11,8 @@ import (
 
 func (m *Manager) loadTasks() {
 	var wg sync.WaitGroup
-	for _, tCfg := range m.cfg.Tasks {
-		if _, exists := m.tasks[tCfg.ID]; exists {
+	for _, tCfg := range m.currentCfg().Tasks {
+		if _, exists := m.tasks.Load(tCfg.ID); exists {
 			continue
 		}
 		storeType := tCfg.Storage.Type
@@ -32,12 +32,15 @@ func (m *Manager) loadTasks() {
 			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue
 		}
-		if setter, ok := t.(interface{ SetDownloader(core.Downloader) }); ok {
+		if setter, ok := t.(core.DownloaderSetter); ok {
 			setter.SetDownloader(m.downloader)
 		}
-		if ct, ok := t.(interface{ LoadCache() error }); ok {
+		if srSetter, ok := t.(core.SharedRegistrySetter); ok {
+			srSetter.SetSharedRegistry(m.urlRegistry)
+		}
+		if ct, ok := t.(core.CacheLoader); ok {
 			wg.Add(1)
-			go func(id string, ct interface{ LoadCache() error }) {
+			go func(id string, ct core.CacheLoader) {
 				defer wg.Done()
 				if err := ct.LoadCache(); err != nil {
 					slog.Warn("Failed to load task cache", "task_id", id, "error", err)
@@ -46,21 +49,34 @@ func (m *Manager) loadTasks() {
 				}
 			}(tCfg.ID, ct)
 		}
-		m.tasks[tCfg.ID] = t
+		m.tasks.Store(tCfg.ID, t)
 		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
 	}
 	wg.Wait()
+	// Cold start rehydration from storages
+	m.tasks.Range(func(key, value any) bool {
+		if sp, ok := value.(core.StorageProvider); ok {
+			st := sp.GetStorage()
+			if st != nil {
+				if list, err := st.Search(nil); err == nil && list != nil {
+					for _, obj := range list {
+						m.urlRegistry.Update(obj)
+					}
+				}
+			}
+		}
+		return true
+	})
 }
 
 func (m *Manager) saveAllCaches() {
-	m.mu.Lock()
-	tasks := make([]core.Task, 0, len(m.tasks))
-	for _, t := range m.tasks {
-		tasks = append(tasks, t)
-	}
-	m.mu.Unlock()
+	tasks := make([]core.Task, 0, 64)
+	m.tasks.Range(func(key, value any) bool {
+		tasks = append(tasks, value.(core.Task))
+		return true
+	})
 	for _, t := range tasks {
-		if ct, ok := t.(interface{ SaveCache() error }); ok {
+		if ct, ok := t.(core.CacheSaver); ok {
 			if err := ct.SaveCache(); err != nil {
 				slog.Error("Failed to save task cache", "task_id", t.ID(), "error", err)
 			}
@@ -70,4 +86,3 @@ func (m *Manager) saveAllCaches() {
 		}
 	}
 }
-

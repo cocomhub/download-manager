@@ -54,7 +54,7 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 
 func (m *Manager) applyTaskRuntime(newCfg *config.Config) {
 	for _, tCfg := range newCfg.Tasks {
-		if t, ok := m.tasks[tCfg.ID]; ok {
+		if t, ok := m.getTask(tCfg.ID); ok {
 			if setter, ok := t.(interface{ SetConcurrency(int) error }); ok {
 				var cfgVal int
 				if tCfg.Extra != nil {
@@ -98,9 +98,7 @@ func (m *Manager) applyTaskRuntime(newCfg *config.Config) {
 }
 
 func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval *int, audit *AuditInfo) (map[string]bool, error) {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
+	t, ok := m.getTask(taskID)
 	if !ok {
 		return nil, fmt.Errorf("task not found")
 	}
