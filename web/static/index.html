@@ -121,12 +121,6 @@
                     <button @click="retryAllFailed" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
                             <i class="fas fa-redo mr-1"></i> Retry Failed
                         </button>
-                    <button @click="toggleTaskConfigPanel" class="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
-                            <i class="fas fa-sliders-h mr-1"></i> 任务配置
-                        </button>
-                    <button @click="openEditTask" class="text-sm bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
-                            <i class="fas fa-edit mr-1"></i> 编辑任务
-                        </button>
 
                     <!-- Sort -->
                     <select v-model="sortBy" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -182,8 +176,8 @@
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
                 <!-- Task Config Panel (toggle) -->
-                <div v-if="selectedTask && showTaskConfigPanel" class="fixed right-6 bottom-6 w-80 z-50">
-                    <div class="bg-white rounded-lg shadow-lg p-4 border">
+                <div v-if="selectedTask && showTaskConfigPanel" class="fixed inset-0 z-50 flex items-center justify-center">
+                    <div class="bg-white rounded-lg shadow-2xl p-4 border w-[420px]">
                         <h3 class="text-sm font-semibold text-gray-700 mb-3">任务配置</h3>
                         <div class="space-y-3">
                             <div>
@@ -198,9 +192,9 @@
                                 <span v-if="selectedTask.supports && selectedTask.supports.concurrency && selectedTask.supports.refresh_interval">保存后立即生效</span>
                                 <span v-else>未实现动态更新，保存后重启生效</span>
                             </div>
-                            <div class="flex justify-between">
+                            <div class="flex justify-end gap-2">
                                 <button @click="showTaskConfigPanel = false" class="px-3 py-1.5 text-gray-600 hover:text-gray-800 text-sm">关闭</button>
-                                <button @click="saveTaskConfig" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">保存任务配置</button>
+                                <button @click="saveTaskConfig" class="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700">保存</button>
                             </div>
                         </div>
                     </div>
@@ -254,9 +248,75 @@
                 </div>
 
                 <div v-else-if="selectedTask">
+                    <!-- Task Details (Read-only) -->
+                    <div class="bg-white rounded-lg shadow p-4 mb-4 border">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-gray-700">任务详情</h3>
+                            <div class="flex items-center gap-2">
+                                <select v-model="statusFilter" class="text-xs border rounded px-2 py-1">
+                                    <option value="all">全部状态</option>
+                                    <option value="downloading">下载中</option>
+                                    <option value="completed">已完成</option>
+                                    <option value="failed">失败</option>
+                                    <option value="pending">待下载</option>
+                                </select>
+                                <button @click="toggleTaskConfigPanel" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors flex items-center">
+                                    <i class="fas fa-sliders-h mr-1"></i> 任务配置
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+                            <div>
+                                <div class="text-gray-500 text-xs">任务ID</div>
+                                <div>{{ selectedTask.id }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs">任务类型</div>
+                                <div>{{ selectedTask.type }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs">并发上限</div>
+                                <div>{{ taskConfigForm.concurrency }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500 text-xs">刷新间隔（秒）</div>
+                                <div>{{ taskConfigForm.refresh_interval }}</div>
+                            </div>
+                            <div class="md:col-span-2">
+                                <div class="text-gray-500 text-xs">存储路径</div>
+                                <div>{{ (selectedTask.save_dir || '') || '未提供' }}</div>
+                            </div>
+                            <div class="md:col-span-2" v-if="selectedTask.storage">
+                                <div class="text-gray-500 text-xs">存储配置</div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600">
+                                    <div><span class="text-gray-400">类型：</span>{{ selectedTask.storage.type }}</div>
+                                    <div v-if="selectedTask.storage.config && selectedTask.storage.config.path"><span class="text-gray-400">路径：</span>{{ selectedTask.storage.config.path }}</div>
+                                    <div v-if="selectedTask.storage.config && selectedTask.storage.config.source"><span class="text-gray-400">源：</span>{{ selectedTask.storage.config.source }}</div>
+                                    <div v-if="selectedTask.storage.config && selectedTask.storage.config.database"><span class="text-gray-400">库：</span>{{ selectedTask.storage.config.database }}</div>
+                                    <div v-if="selectedTask.storage.config && selectedTask.storage.config.collection"><span class="text-gray-400">集合：</span>{{ selectedTask.storage.config.collection }}</div>
+                                </div>
+                            </div>
+                            <div class="md:col-span-2" v-if="selectedTask.extra">
+                                <div class="text-gray-500 text-xs">任务扩展</div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600" v-if="selectedTask.type.startsWith('tktube')">
+                                    <div><span class="text-gray-400">关键字：</span>{{ selectedTask.extra.keyword||'-' }}</div>
+                                    <div><span class="text-gray-400">子类型：</span>{{ selectedTask.extra.subtype||'-' }}</div>
+                                    <div><span class="text-gray-400">并发：</span>{{ selectedTask.extra.max_concurrent||'-' }}</div>
+                                    <div><span class="text-gray-400">刷新间隔：</span>{{ selectedTask.extra.refresh_interval||'-' }}</div>
+                                </div>
+                                <div class="text-xs text-gray-600" v-else-if="selectedTask.type==='simple_url_list'">
+                                    <span class="text-gray-400">URL数量：</span>{{ (selectedTask.extra.urls && selectedTask.extra.urls.length) || (selectedTask.urls && selectedTask.urls.length) || 0 }}
+                                </div>
+                                <div class="text-xs text-gray-600 break-all" v-else>
+                                    {{ JSON.stringify(selectedTask.extra, null, 2) }}
+                                </div>
+                            </div>
+                        </div>
+                        <p class="mt-2 text-xs text-gray-500">详情信息只读，配置修改请使用右下角“任务配置”。</p>
+                    </div>
                     <!-- Grid View -->
                     <div v-if="viewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                        <div v-for="obj in filteredObjects" :key="obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" draggable="true" @dragstart="dragStart($event, obj)"
+                        <div v-for="obj in filteredObjects" :key="obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" :draggable="sortBy==='default'" @dragstart="dragStart($event, obj)"
                             @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
 
                             <!-- Cover Image Area -->
@@ -266,12 +326,12 @@
                                 <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
                                     <i class="fas fa-file-image text-4xl"></i>
                                 </div>
-                                <div v-if="isVideo(obj) && obj.status === 'completed'" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                <div v-if="isVideo(obj) && obj.status === 'completed'" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
                                     <div class="bg-white/90 text-blue-600 rounded-full w-12 h-12 flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-110 transition-transform">
                                         <i class="fas fa-play ml-1 text-xl"></i>
                                     </div>
                                 </div>
-                                <div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-20">
+                                <div v-if="(uiDefaults && uiDefaults.status_style)==='overlay'" class="absolute top-2 right-2 flex flex-col items-end gap-1 z-20">
                                     <span class="px-2 py-1 text-xs font-bold rounded-md shadow-sm uppercase tracking-wide" :class="{
                                               'bg-green-500 text-white': obj.status === 'completed',
                                               'bg-blue-500 text-white': obj.status === 'downloading',
@@ -282,15 +342,32 @@
                                         <i class="fas fa-redo"></i> Retry
                                     </button>
                                 </div>
-                                <div v-if="getDuration(obj)" class="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1.5 py-0.5 rounded font-mono z-20">{{ getDuration(obj) }}</div>
+                                <div v-if="(uiDefaults && uiDefaults.status_style)==='overlay' && getDuration(obj)" class="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1.5 py-0.5 rounded font-mono z-20">{{ getDuration(obj) }}</div>
                             </div>
 
                             <!-- Content -->
                             <div class="p-4 flex-1 flex flex-col">
-                                <h3 class="font-semibold text-gray-800 text-sm line-clamp-2 mb-2 leading-snug" :title="getTitle(obj)">{{ getTitle(obj) }}</h3>
+                                <div class="flex items-start justify-between mb-2">
+                                    <h3 class="font-semibold text-gray-800 text-sm line-clamp-2 leading-snug cursor-copy" :title="'点击复制标题：' + getTitle(obj)" @click.stop="copyText(getTitle(obj))">{{ getTitle(obj) }}</h3>
+                                    <div class="flex items-center gap-2">
+                                        <span v-if="(uiDefaults && uiDefaults.status_style) === 'dot'" class="inline-block w-2 h-2 rounded-full" :class="{
+                                            'bg-green-500': obj.status === 'completed',
+                                            'bg-yellow-500': obj.status === 'downloading',
+                                            'bg-red-500': obj.status === 'failed',
+                                            'bg-gray-400': obj.status === 'pending'
+                                        }" title="状态"></span>
+                                        <span v-else class="px-2 inline-flex text-[10px] leading-5 font-semibold rounded-full" :class="{
+                                            'bg-green-100 text-green-800': obj.status === 'completed',
+                                            'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
+                                            'bg-red-100 text-red-800': obj.status === 'failed',
+                                            'bg-gray-100 text-gray-800': obj.status === 'pending'
+                                        }">{{ obj.status }}</span>
+                                    </div>
+                                </div>
                                 <div class="flex justify-between items-center text-xs text-gray-500 mb-2">
-                                    <span>{{ getDate(obj) }}</span>
-                                    <span v-if="obj.status === 'downloading'">{{ obj.progress }}%</span>
+                                    <span @click.stop="copyText(getTitle(obj))" class="cursor-copy" :title="'点击复制标题：' + getTitle(obj)">{{ getDate(obj) }}</span>
+                                    <span class="font-mono">{{ obj.progress ? (obj.progress + '%') : '' }}</span>
+                                    <span class="font-mono" v-if="getDuration(obj)">{{ getDuration(obj) }}</span>
                                 </div>
                                 <div class="flex flex-wrap gap-1 mb-3 max-h-16 overflow-hidden">
                                     <span v-for="tag in getTags(obj).slice(0, 5)" :key="tag" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200 cursor-pointer" @click.stop="searchQuery = tag">#{{ tag }}</span>
@@ -359,7 +436,7 @@
                                             <i class="fas" :class="obj.status === 'failed' ? 'fa-redo' : 'fa-download'"></i> {{ obj.status === 'failed' ? 'Retry' : 'Start' }}
                                         </button>
                                         <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-play"></i> Play</button>
-                                        <a v-else-if="obj.status === 'completed'" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900">Open</a>
+                                        <a v-else-if="obj.status === 'completed'" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">Open</a>
                                     </td>
                                 </tr>
                             </tbody>
@@ -595,6 +672,19 @@
                         </div>
                         <p class="text-xs text-gray-500 mt-2">敏感配置（端口、数据库连接等）不在此界面显示与修改。</p>
                     </div>
+                    <div class="mb-6 border-t pt-4">
+                        <h4 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">UI Settings</h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Status Style</label>
+                                <select v-model="configForm.status_style" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="pill">pill</option>
+                                        <option value="dot">dot</option>
+                                        <option value="overlay">overlay</option>
+                                    </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
                     <button @click="showConfigModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
@@ -649,6 +739,7 @@
                                     <button @click="prepareRollback(h.filename)" class="text-red-600 hover:text-red-800">回滚</button>
                                     <button @click="addConfigTagRow(h.filename)" class="ml-2 text-blue-600 hover:text-blue-800">标签+</button>
                                     <button @click="addConfigNoteRow(h.filename)" class="ml-2 text-green-600 hover:text-green-800">记录+</button>
+                                    <button @click="deleteConfigBackupRow(h.filename)" class="ml-2 text-gray-600 hover:text-gray-900">删除</button>
                                     <div class="mt-1">
                                         <div v-for="n in (h.notes||[]).slice(-2)" :key="n.timestamp" class="text-xs text-gray-500">
                                             <span>{{ new Date(n.timestamp*1000).toLocaleString() }}</span>
@@ -759,83 +850,6 @@
             </div>
         </div>
 
-        <!-- Edit Task Modal -->
-        <div v-if="showEditTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
-                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h3 class="text-lg font-bold text-gray-800">Edit Task</h3>
-                    <button @click="showEditTaskModal = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="p-6 flex-1 overflow-y-auto">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Task ID</label>
-                            <input type="text" v-model="editTask.id" disabled class="w-full border border-gray-300 rounded-md p-2 bg-gray-100">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
-                            <select v-model="editTask.type" class="w-full border border-gray-300 rounded-md p-2">
-                                <option value="simple_url_list">Simple URL List</option>
-                                <option value="tktube">TKTube</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Save Directory</label>
-                            <input type="text" v-model="editTask.save_dir" class="w-full border border-gray-300 rounded-md p-2" placeholder="./downloads/mytask">
-                        </div>
-                        <div v-if="editTask.type === 'simple_url_list'">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">URLs (One per line)</label>
-                            <textarea v-model="editTask.urls_text" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm"></textarea>
-                        </div>
-                        <div v-if="editTask.type === 'tktube'">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Keyword</label>
-                            <input type="text" v-model="editTask.keyword" class="w-full border border-gray-300 rounded-md p-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Subtype</label>
-                            <select v-model="editTask.subtype" class="w-full border border-gray-300 rounded-md p-2">
-                                <option value="tag">Tag</option>
-                                <option value="keyword">Keyword</option>
-                            </select>
-                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Max Concurrent</label>
-                            <input type="number" v-model.number="editTask.max_concurrent" class="w-full border border-gray-300 rounded-md p-2" min="1" max="100">
-                            <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Refresh Interval</label>
-                            <input type="number" v-model.number="editTask.refresh_interval" class="w-full border border-gray-300 rounded-md p-2" min="10">
-                        </div>
-                        <div class="grid grid-cols-2 gap-4 mt-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Storage Type</label>
-                                <select v-model="editTask.storage_type" class="w-full border border-gray-300 rounded-md p-2">
-                                    <option value="file">File</option>
-                                    <option value="mongo">Mongo</option>
-                                    <option value="memory">Memory</option>
-                                </select>
-                            </div>
-                            <div v-if="editTask.storage_type==='file'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">File Path</label>
-                                <input type="text" v-model="editTask.storage_config.path" class="w-full border border-gray-300 rounded-md p-2">
-                            </div>
-                            <div v-if="editTask.storage_type==='mongo'" class="col-span-2 grid grid-cols-3 gap-2">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
-                                    <input type="text" v-model="editTask.storage_config.source" class="w-full border border-gray-300 rounded-md p-2">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Database</label>
-                                    <input type="text" v-model="editTask.storage_config.database" class="w-full border border-gray-300 rounded-md p-2">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Collection</label>
-                                    <input type="text" v-model="editTask.storage_config.collection" class="w-full border border-gray-300 rounded-md p-2">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
-                    <button @click="showEditTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
-                    <button @click="saveEditTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">Save</button>
-                </div>
-            </div>
-        </div>
         <!-- Rollback Confirm Modal -->
         <div v-if="showRollbackConfirm" class="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-lg shadow-2xl w-[90vw] max-w-[90vw] flex flex-col max-h-[90vh]">
@@ -1052,6 +1066,7 @@
                         concurrency: 1,
                         refresh_interval: 3600
                     },
+                    statusFilter: 'all',
                     configHistory: [],
                     diffForm: {
                         left: 'current',
@@ -1093,7 +1108,9 @@
                 },
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
-                    return this.selectedTask.objects
+                    const list = this.selectedTask.objects
+                    if (this.statusFilter === 'all') return list
+                    return list.filter(o => o.status === this.statusFilter)
                 },
                 filteredChanges() {
                     if (!this.configDiff || !this.configDiff.changes) return []
@@ -1577,7 +1594,8 @@
                         this.fullConfig = {
                             task_scan: serverCfg.task_scan,
                             downloader: serverCfg.downloader,
-                            log: logCfg
+                            log: logCfg,
+                            ui_defaults: serverCfg.ui_defaults || {}
                         }
                         this.configForm.proxies = (serverCfg.downloader.proxies || []).join('\n')
                         this.configForm.scan_interval = serverCfg.task_scan.interval || 10
@@ -1589,6 +1607,7 @@
                         this.configForm.log_max_age = logCfg.max_age || 7
                         this.configForm.log_compress = !!logCfg.compress
                         this.configForm.log_console = !!logCfg.console
+                        this.configForm.status_style = (this.uiDefaults && this.uiDefaults.status_style) || (this.fullConfig.ui_defaults && this.fullConfig.ui_defaults.status_style) || 'pill'
 
                         this.showConfigModal = true
                     } catch (e) {
@@ -1608,6 +1627,9 @@
                                 force_proxy: this.fullConfig.downloader.force_proxy || false,
                                 max_retries: this.fullConfig.downloader.max_retries || 3,
                                 type: this.fullConfig.downloader.type || 'native'
+                            },
+                            ui_defaults: {...(this.fullConfig.ui_defaults || {}),
+                                status_style: this.configForm.status_style
                             }
                         }
                         const logPayload = {
@@ -1639,6 +1661,7 @@
                         if (!logSave.ok) throw new Error("Log config save failed")
 
                         this.showConfigModal = false
+                        await this.initUiDefaults()
                         alert("Configuration saved successfully!")
                     } catch (e) {
                         alert("Error saving config: " + e.message)
@@ -1789,6 +1812,24 @@
                         alert("获取差异失败: " + e.message)
                     }
                 },
+                async deleteConfigBackupRow(filename) {
+                    try {
+                        if (!confirm(`确定删除备份 ${filename} 及其备注/标签？`)) return
+                        const res = await fetch('/api/config/delete', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                filename
+                            })
+                        })
+                        if (!res.ok) throw new Error('删除失败')
+                        await this.openConfigHistory()
+                    } catch (e) {
+                        alert('删除失败: ' + e.message)
+                    }
+                },
                 clearConfigDiff() {
                     this.configDiff = null
                     this.lineDiff = []
@@ -1886,6 +1927,17 @@
                         } else if (h.type === 'mod') {
                             const leftLine = a[ai] || ''
                             const rightLine = b[bi] || ''
+                            if (leftLine === rightLine) {
+                                rows.push({
+                                    type: 'same',
+                                    leftNo: ai + 1,
+                                    rightNo: bi + 1,
+                                    render: this.escapeHTML(leftLine)
+                                })
+                                ai++;
+                                bi++
+                                continue
+                            }
                             const modRender = this.highlightCharDiff(leftLine, rightLine)
                             rows.push({
                                 type: 'mod',
@@ -2074,7 +2126,10 @@
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
-                                filename: this.rollbackTarget
+                                filename: this.rollbackTarget,
+                                audit_author: 'ui',
+                                audit_source: 'ui/rollback',
+                                audit_message: `rollback to ${this.rollbackTarget}`
                             })
                         })
                         if (!res.ok) throw new Error('Rollback failed')
@@ -2131,78 +2186,6 @@
                         }
                     }
                     this.showAddTaskModal = true
-                },
-                openEditTask() {
-                    if (!this.selectedTask) return
-                    this.editTask = {
-                        id: this.selectedTask.id,
-                        type: this.selectedTask.type,
-                        save_dir: this.selectedTask.save_dir || ((this.uiDefaults && this.uiDefaults.default_save_dir) || './downloads'),
-                        urls_text: Array.isArray((this.selectedTask.extra && this.selectedTask.extra.urls) || this.selectedTask.urls) ? ((this.selectedTask.extra && this.selectedTask.extra.urls) || this.selectedTask.urls).join('\n') : '',
-                        keyword: (this.selectedTask.extra && this.selectedTask.extra.keyword) || '',
-                        subtype: (this.selectedTask.extra && this.selectedTask.extra.subtype) || 'tag',
-                        max_concurrent: (this.selectedTask.extra && (this.selectedTask.extra.max_concurrent || 1)) || 1,
-                        refresh_interval: (this.selectedTask.extra && (this.selectedTask.extra.refresh_interval || 3600)) || 3600,
-                        storage_type: (this.selectedTask.storage && this.selectedTask.storage.type) || 'file',
-                        storage_config: (this.selectedTask.storage && this.selectedTask.storage.config) || {
-                            path: '',
-                            source: '',
-                            database: '',
-                            collection: ''
-                        }
-                    }
-                    this.showEditTaskModal = true
-                },
-                async saveEditTask() {
-                    try {
-                        const taskConfig = {
-                            id: this.editTask.id,
-                            type: this.editTask.type,
-                            save_dir: this.editTask.save_dir,
-                            storage: {
-                                type: this.editTask.storage_type,
-                                config: {}
-                            },
-                            extra: {}
-                        }
-                        if (this.editTask.storage_type === 'file') {
-                            taskConfig.storage.config = {
-                                path: (this.editTask.storage_config && this.editTask.storage_config.path) || `${this.editTask.save_dir}/${this.editTask.id}_history.json`
-                            }
-                        } else if (this.editTask.storage_type === 'mongo') {
-                            taskConfig.storage.config = {
-                                source: (this.editTask.storage_config && this.editTask.storage_config.source) || 'suixi-mini',
-                                database: (this.editTask.storage_config && this.editTask.storage_config.database) || 'download_db',
-                                collection: (this.editTask.storage_config && this.editTask.storage_config.collection) || this.editTask.id
-                            }
-                        }
-                        if (this.editTask.type === 'simple_url_list') {
-                            taskConfig.extra = {
-                                urls: this.editTask.urls_text.split('\n').map(s => s.trim()).filter(s => s)
-                            }
-                        } else if (this.editTask.type === 'tktube') {
-                            taskConfig.extra = {
-                                keyword: this.editTask.keyword,
-                                subtype: this.editTask.subtype,
-                                max_concurrent: this.editTask.max_concurrent,
-                                refresh_interval: this.editTask.refresh_interval,
-                                scraper_path: "/Users/libing/Documents/trae_projects/tktube-python/bin/scraper_get"
-                            }
-                        }
-                        const res = await this.fetchWithTimeout(`/api/tasks/${encodeURIComponent(this.editTask.id)}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(taskConfig)
-                        })
-                        if (!res.ok) throw new Error('保存失败')
-                        this.showEditTaskModal = false
-                        await this.fetchTasks()
-                        alert('Task updated!')
-                    } catch (e) {
-                        alert('Error updating task: ' + e.message)
-                    }
                 },
                 async saveNewTask() {
                     if (!this.newTask.id) {
@@ -2270,7 +2253,10 @@
                         if (supports.concurrency || supports.refresh_interval) {
                             const payload = {
                                 concurrency: this.taskConfigForm.concurrency,
-                                refresh_interval: this.taskConfigForm.refresh_interval
+                                refresh_interval: this.taskConfigForm.refresh_interval,
+                                audit_author: 'ui',
+                                audit_source: 'ui/task_config',
+                                audit_message: ''
                             }
                             const res = await fetch(`/api/tasks/${this.selectedTaskId}/config`, {
                                 method: 'POST',
@@ -2279,7 +2265,12 @@
                                 },
                                 body: JSON.stringify(payload)
                             })
-                            if (!res.ok) throw new Error("保存失败")
+                            if (!res.ok) {
+                                const err = await res.json().catch(() => ({
+                                    message: '保存失败'
+                                }))
+                                throw new Error(err.message || '保存失败')
+                            }
                             this.showToast("任务配置已生效", "success")
                         } else {
                             // Fallback: update in config and save
@@ -2291,14 +2282,23 @@
                                 extra.max_concurrent = this.taskConfigForm.concurrency
                                 extra.refresh_interval = this.taskConfigForm.refresh_interval
                                 cfg.tasks[idx].extra = extra
-                                const saveRes = await fetch('/api/config', {
+                                const saveRes = await fetch('/api/config/server', {
                                     method: 'POST',
                                     headers: {
                                         'Content-Type': 'application/json'
                                     },
-                                    body: JSON.stringify(cfg)
+                                    body: JSON.stringify({
+                                        task_scan: cfg.task_scan,
+                                        downloader: cfg.downloader,
+                                        ui_defaults: cfg.server && cfg.server.ui_defaults || {}
+                                    })
                                 })
-                                if (!saveRes.ok) throw new Error("保存失败")
+                                if (!saveRes.ok) {
+                                    const err = await saveRes.json().catch(() => ({
+                                        message: '保存失败'
+                                    }))
+                                    throw new Error(err.message || '保存失败')
+                                }
                                 this.showToast("已保存，重启后生效", "success")
                             }
                         }
@@ -2361,6 +2361,21 @@
                 handleCardClick(obj) {
                     if (this.isVideo(obj) && obj.status === 'completed') this.playVideo(obj);
                     else if (obj.status === 'completed') window.open(this.getFileUrl(obj), '_blank')
+                },
+                copyText(text) {
+                    if (!text) return
+                    try {
+                        navigator.clipboard.writeText(text)
+                        this.showToast('已复制到剪贴板', 'success')
+                    } catch (e) {
+                        const ta = document.createElement('textarea')
+                        ta.value = text
+                        document.body.appendChild(ta)
+                        ta.select()
+                        document.execCommand('copy')
+                        document.body.removeChild(ta)
+                        this.showToast('已复制到剪贴板', 'success')
+                    }
                 },
                 playVideo(obj) {
                     this.currentVideo = obj

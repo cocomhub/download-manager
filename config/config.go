@@ -49,6 +49,7 @@ type UIDefaults struct {
 	DiffSideBySide    bool   `yaml:"diff_side_by_side" json:"diff_side_by_side"`
 	DiffIgnoreWS      bool   `yaml:"diff_ignore_ws" json:"diff_ignore_ws"`
 	DiffIgnoreComment bool   `yaml:"diff_ignore_comment" json:"diff_ignore_comment"`
+	StatusStyle       string `yaml:"status_style" json:"status_style"` // pill | dot | overlay
 }
 
 type Task struct {
@@ -104,35 +105,32 @@ func (c *Config) ValidateAndClamp() {
 		if v, ok := t.Extra["max_concurrent"]; ok {
 			switch vv := v.(type) {
 			case int:
-				t.Extra["max_concurrent"] = clampInt(vv, 1, 100)
+				t.Extra["max_concurrent"] = clampInt(vv, 0, 100)
 			case float64:
-				t.Extra["max_concurrent"] = clampInt(int(vv), 1, 100)
+				t.Extra["max_concurrent"] = clampInt(int(vv), 0, 100)
 			}
 		}
 		if v, ok := t.Extra["refresh_interval"]; ok {
 			switch vv := v.(type) {
 			case int:
-				if vv < 10 {
-					t.Extra["refresh_interval"] = 10
-				}
+				t.Extra["refresh_interval"] = clampInt(vv, 10, 86400)
 			case float64:
-				iv := int(vv)
-				if iv < 10 {
-					iv = 10
-				}
-				t.Extra["refresh_interval"] = iv
+				t.Extra["refresh_interval"] = clampInt(int(vv), 10, 86400)
 			}
 		}
 	}
 	// UI defaults clamp
 	if c.Server.UIDefaults.WindowWidth < 480 {
-		c.Server.UIDefaults.WindowWidth = 1200
+		c.Server.UIDefaults.WindowWidth = 480
 	}
 	if c.Server.UIDefaults.WindowHeight < 320 {
-		c.Server.UIDefaults.WindowHeight = 800
+		c.Server.UIDefaults.WindowHeight = 320
 	}
 	if c.Server.UIDefaults.DefaultSaveDir == "" {
 		c.Server.UIDefaults.DefaultSaveDir = "./downloads"
+	}
+	if c.Server.UIDefaults.StatusStyle == "" {
+		c.Server.UIDefaults.StatusStyle = "pill"
 	}
 }
 
@@ -163,6 +161,31 @@ func (a Config) Diff(b Config) []Change {
 	if a.Server.LockFile != b.Server.LockFile {
 		changes = append(changes, Change{Path: "server.lock_file", A: a.Server.LockFile, B: b.Server.LockFile})
 	}
+	if a.Server.ScraperPath != b.Server.ScraperPath {
+		changes = append(changes, Change{Path: "server.scraper_path", A: a.Server.ScraperPath, B: b.Server.ScraperPath})
+	}
+	if a.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
+		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: a.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})
+	}
+	if a.Server.UIDefaults.WindowWidth != b.Server.UIDefaults.WindowWidth {
+		changes = append(changes, Change{Path: "server.ui_defaults.window_width", A: a.Server.UIDefaults.WindowWidth, B: b.Server.UIDefaults.WindowWidth})
+	}
+	if a.Server.UIDefaults.WindowHeight != b.Server.UIDefaults.WindowHeight {
+		changes = append(changes, Change{Path: "server.ui_defaults.window_height", A: a.Server.UIDefaults.WindowHeight, B: b.Server.UIDefaults.WindowHeight})
+	}
+	if a.Server.UIDefaults.DiffSideBySide != b.Server.UIDefaults.DiffSideBySide {
+		changes = append(changes, Change{Path: "server.ui_defaults.diff_side_by_side", A: a.Server.UIDefaults.DiffSideBySide, B: b.Server.UIDefaults.DiffSideBySide})
+	}
+	if a.Server.UIDefaults.DiffIgnoreWS != b.Server.UIDefaults.DiffIgnoreWS {
+		changes = append(changes, Change{Path: "server.ui_defaults.diff_ignore_ws", A: a.Server.UIDefaults.DiffIgnoreWS, B: b.Server.UIDefaults.DiffIgnoreWS})
+	}
+	if a.Server.UIDefaults.DiffIgnoreComment != b.Server.UIDefaults.DiffIgnoreComment {
+		changes = append(changes, Change{Path: "server.ui_defaults.diff_ignore_comment", A: a.Server.UIDefaults.DiffIgnoreComment, B: b.Server.UIDefaults.DiffIgnoreComment})
+	}
+	if a.Server.UIDefaults.StatusStyle != b.Server.UIDefaults.StatusStyle {
+		changes = append(changes, Change{Path: "server.ui_defaults.status_style", A: a.Server.UIDefaults.StatusStyle, B: b.Server.UIDefaults.StatusStyle})
+	}
+
 	// Log
 	if a.Log.Level != b.Log.Level {
 		changes = append(changes, Change{Path: "log.level", A: a.Log.Level, B: b.Log.Level})

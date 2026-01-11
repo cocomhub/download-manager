@@ -287,18 +287,7 @@ func (t *TktubeTask) LoadCache() error {
 		t.knownURLs[obj.URL] = true
 
 		// Sync with storage to get latest status (in case JSON cache is stale)
-		if t.store != nil {
-			if storedObj, err := t.store.Get(obj.URL); err == nil && storedObj != nil {
-				// Only use stored object if it belongs to this task (or has no owner)
-				if storedObj.TaskID == "" || storedObj.TaskID == t.id {
-					obj.Status = storedObj.Status
-					obj.Metadata = storedObj.Metadata
-					obj.Extra = storedObj.Extra
-					// Ensure TaskID is set
-					obj.TaskID = t.id
-				}
-			}
-		}
+		t.checkAndRestoreStatus(obj)
 
 		// Reset Downloading status to Pending on restart
 		if obj.Status != model.StatusCompleted {
@@ -443,17 +432,6 @@ func (t *TktubeTask) refreshLatest() {
 			// New item
 			obj := t.createObjectFromVideoItem(v)
 
-			// Check storage just in case
-			if t.store != nil {
-				if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
-					// Found in DB, check ownership
-					if storedObj.TaskID == "" || storedObj.TaskID == t.id {
-						obj = storedObj
-						obj.TaskID = t.id
-					}
-				}
-			}
-
 			t.knownURLs[v.href] = true
 			pageNewObjects = append(pageNewObjects, obj)
 			t.queuePrefetch(obj)
@@ -499,14 +477,6 @@ func (t *TktubeTask) addVideoItems(items []videoItem) {
 		}
 
 		obj := t.createObjectFromVideoItem(v)
-
-		// Deduplication / Restore Status from DB
-		if t.store != nil {
-			if storedObj, err := t.store.Get(v.href); err == nil && storedObj != nil {
-				obj = storedObj
-				obj.TaskID = t.id
-			}
-		}
 
 		t.objects = append(t.objects, obj)
 		t.knownURLs[v.href] = true
@@ -728,7 +698,7 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 	// Basic object with metadata from list page
 	baseName := strings.ReplaceAll(v.title, "/", "_")
 
-	return &model.DownloadObject{
+	obj := &model.DownloadObject{
 		TaskID:   t.id,
 		URL:      v.href,                                    // Page URL as ID
 		SavePath: filepath.Join(t.saveDir, baseName+".mp4"), // Temporary path
@@ -745,6 +715,11 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 		},
 		Status: model.StatusPending,
 	}
+
+	// Deduplication / Restore Status from DB
+	t.checkAndRestoreStatus(obj)
+
+	return obj
 }
 
 func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
@@ -788,9 +763,7 @@ func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
 func (t *TktubeTask) checkAndRestoreStatus(obj *model.DownloadObject) {
 	if t.store != nil {
 		if storedObj, err := t.store.Get(obj.URL); err == nil && storedObj != nil {
-			obj.Status = storedObj.Status
-			obj.Metadata = storedObj.Metadata
-			obj.Extra = storedObj.Extra
+			*obj = *storedObj
 		}
 	}
 }
@@ -821,11 +794,8 @@ func (t *TktubeTask) GetRefreshInterval() int {
 }
 
 func (t *TktubeTask) SetConcurrency(n int) error {
-	if n < 1 {
-		n = 1
-	}
-	if n > 100 {
-		n = 100
+	if n < 0 || n > 100 {
+		return fmt.Errorf("concurrency must be >= 0 and <= 100")
 	}
 	t.mu.Lock()
 	t.concurrency = n
@@ -834,8 +804,8 @@ func (t *TktubeTask) SetConcurrency(n int) error {
 }
 
 func (t *TktubeTask) SetRefreshInterval(sec int) error {
-	if sec < 10 {
-		sec = 10
+	if sec < 10 || sec > 86400 {
+		return fmt.Errorf("refresh interval must be >= 10 and <= 86400")
 	}
 	t.mu.Lock()
 	t.refreshInt = sec

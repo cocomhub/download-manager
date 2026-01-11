@@ -1,9 +1,7 @@
 package manager
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,15 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"download-manager/config"
 	"download-manager/core"
 	"download-manager/downloader"
 	"download-manager/logutil"
 	"download-manager/model"
 	"download-manager/storage"
-	"download-manager/task"
 )
 
 type downloadRequest struct {
@@ -31,12 +26,16 @@ type downloadRequest struct {
 }
 
 type Manager struct {
-	cfg         *config.Config
-	tasks       map[string]core.Task
-	downloader  core.Downloader
-	stopChan    chan struct{}
-	workerStop  chan struct{}
-	workerCount int
+	cfg            *config.Config
+	tasks          map[string]core.Task
+	downloader     core.Downloader
+	stopChan       chan struct{}
+	workerStop     chan struct{}
+	workerCount    int
+	taskLocks      sync.Map
+	lastBackupName string
+	taskQueues     sync.Map
+	schedulerStop  chan struct{}
 
 	// Concurrency control
 	activeDownloads map[string]int // TaskID -> Active Count (Just for stats/per-task limit if needed)
@@ -139,6 +138,9 @@ func (m *Manager) Start() {
 		go m.worker()
 	}
 	m.workerCount = limit
+	// Start fair scheduler
+	m.schedulerStop = make(chan struct{})
+	go m.scheduler()
 
 	interval := time.Duration(m.cfg.TaskScan.Interval) * time.Second
 	if interval == 0 {
@@ -169,6 +171,7 @@ func (m *Manager) Start() {
 			m.saveAllCaches()
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
+			close(m.schedulerStop)
 			// Close queue? Or just wait for context cancel if we had one.
 			// Currently worker reads from queue forever.
 			// We can close queue here but ensure no writes happen after.
@@ -183,104 +186,6 @@ func (m *Manager) Start() {
 func (m *Manager) Stop() {
 	// Ideally close mongo clients here too, but they are global in storage pkg currently
 	close(m.stopChan)
-}
-
-func (m *Manager) worker() {
-	defer m.workerWg.Done()
-	for {
-		select {
-		case req, ok := <-m.downloadQueue:
-			if !ok {
-				return
-			}
-			if req != nil {
-				m.download(req.task, req.obj)
-			}
-		case <-m.stopChan:
-			return
-		case <-m.workerStop:
-			return
-		}
-	}
-}
-
-func (m *Manager) loadTasks() {
-	// Note: Caller must hold lock if concurrent access is possible
-	// But Start calls it before ticker, so it's fine.
-	// UpdateConfig calls it under lock.
-
-	var wg sync.WaitGroup
-
-	for _, tCfg := range m.cfg.Tasks {
-		if _, exists := m.tasks[tCfg.ID]; exists {
-			continue
-		}
-
-		// Create storage
-		// If storage type is not specified, default to memory (transient)
-		storeType := tCfg.Storage.Type
-		if storeType == "" {
-			storeType = "memory"
-		}
-
-		store, err := storage.NewStorage(storeType, tCfg.Storage.Config)
-		if err != nil {
-			slog.Error("Failed to create storage for task", "task_id", tCfg.ID, "error", err)
-			continue
-		}
-
-		if tCfg.Extra == nil {
-			tCfg.Extra = make(map[string]interface{})
-		}
-
-		// Create task using factory
-		t, err := task.NewTask(tCfg, store)
-		if err != nil {
-			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
-			continue
-		}
-		if setter, ok := t.(interface{ SetDownloader(core.Downloader) }); ok {
-			setter.SetDownloader(m.downloader)
-		}
-
-		// Try load cache
-		if ct, ok := t.(interface{ LoadCache() error }); ok {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if err := ct.LoadCache(); err != nil {
-					slog.Warn("Failed to load task cache", "task_id", tCfg.ID, "error", err)
-				} else {
-					slog.Info("Task cache loaded", "task_id", tCfg.ID)
-				}
-			}()
-		}
-
-		m.tasks[tCfg.ID] = t
-		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
-	}
-	wg.Wait()
-}
-
-func (m *Manager) saveAllCaches() {
-	m.mu.Lock()
-	tasks := make([]core.Task, 0, len(m.tasks))
-	for _, t := range m.tasks {
-		tasks = append(tasks, t)
-	}
-	m.mu.Unlock()
-
-	for _, t := range tasks {
-		if ct, ok := t.(interface{ SaveCache() error }); ok {
-			if err := ct.SaveCache(); err != nil {
-				slog.Error("Failed to save task cache", "task_id", t.ID(), "error", err)
-			}
-		}
-		// Also close task to flush storage
-		if err := t.Close(); err != nil {
-			slog.Error("Failed to close task", "task_id", t.ID(), "error", err)
-		}
-	}
 }
 
 func (m *Manager) scan() {
@@ -319,15 +224,17 @@ func (m *Manager) processTask(t core.Task) {
 		limit = ct.GetConcurrency()
 	}
 
-	m.mu.Lock()
+	// per-task lock for scheduling and counters
+	lk := m.getTaskLock(t.ID())
+	lk.Lock()
 	active := m.activeDownloads[t.ID()]
 	// If active >= limit, we stop scheduling new downloads for this task.
 	if active >= limit {
-		m.mu.Unlock()
+		lk.Unlock()
 		// slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
-	m.mu.Unlock()
+	lk.Unlock()
 
 	// Calculate remaining slots
 	slotsAvailable := limit - active
@@ -358,14 +265,16 @@ func (m *Manager) processTask(t core.Task) {
 		}
 
 		// Attempt to push to global queue
+		q := m.getTaskQueue(t.ID())
 		select {
-		case m.downloadQueue <- &downloadRequest{task: t, obj: obj}:
-			slog.Info("Object queued for download", "task_id", t.ID(), "url", obj.URL)
+		case q <- &downloadRequest{task: t, obj: obj}:
+			slog.Info("Object enqueued", "task_id", t.ID(), "url", obj.URL)
 
-			m.mu.Lock()
+			lk := m.getTaskLock(t.ID())
+			lk.Lock()
 			m.activeDownloads[t.ID()]++
 			active++
-			m.mu.Unlock()
+			lk.Unlock()
 			count++
 			slotsAvailable--
 		default:
@@ -375,6 +284,68 @@ func (m *Manager) processTask(t core.Task) {
 		}
 	}
 	m.BroadcastTaskUpdate(t.ID())
+}
+
+func (m *Manager) getTaskLock(taskID string) *sync.Mutex {
+	if v, ok := m.taskLocks.Load(taskID); ok {
+		return v.(*sync.Mutex)
+	}
+	lk := &sync.Mutex{}
+	if v, loaded := m.taskLocks.LoadOrStore(taskID, lk); loaded {
+		return v.(*sync.Mutex)
+	}
+	return lk
+}
+
+func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
+	if v, ok := m.taskQueues.Load(taskID); ok {
+		return v.(chan *downloadRequest)
+	}
+	// size 32 per task queue
+	q := make(chan *downloadRequest, 32)
+	if v, loaded := m.taskQueues.LoadOrStore(taskID, q); loaded {
+		return v.(chan *downloadRequest)
+	}
+	return q
+}
+
+func (m *Manager) scheduler() {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.schedulerStop:
+			return
+		case <-ticker.C:
+			// round-robin over tasks
+			m.mu.Lock()
+			ids := make([]string, 0, len(m.tasks))
+			for id := range m.tasks {
+				ids = append(ids, id)
+			}
+			m.mu.Unlock()
+			for _, id := range ids {
+				q := m.getTaskQueue(id)
+				select {
+				case req := <-q:
+					select {
+					case m.downloadQueue <- req:
+					default:
+						// global queue full, put back
+						go func(r *downloadRequest, tq chan *downloadRequest) {
+							select {
+							case tq <- r:
+							default:
+							}
+						}(req, q)
+						// break early to avoid tight loop
+						break
+					}
+				default:
+				}
+			}
+		}
+	}
 }
 
 func (m *Manager) broadcastProgress() {
@@ -547,6 +518,14 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]interface{}, error) {
 	m.mu.Lock()
 	t, ok := m.tasks[id]
+	// also locate config entry for readonly fields
+	var tCfg *config.Task
+	for i := range m.cfg.Tasks {
+		if m.cfg.Tasks[i].ID == id {
+			tCfg = &m.cfg.Tasks[i]
+			break
+		}
+	}
 	m.mu.Unlock()
 
 	if !ok {
@@ -556,6 +535,11 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 	result := map[string]interface{}{
 		"id":   t.ID(),
 		"type": t.Type(),
+	}
+	if tCfg != nil {
+		result["save_dir"] = tCfg.SaveDir
+		result["storage"] = tCfg.Storage
+		result["extra"] = tCfg.Extra
 	}
 
 	// Task configuration exposure
@@ -776,115 +760,43 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 
 // --- Config Management ---
 
-func (m *Manager) GetConfig() *config.Config {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.cfg
-}
-
-func (m *Manager) UpdateConfig(newCfg *config.Config) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Validate and clamp
+func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
+	// Validate before IO
 	newCfg.ValidateAndClamp()
-
 	// Save to file
-	err := config.Save(config.GetConfigFilePath(), newCfg)
-	if err != nil {
+	if err := m.writeConfigWithComments(newCfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	// Write backup with timestamp
-	if err := m.writeConfigBackup(newCfg); err != nil {
+	// Write backup and audit
+	if name, err := m.writeConfigBackup(); err != nil {
 		slog.Warn("Failed to write config backup", "error", err)
+	} else if audit != nil {
+		msg := audit.Message
+		if msg == "" {
+			msg = "config update"
+		}
+		if err := m.AddConfigNote(name, msg, audit.Author); err != nil {
+			slog.Warn("Failed to add config note", "error", err, "filename", name, "message", msg)
+		}
+		if audit.Source != "" {
+			if err := m.AddConfigTag(name, audit.Source); err != nil {
+				slog.Warn("Failed to add config tag", "error", err, "filename", name, "tag", audit.Source)
+			}
+		}
 	}
-
-	// Update internal config
+	// Apply in-memory config under lock
+	m.mu.Lock()
 	m.cfg = newCfg
-
-	// Reload Downloader
+	m.mu.Unlock()
+	// Reload components
 	m.downloader = downloader.New(newCfg.Downloader)
-
-	// Reload Logger
 	logutil.InitLogger(newCfg.Log)
-
-	// Resize worker pool dynamically
-	newLimit := newCfg.Downloader.GlobalConcurrent
-	if newLimit <= 0 {
-		newLimit = 5
-	}
-	if newLimit > m.workerCount {
-		add := newLimit - m.workerCount
-		slog.Info("Increasing global workers", "from", m.workerCount, "to", newLimit)
-		for i := 0; i < add; i++ {
-			m.workerWg.Add(1)
-			go m.worker()
-		}
-		m.workerCount = newLimit
-	} else if newLimit < m.workerCount {
-		remove := m.workerCount - newLimit
-		slog.Info("Decreasing global workers", "from", m.workerCount, "to", newLimit)
-		for i := 0; i < remove; i++ {
-			select {
-			case m.workerStop <- struct{}{}:
-			default:
-				// ensure non-blocking if no worker is waiting; still attempt send
-				m.workerStop <- struct{}{}
-			}
-		}
-		m.workerCount = newLimit
-	}
-
-	// Task-level dynamic updates (no rebuild)
-	for _, tCfg := range newCfg.Tasks {
-		if t, ok := m.tasks[tCfg.ID]; ok {
-			// Concurrency setter
-			if setter, ok := t.(interface{ SetConcurrency(int) error }); ok {
-				// detect change
-				var cfgVal int
-				if tCfg.Extra != nil {
-					if v, ok := tCfg.Extra["max_concurrent"].(int); ok {
-						cfgVal = v
-					} else if v, ok := tCfg.Extra["max_concurrent"].(float64); ok {
-						cfgVal = int(v)
-					}
-				}
-				if cfgVal > 0 {
-					if getter, ok := t.(interface{ GetConcurrency() int }); !ok || getter.GetConcurrency() != cfgVal {
-						if err := setter.SetConcurrency(cfgVal); err != nil {
-							slog.Warn("SetConcurrency failed", "task_id", tCfg.ID, "error", err)
-						} else {
-							slog.Info("Task concurrency updated", "task_id", tCfg.ID, "value", cfgVal)
-						}
-					}
-				}
-			}
-			// Refresh interval setter
-			if setter, ok := t.(interface{ SetRefreshInterval(int) error }); ok {
-				var cfgVal int
-				if tCfg.Extra != nil {
-					if v, ok := tCfg.Extra["refresh_interval"].(int); ok {
-						cfgVal = v
-					} else if v, ok := tCfg.Extra["refresh_interval"].(float64); ok {
-						cfgVal = int(v)
-					}
-				}
-				if cfgVal > 0 {
-					if getter, ok := t.(interface{ GetRefreshInterval() int }); !ok || getter.GetRefreshInterval() != cfgVal {
-						if err := setter.SetRefreshInterval(cfgVal); err != nil {
-							slog.Warn("SetRefreshInterval failed", "task_id", tCfg.ID, "error", err)
-						} else {
-							slog.Info("Task refresh interval updated", "task_id", tCfg.ID, "value", cfgVal)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Load only missing tasks (existing keep state)
+	// Runtime adjustments
+	m.adjustGlobalWorkers(newCfg.Downloader.GlobalConcurrent)
+	m.applyTaskRuntime(newCfg)
+	// Load missing tasks
 	m.loadTasks()
-
+	// Notify
 	slog.Info("Configuration updated")
 	m.publish(core.Event{Type: core.EventTaskListChange, Payload: nil})
 	go m.scan()
@@ -901,217 +813,4 @@ func (m *Manager) UpdateLogConfig(newLog logutil.LogConfig) error {
 	}
 	logutil.InitLogger(newLog)
 	return nil
-}
-
-func (m *Manager) writeConfigBackup(cfg *config.Config) error {
-	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	name := fmt.Sprintf("config_%s.yaml", time.Now().Format("20060102_150405"))
-	path := filepath.Join(dir, name)
-	return config.Save(path, cfg)
-}
-
-func (m *Manager) ListConfigBackups() ([]map[string]string, error) {
-	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return []map[string]string{}, nil
-	}
-	var res []map[string]string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasPrefix(name, "config_") && strings.HasSuffix(name, ".yaml") {
-			item := map[string]string{
-				"filename": name,
-				"path":     filepath.Join(dir, name),
-			}
-			metaPath := filepath.Join(dir, name+".meta.json")
-			if data, err := os.ReadFile(metaPath); err == nil {
-				item["meta"] = string(data)
-			}
-			res = append(res, item)
-		}
-	}
-	// Sort newest first by filename suffix timestamp
-	sort.Slice(res, func(i, j int) bool {
-		return res[i]["filename"] > res[j]["filename"]
-	})
-	return res, nil
-}
-
-func (m *Manager) RollbackConfig(filename string) error {
-	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	path := filepath.Join(dir, filename)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read backup: %w", err)
-	}
-	var cfg config.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("invalid backup content: %w", err)
-	}
-	return m.UpdateConfig(&cfg)
-}
-
-func (m *Manager) DiffConfigFiles(left, right string) (map[string]interface{}, error) {
-	var leftCfg, rightCfg config.Config
-	var leftYml, rightYml []byte
-	var err error
-	if left == "current" || left == "" {
-		m.mu.Lock()
-		leftCfg = *m.cfg
-		m.mu.Unlock()
-		leftYml, _ = yaml.Marshal(leftCfg)
-	} else {
-		lp := filepath.Join(config.GetWorkDir(), "config_backups", left)
-		leftYml, err = os.ReadFile(lp)
-		if err != nil {
-			return nil, fmt.Errorf("read left backup failed: %w", err)
-		}
-		if err := yaml.Unmarshal(leftYml, &leftCfg); err != nil {
-			return nil, fmt.Errorf("parse left backup failed: %w", err)
-		}
-	}
-	if right == "current" || right == "" {
-		m.mu.Lock()
-		rightCfg = *m.cfg
-		m.mu.Unlock()
-		rightYml, _ = yaml.Marshal(rightCfg)
-	} else {
-		rp := filepath.Join(config.GetWorkDir(), "config_backups", right)
-		rightYml, err = os.ReadFile(rp)
-		if err != nil {
-			return nil, fmt.Errorf("read right backup failed: %w", err)
-		}
-		if err := yaml.Unmarshal(rightYml, &rightCfg); err != nil {
-			return nil, fmt.Errorf("parse right backup failed: %w", err)
-		}
-	}
-	diff := leftCfg.Diff(rightCfg)
-	return map[string]interface{}{
-		"left":       left,
-		"right":      right,
-		"left_yaml":  string(leftYml),
-		"right_yaml": string(rightYml),
-		"changes":    diff,
-	}, nil
-}
-
-func normalizeYAML(src string, ignoreWS, ignoreComments bool) string {
-	lines := strings.Split(src, "\n")
-	out := make([]string, 0, len(lines))
-	for _, l := range lines {
-		if ignoreComments {
-			trim := strings.TrimSpace(l)
-			if strings.HasPrefix(trim, "#") {
-				continue
-			}
-		}
-		if ignoreWS {
-			l = strings.TrimRight(l, " \t")
-			l = strings.ReplaceAll(l, "\t", "    ")
-		}
-		out = append(out, l)
-	}
-	return strings.Join(out, "\n")
-}
-
-func (m *Manager) DiffConfigFilesOpts(left, right string, ignoreWS, ignoreComments bool) (map[string]interface{}, error) {
-	res, err := m.DiffConfigFiles(left, right)
-	if err != nil {
-		return nil, err
-	}
-	if ignoreWS || ignoreComments {
-		res["left_norm"] = normalizeYAML(res["left_yaml"].(string), ignoreWS, ignoreComments)
-		res["right_norm"] = normalizeYAML(res["right_yaml"].(string), ignoreWS, ignoreComments)
-	}
-	return res, nil
-}
-
-func (m *Manager) AddConfigTag(filename, tag string) error {
-	if tag == "" {
-		return fmt.Errorf("tag is empty")
-	}
-	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+".meta.json")
-	var tags []string
-	if data, err := os.ReadFile(meta); err == nil {
-		var obj struct {
-			Tags []string `json:"tags"`
-		}
-		_ = json.Unmarshal(data, &obj)
-		tags = obj.Tags
-	}
-	for _, t := range tags {
-		if t == tag {
-			return nil
-		}
-	}
-	tags = append(tags, tag)
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(map[string]interface{}{"tags": tags})
-	return os.WriteFile(meta, buf.Bytes(), 0644)
-}
-
-func (m *Manager) AddConfigNote(filename, message, author string) error {
-	if message == "" {
-		return fmt.Errorf("message is empty")
-	}
-	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+".meta.json")
-	var obj struct {
-		Tags  []string `json:"tags"`
-		Notes []struct {
-			Message   string `json:"message"`
-			Author    string `json:"author"`
-			Timestamp int64  `json:"timestamp"`
-		} `json:"notes"`
-	}
-	if data, err := os.ReadFile(meta); err == nil {
-		_ = json.Unmarshal(data, &obj)
-	}
-	obj.Notes = append(obj.Notes, struct {
-		Message   string `json:"message"`
-		Author    string `json:"author"`
-		Timestamp int64  `json:"timestamp"`
-	}{Message: message, Author: author, Timestamp: time.Now().Unix()})
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(obj)
-	return os.WriteFile(meta, buf.Bytes(), 0644)
-}
-
-func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval *int) (map[string]bool, error) {
-	m.mu.Lock()
-	t, ok := m.tasks[taskID]
-	m.mu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("task not found")
-	}
-	result := map[string]bool{"concurrency": false, "refresh_interval": false}
-	if concurrency != nil {
-		if setter, ok := t.(interface{ SetConcurrency(int) error }); ok {
-			if err := setter.SetConcurrency(*concurrency); err != nil {
-				return result, err
-			}
-			result["concurrency"] = true
-		}
-	}
-	if refreshInterval != nil {
-		if setter, ok := t.(interface{ SetRefreshInterval(int) error }); ok {
-			if err := setter.SetRefreshInterval(*refreshInterval); err != nil {
-				return result, err
-			}
-			result["refresh_interval"] = true
-		}
-	}
-	return result, nil
 }

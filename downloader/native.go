@@ -17,6 +17,8 @@ import (
 	"download-manager/config"
 	"download-manager/core"
 	"download-manager/model"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NativeHTTPDownloader struct {
@@ -67,6 +69,10 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject) error {
 	// 复合下载逻辑保持不变
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
+
+		if files, ok := filesVal.(primitive.A); ok {
+			filesVal = []interface{}(files)
+		}
 
 		if files, ok := filesVal.([]map[string]string); ok {
 			fileList = files

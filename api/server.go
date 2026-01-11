@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"download-manager/config"
 	"download-manager/logutil"
@@ -13,6 +15,7 @@ import (
 	"download-manager/web"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 )
 
 type Server struct {
@@ -34,6 +37,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/config", s.updateTaskConfig).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/runtime", s.patchTaskRuntime).Methods("PATCH")
 	r.HandleFunc("/api/config/server", s.getServerConfig).Methods("GET")
 	r.HandleFunc("/api/config/server", s.updateServerConfig).Methods("POST")
 	r.HandleFunc("/api/config/log", s.getLogConfig).Methods("GET")
@@ -43,6 +47,8 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/config/diff", s.diffConfig).Methods("GET")
 	r.HandleFunc("/api/config/tag", s.addConfigTag).Methods("POST")
 	r.HandleFunc("/api/config/note", s.addConfigNote).Methods("POST")
+	r.HandleFunc("/api/config/delete", s.deleteConfigBackup).Methods("POST")
+	r.HandleFunc("/api/config/apply", s.applyConfigYAML).Methods("POST")
 	r.HandleFunc("/api/downloads", s.getActiveDownloads).Methods("GET")
 	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
 
@@ -91,7 +97,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 
 	details, err := s.mgr.GetTaskDetails(id, page, limit, search, sortBy)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "task_not_found", fmt.Sprintf("Task %s not found: %v", id, err))
 		return
 	}
 	json.NewEncoder(w).Encode(details)
@@ -112,12 +118,12 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 
 	if req.URL != "" {
 		if err := s.mgr.RetryObject(id, req.URL); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "retry_failed", fmt.Sprintf("Failed to retry object: %v", err))
 			return
 		}
 	} else {
 		if err := s.mgr.RetryAllFailed(id); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "retry_failed", fmt.Sprintf("Failed to retry all failed objects: %v", err))
 			return
 		}
 	}
@@ -126,8 +132,11 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 }
 
 type TaskConfigRequest struct {
-	Concurrency     *int `json:"concurrency"`
-	RefreshInterval *int `json:"refresh_interval"`
+	Concurrency     *int   `json:"concurrency"`
+	RefreshInterval *int   `json:"refresh_interval"`
+	AuditAuthor     string `json:"audit_author"`
+	AuditMessage    string `json:"audit_message"`
+	AuditSource     string `json:"audit_source"`
 }
 
 func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
@@ -135,12 +144,49 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req TaskConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
-	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval)
+	audit := &manager.AuditInfo{
+		Author:  coalesce(req.AuditAuthor, "ui"),
+		Source:  coalesce(req.AuditSource, "api/tasks/config"),
+		Message: coalesce(req.AuditMessage, ""),
+	}
+	if audit.Message == "" {
+		if req.Concurrency != nil && req.RefreshInterval != nil {
+			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d, refresh_interval=%d", id, *req.Concurrency, *req.RefreshInterval)
+		} else if req.Concurrency != nil {
+			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d", id, *req.Concurrency)
+		} else if req.RefreshInterval != nil {
+			audit.Message = fmt.Sprintf("task %s runtime: refresh_interval=%d", id, *req.RefreshInterval)
+		}
+	}
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task config: %v", err))
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"applied": applied,
+	})
+}
+
+func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req TaskConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		return
+	}
+	audit := &manager.AuditInfo{
+		Author:  coalesce(req.AuditAuthor, "ui"),
+		Source:  coalesce(req.AuditSource, "api/tasks/runtime"),
+		Message: coalesce(req.AuditMessage, ""),
+	}
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task runtime: %v", err))
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -159,17 +205,17 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 
 	var req ReorderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 
 	if req.URL == "" {
-		http.Error(w, "URL is required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "URL is required")
 		return
 	}
 
 	if err := s.mgr.ReorderObject(id, req.URL, req.NewIndex); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "reorder_failed", fmt.Sprintf("Failed to reorder object: %v", err))
 		return
 	}
 
@@ -182,21 +228,44 @@ func (s *Server) listConfigHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 type RollbackRequest struct {
-	Filename string `json:"filename"`
+	Filename     string `json:"filename"`
+	AuditAuthor  string `json:"audit_author"`
+	AuditSource  string `json:"audit_source"`
+	AuditMessage string `json:"audit_message"`
 }
 
 func (s *Server) rollbackConfig(w http.ResponseWriter, r *http.Request) {
 	var req RollbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
-	if err := s.mgr.RollbackConfig(req.Filename); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := s.mgr.RollbackConfig(req.Filename, &manager.AuditInfo{
+		Author:  coalesce(req.AuditAuthor, "ui"),
+		Source:  coalesce(req.AuditSource, "api/config/rollback"),
+		Message: coalesce(req.AuditMessage, fmt.Sprintf("rollback to %s", req.Filename)),
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "rollback_failed", fmt.Sprintf("Failed to rollback config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+func (s *Server) deleteConfigBackup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		return
+	}
+	if err := s.mgr.DeleteConfigBackup(req.Filename); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "delete_failed", fmt.Sprintf("Failed to delete backup: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) diffConfig(w http.ResponseWriter, r *http.Request) {
 	left := r.URL.Query().Get("left")
 	right := r.URL.Query().Get("right")
@@ -204,10 +273,38 @@ func (s *Server) diffConfig(w http.ResponseWriter, r *http.Request) {
 	ignoreComments := r.URL.Query().Get("ignore_comments") == "1"
 	res, err := s.mgr.DiffConfigFilesOpts(left, right, ignoreWS, ignoreComments)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "diff_failed", fmt.Sprintf("Failed to diff config files: %v", err))
 		return
 	}
 	json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) applyConfigYAML(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		YAML         string `json:"yaml"`
+		AuditAuthor  string `json:"audit_author"`
+		AuditSource  string `json:"audit_source"`
+		AuditMessage string `json:"audit_message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.YAML) == "" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+	var cfg config.Config
+	if err := yaml.Unmarshal([]byte(req.YAML), &cfg); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_yaml", fmt.Sprintf("YAML parse error: %v", err))
+		return
+	}
+	cfg.ValidateAndClamp()
+	if err := s.mgr.UpdateConfig(&cfg, &manager.AuditInfo{
+		Author:  coalesce(req.AuditAuthor, "ui"),
+		Source:  coalesce(req.AuditSource, "api/config/apply"),
+		Message: coalesce(req.AuditMessage, "apply YAML"),
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to apply config: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) addConfigTag(w http.ResponseWriter, r *http.Request) {
@@ -216,11 +313,11 @@ func (s *Server) addConfigTag(w http.ResponseWriter, r *http.Request) {
 		Tag      string `json:"tag"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" || req.Tag == "" {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	if err := s.mgr.AddConfigTag(req.Filename, req.Tag); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "tag_failed", fmt.Sprintf("Failed to add tag: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -233,38 +330,58 @@ func (s *Server) addConfigNote(w http.ResponseWriter, r *http.Request) {
 		Author   string `json:"author"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" || req.Message == "" {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	if err := s.mgr.AddConfigNote(req.Filename, req.Message, req.Author); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "note_failed", fmt.Sprintf("Failed to add note: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":   code,
+		"message": msg,
+	})
+}
+
+func coalesce(s string, def string) string {
+	if s != "" {
+		return s
+	}
+	return def
 }
 
 // Persistent Task Management (create/update via config)
 func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	if t.ID == "" || t.Type == "" {
-		http.Error(w, "id and type are required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_id_type", "id and type are required")
 		return
 	}
 	cur := s.mgr.GetConfig()
 	// prevent duplicate
 	for _, existing := range cur.Tasks {
 		if existing.ID == t.ID {
-			http.Error(w, "task id already exists", http.StatusConflict)
+			writeJSONError(w, http.StatusConflict, "duplicate_id", fmt.Sprintf("task id %s already exists", t.ID))
 			return
 		}
 	}
 	cur.Tasks = append(cur.Tasks, t)
-	if err := s.mgr.UpdateConfig(cur); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+		Author:  "ui",
+		Source:  "api/tasks/post",
+		Message: fmt.Sprintf("task %s created", t.ID),
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "create_failed", fmt.Sprintf("Failed to create task %s: %v", t.ID, err))
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -274,12 +391,12 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	if id == "" {
-		http.Error(w, "missing id", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_id", "missing id")
 		return
 	}
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	cur := s.mgr.GetConfig()
@@ -293,15 +410,20 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		http.Error(w, "task not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "not_found", fmt.Sprintf("task %s not found", id))
 		return
 	}
-	if err := s.mgr.UpdateConfig(cur); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+		Author:  "ui",
+		Source:  "api/tasks/put",
+		Message: fmt.Sprintf("task %s updated", id),
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update task %s: %v", id, err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
 func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.mgr.GetConfig()
 	resp := map[string]interface{}{
@@ -335,7 +457,7 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		UIDefaults config.UIDefaults `json:"ui_defaults"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	cur := s.mgr.GetConfig()
@@ -353,8 +475,12 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		cur.Downloader.Type = req.Downloader.Type
 	}
 	cur.Server.UIDefaults = req.UIDefaults
-	if err := s.mgr.UpdateConfig(cur); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+		Author:  "ui",
+		Source:  "api/config/server",
+		Message: "server config updated",
+	}); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update server config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -368,11 +494,11 @@ func (s *Server) getLogConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateLogConfig(w http.ResponseWriter, r *http.Request) {
 	var newLog logutil.LogConfig
 	if err := json.NewDecoder(r.Body).Decode(&newLog); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
 	if err := s.mgr.UpdateLogConfig(newLog); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update log config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -393,7 +519,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Flush immediately to establish connection
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "streaming_not_supported", "Streaming not supported")
 		return
 	}
 	flusher.Flush()
