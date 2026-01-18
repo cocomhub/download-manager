@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"download-manager/config"
@@ -37,7 +38,7 @@ type TktubeTask struct {
 	store         core.Storage
 	shared        core.SharedRegistry
 	mu            sync.Mutex
-	initialized   bool
+	initialized   atomic.Int32
 	prefetchQueue chan *model.DownloadObject
 	prefetchRate  int
 	pathStrategy  core.PathStrategy
@@ -186,27 +187,22 @@ func (t *TktubeTask) Close() error {
 }
 
 func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	t.mu.Lock()
-
 	// 1. Initialize (Scrape all pages) if not done
-	if !t.initialized {
+	if t.initialized.CompareAndSwap(0, -1) {
 		// Start initialization in background to avoid blocking
-		go func() {
-			t.mu.Lock()
-			defer t.mu.Unlock()
-			if !t.initialized {
-				t.scrapeAllPages()
-				t.initialized = true
-			}
-		}()
-
-		t.mu.Unlock()
+		go t.scrapeAllPages()
 		// Return empty list while initializing
 		return []*model.DownloadObject{}, nil
-	} else {
-		// Try to queue pending objects for prefetch if needed
-		t.queuePendingPrefetches()
 	}
+
+	if t.initialized.Load() != 1 {
+		return []*model.DownloadObject{}, nil
+	}
+
+	t.mu.Lock()
+
+	// Try to queue pending objects for prefetch if needed
+	t.queuePendingPrefetches()
 
 	// 2. Return pending objects that are ready for download
 	activeCount := 0
@@ -327,6 +323,15 @@ func (t *TktubeTask) saveCache() error {
 }
 
 func (t *TktubeTask) LoadCache() error {
+	t.initialized.Store(-1)
+	defer func() {
+		if len(t.objects) > 0 {
+			t.initialized.Store(1)
+		} else {
+			t.initialized.Store(0)
+		}
+	}()
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -358,16 +363,14 @@ func (t *TktubeTask) LoadCache() error {
 		}
 	}
 
-	if len(t.objects) > 0 {
-		t.initialized = true
-	}
-
 	return nil
 }
 
 // --- Scraping Logic ---
 
 func (t *TktubeTask) scrapeAllPages() {
+	defer t.initialized.Store(1)
+
 	// First scrape page 1 to get total pages and initial items
 	page1URL := t.buildPageURL(t.pageStart)
 	slog.Info("Scraping first page to detect total pages", "task_id", t.id, "url", page1URL)
@@ -710,6 +713,10 @@ func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
 	slog.Info("Resolving video details", "task_id", t.id, "title", obj.Metadata["title"])
 	videoInfo, err := t.parseVideoPage(obj.URL)
 	if err != nil {
+		if err == ErrNoFlashvars {
+			t.MarkAsFailed(obj, err)
+			return err
+		}
 		return err
 	}
 
@@ -944,6 +951,8 @@ func (t *TktubeTask) parseHomePage(html string) ([]videoItem, error) {
 	return items, nil
 }
 
+var ErrNoFlashvars = fmt.Errorf("flashvars script not found")
+
 type detailedVideoInfo struct {
 	title    string
 	tags     []string
@@ -1001,7 +1010,7 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 	}
 
 	if scriptContent == "" {
-		return nil, fmt.Errorf("flashvars script not found")
+		return nil, ErrNoFlashvars
 	}
 
 	// Setup JS VM

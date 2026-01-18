@@ -2236,7 +2236,7 @@
                         } else if (this.newTask.storage_type === 'mongo') {
                             taskConfig.storage.config = {
                                 source: this.newTask.storage_config.source || 'suixi-mini',
-                                database: this.newTask.storage_config.database || 'download_db',
+                                database: this.newTask.storage_config.database || 'download_manager',
                                 collection: this.newTask.storage_config.collection || this.newTask.id
                             }
                         }

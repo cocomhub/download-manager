@@ -224,6 +224,9 @@ func (m *Manager) alignStorages() {
 				list, err := st.Search(nil)
 				if err == nil {
 					for _, obj := range list {
+						if m.urlRegistry.Owners(obj.URL) < 2 {
+							continue
+						}
 						m.urlRegistry.Update(obj)
 						m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 					}
@@ -273,17 +276,15 @@ func (m *Manager) processTask(t core.Task) {
 		limit = ct.GetConcurrency()
 	}
 
-	// per-task lock for scheduling and counters
-	lk := m.getTaskLock(t.ID())
-	lk.Lock()
+	m.mu.Lock()
 	active := m.activeDownloads[t.ID()]
 	// If active >= limit, we stop scheduling new downloads for this task.
 	if active >= limit {
-		lk.Unlock()
+		m.mu.Unlock()
 		// slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
 		return
 	}
-	lk.Unlock()
+	m.mu.Unlock()
 
 	// Calculate remaining slots
 	slotsAvailable := limit - active
@@ -319,11 +320,10 @@ func (m *Manager) processTask(t core.Task) {
 		case q <- &downloadRequest{task: t, obj: obj}:
 			slog.Info("Object enqueued", "task_id", t.ID(), "url", obj.URL)
 
-			lk := m.getTaskLock(t.ID())
-			lk.Lock()
+			m.mu.Lock()
 			m.activeDownloads[t.ID()]++
 			active++
-			lk.Unlock()
+			m.mu.Unlock()
 			count++
 			slotsAvailable--
 		default:
@@ -333,17 +333,6 @@ func (m *Manager) processTask(t core.Task) {
 		}
 	}
 	m.BroadcastTaskUpdate(t.ID())
-}
-
-func (m *Manager) getTaskLock(taskID string) *sync.Mutex {
-	if v, ok := m.taskLocks.Load(taskID); ok {
-		return v.(*sync.Mutex)
-	}
-	lk := &sync.Mutex{}
-	if v, loaded := m.taskLocks.LoadOrStore(taskID, lk); loaded {
-		return v.(*sync.Mutex)
-	}
-	return lk
 }
 
 func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
@@ -472,10 +461,9 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 		summary["completed"] = completed
 	}
 	{
-		lk := m.getTaskLock(taskID)
-		lk.Lock()
+		m.mu.Lock()
 		summary["active"] = m.activeDownloads[taskID]
-		lk.Unlock()
+		m.mu.Unlock()
 	}
 	q := m.getTaskQueue(taskID)
 	summary["backlog"] = len(q)

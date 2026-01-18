@@ -35,7 +35,7 @@ func (d *DomainLimiter) Acquire(raw string) {
 	host := u.Host
 	d.mu.Lock()
 	max := d.limit[host]
-	for max == 0 || d.cur[host] >= max {
+	for max != 0 && d.cur[host] >= max {
 		d.mu.Unlock()
 		d.mu.Lock()
 		max = d.limit[host]
