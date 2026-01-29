@@ -194,7 +194,7 @@ func (m *Manager) Start() {
 		case <-progressTicker.C:
 			m.broadcastProgress()
 		case <-cacheTicker.C:
-			m.saveAllCaches()
+			m.saveAllCaches(false)
 		case <-alignTicker.C:
 			m.alignStorages()
 		case <-m.stopChan:
@@ -205,7 +205,7 @@ func (m *Manager) Start() {
 			// We can close queue here but ensure no writes happen after.
 			// m.scan happens in this loop, so no new writes from scan.
 			// But RetryObject might write.
-			m.saveAllCaches()
+			m.saveAllCaches(true)
 			return
 		}
 	}
@@ -613,6 +613,9 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 
 		summaries = append(summaries, summary)
 	}
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i]["id"].(string) < summaries[j]["id"].(string)
+	})
 	return summaries
 }
 

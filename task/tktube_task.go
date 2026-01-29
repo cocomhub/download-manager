@@ -33,6 +33,7 @@ type TktubeTask struct {
 	saveDir     string
 	concurrency int
 	refreshInt  int // Refresh interval in seconds
+	hasUpdate   atomic.Bool
 
 	objects       []*model.DownloadObject
 	store         core.Storage
@@ -220,7 +221,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	// Collect candidates
 	for _, obj := range t.objects {
-		if obj.Status != model.StatusCompleted {
+		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
 			// Check if failed
 			if _, ok := t.markAsFailed.Load(obj.URL); ok {
 				continue
@@ -310,8 +311,18 @@ func (t *TktubeTask) SaveCache() error {
 	return t.saveCache()
 }
 
-func (t *TktubeTask) saveCache() error {
-	slog.Debug("Saving cache", "task_id", t.id, "count", len(t.objects))
+func (t *TktubeTask) saveCache() (err error) {
+	if !t.hasUpdate.CompareAndSwap(true, false) {
+		return nil
+	}
+	defer func() {
+		if err == nil {
+			slog.Debug("Saving cache", "task_id", t.id, "count", len(t.objects))
+		} else {
+			t.hasUpdate.Store(true)
+			slog.Error("Saving cache", "task_id", t.id, "count", len(t.objects), "error", err)
+		}
+	}()
 
 	path := t.getCachePath()
 	data, err := json.MarshalIndent(t.objects, "", "  ")
@@ -356,7 +367,7 @@ func (t *TktubeTask) LoadCache() error {
 		t.checkAndRestoreStatus(obj)
 
 		// Reset Downloading status to Pending on restart
-		if obj.Status != model.StatusCompleted {
+		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
 			obj.Status = model.StatusPending
 			// Clear files list to trigger re-resolution
 			delete(obj.Extra, "files")
@@ -370,6 +381,9 @@ func (t *TktubeTask) LoadCache() error {
 
 func (t *TktubeTask) scrapeAllPages() {
 	defer t.initialized.Store(1)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	// First scrape page 1 to get total pages and initial items
 	page1URL := t.buildPageURL(t.pageStart)
@@ -421,6 +435,7 @@ func (t *TktubeTask) scrapeAllPages() {
 		t.addVideoItems(items)
 	}
 
+	t.hasUpdate.Store(true)
 	if err := t.saveCache(); err != nil {
 		slog.Error("Failed to save cache", "task_id", t.id, "error", err)
 		return
@@ -556,7 +571,7 @@ func (t *TktubeTask) startPrefetchWorkers(count int) {
 
 func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 	// Don't prefetch if already completed or downloading main
-	if obj.Status == model.StatusCompleted || obj.Status == model.StatusDownloading {
+	if obj.Status == model.StatusCompleted || obj.Status == model.StatusDownloading || obj.Status == model.StatusCancelled {
 		return
 	}
 
@@ -784,6 +799,7 @@ func (t *TktubeTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 	if t.shared != nil {
 		_ = t.shared.Update(obj)
 	}
+	t.hasUpdate.Store(true)
 	return storeErr
 }
 

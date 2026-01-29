@@ -69,7 +69,7 @@ func (m *Manager) loadTasks() {
 	})
 }
 
-func (m *Manager) saveAllCaches() {
+func (m *Manager) saveAllCaches(close bool) {
 	tasks := make([]core.Task, 0, 64)
 	m.tasks.Range(func(key, value any) bool {
 		tasks = append(tasks, value.(core.Task))
@@ -81,8 +81,10 @@ func (m *Manager) saveAllCaches() {
 				slog.Error("Failed to save task cache", "task_id", t.ID(), "error", err)
 			}
 		}
-		if err := t.Close(); err != nil {
-			slog.Error("Failed to close task", "task_id", t.ID(), "error", err)
+		if close {
+			if err := t.Close(); err != nil {
+				slog.Error("Failed to close task", "task_id", t.ID(), "error", err)
+			}
 		}
 	}
 }

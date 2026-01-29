@@ -1,6 +1,9 @@
 package task
 
-import "time"
+import (
+	"log/slog"
+	"time"
+)
 
 type CommonRefresher struct {
 	interval time.Duration
@@ -23,6 +26,7 @@ func (r *CommonRefresher) Start(fn func()) {
 		for {
 			select {
 			case <-r.stop:
+				slog.Debug("Refresher stopped", "interval", r.interval.String())
 				return
 			case <-time.NewTimer(r.interval).C:
 				fn()

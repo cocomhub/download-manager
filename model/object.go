@@ -16,4 +16,5 @@ const (
 	StatusDownloading = "downloading"
 	StatusCompleted   = "completed"
 	StatusFailed      = "failed"
+	StatusCancelled   = "cancelled"
 )
