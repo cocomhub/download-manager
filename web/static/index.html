@@ -9,6 +9,10 @@
     <script src="libs/cdn.staticfile.org/vue/3.3.4/vue.global.js"></script>
     <link href="https://cdn.staticfile.org/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        [v-cloak] {
+            display: none;
+        }
+        
         .line-clamp-2 {
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -58,7 +62,7 @@
 </head>
 
 <body class="bg-gray-100 h-screen overflow-hidden flex">
-    <div id="app" class="flex w-full h-full">
+    <div id="app" v-cloak class="flex w-full h-full">
         <!-- Sidebar: Task List -->
         <aside class="w-64 bg-white shadow-md flex flex-col z-10">
             <div class="p-4 border-b flex justify-between items-center bg-gray-50">
@@ -66,7 +70,7 @@
                 <div class="flex space-x-3">
                     <div v-if="loading" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
                     <div v-if="eventSource && eventSource.readyState === 1" class="h-3 w-3 rounded-full bg-green-500" title="Connected"></div>
-                    <div v-else class="h-3 w-3 rounded-full bg-red-500" title="Disconnected"></div>
+                    <div v-if="!(eventSource && eventSource.readyState === 1)" class="h-3 w-3 rounded-full bg-red-500" title="Disconnected"></div>
                     <button @click="openConfig" class="text-gray-500 hover:text-gray-700" title="Settings">
                         <i class="fas fa-cog"></i>
                     </button>
@@ -80,16 +84,26 @@
                 <button @click="viewMode = 'downloads'; selectedTaskId = null; selectedTask = null" class="w-full py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2" :class="viewMode === 'downloads' ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'">
                     <i class="fas fa-download"></i> Active Downloads <span v-if="activeDownloads.length > 0" class="bg-white text-blue-600 text-xs px-1.5 rounded-full font-bold">{{ activeDownloads.length }}</span>
                 </button>
-                <button @click="openAddTask" class="w-full bg-white border border-blue-500 text-blue-500 hover:bg-blue-50 py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2">
-                    <i class="fas fa-plus"></i> New Task
+                <button @click="openTktubeAggregate" class="w-full py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2" :class="viewMode === 'tktube' ? 'bg-purple-500 text-white hover:bg-purple-600' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'">
+                    <i class="fas fa-layer-group"></i> Tktube 聚合视图
                 </button>
+                <button @click="openAddTask($event)" class="w-full bg-white border border-blue-500 text-blue-500 hover:bg-blue-50 py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i> 新建任务
+                </button>
+                <div class="flex gap-2">
+                    <button @click="toggleSelectAll" class="flex-1 bg-white border text-gray-700 hover:bg-gray-50 py-1.5 rounded shadow-sm text-xs transition">全选</button>
+                    <button @click="cancelSelected" :disabled="selectedTaskIds.length===0" class="flex-1 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 py-1.5 rounded shadow-sm text-xs transition">取消选中</button>
+                </div>
             </div>
 
             <div class="flex-1 overflow-y-auto p-2 space-y-2">
                 <div v-for="task in tasks" :key="task.id" @click="selectTask(task.id)" class="cursor-pointer p-3 rounded-lg border transition-all duration-200 group" :class="selectedTaskId === task.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'">
 
                     <div class="flex justify-between items-start mb-1">
-                        <span class="font-medium text-gray-800 truncate pr-2" :title="task.id">{{ task.id }}</span>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" :value="task.id" v-model="selectedTaskIds" @click.stop class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded">
+                            <span class="font-medium text-gray-800 truncate pr-2" :title="task.id">{{ task.id }}</span>
+                        </div>
                         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 whitespace-nowrap">{{ task.type }}</span>
                     </div>
 
@@ -113,13 +127,16 @@
                     <h2 class="text-xl font-semibold text-gray-700 truncate" v-if="selectedTask">
                         {{ selectedTask.id }}
                     </h2>
-                    <h2 class="text-xl font-semibold text-gray-500" v-else>Select a Task</h2>
+                    <h2 class="text-xl font-semibold text-gray-500" v-if="!selectedTask">Select a Task</h2>
                 </div>
 
                 <div class="flex items-center space-x-4" v-if="selectedTask">
                     <!-- Actions -->
                     <button @click="retryAllFailed" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
                             <i class="fas fa-redo mr-1"></i> Retry Failed
+                        </button>
+                    <button @click="cancelCurrentTask" class="text-sm bg-gray-50 text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-md transition-colors flex items-center">
+                            <i class="fas fa-ban mr-1"></i> 取消任务
                         </button>
 
                     <!-- Sort -->
@@ -170,6 +187,15 @@
                             <i class="fas fa-list mr-1"></i> List
                         </button>
                     </div>
+                    <!-- UI Mode Toggle -->
+                    <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
+                        <button @click="uiMode = 'watch'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'watch' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                            观看
+                        </button>
+                        <button @click="uiMode = 'manage'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'manage' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                            管理
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -190,7 +216,7 @@
                             </div>
                             <div class="text-xs text-gray-500">
                                 <span v-if="selectedTask.supports && selectedTask.supports.concurrency && selectedTask.supports.refresh_interval">保存后立即生效</span>
-                                <span v-else>未实现动态更新，保存后重启生效</span>
+                                <span v-if="!(selectedTask.supports && selectedTask.supports.concurrency && selectedTask.supports.refresh_interval)">未实现动态更新，保存后重启生效</span>
                             </div>
                             <div class="flex justify-end gap-2">
                                 <button @click="showTaskConfigPanel = false" class="px-3 py-1.5 text-gray-600 hover:text-gray-800 text-sm">关闭</button>
@@ -206,7 +232,7 @@
                 </div>
 
                 <!-- Active Downloads View -->
-                <div v-else-if="viewMode === 'downloads'" class="space-y-6">
+                <div v-if="!isLoadingTask && viewMode === 'downloads'" class="space-y-6">
 
                     <h2 class="text-xl font-bold text-gray-800 mb-4">Active Downloads</h2>
                     <div class="bg-white rounded-lg shadow overflow-hidden">
@@ -249,7 +275,178 @@
                     </div>
                 </div>
 
-                <div v-else-if="selectedTask">
+                <!-- Tktube Aggregate View -->
+                <div v-if="!isLoadingTask && viewMode === 'tktube'" class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold text-gray-800">Tktube 聚合视图</h2>
+                        <div class="flex items-center gap-3">
+                            <select v-model="tktubeStatusFilter" class="text-sm border rounded-md px-2 py-1.5">
+                                <option value="all">全部状态</option>
+                                <option value="downloading">下载中</option>
+                                <option value="completed">已完成</option>
+                                <option value="failed">失败</option>
+                                <option value="pending">待下载</option>
+                                <option value="cancelled">已取消</option>
+                            </select>
+                            <div class="relative">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                    <i class="fas fa-search"></i>
+                                </span>
+                                <input type="text" v-model="tktubeSearchQuery" class="pl-10 pr-4 py-2 border rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 transition-all" placeholder="搜索标题、标签、URL">
+                            </div>
+                            <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
+                                <button @click="aggViewMode = 'grid'" class="px-3 py-1.5 rounded-md transition-all" :class="aggViewMode === 'grid' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                                    <i class="fas fa-th-large mr-1"></i> Grid
+                                </button>
+                                <button @click="aggViewMode = 'list'" class="px-3 py-1.5 rounded-md transition-all" :class="aggViewMode === 'list' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                                    <i class="fas fa-list mr-1"></i> List
+                                </button>
+                            </div>
+                            <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
+                                <button @click="uiMode = 'watch'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'watch' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                                    观看
+                                </button>
+                                <button @click="uiMode = 'manage'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'manage' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                                    管理
+                                </button>
+                            </div>
+                            <div class="flex items-center space-x-2 border-l pl-4 border-gray-200">
+                                <select v-model="tktubePagination.limit" @change="changeTktubeLimit" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" title="Items per page">
+                                    <option :value="25">25</option>
+                                    <option :value="50">50</option>
+                                    <option :value="100">100</option>
+                                    <option value="all">All</option>
+                                </select>
+                                <div class="flex items-center space-x-1" v-if="tktubePagination.limit !== 'all'">
+                                    <button @click="changeTktubePage(tktubePagination.page - 1)" :disabled="tktubePagination.page <= 1" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </button>
+                                    <select v-model.number="tktubePagination.page" @change="changeTktubePage(tktubePagination.page)" class="text-sm border-none bg-transparent focus:ring-0 cursor-pointer font-medium text-center w-12">
+                                        <option v-for="p in Math.ceil(tktubePagination.total / tktubePagination.limit) || 1" :key="p" :value="p">{{ p }}</option>
+                                    </select>
+                                    <span class="text-gray-400 text-xs">/ {{ Math.ceil(tktubePagination.total / tktubePagination.limit) || 1 }}</span>
+                                    <button @click="changeTktubePage(tktubePagination.page + 1)" :disabled="tktubePagination.page * tktubePagination.limit >= tktubePagination.total" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                        <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <button @click="fetchTktubeAggregate" :disabled="tktubeLoading" class="text-sm bg-white border text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md disabled:opacity-50">刷新</button>
+                        </div>
+                    </div>
+                    <div v-if="tktubeLoading" class="h-full flex flex-col items-center justify-center">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+                        <p class="text-gray-500">加载中...</p>
+                    </div>
+                    <div v-if="!tktubeLoading">
+                        <div v-if="aggViewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                            <div v-for="obj in tktubePagedObjects" :key="obj.url + ':' + obj.task_id" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative">
+                                <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                    <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
+                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
+                                    <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400">
+                                        <i class="fas fa-file-image text-4xl"></i>
+                                    </div>
+                                    <div v-if="uiMode === 'manage'" class="absolute top-2 right-2 flex items-center gap-1 z-20">
+                                        <span class="px-2 inline-flex text-[10px] leading-5 font-semibold rounded-full" :class="{
+                                            'bg-green-100 text-green-800': obj.status === 'completed',
+                                            'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
+                                            'bg-red-100 text-red-800': obj.status === 'failed',
+                                            'bg-gray-100 text-gray-800': obj.status === 'pending'
+                                        }">{{ obj.status }}</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex-1 flex flex-col">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <h3 class="font-semibold text-gray-800 text-sm line-clamp-2 leading-snug">{{ getTitle(obj) }}</h3>
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{{ obj.task_id }}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-xs text-gray-500 mb-2">
+                                        <span>{{ getDate(obj) }}</span>
+                                        <span class="font-mono">{{ obj.progress ? (obj.progress + '%') : '' }}</span>
+                                        <span class="font-mono" v-if="getDuration(obj)">{{ getDuration(obj) }}</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-1 mb-3 max-h-16 overflow-hidden">
+                                        <span v-for="tag in getTags(obj).slice(0, 5)" :key="tag" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ tag }}</span>
+                                    </div>
+                                    <div class="mt-auto">
+                                        <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
+                                            <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: (obj.progress || 0) + '%' }"></div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex items-center gap-2">
+                                        <button v-if="uiMode === 'manage' && obj.status !== 'completed' && obj.status !== 'cancelled'" @click.stop="cancelAggObject(obj)" class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 transition">取消</button>
+                                        <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click.stop="undoCancelAggObject(obj)" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition">撤销取消</button>
+                                        <button v-if="isVideo(obj) && obj.status === 'completed'" @click.stop="playVideo(obj)" class="text-xs px-2 py-1 rounded bg-white text-blue-600 hover:bg-blue-50 transition">播放</button>
+                                        <a v-if="obj.status === 'completed' && !isVideo(obj)" :href="getFileUrl(obj)" target="_blank" class="text-xs px-2 py-1 rounded bg-white text-indigo-600 hover:bg-indigo-50 transition">打开</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="aggViewMode !== 'grid'" class="bg-white rounded-lg shadow overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="obj in tktubePagedObjects" :key="obj.url + ':' + obj.task_id" class="hover:bg-gray-50">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center">
+                                                <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                                    <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
+                                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
+                                                    <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400"></i>
+                                                </div>
+                                                <div class="ml-4">
+                                                    <div class="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs">{{ getTitle(obj) }}</div>
+                                                    <div class="text-xs text-gray-500 truncate max-w-xs">{{ obj.url }}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                                            <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
+                                            <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex flex-wrap gap-1 max-w-xs">
+                                                <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">{{ tag }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" :class="{
+                                                    'bg-green-100 text-green-800': obj.status === 'completed',
+                                                    'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
+                                                    'bg-red-100 text-red-800': obj.status === 'failed',
+                                                    'bg-gray-100 text-gray-800': obj.status === 'pending'
+                                                }">{{ obj.status }}</span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <div class="w-24 bg-gray-200 rounded-full h-1.5">
+                                                <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{{ obj.task_id }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button v-if="uiMode === 'manage' && obj.status !== 'completed' && obj.status !== 'cancelled'" @click="cancelAggObject(obj)" class="text-red-600 hover:text-red-900 mr-3"><i class="fas fa-ban"></i> 取消</button>
+                                            <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click="undoCancelAggObject(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-undo"></i> 撤销取消</button>
+                                            <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-play"></i> 播放</button>
+                                            <a v-if="obj.status === 'completed' && !isVideo(obj)" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">打开</a>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="!isLoadingTask && selectedTask">
                     <!-- Task Details (Read-only) -->
                     <div class="bg-white rounded-lg shadow p-4 mb-4 border">
                         <div class="flex items-center justify-between mb-3">
@@ -261,10 +458,17 @@
                                     <option value="completed">已完成</option>
                                     <option value="failed">失败</option>
                                     <option value="pending">待下载</option>
+                                    <option value="cancelled">已取消</option>
                                 </select>
                                 <button @click="toggleTaskConfigPanel" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors flex items-center">
                                     <i class="fas fa-sliders-h mr-1"></i> 任务配置
                                 </button>
+                                <div class="flex items-center gap-2">
+                                    <button @click="toggleSelectAllObjects" class="text-xs bg-white text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">全选当前页对象</button>
+                                    <button @click="cancelSelectedObjects" :disabled="selectedObjectCount===0" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectCount>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">取消选中对象</button>
+                                    <button @click="undoCancelSelectedObjects" :disabled="selectedObjectCount===0" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectCount>0 ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">撤销选中</button>
+                                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" v-if="selectedObjectCount>0">已选 {{ selectedObjectCount }}</span>
+                                </div>
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
@@ -306,10 +510,10 @@
                                     <div><span class="text-gray-400">并发：</span>{{ selectedTask.extra.max_concurrent||'-' }}</div>
                                     <div><span class="text-gray-400">刷新间隔：</span>{{ selectedTask.extra.refresh_interval||'-' }}</div>
                                 </div>
-                                <div class="text-xs text-gray-600" v-else-if="selectedTask.type==='simple_url_list'">
+                                <div class="text-xs text-gray-600" v-if="selectedTask.type==='simple_url_list'">
                                     <span class="text-gray-400">URL数量：</span>{{ (selectedTask.extra.urls && selectedTask.extra.urls.length) || (selectedTask.urls && selectedTask.urls.length) || 0 }}
                                 </div>
-                                <div class="text-xs text-gray-600 break-all" v-else>
+                                <div class="text-xs text-gray-600 break-all" v-if="selectedTask.type !== 'simple_url_list' && !selectedTask.type.startsWith('tktube')">
                                     {{ JSON.stringify(selectedTask.extra, null, 2) }}
                                 </div>
                             </div>
@@ -323,9 +527,12 @@
 
                             <!-- Cover Image Area -->
                             <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                <label class="absolute top-2 left-2 z-30 bg-white/90 rounded px-1.5 py-1 shadow">
+                                    <input type="checkbox" :value="obj.url" v-model="selectedObjectUrls" class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded">
+                                </label>
                                 <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
                                 <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
-                                <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+                                <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400">
                                     <i class="fas fa-file-image text-4xl"></i>
                                 </div>
                                 <div v-if="isVideo(obj) && obj.status === 'completed'" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
@@ -358,7 +565,7 @@
                                             'bg-red-500': obj.status === 'failed',
                                             'bg-gray-400': obj.status === 'pending'
                                         }" title="状态"></span>
-                                        <span v-else class="px-2 inline-flex text-[10px] leading-5 font-semibold rounded-full" :class="{
+                                        <span v-if="(uiDefaults && uiDefaults.status_style) !== 'dot'" class="px-2 inline-flex text-[10px] leading-5 font-semibold rounded-full" :class="{
                                             'bg-green-100 text-green-800': obj.status === 'completed',
                                             'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
                                             'bg-red-100 text-red-800': obj.status === 'failed',
@@ -379,78 +586,95 @@
                                         <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: (obj.progress || 0) + '%' }"></div>
                                     </div>
                                 </div>
+                                <div class="mt-3 flex items-center gap-2">
+                                    <button v-if="uiMode === 'manage' && obj.status !== 'completed' && obj.status !== 'cancelled'" @click.stop="cancelObject(obj)" class="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 transition">
+                                        取消
+                                    </button>
+                                    <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click.stop="undoCancelObject(obj)" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition">
+                                        撤销取消
+                                    </button>
+                                    <button v-if="uiMode === 'manage' && obj.status === 'failed'" @click.stop="retryObject(obj)" class="text-xs px-2 py-1 rounded bg-white text-red-600 hover:bg-red-50 transition">
+                                        重试
+                                    </button>
+                                    <button v-if="isVideo(obj) && obj.status === 'completed'" @click.stop="playVideo(obj)" class="text-xs px-2 py-1 rounded bg-white text-blue-600 hover:bg-blue-50 transition">
+                                        播放
+                                    </button>
+                                    <a v-if="obj.status === 'completed' && !isVideo(obj)" :href="getFileUrl(obj)" target="_blank" class="text-xs px-2 py-1 rounded bg-white text-indigo-600 hover:bg-indigo-50 transition">打开</a>
+                                </div>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    <!-- List View -->
-                    <div v-else class="bg-white rounded-lg shadow overflow-hidden">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-for="obj in filteredObjects" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center">
-                                            <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
-                                                <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
-                                                <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
-                                                <i v-else class="fas fa-file text-gray-400"></i>
-                                            </div>
-                                            <div class="ml-4">
-                                                <div class="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs" :title="getTitle(obj)">{{ getTitle(obj) }}</div>
-                                                <div class="text-xs text-gray-500 truncate max-w-xs">{{ obj.url }}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                                        <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
-                                        <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        <div class="flex flex-wrap gap-1 max-w-xs">
-                                            <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">{{ tag }}</span>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" :class="{
+            <!-- List View -->
+            <div v-if="viewMode === 'list'" class="bg-white rounded-lg shadow overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <tr v-for="obj in filteredObjects" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center">
+                                    <input type="checkbox" :value="obj.url" v-model="selectedObjectUrls" class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-3">
+                                    <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                                        <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
+                                        <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
+                                        <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400"></i>
+                                    </div>
+                                    <div class="ml-4">
+                                        <div class="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs" :title="getTitle(obj)">{{ getTitle(obj) }}</div>
+                                        <div class="text-xs text-gray-500 truncate max-w-xs">{{ obj.url }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                                <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
+                                <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-wrap gap-1 max-w-xs">
+                                    <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">{{ tag }}</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" :class="{
                                                 'bg-green-100 text-green-800': obj.status === 'completed',
                                                 'bg-yellow-100 text-yellow-800': obj.status === 'downloading',
                                                 'bg-red-100 text-red-800': obj.status === 'failed',
                                                 'bg-gray-100 text-gray-800': obj.status === 'pending'
                                             }">{{ obj.status }}</span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <div class="w-24 bg-gray-200 rounded-full h-1.5">
-                                            <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <button v-if="obj.status === 'failed' || obj.status === 'pending'" @click="retryObject(obj)" class="mr-3" :class="obj.status === 'failed' ? 'text-red-600 hover:text-red-900' : 'text-blue-600 hover:text-blue-900'">
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <div class="w-24 bg-gray-200 rounded-full h-1.5">
+                                    <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button v-if="uiMode === 'manage' && (obj.status === 'failed' || obj.status === 'pending')" @click="retryObject(obj)" class="mr-3" :class="obj.status === 'failed' ? 'text-red-600 hover:text-red-900' : 'text-blue-600 hover:text-blue-900'">
                                             <i class="fas" :class="obj.status === 'failed' ? 'fa-redo' : 'fa-download'"></i> {{ obj.status === 'failed' ? 'Retry' : 'Start' }}
                                         </button>
-                                        <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-play"></i> Play</button>
-                                        <a v-else-if="obj.status === 'completed'" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">Open</a>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-play"></i> Play</button>
+                                <a v-if="obj.status === 'completed' && !isVideo(obj)" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">Open</a>
+                                <button v-if="uiMode === 'manage' && obj.status !== 'completed' && obj.status !== 'cancelled'" @click="cancelObject(obj)" class="text-red-600 hover:text-red-900 mr-3"><i class="fas fa-ban"></i> 取消</button>
+                                <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click="undoCancelObject(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-undo"></i> 撤销取消</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <!-- Empty State -->
-                <div v-else class="h-full flex flex-col items-center justify-center text-gray-400">
-                    <i class="fas fa-tasks text-6xl mb-4 text-gray-300"></i>
-                    <p class="text-lg">Select a task from the sidebar to view details</p>
-                </div>
+            <div v-if="!selectedTask && viewMode !== 'downloads' && viewMode !== 'tktube'" class="h-full flex flex-col items-center justify-center text-gray-400">
+                <i class="fas fa-tasks text-6xl mb-4 text-gray-300"></i>
+                <p class="text-lg">Select a task from the sidebar to view details</p>
             </div>
         </main>
 
@@ -831,7 +1055,7 @@
                                 <pre class="diff-code bg-gray-50 border rounded p-2 overflow-auto max-h-64">{{ diffOptions.ignore_ws || diffOptions.ignore_comments ? (configDiff.left_norm || configDiff.left_yaml) : configDiff.left_yaml }}</pre>
                                 <pre class="diff-code bg-gray-50 border rounded p-2 overflow-auto max-h-64">{{ diffOptions.ignore_ws || diffOptions.ignore_comments ? (configDiff.right_norm || configDiff.right_yaml) : configDiff.right_yaml }}</pre>
                             </div>
-                            <div v-else class="diff-code border rounded overflow-auto max-h-64">
+                            <div v-if="!diffOptions.side_by_side" class="diff-code border rounded overflow-auto max-h-64">
                                 <div v-for="row in collapsedLineDiff" :key="row.idx" :class="{'diff-add': row.type==='add', 'diff-del': row.type==='del', 'diff-mod': row.type==='mod'}" class="px-2 py-1">
                                     <template v-if="row.type === 'fold'">
                                         <button @click="row.expanded = !row.expanded" class="text-xs text-blue-600">折叠 {{ row.count }} 行未变化（点击展开/折叠）</button>
@@ -842,7 +1066,7 @@
                                             </div>
                                         </div>
                                     </template>
-                                    <template v-else>
+                                    <template v-if="row.type !== 'fold'">
                                         <span class="text-gray-400 mr-2">{{ row.leftNo || '' }}{{ row.rightNo ? '|' + row.rightNo : '' }}</span>
                                         <span v-html="row.render"></span>
                                     </template>
@@ -881,53 +1105,53 @@
         </div>
 
         <!-- Add Task Modal -->
-        <div v-if="showAddTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div v-cloak v-if="showAddTaskModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" @keydown.esc="showAddTaskModal = false" tabindex="0" ref="addTaskModal" @click.self="showAddTaskModal = false">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
                 <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
-                    <h3 class="text-lg font-bold text-gray-800">Create New Task</h3>
+                    <h3 class="text-lg font-bold text-gray-800">创建任务</h3>
                     <button @click="showAddTaskModal = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
                 </div>
                 <div class="p-6 flex-1 overflow-y-auto">
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Task ID</label>
-                            <input type="text" v-model="newTask.id" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g. my_download_task">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">任务ID</label>
+                            <input type="text" v-model="newTask.id" autofocus class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="例如：my_download_task">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
                             <select v-model="newTask.type" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="simple_url_list">Simple URL List</option>
+                                <option value="simple_url_list">简单 URL 列表</option>
                                 <option value="tktube">TKTube</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Save Directory</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">保存目录</label>
                             <input type="text" v-model="newTask.save_dir" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./downloads/mytask">
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Storage Type</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">存储类型</label>
                                 <select v-model="newTask.storage_type" class="w-full border border-gray-300 rounded-md p-2">
-                                    <option value="file">File</option>
+                                    <option value="file">文件</option>
                                     <option value="mongo">Mongo</option>
-                                    <option value="memory">Memory</option>
+                                    <option value="memory">内存</option>
                                 </select>
                             </div>
                             <div v-if="newTask.storage_type==='file'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">File Path</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">文件路径</label>
                                 <input type="text" v-model="newTask.storage_config.path" class="w-full border border-gray-300 rounded-md p-2" :placeholder="newTask.save_dir + '/' + (newTask.id||'task') + '_history.json'">
                             </div>
                             <div v-if="newTask.storage_type==='mongo'" class="col-span-2 grid grid-cols-3 gap-2">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">来源</label>
                                     <input type="text" v-model="newTask.storage_config.source" class="w-full border border-gray-300 rounded-md p-2" placeholder="suixi-mini">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Database</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">数据库</label>
                                     <input type="text" v-model="newTask.storage_config.database" class="w-full border border-gray-300 rounded-md p-2" placeholder="download_db">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Collection</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">集合</label>
                                     <input type="text" v-model="newTask.storage_config.collection" class="w-full border border-gray-300 rounded-md p-2" placeholder="objects">
                                 </div>
                             </div>
@@ -935,40 +1159,40 @@
 
                         <!-- Simple URL Fields -->
                         <div v-if="newTask.type === 'simple_url_list'">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">URLs (One per line)</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">URL 列表（每行一个）</label>
                             <textarea v-model="newTask.urls_text" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="https://example.com/file1.zip"></textarea>
                         </div>
 
                         <!-- TKTube Fields -->
                         <div v-if="newTask.type === 'tktube'" class="space-y-4 border-t pt-4 mt-2">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Keyword</label>
-                                <input type="text" v-model="newTask.keyword" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g. RCTD">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关键字</label>
+                                <input type="text" v-model="newTask.keyword" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="例如：RCTD">
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Subtype</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">子类型</label>
                                     <select v-model="newTask.subtype" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                        <option value="tag">Tag</option>
-                                        <option value="model">Model</option>
-                                        <option value="search">Search</option>
+                                        <option value="tag">标签</option>
+                                        <option value="model">模特</option>
+                                        <option value="search">搜索</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Concurrency</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">并发数</label>
                                     <input type="number" v-model.number="newTask.max_concurrent" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" max="10">
                                 </div>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Refresh Interval (sec)</label>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">刷新间隔（秒）</label>
                                 <input type="number" v-model.number="newTask.refresh_interval" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="3600">
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
-                    <button @click="showAddTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">Cancel</button>
-                    <button @click="saveNewTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">Create Task</button>
+                    <button @click="showAddTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                    <button @click="saveNewTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">创建</button>
                 </div>
             </div>
         </div>
@@ -987,6 +1211,8 @@
                     activeDownloads: [],
                     selectedTaskId: null,
                     selectedTask: null,
+                    selectedTaskIds: [],
+                    selectedObjectUrls: [],
                     viewMode: 'grid',
                     searchQuery: '',
                     sortBy: 'default',
@@ -1104,7 +1330,23 @@
                         messageText: ''
                     },
                     loading: false,
-                    isLoadingTask: false
+                    isLoadingTask: false,
+                    tktubeObjects: [],
+                    tktubeSearchQuery: '',
+                    tktubeStatusFilter: 'all',
+                    tktubeLoading: false,
+                    aggViewMode: 'grid',
+                    uiMode: 'manage',
+                    tktubePagination: {
+                        page: 1,
+                        limit: 50,
+                        total: 0
+                    },
+                    tktubeSortBy: 'date_desc',
+                    tktubeAggConcurrency: 2,
+                    tktubeAggDelayMs: 200,
+                    lastAggFetchTs: 0,
+                    tktubeAggMinIntervalMs: 3000
                 }
             },
             computed: {
@@ -1118,6 +1360,15 @@
                     const list = this.selectedTask.objects
                     if (this.statusFilter === 'all') return list
                     return list.filter(o => o.status === this.statusFilter)
+                },
+                selectedObjectCount() {
+                    return this.selectedObjectUrls.length
+                },
+                tktubeFilteredObjects() {
+                    return this.tktubeObjects || []
+                },
+                tktubePagedObjects() {
+                    return this.tktubeFilteredObjects || []
                 },
                 filteredChanges() {
                     if (!this.configDiff || !this.configDiff.changes) return []
@@ -1152,17 +1403,23 @@
                         this.pagination.page = 1
                         this.fetchTaskDetails(this.selectedTaskId)
                     }, 500)
+                },
+                tktubeSearchQuery() {
+                    this.tktubePagination.page = 1
+                    this.fetchTktubeAggregate()
+                },
+                tktubeStatusFilter() {
+                    this.tktubePagination.page = 1
+                    this.fetchTktubeAggregate()
                 }
             },
             mounted() {
                 this.fetchTasks()
                     // Use SSE instead of polling for tasks and downloads
                 this.initSSE()
-
-                // Keep a slow poll as backup/health check
-                this.timer = setInterval(this.fetchTasks, 30000)
                 this.loadVideoSettings();
                 this.initUiDefaults();
+                this.showAddTaskModal = false
             },
             beforeUnmount() {
                 if (this.timer) clearInterval(this.timer)
@@ -1457,6 +1714,8 @@
                                 this.showToast(`Download completed: ${this.getTitle(obj)}`, 'success')
                             } else if (obj.status === 'failed') {
                                 this.showToast(`Download failed: ${this.getTitle(obj)}`, 'error')
+                            } else if (obj.status === 'cancelled') {
+                                this.showToast(`已取消: ${this.getTitle(obj)}`, 'info')
                             }
                         }
 
@@ -1467,6 +1726,18 @@
                                 currentObj.status = obj.status
                                 currentObj.progress = obj.progress
                                 if (obj.metadata) currentObj.metadata = obj.metadata
+                            }
+                        }
+                        // Update tktube aggregate view if active
+                        if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
+                            const idxAgg = this.tktubeObjects.findIndex(o => o.url === obj.url && o.task_id === obj.task_id)
+                            if (idxAgg >= 0) {
+                                const existing = this.tktubeObjects[idxAgg]
+                                existing.status = obj.status
+                                existing.progress = obj.progress
+                                if (obj.metadata) existing.metadata = obj.metadata
+                                    // Force Vue reactivity on array item
+                                this.tktubeObjects.splice(idxAgg, 1, existing)
                             }
                         }
                     } else if (event.type === 'task_update') {
@@ -1523,22 +1794,93 @@
                 },
                 selectTask(id) {
                     this.selectedTaskId = id
+                    this.selectedTaskIds = this.selectedTaskIds.filter(x => x !== id)
+                    this.selectedObjectUrls = []
                     this.searchQuery = ''
                     this.pagination.page = 1
-                    if (this.viewMode === 'downloads') {
-                        this.viewMode = 'grid'
-                    }
+                    this.viewMode = 'grid'
                     this.fetchTaskDetails(id, false)
+                },
+                toggleSelectAll() {
+                    if (this.selectedTaskIds.length === this.tasks.length) {
+                        this.selectedTaskIds = []
+                    } else {
+                        this.selectedTaskIds = this.tasks.map(t => t.id)
+                    }
+                },
+                toggleSelectAllObjects() {
+                    const urls = (this.filteredObjects || []).map(o => o.url)
+                    const allSelected = urls.length > 0 && urls.every(u => this.selectedObjectUrls.includes(u))
+                    if (allSelected) {
+                        this.selectedObjectUrls = this.selectedObjectUrls.filter(u => !urls.includes(u))
+                    } else {
+                        const set = new Set(this.selectedObjectUrls)
+                        urls.forEach(u => set.add(u))
+                        this.selectedObjectUrls = Array.from(set)
+                    }
+                },
+                async cancelCurrentTask() {
+                    if (!this.selectedTaskId) return
+                    try {
+                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/cancel`, {
+                            method: 'POST'
+                        })
+                        if (!res.ok) throw new Error('取消失败')
+                        this.showToast('任务已取消', 'success')
+                        this.fetchTasks()
+                        this.fetchTaskDetails(this.selectedTaskId, true)
+                    } catch (e) {
+                        this.showToast('取消失败: ' + e.message, 'error')
+                    }
+                },
+                async cancelSelected() {
+                    if (this.selectedTaskIds.length === 0) return
+                    try {
+                        const res = await fetch('/api/tasks/cancel_batch', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                ids: this.selectedTaskIds
+                            })
+                        })
+                        if (!res.ok) throw new Error('批量取消失败')
+                        const result = await res.json()
+                        const failed = Object.entries(result).filter(([_, v]) => v !== 'ok')
+                        if (failed.length === 0) {
+                            this.showToast('已取消选中任务', 'success')
+                        } else {
+                            this.showToast('部分取消失败', 'error')
+                        }
+                        this.selectedTaskIds = []
+                        this.fetchTasks()
+                        if (this.selectedTaskId) this.fetchTaskDetails(this.selectedTaskId, true)
+                    } catch (e) {
+                        this.showToast('批量取消失败: ' + e.message, 'error')
+                    }
                 },
                 changePage(p) {
                     if (p < 1) return
                     if (this.pagination.limit !== 'all' && p > Math.ceil(this.pagination.total / this.pagination.limit)) return
                     this.pagination.page = p
+                    this.selectedObjectUrls = []
                     this.fetchTaskDetails(this.selectedTaskId)
                 },
                 changeLimit() {
                     this.pagination.page = 1
+                    this.selectedObjectUrls = []
                     this.fetchTaskDetails(this.selectedTaskId)
+                },
+                changeTktubePage(p) {
+                    if (p < 1) return
+                    if (this.tktubePagination.limit !== 'all' && p > Math.ceil(this.tktubePagination.total / this.tktubePagination.limit)) return
+                    this.tktubePagination.page = p
+                    this.fetchTktubeAggregate()
+                },
+                changeTktubeLimit() {
+                    this.tktubePagination.page = 1
+                    this.fetchTktubeAggregate()
                 },
                 async fetchTaskDetails(id, background = false) {
                     if (!background) {
@@ -1592,6 +1934,162 @@
                             this.isLoadingTask = false
                             this.abortController = null
                         }
+                    }
+                },
+                async cancelSelectedObjects() {
+                    if (!this.selectedTaskId || this.selectedObjectUrls.length === 0) return
+                    try {
+                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/cancel_batch`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                urls: this.selectedObjectUrls
+                            })
+                        })
+                        if (!res.ok) throw new Error('批量取消失败')
+                        const result = await res.json()
+                        const okList = Object.entries(result).filter(([_, v]) => v === 'ok').map(([u]) => u)
+                        if (this.selectedTask && this.selectedTask.objects && okList.length > 0) {
+                            this.selectedTask.objects.forEach(o => {
+                                if (okList.includes(o.url)) {
+                                    o.status = 'cancelled'
+                                    o.progress = 0
+                                }
+                            })
+                        }
+                        const failed = Object.entries(result).filter(([_, v]) => v !== 'ok')
+                        if (failed.length === 0) {
+                            this.showToast('已取消选中对象', 'success')
+                        } else {
+                            this.showToast('部分对象取消失败', 'error')
+                        }
+                        this.selectedObjectUrls = []
+                    } catch (e) {
+                        this.showToast('批量取消失败: ' + e.message, 'error')
+                    }
+                },
+                async undoCancelSelectedObjects() {
+                    if (!this.selectedTaskId || this.selectedObjectUrls.length === 0) return
+                    try {
+                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/undo_cancel_batch`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                urls: this.selectedObjectUrls
+                            })
+                        })
+                        if (!res.ok) throw new Error('批量撤销失败')
+                        const result = await res.json()
+                        const okList = Object.entries(result).filter(([_, v]) => v === 'ok').map(([u]) => u)
+                        if (this.selectedTask && this.selectedTask.objects && okList.length > 0) {
+                            this.selectedTask.objects.forEach(o => {
+                                if (okList.includes(o.url)) {
+                                    o.status = 'pending'
+                                    o.progress = 0
+                                }
+                            })
+                        }
+                        const failed = Object.entries(result).filter(([_, v]) => v !== 'ok')
+                        if (failed.length === 0) {
+                            this.showToast('已撤销选中对象', 'success')
+                        } else {
+                            this.showToast('部分对象撤销失败', 'error')
+                        }
+                        this.selectedObjectUrls = []
+                    } catch (e) {
+                        this.showToast('批量撤销失败: ' + e.message, 'error')
+                    }
+                },
+                async openTktubeAggregate() {
+                    this.viewMode = 'tktube'
+                    this.selectedTaskId = null
+                    this.selectedTask = null
+                    await this.fetchTktubeAggregate()
+                },
+                async fetchTktubeAggregate() {
+                    try {
+                        if (this.tktubeLoading) return
+                        const now = Date.now()
+                        if (this.lastAggFetchTs && now - this.lastAggFetchTs < this.tktubeAggMinIntervalMs) {
+                            this.showToast('操作过于频繁', 'error')
+                            return
+                        }
+                        this.lastAggFetchTs = now
+                        this.tktubeLoading = true
+                        const params = new URLSearchParams()
+                        params.set('page', this.tktubePagination.page)
+                        if (this.tktubePagination.limit !== 'all') {
+                            params.set('limit', this.tktubePagination.limit)
+                        } else {
+                            params.set('limit', 'all')
+                        }
+                        if ((this.tktubeSearchQuery || '').trim()) {
+                            params.set('search', this.tktubeSearchQuery.trim())
+                        }
+                        if (this.tktubeSortBy) {
+                            params.set('sort', this.tktubeSortBy)
+                        }
+                        if (this.tktubeStatusFilter && this.tktubeStatusFilter !== 'all') {
+                            params.set('status', this.tktubeStatusFilter)
+                        }
+                        params.set('types', 'tktube')
+                        const res = await fetch(`/api/aggregate?${params.toString()}`)
+                        if (!res.ok) throw new Error('聚合接口请求失败')
+                        const data = await res.json()
+                        this.tktubeObjects = data.objects || []
+                        this.tktubePagination.total = data.total || 0
+                        this.tktubePagination.page = data.page || this.tktubePagination.page
+                        if (data.limit === -1 || data.limit === 0) {
+                            this.tktubePagination.limit = 'all'
+                        } else if (typeof data.limit === 'number') {
+                            this.tktubePagination.limit = data.limit
+                        }
+                    } catch (e) {
+                        this.showToast('聚合视图加载失败', 'error')
+                    } finally {
+                        this.tktubeLoading = false
+                    }
+                },
+                async cancelAggObject(obj) {
+                    try {
+                        const res = await fetch(`/api/tasks/${encodeURIComponent(obj.task_id)}/object/cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: obj.url
+                            })
+                        })
+                        if (!res.ok) throw new Error('取消失败')
+                        obj.status = 'cancelled'
+                        obj.progress = 0
+                        this.showToast('已取消该对象', 'success')
+                    } catch (e) {
+                        this.showToast('取消失败: ' + e.message, 'error')
+                    }
+                },
+                async undoCancelAggObject(obj) {
+                    try {
+                        const res = await fetch(`/api/tasks/${encodeURIComponent(obj.task_id)}/object/undo_cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: obj.url
+                            })
+                        })
+                        if (!res.ok) throw new Error('撤销失败')
+                        obj.status = 'pending'
+                        obj.progress = 0
+                        this.showToast('已撤销取消，回到待下载', 'success')
+                    } catch (e) {
+                        this.showToast('撤销失败: ' + e.message, 'error')
                     }
                 },
 
@@ -1909,6 +2407,9 @@
                         throw e
                     }
                 },
+                sleep(ms) {
+                    return new Promise(r => setTimeout(r, ms))
+                },
                 buildLineDiff(left, right) {
                     const a = left.split('\n')
                     const b = right.split('\n')
@@ -2190,8 +2691,9 @@
                 },
 
                 // Task Creation
-                openAddTask() {
-                    // Reset to default
+                openAddTask(e) {
+                    if (e && !e.isTrusted) return
+                        // Reset to default
                     this.newTask = {
                         id: '',
                         type: 'tktube',
@@ -2210,10 +2712,13 @@
                         }
                     }
                     this.showAddTaskModal = true
+                    this.$nextTick(() => {
+                        if (this.$refs.addTaskModal) this.$refs.addTaskModal.focus()
+                    })
                 },
                 async saveNewTask() {
                     if (!this.newTask.id) {
-                        alert("Task ID is required");
+                        this.showToast("请填写任务ID", "error")
                         return
                     }
 
@@ -2265,10 +2770,14 @@
                         if (!saveRes.ok) throw new Error("Save failed")
 
                         this.showAddTaskModal = false
-                        this.fetchTasks() // Refresh list
-                        alert("Task created!")
+                        this.showToast("任务已创建", "success")
+                        const newId = this.newTask.id
+                        this.selectedTaskId = newId
+                        this.selectedTask = null
+                        await this.fetchTasks()
+                        this.fetchTaskDetails(newId, false)
                     } catch (e) {
-                        alert("Error creating task: " + e.message)
+                        this.showToast("创建失败: " + e.message, "error")
                     }
                 },
                 async saveTaskConfig() {
@@ -2347,6 +2856,13 @@
                 getDate(obj) {
                     if (obj.metadata && obj.metadata.date) return obj.metadata.date;
                     return ''
+                },
+                getDateValue(obj) {
+                    const d = this.getDate(obj)
+                    if (!d) return 0
+                    const t = Date.parse(d)
+                    if (isNaN(t)) return 0
+                    return t
                 },
                 getPreviewUrl(obj) {
                     if (obj.extra && obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview);
@@ -2472,6 +2988,43 @@
                         obj.progress = 0
                     } catch (e) {
                         console.error(e)
+                    }
+                },
+                async cancelObject(obj) {
+                    try {
+                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: obj.url
+                            })
+                        })
+                        if (!res.ok) throw new Error('取消失败')
+                        obj.status = 'cancelled'
+                        this.showToast('已取消该对象', 'success')
+                    } catch (e) {
+                        this.showToast('取消失败: ' + e.message, 'error')
+                    }
+                },
+                async undoCancelObject(obj) {
+                    try {
+                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/undo_cancel`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                url: obj.url
+                            })
+                        })
+                        if (!res.ok) throw new Error('撤销失败')
+                        obj.status = 'pending'
+                        obj.progress = 0
+                        this.showToast('已撤销取消，回到待下载', 'success')
+                    } catch (e) {
+                        this.showToast('撤销失败: ' + e.message, 'error')
                     }
                 },
                 async retryAllFailed() {

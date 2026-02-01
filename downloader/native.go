@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"download-manager/config"
@@ -29,6 +30,7 @@ type NativeHTTPDownloader struct {
 	maxRetries int
 	client     *http.Client
 	dLimiter   *DomainLimiter
+	active     sync.Map
 }
 
 var _ core.Downloader = &NativeHTTPDownloader{}
@@ -244,8 +246,13 @@ startDownload:
 	slog.Info("Starting download", "downloader", "native_http",
 		"url", url, "path", subObj.SavePath, "log", logFile, "attempt", cnt)
 
+	// 创建可取消的上下文
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.active.Store(subObj.URL, cancel)
+
 	// 创建 HTTP 请求 [7,8](@ref)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -268,7 +275,7 @@ startDownload:
 
 	// 设置 Range 头支持断点续传 [10](@ref)
 	if startOffset > 0 {
-		nreq := req.Clone(context.Background())
+		nreq := req.Clone(ctx)
 
 		printRequestHeaders(f, nreq)
 
@@ -447,6 +454,7 @@ startDownload:
 	// 下载文件内容 [6](@ref)
 	_, err = io.Copy(file, reader)
 	if err != nil {
+		d.active.Delete(subObj.URL)
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -490,6 +498,7 @@ startDownload:
 	// 记录下载完成信息
 	fmt.Fprintf(f, "Download completed, total size: %d bytes\n", totalSize)
 	slog.Info("Download completed", "file", subObj.SavePath, "size", totalSize)
+	d.active.Delete(subObj.URL)
 	return nil
 }
 
@@ -618,4 +627,14 @@ func (d *NativeHTTPDownloader) writeCache(domain, status string) {
 	cachePath := filepath.Join(filepath.Dir(d.cacheFile), domain)
 	os.MkdirAll(filepath.Dir(cachePath), 0755)
 	os.WriteFile(cachePath, []byte(status), 0644)
+}
+
+func (d *NativeHTTPDownloader) Cancel(url string) error {
+	if v, ok := d.active.Load(url); ok {
+		cancel := v.(context.CancelFunc)
+		cancel()
+		d.active.Delete(url)
+		return nil
+	}
+	return fmt.Errorf("no active download for url")
 }

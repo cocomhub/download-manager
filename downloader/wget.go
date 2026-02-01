@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"download-manager/config"
@@ -25,6 +26,7 @@ type WgetDownloader struct {
 	proxies    []string
 	cacheFile  string
 	forceProxy bool
+	active     sync.Map
 }
 
 // Ensure WgetDownloader implements core.Downloader
@@ -186,10 +188,12 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 
 	cmd := exec.Command("wget", args...)
 	cmd.Env = env
+	d.active.Store(subObj.URL, cmd)
 
 	// Wget writes progress to stderr
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		d.active.Delete(subObj.URL)
 		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
@@ -199,6 +203,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	slog.Info("Starting download", "downloader", "wget", "url", subObj.URL, "path", subObj.SavePath, "wget_log", logFile)
 
 	if err := cmd.Start(); err != nil {
+		d.active.Delete(subObj.URL)
 		return fmt.Errorf("wget start failed: %w", err)
 	}
 
@@ -225,14 +230,26 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	}
 
 	if err := cmd.Wait(); err != nil {
+		d.active.Delete(subObj.URL)
 		return fmt.Errorf("wget execution failed: %w", err)
 	}
+	d.active.Delete(subObj.URL)
 
 	if trackProgress && progressObj != nil {
 		progressObj.Progress = 100
 	}
 
 	return nil
+}
+
+func (d *WgetDownloader) Cancel(url string) error {
+	if v, ok := d.active.Load(url); ok {
+		cmd := v.(*exec.Cmd)
+		_ = cmd.Process.Kill()
+		d.active.Delete(url)
+		return nil
+	}
+	return fmt.Errorf("no active download for url")
 }
 
 // --- Proxy Logic ---

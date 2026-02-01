@@ -508,6 +508,11 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj)
 	if err != nil {
+		if obj.Status == model.StatusCancelled {
+			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+			return
+		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, model.StatusFailed, err)
 
@@ -753,6 +758,121 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 	return result, nil
 }
 
+func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status string, types []string) (map[string]interface{}, error) {
+	all := make([]*model.DownloadObject, 0, 1024)
+	cfg := m.currentCfg()
+	typeMatches := func(t core.Task) bool {
+		if len(types) == 0 {
+			return true
+		}
+		tt := t.Type()
+		for _, pref := range types {
+			if strings.HasPrefix(tt, pref) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, tCfg := range cfg.Tasks {
+		id := tCfg.ID
+		t, ok := m.getTask(id)
+		if !ok {
+			continue
+		}
+		if !typeMatches(t) {
+			continue
+		}
+		if st, ok := t.(interface {
+			GetAllObjects() []*model.DownloadObject
+		}); ok {
+			objs := st.GetAllObjects()
+			for _, o := range objs {
+				if status != "" && status != "all" {
+					if o.Status != status {
+						continue
+					}
+				}
+				all = append(all, o)
+			}
+		}
+	}
+	if search = strings.ToLower(strings.TrimSpace(search)); search != "" {
+		filtered := make([]*model.DownloadObject, 0, len(all))
+		for _, obj := range all {
+			match := false
+			if strings.Contains(strings.ToLower(obj.URL), search) {
+				match = true
+			} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
+				match = true
+			} else if tags, ok := obj.Extra["tags"].([]interface{}); ok {
+				for _, t := range tags {
+					if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
+						match = true
+						break
+					}
+				}
+			}
+			if match {
+				filtered = append(filtered, obj)
+			}
+		}
+		all = filtered
+	}
+	sort.Slice(all, func(i, j int) bool {
+		switch sortBy {
+		case "date_asc":
+			return all[i].Metadata["date"] < all[j].Metadata["date"]
+		case "date_desc":
+			return all[i].Metadata["date"] > all[j].Metadata["date"]
+		case "name_asc":
+			ti := all[i].Metadata["title"]
+			if ti == "" {
+				ti = all[i].URL
+			}
+			tj := all[j].Metadata["title"]
+			if tj == "" {
+				tj = all[j].URL
+			}
+			return strings.ToLower(ti) < strings.ToLower(tj)
+		case "duration_desc":
+			return all[i].Metadata["duration"] > all[j].Metadata["duration"]
+		default:
+			di := all[i].Metadata["date"]
+			dj := all[j].Metadata["date"]
+			if di != dj {
+				return di > dj
+			}
+			return all[i].URL < all[j].URL
+		}
+	})
+	total := len(all)
+	var paged []*model.DownloadObject
+	if limit <= 0 {
+		paged = all
+		page = 1
+		limit = total
+	} else {
+		if page < 1 {
+			page = 1
+		}
+		start := (page - 1) * limit
+		if start > total {
+			start = total
+		}
+		end := start + limit
+		if end > total {
+			end = total
+		}
+		paged = all[start:end]
+	}
+	return map[string]interface{}{
+		"objects": paged,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	}, nil
+}
+
 func hasMethod(i interface{}, name string) bool {
 	// lightweight capability hint via type assertion
 	switch name {
@@ -851,6 +971,124 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 			go m.processTask(t)
 		}
 		return nil
+	}
+	return fmt.Errorf("task does not support object access")
+}
+
+func (m *Manager) CancelTask(taskID string) error {
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		for _, obj := range objs {
+			if obj.Status == model.StatusCompleted {
+				continue
+			}
+			t.UpdateStatus(obj, model.StatusCancelled, nil)
+			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+			if _, active := m.downloadingObj.Load(obj.URL); active {
+				if c, ok := m.downloader.(interface {
+					Cancel(url string) error
+				}); ok {
+					_ = c.Cancel(obj.URL)
+				}
+				m.downloadingObj.Delete(obj.URL)
+				m.mu.Lock()
+				if m.activeDownloads[taskID] > 0 {
+					m.activeDownloads[taskID]--
+				}
+				m.mu.Unlock()
+			}
+		}
+		m.BroadcastTaskUpdate(taskID)
+		return nil
+	}
+	return fmt.Errorf("task does not support object access")
+}
+
+func (m *Manager) CancelTasks(ids []string) map[string]string {
+	result := make(map[string]string)
+	for _, id := range ids {
+		if err := m.CancelTask(id); err != nil {
+			result[id] = err.Error()
+		} else {
+			result[id] = "ok"
+		}
+	}
+	return result
+}
+
+// CancelObject 取消单个对象下载（对象级别）
+func (m *Manager) CancelObject(taskID, url string) error {
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		for _, obj := range objs {
+			if obj.URL == url {
+				if obj.Status == model.StatusCompleted {
+					return fmt.Errorf("object already completed")
+				}
+				t.UpdateStatus(obj, model.StatusCancelled, nil)
+				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+				if _, active := m.downloadingObj.Load(obj.URL); active {
+					if c, ok := m.downloader.(interface {
+						Cancel(url string) error
+					}); ok {
+						_ = c.Cancel(obj.URL)
+					}
+					m.downloadingObj.Delete(obj.URL)
+					m.mu.Lock()
+					if m.activeDownloads[taskID] > 0 {
+						m.activeDownloads[taskID]--
+					}
+					m.mu.Unlock()
+				}
+				m.BroadcastTaskUpdate(taskID)
+				return nil
+			}
+		}
+		return fmt.Errorf("object not found")
+	}
+	return fmt.Errorf("task does not support object access")
+}
+
+// UndoCancelObject 撤销取消，将对象恢复为待下载
+func (m *Manager) UndoCancelObject(taskID, url string) error {
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return fmt.Errorf("task not found")
+	}
+	if st, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		objs := st.GetAllObjects()
+		for _, obj := range objs {
+			if obj.URL == url {
+				if obj.Status != model.StatusCancelled {
+					return fmt.Errorf("object status is not cancelled")
+				}
+				t.UpdateStatus(obj, model.StatusPending, nil)
+				obj.Progress = 0
+				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+				// 让调度器自然拾取，或立即触发该任务的处理
+				go m.processTask(t)
+				m.BroadcastTaskUpdate(taskID)
+				return nil
+			}
+		}
+		return fmt.Errorf("object not found")
 	}
 	return fmt.Errorf("task does not support object access")
 }

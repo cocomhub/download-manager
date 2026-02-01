@@ -35,6 +35,12 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", s.updateTaskPersistent).Methods("PUT")
 	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/cancel", s.cancelTask).Methods("POST")
+	r.HandleFunc("/api/tasks/cancel_batch", s.cancelTasksBatch).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/cancel", s.cancelObject).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/undo_cancel", s.undoCancelObject).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/cancel_batch", s.cancelObjectsBatch).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/undo_cancel_batch", s.undoCancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/config", s.updateTaskConfig).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/runtime", s.patchTaskRuntime).Methods("PATCH")
@@ -50,6 +56,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/config/delete", s.deleteConfigBackup).Methods("POST")
 	r.HandleFunc("/api/config/apply", s.applyConfigYAML).Methods("POST")
 	r.HandleFunc("/api/downloads", s.getActiveDownloads).Methods("GET")
+	r.HandleFunc("/api/aggregate", s.aggregateObjects).Methods("GET")
 	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
 
 	// File Preview Route
@@ -105,6 +112,104 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 
 type RetryRequest struct {
 	URL string `json:"url"` // Optional, if empty retry all failed
+}
+
+type ObjectURLRequest struct {
+	URL string `json:"url"`
+}
+
+type ObjectURLsRequest struct {
+	URLs []string `json:"urls"`
+}
+
+func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if err := s.mgr.CancelTask(id); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "cancel_failed", fmt.Sprintf("Failed to cancel task: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) cancelObject(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "url is required")
+		return
+	}
+	if err := s.mgr.CancelObject(id, req.URL); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "cancel_failed", fmt.Sprintf("Failed to cancel object: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) undoCancelObject(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "url is required")
+		return
+	}
+	if err := s.mgr.UndoCancelObject(id, req.URL); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "undo_failed", fmt.Sprintf("Failed to undo cancel: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) cancelObjectsBatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "urls is required")
+		return
+	}
+	result := make(map[string]string)
+	for _, u := range req.URLs {
+		if err := s.mgr.CancelObject(id, u); err != nil {
+			result[u] = err.Error()
+		} else {
+			result[u] = "ok"
+		}
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) undoCancelObjectsBatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "urls is required")
+		return
+	}
+	result := make(map[string]string)
+	for _, u := range req.URLs {
+		if err := s.mgr.UndoCancelObject(id, u); err != nil {
+			result[u] = err.Error()
+		} else {
+			result[u] = "ok"
+		}
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) cancelTasksBatch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "ids is required")
+		return
+	}
+	res := s.mgr.CancelTasks(req.IDs)
+	json.NewEncoder(w).Encode(res)
 }
 
 func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
@@ -511,6 +616,42 @@ func (s *Server) updateLogConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getActiveDownloads(w http.ResponseWriter, r *http.Request) {
 	actives := s.mgr.GetActiveDownloads()
 	json.NewEncoder(w).Encode(actives)
+}
+
+func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
+	page := 1
+	limit := 50
+	if pStr := r.URL.Query().Get("page"); pStr != "" {
+		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if lStr == "all" {
+			limit = -1
+		} else if l, err := strconv.Atoi(lStr); err == nil {
+			limit = l
+		}
+	}
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	sortBy := r.URL.Query().Get("sort")
+	status := r.URL.Query().Get("status")
+	typesParam := strings.TrimSpace(r.URL.Query().Get("types"))
+	var types []string
+	if typesParam != "" {
+		for _, t := range strings.Split(typesParam, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				types = append(types, t)
+			}
+		}
+	}
+	res, err := s.mgr.AggregateObjects(page, limit, search, sortBy, status, types)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "aggregate_failed", fmt.Sprintf("Failed to aggregate objects: %v", err))
+		return
+	}
+	json.NewEncoder(w).Encode(res)
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
