@@ -59,3 +59,15 @@ tasks:
     extra:
       urls:
         - https://www.bing.com/robots.txt
+  - id: task-vikacg-001
+    type: vikacg
+    save_dir: ./build/test/downloads/vikacg
+    storage:
+      type: file
+      config:
+        path: ./build/test/downloads/vikacg/status.json
+        save_interval: "2"
+    extra:
+      max_concurrent: 2
+      urls:
+        - https://www.vikacg.com/p/511657

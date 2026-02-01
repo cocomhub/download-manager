@@ -45,4 +45,7 @@ func init() {
 	Register("tktube", func(cfg config.Task, store core.Storage) (core.Task, error) {
 		return NewTktubeTask(cfg, store)
 	})
+	Register("vikacg", func(cfg config.Task, store core.Storage) (core.Task, error) {
+		return NewVikacgTask(cfg, store)
+	})
 }

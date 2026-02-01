@@ -262,7 +262,6 @@ startDownload:
 	req.Header.Set("cache-control", "no-cache")
 	req.Header.Set("pragma", "no-cache")
 	req.Header.Set("priority", "i")
-	req.Header.Set("referer", "https://tktube.com/zh/videos/351341/nhdtb-991-10-sex2/")
 	req.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
 	req.Header.Set("sec-ch-ua-mobile", "?0")
 	req.Header.Set("sec-ch-ua-platform", `"macOS"`)
@@ -350,8 +349,9 @@ startDownload:
 		printResponseHeaders(f, resp)
 	}
 
-	if resp.ContentLength == 146 || resp.ContentLength == -1 {
-		return fmt.Errorf("%w: invalid content length: %d", ErrNoTry, resp.ContentLength)
+	if !(strings.Contains(url, "vikacg") || strings.Contains(url, "picjs.xyz")) &&
+		(resp.ContentLength == 146 || resp.ContentLength == -1) {
+		return fmt.Errorf("%w: invalid content length: %d url:%s", ErrNoTry, resp.ContentLength, url)
 	}
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
@@ -452,7 +452,7 @@ startDownload:
 	}
 
 	// 下载文件内容 [6](@ref)
-	_, err = io.Copy(file, reader)
+	written, err := io.Copy(file, reader)
 	if err != nil {
 		d.active.Delete(subObj.URL)
 		return fmt.Errorf("failed to write file: %w", err)
@@ -490,7 +490,11 @@ startDownload:
 	}
 
 	if totalSize <= 0 {
-		return fmt.Errorf("invalid total size: %d", totalSize)
+		if info, statErr := os.Stat(subObj.SavePath); statErr == nil && info.Size() > 0 {
+			totalSize = info.Size()
+		} else {
+			totalSize = written
+		}
 	}
 	subObj.Metadata["total_size"] = strconv.FormatInt(totalSize, 10)
 	subObj.Metadata["status"] = model.StatusCompleted
