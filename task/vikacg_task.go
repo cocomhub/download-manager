@@ -200,10 +200,11 @@ func (t *VikacgTask) GetConcurrency() int {
 }
 
 func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
-	html, err := downloader.Scrape(pageURL)
+	html, err := downloader.ScraperNative(pageURL)
 	if err != nil {
 		return nil, err
 	}
+	id := strings.TrimPrefix(pageURL, "https://www.vikacg.com/p/")
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, err
@@ -215,6 +216,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 	title = stripSiteSuffix(title)
 	title = strings.ReplaceAll(title, "/", "／")
 	title = strings.TrimRight(title, ".")
+	title = fmt.Sprintf("[%s] %s", id, title)
 	section := strings.TrimSpace(doc.Find("meta[property='article:section']").AttrOr("content", ""))
 	date := strings.TrimSpace(doc.Find("meta[property='article:published_time']").AttrOr("content", ""))
 	if date == "" {
@@ -583,7 +585,8 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 		"user_id":    t.userID,
 	}
 	data, _ := json.Marshal(body)
-	req, err := http.NewRequest("POST", "https://www.vikacg.com/api/vikacg/v1/getPosts", bytes.NewReader(data))
+	url := "http://129.226.212.209:18080/www.vikacg.com/api/vikacg/v1/getPosts"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +605,7 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 		req.Header.Set("User-Agent", t.userAgent)
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	slog.Debug("vikacg getPosts request", "task_id", t.id, "page", page)
+	slog.Debug("vikacg getPosts request", "task_id", t.id, "page", page, "url", url)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -615,6 +618,7 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
+	slog.Info("vikacg getPosts response", "task_id", t.id, "page", page, "url", url, "posts", len(out.Data.List))
 	return out.Data.List, nil
 }
 

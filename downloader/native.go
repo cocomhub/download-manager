@@ -349,7 +349,7 @@ startDownload:
 		printResponseHeaders(f, resp)
 	}
 
-	if !(strings.Contains(url, "vikacg") || strings.Contains(url, "picjs.xyz")) &&
+	if strings.Contains(url, "tk") &&
 		(resp.ContentLength == 146 || resp.ContentLength == -1) {
 		return fmt.Errorf("%w: invalid content length: %d url:%s", ErrNoTry, resp.ContentLength, url)
 	}
