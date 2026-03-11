@@ -36,6 +36,7 @@ type Downloader struct {
 	ForceProxy       bool           `yaml:"force_proxy" json:"force_proxy"`
 	Proxies          []string       `yaml:"proxies" json:"proxies"`
 	DomainLimits     map[string]int `yaml:"domain_limits" json:"domain_limits"`
+	FfmpegPath       string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
 }
 
 type TaskScan struct {

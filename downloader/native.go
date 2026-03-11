@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ type NativeHTTPDownloader struct {
 	client     *http.Client
 	dLimiter   *DomainLimiter
 	active     sync.Map
+	ffmpegPath string
 }
 
 var _ core.Downloader = &NativeHTTPDownloader{}
@@ -66,6 +68,7 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 		maxRetries: cfg.MaxRetries,
 		client:     client,
 		dLimiter:   NewDomainLimiter(),
+		ffmpegPath: cfg.FfmpegPath,
 	}
 }
 
@@ -154,6 +157,10 @@ var (
 
 // downloadFile 使用原生 HTTP 客户端下载文件 [6,7](@ref)
 func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject, headers map[string]string) (err error) {
+	// HLS 场景使用 ffmpeg
+	if isHlsURL(subObj.URL) {
+		return d.downloadHLSWithFFmpeg(subObj, trackProgress, progressObj, headers)
+	}
 	// 确保目录存在
 	dir := filepath.Dir(subObj.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -512,6 +519,88 @@ startDownload:
 	fmt.Fprintf(f, "Download completed, total size: %d bytes\n", totalSize)
 	slog.Info("Download completed", "file", subObj.SavePath, "size", totalSize)
 	d.active.Delete(subObj.URL)
+	return nil
+}
+
+func isHlsURL(u string) bool {
+	lu := strings.ToLower(u)
+	return strings.Contains(lu, ".m3u8")
+}
+
+func (d *NativeHTTPDownloader) downloadHLSWithFFmpeg(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject, headers map[string]string) error {
+	dir := filepath.Dir(subObj.SavePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	var logFile string
+	var f *os.File
+	if d.logDir != "" {
+		logFile = filepath.Join(d.logDir, filepath.Base(subObj.SavePath)+"."+time.Now().Format("20060102150405")+".ffmpeg.log")
+		var err error
+		f, err = os.Create(logFile)
+		if err != nil {
+			slog.Warn("Failed to create ffmpeg log file", "file", logFile, "error", err)
+		} else {
+			defer f.Close()
+		}
+	}
+
+	ffmpeg := d.ffmpegPath
+	if strings.TrimSpace(ffmpeg) == "" {
+		ffmpeg = "ffmpeg"
+	}
+	if path, err := exec.LookPath(ffmpeg); err == nil {
+		ffmpeg = path
+	} else {
+		return fmt.Errorf("ffmpeg not found: please install ffmpeg or set downloader.ffmpeg_path")
+	}
+
+	args := []string{"-y"}
+	if ua := DefaultUserAgent; ua != "" {
+		args = append(args, "-user_agent", ua)
+	}
+	var headerLines []string
+	if v := headers["Referer"]; v != "" {
+		headerLines = append(headerLines, fmt.Sprintf("Referer: %s", v))
+	}
+	if v := headers["Cookie"]; v != "" {
+		headerLines = append(headerLines, fmt.Sprintf("Cookie: %s", v))
+	}
+	if len(headerLines) > 0 {
+		args = append(args, "-headers", strings.Join(headerLines, "\r\n"))
+	}
+	args = append(args, "-i", subObj.URL)
+	args = append(args, "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-f", "mp4", subObj.SavePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	d.active.Store(subObj.URL, cancel)
+	defer d.active.Delete(subObj.URL)
+
+	cmd := exec.CommandContext(ctx, ffmpeg, args...)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("ffmpeg: failed to attach stderr: %w", err)
+	}
+	cmd.Stdout = f
+
+	slog.Info("Starting download", "downloader", "ffmpeg", "url", subObj.URL, "path", subObj.SavePath, "ffmpeg_log", logFile)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ffmpeg start failed: %w", err)
+	}
+	go func() {
+		io.Copy(f, stderr)
+	}()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("ffmpeg execution failed: %w", err)
+	}
+	if trackProgress && progressObj != nil {
+		progressObj.Progress = 100
+	}
+	subObj.Metadata["status"] = model.StatusCompleted
+	if info, err := os.Stat(subObj.SavePath); err == nil {
+		subObj.Metadata["total_size"] = strconv.FormatInt(info.Size(), 10)
+	}
 	return nil
 }
 
