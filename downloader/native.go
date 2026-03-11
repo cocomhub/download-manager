@@ -22,6 +22,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+var (
+	DefaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+)
+
 type NativeHTTPDownloader struct {
 	logDir     string
 	proxies    []string
@@ -75,7 +79,7 @@ func (d *NativeHTTPDownloader) Name() string {
 	return "native_http"
 }
 
-func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject) error {
+func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
 	// 复合下载逻辑保持不变
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
@@ -132,7 +136,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject) error {
 
 			trackProgress := (fType == "video" || len(fileList) == 1)
 
-			if err := d.downloadFile(subObj, trackProgress, obj); err != nil {
+			if err := d.downloadFile(subObj, trackProgress, obj, headers); err != nil {
 				return err
 			}
 		}
@@ -141,7 +145,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject) error {
 	}
 
 	// 单文件下载
-	return d.downloadFile(obj, true, obj)
+	return d.downloadFile(obj, true, obj, headers)
 }
 
 var (
@@ -149,7 +153,7 @@ var (
 )
 
 // downloadFile 使用原生 HTTP 客户端下载文件 [6,7](@ref)
-func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject) (err error) {
+func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject, headers map[string]string) (err error) {
 	// 确保目录存在
 	dir := filepath.Dir(subObj.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -268,7 +272,12 @@ startDownload:
 	req.Header.Set("sec-fetch-dest", "video")
 	req.Header.Set("sec-fetch-mode", "no-cors")
 	req.Header.Set("sec-fetch-site", "same-origin")
-	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
+	req.Header.Set("user-agent", DefaultUserAgent)
+
+	// 添加自定义请求头
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	var resp *http.Response
 

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"download-manager/downloader"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,13 +15,14 @@ var (
 	downloadURL = flag.String("url", "", "URL to download")
 	proxyURL    = flag.String("proxy", "http://129.226.212.209:18080", "Proxy URL")
 	outputFile  = flag.String("output", "out.data", "Output file name")
+	cookie      = flag.String("cookie", "", "Cookie string")
 )
 
 func main() {
 	flag.Parse()
 
-	if *downloadURL == "" && len(os.Args) == 2 {
-		*downloadURL = os.Args[1]
+	if *downloadURL == "" && len(flag.Args()) > 0 {
+		*downloadURL = flag.Args()[0]
 	}
 
 	err := httpGet(*downloadURL)
@@ -46,6 +49,9 @@ func httpGet(url string) error {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if *cookie != "" {
+		req.Header.Set("cookie", *cookie)
+	}
 	req.Header.Set("accept", "*/*")
 	req.Header.Set("cache-control", "no-cache")
 	req.Header.Set("pragma", "no-cache")
@@ -57,12 +63,16 @@ func httpGet(url string) error {
 	req.Header.Set("sec-fetch-dest", "video")
 	req.Header.Set("sec-fetch-mode", "no-cors")
 	req.Header.Set("sec-fetch-site", "same-origin")
-	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
+	req.Header.Set("user-agent", downloader.DefaultUserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: %d", url, resp.StatusCode)
+	}
 
 	_, err = io.Copy(os.Stdout, resp.Body)
 	return err

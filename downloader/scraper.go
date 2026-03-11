@@ -12,8 +12,11 @@ import (
 	"download-manager/config"
 )
 
-func Scrape(url string) (string, error) {
+func Scrape(url string, cookie string) (string, error) {
 	cmd := exec.Command(config.GetServerConfig().ScraperPath, url)
+	if cookie != "" {
+		cmd.Args = append(cmd.Args, "-cookie", cookie)
+	}
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
@@ -24,13 +27,20 @@ func Scrape(url string) (string, error) {
 	return out.String(), nil
 }
 
-func ScraperNative(url string) (string, error) {
+func ScraperNative(url string, cookie string) (string, error) {
+	body, err := doScraperNative(url, cookie)
+	if err == nil {
+		return body, nil
+	}
 	if !strings.Contains(url, ":18080") {
 		url = strings.TrimPrefix(url, "http://")
 		url = strings.TrimPrefix(url, "https://")
 		url = "http://129.226.212.209:18080/" + url
 	}
+	return doScraperNative(url, cookie)
+}
 
+func doScraperNative(url string, cookie string) (string, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -49,12 +59,19 @@ func ScraperNative(url string) (string, error) {
 	req.Header.Set("sec-fetch-dest", "video")
 	req.Header.Set("sec-fetch-mode", "no-cors")
 	req.Header.Set("sec-fetch-site", "same-origin")
-	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
+	req.Header.Set("user-agent", DefaultUserAgent)
+	if cookie != "" {
+		req.Header.Set("cookie", cookie)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("scraper(%s) failed: %v", url, resp.Status)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

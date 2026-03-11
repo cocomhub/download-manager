@@ -93,7 +93,7 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 		pageCount:   getInt("page_count", 24),
 		authToken:   getString("auth_token", ""),
 		cookie:      getString("cookie", ""),
-		userAgent:   getString("user_agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"),
+		userAgent:   getString("user_agent", downloader.DefaultUserAgent),
 	}
 	for _, u := range urls {
 		cached := t.getCachedObject(u)
@@ -143,6 +143,13 @@ func (t *VikacgTask) Close() error {
 		t.refresher.Stop()
 	}
 	return nil
+}
+
+func (t *VikacgTask) GetDownloadHeaders() map[string]string {
+	return map[string]string{
+		"Cookie":     t.cookie,
+		"User-Agent": t.userAgent,
+	}
 }
 
 func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
@@ -200,7 +207,7 @@ func (t *VikacgTask) GetConcurrency() int {
 }
 
 func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
-	html, err := downloader.ScraperNative(pageURL)
+	html, err := downloader.ScraperNative(pageURL, t.cookie)
 	if err != nil {
 		return nil, err
 	}

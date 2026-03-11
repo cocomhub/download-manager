@@ -71,3 +71,17 @@ tasks:
       max_concurrent: 2
       urls:
         - https://www.vikacg.com/p/511657
+  - id: task-hanime-001
+    type: hanime
+    save_dir: ./build/test/downloads/hanime
+    storage:
+      type: file
+      config:
+        path: ./build/test/downloads/hanime/status.json
+        save_interval: "2"
+    extra:
+      keyword: 裏番
+      max_concurrent: 1
+      refresh_interval: 3600
+      path_strategy: first_fixed
+      save_dir_add_keyword: false

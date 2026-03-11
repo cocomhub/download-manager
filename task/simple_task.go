@@ -117,6 +117,10 @@ func (t *SimpleTask) Close() error {
 	return nil
 }
 
+func (t *SimpleTask) GetDownloadHeaders() map[string]string {
+	return map[string]string{}
+}
+
 func (t *SimpleTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

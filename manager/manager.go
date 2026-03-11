@@ -506,7 +506,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	dl := m.downloader
 	m.mu.Unlock()
 
-	err := dl.Download(obj)
+	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
 		if obj.Status == model.StatusCancelled {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})

@@ -187,6 +187,10 @@ func (t *TktubeTask) Close() error {
 	return nil
 }
 
+func (t *TktubeTask) GetDownloadHeaders() map[string]string {
+	return map[string]string{}
+}
+
 func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// 1. Initialize (Scrape all pages) if not done
 	if t.initialized.CompareAndSwap(0, -1) {
@@ -654,7 +658,7 @@ func (t *TktubeTask) downloadFile(url, path string) error {
 		Extra:    map[string]interface{}{},
 		Status:   model.StatusPending,
 	}
-	return t.dl.Download(obj)
+	return t.dl.Download(obj, t.GetDownloadHeaders())
 }
 
 func (t *TktubeTask) simpleDownload(url, path string) error {
@@ -897,7 +901,7 @@ func (t *TktubeTask) buildPageURL(page int) string {
 }
 
 func (t *TktubeTask) runScraper(url string) (string, error) {
-	return downloader.Scrape(url)
+	return downloader.Scrape(url, "")
 }
 
 type videoItem struct {

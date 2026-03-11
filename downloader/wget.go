@@ -53,7 +53,7 @@ func (d *WgetDownloader) Name() string {
 	return "wget"
 }
 
-func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
+func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
 	// Check for composite download (files in Extra)
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
@@ -111,7 +111,7 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
 				// Track progress only for video (main content), or if it's the only file
 				trackProgress := (fType == "video" || len(fileList) == 1)
 
-				if err := d.downloadFile(subObj, trackProgress, obj); err != nil {
+				if err := d.downloadFile(subObj, trackProgress, obj, headers); err != nil {
 					return err
 				}
 			}
@@ -122,14 +122,14 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject) error {
 	}
 
 	// Fallback to standard single file download
-	return d.downloadFile(obj, true, obj)
+	return d.downloadFile(obj, true, obj, headers)
 }
 
 var (
 	reProgress = regexp.MustCompile(`\s+(\d+)%`)
 )
 
-func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject) error {
+func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject, headers map[string]string) error {
 	// Ensure directory exists
 	dir := filepath.Dir(subObj.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -164,7 +164,12 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	args := []string{"-c", "-T", "20", "-t", "5"}
 
 	// Add User-Agent
-	args = append(args, "--header", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	args = append(args, "--header", "User-Agent: "+DefaultUserAgent)
+
+	// Add custom headers
+	for k, v := range headers {
+		args = append(args, "--header", fmt.Sprintf("%s: %s", k, v))
+	}
 
 	url := subObj.URL
 	// Add proxy arguments if selected

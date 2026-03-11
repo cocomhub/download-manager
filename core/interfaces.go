@@ -21,6 +21,8 @@ type Storage interface {
 type Task interface {
 	// ID 返回任务唯一标识
 	ID() string
+	// GetDownloadHeaders 获取下载对象的自定义HTTP头
+	GetDownloadHeaders() map[string]string
 	// GetDownloadObjects 获取该任务当前需要下载的对象列表
 	GetDownloadObjects() ([]*model.DownloadObject, error)
 	// UpdateStatus 更新下载对象的状态
@@ -39,7 +41,7 @@ type FailedTask interface {
 // Downloader 定义下载器的行为
 type Downloader interface {
 	// Download 执行下载
-	Download(obj *model.DownloadObject) error
+	Download(obj *model.DownloadObject, headers map[string]string) error
 	// Name 返回下载器名称
 	Name() string
 }

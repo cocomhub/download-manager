@@ -48,4 +48,7 @@ func init() {
 	Register("vikacg", func(cfg config.Task, store core.Storage) (core.Task, error) {
 		return NewVikacgTask(cfg, store)
 	})
+	Register("hanime", func(cfg config.Task, store core.Storage) (core.Task, error) {
+		return NewHanimeTask(cfg, store)
+	})
 }
