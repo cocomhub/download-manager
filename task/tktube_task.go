@@ -59,6 +59,20 @@ type TktubeTask struct {
 // Ensure TktubeTask implements core.Task
 var _ core.Task = &TktubeTask{}
 
+// SetPathStrategy allows factory to inject a default path strategy when not set
+func (t *TktubeTask) SetPathStrategy(ps core.PathStrategy) {
+	if t.pathStrategy == nil && ps != nil {
+		t.pathStrategy = ps
+	}
+}
+
+// SetRefresher allows factory to inject a default refresher when not set
+func (t *TktubeTask) SetRefresher(r *CommonRefresher) {
+	if t.refresher == nil && r != nil {
+		t.refresher = r
+	}
+}
+
 func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	extra := cfg.Extra
 	if extra == nil {

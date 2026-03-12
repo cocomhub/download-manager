@@ -125,6 +125,13 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 	return t, nil
 }
 
+// SetRefresher allows factory to inject a default refresher when not set
+func (t *VikacgTask) SetRefresher(r *CommonRefresher) {
+	if t.refresher == nil && r != nil {
+		t.refresher = r
+	}
+}
+
 func (t *VikacgTask) SetSharedRegistry(reg core.SharedRegistry) {
 	t.shared = reg
 }

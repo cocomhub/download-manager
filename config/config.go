@@ -32,14 +32,15 @@ type MongoSource struct {
 }
 
 type Downloader struct {
-	Type             string         `yaml:"type" json:"type"`
-	GlobalConcurrent int            `yaml:"global_concurrent" json:"global_concurrent"`
-	MaxRetries       int            `yaml:"max_retries" json:"max_retries"`
-	LogDir           string         `yaml:"log_dir" json:"log_dir"`
-	ForceProxy       bool           `yaml:"force_proxy" json:"force_proxy"`
-	Proxies          []string       `yaml:"proxies" json:"proxies"`
-	DomainLimits     map[string]int `yaml:"domain_limits" json:"domain_limits"`
-	FfmpegPath       string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
+	Type              string         `yaml:"type" json:"type"`
+	GlobalConcurrent  int            `yaml:"global_concurrent" json:"global_concurrent"`
+	MaxRetries        int            `yaml:"max_retries" json:"max_retries"`
+	LogDir            string         `yaml:"log_dir" json:"log_dir"`
+	ForceProxy        bool           `yaml:"force_proxy" json:"force_proxy"`
+	Proxies           []string       `yaml:"proxies" json:"proxies"`
+	DomainLimits      map[string]int `yaml:"domain_limits" json:"domain_limits"`
+	FfmpegPath        string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
+	HlsAutoMarkAsFail bool           `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
 }
 
 type TaskScan struct {

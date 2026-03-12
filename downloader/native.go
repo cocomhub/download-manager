@@ -31,15 +31,16 @@ var (
 )
 
 type NativeHTTPDownloader struct {
-	logDir     string
-	proxies    []string
-	cacheFile  string
-	forceProxy bool
-	maxRetries int
-	client     *http.Client
-	dLimiter   *DomainLimiter
-	active     sync.Map
-	ffmpegPath string
+	logDir            string
+	proxies           []string
+	cacheFile         string
+	forceProxy        bool
+	maxRetries        int
+	client            *http.Client
+	dLimiter          *DomainLimiter
+	active            sync.Map
+	ffmpegPath        string
+	hlsAutoMarkAsFail bool
 }
 
 var _ core.Downloader = &NativeHTTPDownloader{}
@@ -64,14 +65,15 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 	}
 
 	return &NativeHTTPDownloader{
-		logDir:     logDir,
-		proxies:    cfg.Proxies,
-		cacheFile:  filepath.Join(home, ".config/download-manager/proxy_cache"),
-		forceProxy: cfg.ForceProxy,
-		maxRetries: cfg.MaxRetries,
-		client:     client,
-		dLimiter:   NewDomainLimiter(),
-		ffmpegPath: cfg.FfmpegPath,
+		logDir:            logDir,
+		proxies:           cfg.Proxies,
+		cacheFile:         filepath.Join(home, ".config/download-manager/proxy_cache"),
+		forceProxy:        cfg.ForceProxy,
+		maxRetries:        cfg.MaxRetries,
+		client:            client,
+		dLimiter:          NewDomainLimiter(),
+		ffmpegPath:        cfg.FfmpegPath,
+		hlsAutoMarkAsFail: cfg.HlsAutoMarkAsFail,
 	}
 }
 
@@ -531,6 +533,11 @@ func isHlsURL(u string) bool {
 }
 
 func (d *NativeHTTPDownloader) downloadHLSWithFFmpeg(subObj *model.DownloadObject, trackProgress bool, progressObj *model.DownloadObject, headers map[string]string) error {
+	slog.Info("hls_auto_mark_as_fail", "status", d.hlsAutoMarkAsFail)
+	if d.hlsAutoMarkAsFail {
+		return fmt.Errorf("hls auto mark as fail: %w", ErrNoTry)
+	}
+
 	dir := filepath.Dir(subObj.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)

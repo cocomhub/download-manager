@@ -42,6 +42,7 @@ type HanimeTask struct {
 	pathStrategy core.PathStrategy
 	refresher    *CommonRefresher
 	pager        *CommonPager
+	markAsFailed sync.Map
 }
 
 var _ core.Task = &HanimeTask{}
@@ -130,6 +131,20 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 	return t, nil
 }
 
+// SetPathStrategy allows factory to inject a default path strategy when not set
+func (t *HanimeTask) SetPathStrategy(ps core.PathStrategy) {
+	if t.pathStrategy == nil && ps != nil {
+		t.pathStrategy = ps
+	}
+}
+
+// SetRefresher allows factory to inject a default refresher when not set
+func (t *HanimeTask) SetRefresher(r *CommonRefresher) {
+	if t.refresher == nil && r != nil {
+		t.refresher = r
+	}
+}
+
 func (t *HanimeTask) ID() string {
 	return t.id
 }
@@ -181,6 +196,10 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}
 	}
 	for _, obj := range t.objects {
+		// Check if failed
+		if _, ok := t.markAsFailed.Load(obj.URL); ok {
+			continue
+		}
 		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
 			if _, hasFiles := obj.Extra["files"]; hasFiles {
 				candidates = append(candidates, obj)
@@ -289,6 +308,10 @@ func (t *HanimeTask) LoadCache() error {
 		}
 	}
 	return nil
+}
+
+func (t *HanimeTask) MarkAsFailed(obj *model.DownloadObject, err error) {
+	t.markAsFailed.Store(obj.URL, err)
 }
 
 type hanimeItem struct {
