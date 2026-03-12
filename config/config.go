@@ -4,6 +4,7 @@
 package config
 
 import (
+	"log/slog"
 	"reflect"
 
 	"github.com/cocomhub/download-manager/logutil"
@@ -15,15 +16,35 @@ type Config struct {
 	Mongo      []MongoSource     `yaml:"mongo" json:"mongo"`
 	Downloader Downloader        `yaml:"downloader" json:"downloader"`
 	TaskScan   TaskScan          `yaml:"task_scan" json:"task_scan"`
+	Runtime    Runtime           `yaml:"runtime" json:"runtime"`
 	Tasks      []Task            `yaml:"tasks" json:"tasks"`
 }
 
+type RunMode string
+
+const (
+	RunModeFull RunMode = "full"
+	RunModeUI   RunMode = "ui"
+)
+
+type Runtime struct {
+	Mode     RunMode `yaml:"mode" json:"mode"`
+	Download struct {
+		Enabled bool `yaml:"enabled" json:"enabled"`
+	} `yaml:"download" json:"download"`
+	Scheduler struct {
+		Enabled bool `yaml:"enabled" json:"enabled"`
+	} `yaml:"scheduler" json:"scheduler"`
+}
+
 type Server struct {
-	HTTPPort    int        `yaml:"http_port" json:"http_port"` // Add port for web UI
-	WorkDir     string     `yaml:"work_dir" json:"work_dir"`   // Working directory for cache etc
-	LockFile    string     `yaml:"lock_file" json:"lock_file"`
-	ScraperPath string     `yaml:"scraper_path" json:"scraper_path"`
-	UIDefaults  UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
+	HTTPPort       int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
+	UIOnlyPort     int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
+	WorkDir        string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
+	LockFile       string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
+	UIOnlyLockFile string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
+	ScraperPath    string     `yaml:"scraper_path" json:"scraper_path"`
+	UIDefaults     UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
 }
 
 type MongoSource struct {
@@ -85,6 +106,17 @@ func (c *Config) ValidateAndClamp() {
 	if c == nil {
 		return
 	}
+	// Runtime defaults and validation
+	if c.Runtime.Mode == "" {
+		c.Runtime.Mode = RunModeFull
+	}
+	if c.Runtime.Mode != RunModeFull && c.Runtime.Mode != RunModeUI {
+		slog.Warn("invalid runtime mode, fallback to full", "mode", string(c.Runtime.Mode))
+		c.Runtime.Mode = RunModeFull
+	}
+	// Keep current behavior: both enabled by default when unspecified.
+	// This method may be called after unmarshalling into a pre-initialized struct.
+	// So do not force override false values here.
 	if c.TaskScan.Interval <= 0 {
 		c.TaskScan.Interval = 10
 	}

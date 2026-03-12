@@ -63,12 +63,20 @@ type Manager struct {
 
 	// Global shared URL state registry
 	urlRegistry *URLStateRegistry
+
+	schedulerEnabled bool
+	workersEnabled   bool
 }
 
 type taskMetrics struct {
 	avgLatencyMs float64
 	failures     int
 	completed    int
+}
+
+type RuntimeFeatures struct {
+	Scheduler bool `json:"scheduler"`
+	Workers   bool `json:"workers"`
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -103,6 +111,10 @@ func NewManager(cfg *config.Config) *Manager {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
 	return mgr
+}
+
+func (m *Manager) FeaturesStatus() RuntimeFeatures {
+	return RuntimeFeatures{Scheduler: m.schedulerEnabled, Workers: m.workersEnabled}
 }
 
 func (m *Manager) GetDownloadRootDir() string {
@@ -148,26 +160,29 @@ func (m *Manager) publish(e core.Event) {
 
 func (m *Manager) Start() {
 	slog.Info("Manager started")
-
-	// Ensure work dir
+	cfg := m.currentCfg()
+	slog.Info("runtime mode", "mode", cfg.Runtime.Mode, "download", cfg.Runtime.Download.Enabled, "scheduler", cfg.Runtime.Scheduler.Enabled)
+	m.workersEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled
+	m.schedulerEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
+	slog.Info("disabled components", "scheduler", !m.schedulerEnabled, "workers", !m.workersEnabled)
 	os.MkdirAll(filepath.Join(config.GetWorkDir(), "cache"), 0755)
-
 	m.loadTasks()
-
-	// Start Global Workers
-	limit := m.cfg.Downloader.GlobalConcurrent
-	if limit <= 0 {
-		limit = 5
+	if m.workersEnabled {
+		limit := m.cfg.Downloader.GlobalConcurrent
+		if limit <= 0 {
+			limit = 5
+		}
+		slog.Info("Starting global workers", "count", limit)
+		for i := 0; i < limit; i++ {
+			m.workerWg.Add(1)
+			go m.worker()
+		}
+		m.workerCount = limit
 	}
-	slog.Info("Starting global workers", "count", limit)
-	for i := 0; i < limit; i++ {
-		m.workerWg.Add(1)
-		go m.worker()
+	if m.schedulerEnabled {
+		m.schedulerStop = make(chan struct{})
+		go m.scheduler()
 	}
-	m.workerCount = limit
-	// Start fair scheduler
-	m.schedulerStop = make(chan struct{})
-	go m.scheduler()
 
 	interval := time.Duration(m.currentCfg().TaskScan.Interval) * time.Second
 	if interval == 0 {
@@ -202,7 +217,9 @@ func (m *Manager) Start() {
 			m.alignStorages()
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
-			close(m.schedulerStop)
+			if m.schedulerStop != nil {
+				close(m.schedulerStop)
+			}
 			// Close queue? Or just wait for context cancel if we had one.
 			// Currently worker reads from queue forever.
 			// We can close queue here but ensure no writes happen after.
@@ -246,6 +263,9 @@ func (m *Manager) Stop() {
 
 func (m *Manager) scan() {
 	// slog.Debug("Scanning tasks")
+	if !m.workersEnabled {
+		return
+	}
 
 	if m.currentCfg().TaskScan.Disable {
 		return

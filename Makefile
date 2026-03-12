@@ -38,7 +38,7 @@ build: fmt
 
 # 格式化目标
 .PHONY: fmt
-fmt: addlicense
+fmt: addlicense fix
 	@echo Running gofmt on ALL_SRC ...
 	@$(GOFMT) -e -s -l -w $(ALL_SRC)
 	@echo Running gofumpt on ALL_SRC ...
@@ -48,6 +48,12 @@ fmt: addlicense
 .PHONY: addlicense
 addlicense:
 	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only .
+
+# 修复目标
+.PHONY: fix
+fix:
+	@echo Running go fix ./...
+	@$(GO) fix ./...
 
 .PHONY: clean
 

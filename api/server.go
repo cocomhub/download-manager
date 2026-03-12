@@ -29,19 +29,54 @@ func NewServer(mgr *manager.Manager) *Server {
 	return &Server{mgr: mgr}
 }
 
+func (s *Server) writeDisabled() bool {
+	cfg := s.mgr.GetConfig()
+	if cfg != nil {
+		if cfg.Runtime.Mode == config.RunModeUI {
+			return true
+		}
+		if cfg.Runtime.Mode == config.RunModeFull {
+			if cfg.Runtime.Download.Enabled || cfg.Runtime.Scheduler.Enabled {
+				return false
+			}
+			return true
+		}
+	}
+	st := s.mgr.FeaturesStatus()
+	if !st.Scheduler && !st.Workers {
+		return true
+	}
+	return false
+}
+
+func (s *Server) wrapWrite(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.writeDisabled() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "write operations disabled in ui-only mode",
+			})
+			return
+		}
+		h(w, r)
+	}
+}
+
 func (s *Server) Router() *mux.Router {
 	r := mux.NewRouter()
 
 	// API Routes
+	r.HandleFunc("/api/runtime", s.getRuntime).Methods("GET")
 	r.HandleFunc("/api/tasks", s.listTasks).Methods("GET")
 	r.HandleFunc("/api/tasks", s.createTaskPersistent).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", s.updateTaskPersistent).Methods("PUT")
-	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/cancel", s.cancelTask).Methods("POST")
-	r.HandleFunc("/api/tasks/cancel_batch", s.cancelTasksBatch).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/object/cancel", s.cancelObject).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/object/undo_cancel", s.undoCancelObject).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/retry", s.wrapWrite(s.retryTask)).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/cancel", s.wrapWrite(s.cancelTask)).Methods("POST")
+	r.HandleFunc("/api/tasks/cancel_batch", s.wrapWrite(s.cancelTasksBatch)).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/cancel", s.wrapWrite(s.cancelObject)).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/undo_cancel", s.wrapWrite(s.undoCancelObject)).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/cancel_batch", s.cancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/undo_cancel_batch", s.undoCancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
@@ -75,6 +110,28 @@ func (s *Server) Router() *mux.Router {
 	r.PathPrefix("/").Handler(http.FileServer(http.FS(subFS)))
 
 	return r
+}
+
+func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	cfg := s.mgr.GetConfig()
+	if cfg == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"mode": "full",
+			"features": map[string]bool{
+				"download":  true,
+				"scheduler": true,
+			},
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"mode": cfg.Runtime.Mode,
+		"features": map[string]bool{
+			"download":  cfg.Runtime.Download.Enabled,
+			"scheduler": cfg.Runtime.Scheduler.Enabled,
+		},
+	})
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

@@ -19,10 +19,12 @@ var (
 func init() {
 	SetConfigFilePath("config.yaml")
 	SetServerConfig(Server{
-		HTTPPort:    8080,
-		WorkDir:     ".",
-		LockFile:    "download-manager.lock",
-		ScraperPath: "bin/scraper_get",
+		HTTPPort:       8080,
+		UIOnlyPort:     8081,
+		WorkDir:        ".",
+		LockFile:       "download-manager.lock",
+		UIOnlyLockFile: "download-manager-ui.lock",
+		ScraperPath:    "bin/scraper_get",
 	})
 }
 
@@ -65,11 +67,23 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	var cfg Config
+	// Pre-initialize defaults for sections that require non-zero defaults
+	cfg := Config{
+		Runtime: Runtime{
+			Mode: RunModeFull,
+			Download: struct {
+				Enabled bool `yaml:"enabled" json:"enabled"`
+			}{Enabled: true},
+			Scheduler: struct {
+				Enabled bool `yaml:"enabled" json:"enabled"`
+			}{Enabled: true},
+		},
+	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
+	cfg.ValidateAndClamp()
 	return &cfg, nil
 }
 
