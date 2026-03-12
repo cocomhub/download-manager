@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package storage
 
 import (
@@ -7,7 +10,7 @@ import (
 	"maps"
 	"time"
 
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/model"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"

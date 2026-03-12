@@ -1,10 +1,13 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package storage
 
 import (
 	"fmt"
 
-	"download-manager/core"
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/model"
 )
 
 // Factory defines the function signature for creating storage

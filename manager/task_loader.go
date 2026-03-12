@@ -1,12 +1,15 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
 	"log/slog"
 	"sync"
 
-	"download-manager/core"
-	"download-manager/storage"
-	"download-manager/task"
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/storage"
+	"github.com/cocomhub/download-manager/task"
 )
 
 func (m *Manager) loadTasks() {

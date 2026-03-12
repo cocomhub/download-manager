@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
@@ -13,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"download-manager/config"
+	"github.com/cocomhub/download-manager/config"
 )
 
 type AuditInfo struct {

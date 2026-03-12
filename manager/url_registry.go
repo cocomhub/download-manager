@@ -1,10 +1,13 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
 	"maps"
 	"sync"
 
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/model"
 )
 
 // URLStateRegistry 提供基于 URL 的全局对象状态共享

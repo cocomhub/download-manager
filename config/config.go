@@ -1,9 +1,12 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 import (
 	"reflect"
 
-	"download-manager/logutil"
+	"github.com/cocomhub/download-manager/logutil"
 )
 
 type Config struct {

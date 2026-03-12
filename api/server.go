@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package api
 
 import (
@@ -9,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"download-manager/config"
-	"download-manager/logutil"
-	"download-manager/manager"
-	"download-manager/web"
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/logutil"
+	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/web"
 
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v3"

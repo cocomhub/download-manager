@@ -1,10 +1,13 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package task
 
 import (
 	"fmt"
 
-	"download-manager/config"
-	"download-manager/core"
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 )
 
 type Factory func(cfg config.Task, store core.Storage) (core.Task, error)

@@ -1,7 +1,10 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package core
 
 import (
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/model"
 )
 
 // Storage 定义下载状态存储的行为

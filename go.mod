@@ -1,4 +1,4 @@
-module download-manager
+module github.com/cocomhub/download-manager
 
 go 1.26
 

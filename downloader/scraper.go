@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package downloader
 
 import (
@@ -9,7 +12,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"download-manager/config"
+	"github.com/cocomhub/download-manager/config"
 )
 
 func Scrape(url string, cookie string) (string, error) {

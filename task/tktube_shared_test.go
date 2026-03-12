@@ -1,12 +1,15 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package task_test
 
 import (
 	"testing"
 
-	"download-manager/manager"
-	"download-manager/model"
-	"download-manager/storage"
-	"download-manager/task"
+	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/storage"
+	"github.com/cocomhub/download-manager/task"
 )
 
 func TestSharedURLStateAcrossTasks(t *testing.T) {

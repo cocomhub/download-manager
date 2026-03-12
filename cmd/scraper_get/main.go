@@ -1,7 +1,9 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
-	"download-manager/downloader"
 	"flag"
 	"fmt"
 	"io"
@@ -9,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/cocomhub/download-manager/downloader"
 )
 
 var (

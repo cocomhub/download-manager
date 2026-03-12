@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package storage
 
 import (
@@ -10,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/model"
 )
 
 type FileStorage struct {

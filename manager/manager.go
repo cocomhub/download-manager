@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
@@ -13,12 +16,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"download-manager/config"
-	"download-manager/core"
-	"download-manager/downloader"
-	"download-manager/logutil"
-	"download-manager/model"
-	"download-manager/storage"
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/downloader"
+	"github.com/cocomhub/download-manager/logutil"
+	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/storage"
 )
 
 type downloadRequest struct {

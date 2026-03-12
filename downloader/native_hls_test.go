@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package downloader
 
 import "testing"
@@ -19,4 +22,3 @@ func TestIsHlsURL(t *testing.T) {
 		}
 	}
 }
-

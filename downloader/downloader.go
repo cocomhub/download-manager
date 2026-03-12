@@ -1,14 +1,18 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package downloader
 
 import (
 	"crypto/md5"
-	"download-manager/config"
-	"download-manager/core"
 	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 )
 
 func New(config config.Downloader) core.Downloader {

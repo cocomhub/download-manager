@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package task
 
 import (
@@ -7,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"download-manager/core"
-	"download-manager/model"
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/model"
 )
 
 type SimpleTask struct {

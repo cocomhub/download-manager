@@ -12,11 +12,42 @@ GOFLAGS ?= -v
 GO_LDFLAGS ?= -w -s
 GO_LDFLAGS += -X main.Version=$(VERSION) -X main.BuildAt=$(BUILD_AT)
 
+GOFMT=gofmt
+
+# all .go files that are not auto-generated and should be auto-formatted and linted.
+ALL_SRC = $(shell find . -name '*.go' \
+				   -not -name 'doc.go' \
+				   -not -name '_*' \
+				   -not -name '.*' \
+				   -not -name 'mocks*' \
+				   -not -name 'model.pb.go' \
+				   -not -name 'model_test.pb.go' \
+				   -not -name 'storage_test.pb.go' \
+				   -not -path './examples/*' \
+				   -not -path './vendor/*' \
+				   -not -path '*/mocks/*' \
+				   -not -path '*/*-gen/*' \
+				   -type f | \
+				sort)
+
 .PHONY: build
 
-build:
+build: fmt
 	mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) -ldflags "$(GO_LDFLAGS)" -o $(BIN_NAME) main.go
+
+# 格式化目标
+.PHONY: fmt
+fmt: addlicense
+	@echo Running gofmt on ALL_SRC ...
+	@$(GOFMT) -e -s -l -w $(ALL_SRC)
+	@echo Running gofumpt on ALL_SRC ...
+# 	@$(GOFUMPT) -e -l -w $(ALL_SRC)
+
+# 添加许可证
+.PHONY: addlicense
+addlicense:
+	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only .
 
 .PHONY: clean
 

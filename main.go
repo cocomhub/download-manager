@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -9,10 +12,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"download-manager/api"
-	"download-manager/config"
-	"download-manager/logutil"
-	"download-manager/manager"
+	"github.com/cocomhub/download-manager/api"
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/logutil"
+	"github.com/cocomhub/download-manager/manager"
 )
 
 var (
