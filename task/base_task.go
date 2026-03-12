@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package task
 
 import (
@@ -93,4 +96,3 @@ func (b *BaseTaskImpl) SetRefresher(r *CommonRefresher) {
 func (b *BaseTaskImpl) SetHeaders(h map[string]string) {
 	b.headers = h
 }
-

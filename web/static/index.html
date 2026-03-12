@@ -13,6 +13,30 @@
     <script src="libs/cdn.tailwindcss.com/3.4.17"></script>
     <script src="libs/cdn.staticfile.org/vue/3.3.4/vue.global.js"></script>
     <link href="https://cdn.staticfile.org/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="utils/taskTypes.js"></script>
+    <script>
+        (function() {
+            if (typeof getAvailableTaskTypes === 'function') {
+                var t = getAvailableTaskTypes()
+                console.assert(
+                    Array.isArray(t) &&
+                    t.some(function(x) {
+                        return x.id === 'all'
+                    }) &&
+                    t.some(function(x) {
+                        return x.id === 'tktube'
+                    }) &&
+                    t.some(function(x) {
+                        return x.id === 'vikacg'
+                    }) &&
+                    t.some(function(x) {
+                        return x.id === 'hanime'
+                    }),
+                    'getAvailableTaskTypes(): 缺少预期类型'
+                )
+            }
+        })()
+    </script>
     <style>
         [v-cloak] {
             display: none;
@@ -90,11 +114,17 @@
                     <i class="fas fa-download"></i> Active Downloads <span v-if="activeDownloads.length > 0" class="bg-white text-blue-600 text-xs px-1.5 rounded-full font-bold">{{ activeDownloads.length }}</span>
                 </button>
                 <button @click="openTktubeAggregate" class="w-full py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2" :class="viewMode === 'tktube' ? 'bg-purple-500 text-white hover:bg-purple-600' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'">
-                    <i class="fas fa-layer-group"></i> Tktube 聚合视图
+                    <i class="fas fa-layer-group"></i> 聚合视图
                 </button>
                 <button @click="openAddTask($event)" class="w-full bg-white border border-blue-500 text-blue-500 hover:bg-blue-50 py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2">
                     <i class="fas fa-plus"></i> 新建任务
                 </button>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-500">类型</label>
+                    <select v-model="selectedType" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1">
+                        <option v-for="t in taskTypes" :key="t.id" :value="t.id">{{ t.label }}</option>
+                    </select>
+                </div>
                 <div class="flex gap-2">
                     <button @click="toggleSelectAll" class="flex-1 bg-white border text-gray-700 hover:bg-gray-50 py-1.5 rounded shadow-sm text-xs transition">全选</button>
                     <button @click="cancelSelected" :disabled="selectedTaskIds.length===0" class="flex-1 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 py-1.5 rounded shadow-sm text-xs transition">取消选中</button>
@@ -102,7 +132,7 @@
             </div>
 
             <div class="flex-1 overflow-y-auto p-2 space-y-2">
-                <div v-for="task in tasks" :key="task.id" @click="selectTask(task.id)" class="cursor-pointer p-3 rounded-lg border transition-all duration-200 group" :class="selectedTaskId === task.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'">
+                <div v-for="task in filteredTasks" :key="task.id" @click="selectTask(task.id)" class="cursor-pointer p-3 rounded-lg border transition-all duration-200 group" :class="selectedTaskId === task.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-gray-200 hover:bg-gray-50 hover:border-blue-300'">
 
                     <div class="flex justify-between items-start mb-1">
                         <div class="flex items-center gap-2">
@@ -283,7 +313,9 @@
                 <!-- Tktube Aggregate View -->
                 <div v-if="!isLoadingTask && viewMode === 'tktube'" class="space-y-6">
                     <div class="flex items-center justify-between">
-                        <h2 class="text-xl font-bold text-gray-800">Tktube 聚合视图</h2>
+                        <h2 class="text-xl font-bold text-gray-800">
+                            聚合视图（{{ (taskTypes.find(t => t.id === selectedType) || {}).label || selectedType }}）
+                        </h2>
                         <div class="flex items-center gap-3">
                             <select v-model="tktubeStatusFilter" class="text-sm border rounded-md px-2 py-1.5">
                                 <option value="all">全部状态</option>
@@ -335,7 +367,7 @@
                                     </button>
                                 </div>
                             </div>
-                            <button @click="fetchTktubeAggregate" :disabled="tktubeLoading" class="text-sm bg-white border text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md disabled:opacity-50">刷新</button>
+                            <button @click="fetchAggregateByType(selectedType)" :disabled="tktubeLoading" class="text-sm bg-white border text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md disabled:opacity-50">刷新</button>
                         </div>
                     </div>
                     <div v-if="tktubeLoading" class="h-full flex flex-col items-center justify-center">
@@ -1275,6 +1307,90 @@
     </div>
 
     <script>
+        (function() {
+            function isHashRouting() {
+                try {
+                    const h = (window.location.hash || '').replace(/^#/, '').trim()
+                    if (!h) return false
+                    if (/type=/.test(h) && !/[\/!]/.test(h)) return false
+                    if (/[\/!]/.test(h)) return true
+                    const segs = h.split('&').filter(Boolean)
+                    return segs.some(s => s && s.indexOf('=') === -1)
+                } catch (e) {
+                    return false
+                }
+            }
+
+            function readTypeFromURL() {
+                try {
+                    const url = new URL(window.location.href)
+                    const qv = url.searchParams.get('type')
+                    if (qv && qv.trim()) return qv.trim()
+                } catch (e) {}
+                try {
+                    const h = (window.location.hash || '').replace(/^#/, '')
+                    const m = h.match(/(?:^|[?&])type=([^&]+)/)
+                    if (m && m[1]) return decodeURIComponent(m[1]).trim()
+                } catch (e) {}
+                return null
+            }
+
+            function updateQueryType(type) {
+                const url = new URL(window.location.href)
+                if (type && type !== 'all') {
+                    url.searchParams.set('type', type)
+                } else {
+                    url.searchParams.delete('type')
+                }
+                window.history.replaceState(null, '', url.toString())
+            }
+
+            function cleanHashParams(content) {
+                let c = content
+                c = c.replace(/([?&])type=[^&]*&/g, '$1')
+                c = c.replace(/([?&])type=[^&]*/g, (m, p1) => (p1 === '?' ? '' : ''))
+                c = c.replace(/\?&+/g, '?')
+                c = c.replace(/&&+/g, '&')
+                c = c.replace(/\?$/g, '')
+                c = c.replace(/&$/g, '')
+                return c
+            }
+
+            function updateHashType(type) {
+                const url = new URL(window.location.href)
+                let content = (url.hash || '').replace(/^#/, '')
+                if (!type || type === 'all') {
+                    content = cleanHashParams(content)
+                    url.hash = content ? '#' + content : ''
+                    window.history.replaceState(null, '', url.toString())
+                    return
+                }
+                if ((/(^|[?&])type=/).test(content)) {
+                    content = content.replace(/(^|[?&])type=[^&]*/g, (match, sep) => (sep || '') + 'type=' + encodeURIComponent(type))
+                } else {
+                    if (!content) {
+                        content = 'type=' + encodeURIComponent(type)
+                    } else if (/\?/.test(content) || /=/.test(content)) {
+                        content = content + '&type=' + encodeURIComponent(type)
+                    } else {
+                        content = content + '?type=' + encodeURIComponent(type)
+                    }
+                }
+                url.hash = '#' + content
+                window.history.replaceState(null, '', url.toString())
+            }
+
+            function updateURLWithType(type) {
+                if (isHashRouting()) {
+                    updateHashType(type)
+                } else {
+                    updateQueryType(type)
+                }
+            }
+            window.__dm_isHashRouting = isHashRouting
+            window.__dm_readTypeFromURL = readTypeFromURL
+            window.__dm_updateURLWithType = updateURLWithType
+        })();
         const {
             createApp
         } = Vue
@@ -1283,6 +1399,11 @@
             data() {
                 return {
                     tasks: [],
+                    taskTypes: (typeof getAvailableTaskTypes === 'function' ? getAvailableTaskTypes() : [{
+                        id: 'all',
+                        label: '全部'
+                    }]),
+                    selectedType: 'all',
                     activeDownloads: [],
                     selectedTaskId: null,
                     selectedTask: null,
@@ -1433,6 +1554,11 @@
                     if (this.volume < 0.5) return 'fa-volume-down';
                     return 'fa-volume-up';
                 },
+                filteredTasks() {
+                    if (this.selectedType === 'all') return this.tasks || []
+                    const type = this.selectedType
+                    return (this.tasks || []).filter(t => t && t.type === type)
+                },
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
                     const list = this.selectedTask.objects
@@ -1484,14 +1610,34 @@
                 },
                 tktubeSearchQuery() {
                     this.tktubePagination.page = 1
-                    this.fetchTktubeAggregate()
+                    this.fetchAggregateByType(this.selectedType)
                 },
                 tktubeStatusFilter() {
                     this.tktubePagination.page = 1
-                    this.fetchTktubeAggregate()
+                    this.fetchAggregateByType(this.selectedType)
+                },
+                selectedType() {
+                    if (typeof window.__dm_updateURLWithType === 'function') {
+                        window.__dm_updateURLWithType(this.selectedType)
+                    }
+                    if (this.viewMode === 'tktube') {
+                        this.tktubePagination.page = 1
+                        this.fetchAggregateByType(this.selectedType)
+                    }
                 }
             },
             mounted() {
+                try {
+                    const cand = (typeof window.__dm_readTypeFromURL === 'function') ? window.__dm_readTypeFromURL() : null
+                    const ids = (typeof getAvailableTaskTypes === 'function') ? (getAvailableTaskTypes() || []).map(t => t.id) : []
+                    if (cand && ids.includes(cand)) {
+                        this.selectedType = cand
+                    } else {
+                        this.selectedType = 'all'
+                    }
+                } catch (e) {
+                    this.selectedType = 'all'
+                }
                 this.fetchTasks()
                     // Use SSE instead of polling for tasks and downloads
                 this.initSSE()
@@ -1868,6 +2014,14 @@
                         }
                         // Update tktube aggregate view if active
                         if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
+                            let objType = (obj && typeof obj.type === 'string') ? obj.type : null
+                            if (!objType) {
+                                const task = this.tasks.find(t => t.id === obj.task_id)
+                                if (task && typeof task.type === 'string') objType = task.type
+                            }
+                            if (this.selectedType !== 'all' && objType && objType !== this.selectedType) {
+                                return
+                            }
                             const idxAgg = this.tktubeObjects.findIndex(o => o.url === obj.url && o.task_id === obj.task_id)
                             if (idxAgg >= 0) {
                                 const existing = this.tktubeObjects[idxAgg]
@@ -2014,11 +2168,11 @@
                     if (p < 1) return
                     if (this.tktubePagination.limit !== 'all' && p > Math.ceil(this.tktubePagination.total / this.tktubePagination.limit)) return
                     this.tktubePagination.page = p
-                    this.fetchTktubeAggregate()
+                    this.fetchAggregateByType(this.selectedType)
                 },
                 changeTktubeLimit() {
                     this.tktubePagination.page = 1
-                    this.fetchTktubeAggregate()
+                    this.fetchAggregateByType(this.selectedType)
                 },
                 async fetchTaskDetails(id, background = false) {
                     if (!background) {
@@ -2146,9 +2300,9 @@
                     this.viewMode = 'tktube'
                     this.selectedTaskId = null
                     this.selectedTask = null
-                    await this.fetchTktubeAggregate()
+                    await this.fetchAggregateByType(this.selectedType)
                 },
-                async fetchTktubeAggregate() {
+                async fetchAggregateByType(type) {
                     try {
                         if (this.tktubeLoading) return
                         const now = Date.now()
@@ -2174,7 +2328,9 @@
                         if (this.tktubeStatusFilter && this.tktubeStatusFilter !== 'all') {
                             params.set('status', this.tktubeStatusFilter)
                         }
-                        params.set('types', 'tktube')
+                        if (type && type !== 'all') {
+                            params.set('types', type)
+                        }
                         const res = await fetch(`/api/aggregate?${params.toString()}`)
                         if (!res.ok) throw new Error('聚合接口请求失败')
                         const data = await res.json()

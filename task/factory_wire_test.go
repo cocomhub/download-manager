@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package task
 
 import (
@@ -21,10 +24,12 @@ var _ PathStrategyCap = (*fakeTask)(nil)
 var _ RefreshingCap = (*fakeTask)(nil)
 var _ HeadersCap = (*fakeTask)(nil)
 
-func (f *fakeTask) ID() string { return f.id }
-func (f *fakeTask) GetDownloadHeaders() map[string]string { return f.headers }
+func (f *fakeTask) ID() string                                           { return f.id }
+func (f *fakeTask) GetDownloadHeaders() map[string]string                { return f.headers }
 func (f *fakeTask) GetDownloadObjects() ([]*model.DownloadObject, error) { return nil, nil }
-func (f *fakeTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error { return nil }
+func (f *fakeTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
+	return nil
+}
 func (f *fakeTask) Type() string { return "fake_for_test" }
 func (f *fakeTask) Close() error { return nil }
 
@@ -42,9 +47,9 @@ func TestFactoryWireByCapabilities(t *testing.T) {
 		Type:    "fake_for_test",
 		SaveDir: "/tmp/save",
 		Extra: map[string]any{
-			"path_strategy":     "first_fixed",
-			"refresh_interval":  123,
-			"headers":           map[string]any{"X-Token": "abc"},
+			"path_strategy":    "first_fixed",
+			"refresh_interval": 123,
+			"headers":          map[string]any{"X-Token": "abc"},
 		},
 	}
 
@@ -70,4 +75,3 @@ func TestFactoryWireByCapabilities(t *testing.T) {
 		t.Fatalf("headers[X-Token] = %q, want %q", ft.headers["X-Token"], "abc")
 	}
 }
-
