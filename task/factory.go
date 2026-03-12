@@ -31,7 +31,7 @@ func init() {
 				switch vv := v.(type) {
 				case []string:
 					urls = vv
-				case []interface{}:
+				case []any:
 					for _, it := range vv {
 						if s, ok := it.(string); ok && s != "" {
 							urls = append(urls, s)

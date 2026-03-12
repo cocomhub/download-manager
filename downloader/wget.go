@@ -61,9 +61,9 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]
 		// Handle different types depending on source (memory vs JSON)
 		if files, ok := filesVal.([]map[string]string); ok {
 			fileList = files
-		} else if files, ok := filesVal.([]interface{}); ok {
+		} else if files, ok := filesVal.([]any); ok {
 			for _, f := range files {
-				if fm, ok := f.(map[string]interface{}); ok {
+				if fm, ok := f.(map[string]any); ok {
 					m := make(map[string]string)
 					for k, v := range fm {
 						if s, ok := v.(string); ok {

@@ -33,7 +33,7 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 	if newLimit > m.workerCount {
 		add := newLimit - m.workerCount
 		slog.Info("Increasing global workers", "from", m.workerCount, "to", newLimit)
-		for i := 0; i < add; i++ {
+		for range add {
 			m.workerWg.Add(1)
 			go m.worker()
 		}
@@ -41,7 +41,7 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 	} else if newLimit < m.workerCount {
 		remove := m.workerCount - newLimit
 		slog.Info("Decreasing global workers", "from", m.workerCount, "to", newLimit)
-		for i := 0; i < remove; i++ {
+		for range remove {
 			select {
 			case m.workerStop <- struct{}{}:
 			default:
@@ -126,7 +126,7 @@ func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval
 		for i := range cfgCopy.Tasks {
 			if cfgCopy.Tasks[i].ID == taskID {
 				if cfgCopy.Tasks[i].Extra == nil {
-					cfgCopy.Tasks[i].Extra = make(map[string]interface{})
+					cfgCopy.Tasks[i].Extra = make(map[string]any)
 				}
 				if concurrency != nil {
 					cfgCopy.Tasks[i].Extra["max_concurrent"] = *concurrency

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"download-manager/model"
@@ -104,16 +105,14 @@ func (s *MongoStorage) Delete(id string) error {
 	return err
 }
 
-func (s *MongoStorage) Search(filter interface{}) ([]*model.DownloadObject, error) {
+func (s *MongoStorage) Search(filter any) ([]*model.DownloadObject, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Handle filter. If nil, empty filter (all)
 	bsonFilter := bson.M{}
-	if f, ok := filter.(map[string]interface{}); ok {
-		for k, v := range f {
-			bsonFilter[k] = v
-		}
+	if f, ok := filter.(map[string]any); ok {
+		maps.Copy(bsonFilter, f)
 	} else if f, ok := filter.(bson.M); ok {
 		bsonFilter = f
 	}

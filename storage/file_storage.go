@@ -117,7 +117,7 @@ func (s *FileStorage) Delete(id string) error {
 	return nil
 }
 
-func (s *FileStorage) Search(filter interface{}) ([]*model.DownloadObject, error) {
+func (s *FileStorage) Search(filter any) ([]*model.DownloadObject, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

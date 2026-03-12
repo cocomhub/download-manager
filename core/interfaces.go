@@ -14,7 +14,7 @@ type Storage interface {
 	Delete(id string) error
 	// Search 搜索对象 (简单起见，返回所有或根据filter返回)
 	// 在本系统中，通常用于获取该Task下的所有对象状态
-	Search(filter interface{}) ([]*model.DownloadObject, error)
+	Search(filter any) ([]*model.DownloadObject, error)
 }
 
 // Task 定义下载任务的行为
@@ -85,8 +85,8 @@ const (
 
 // Event 系统事件
 type Event struct {
-	Type    EventType   `json:"type"`
-	Payload interface{} `json:"payload"`
+	Type    EventType `json:"type"`
+	Payload any       `json:"payload"`
 }
 
 // EventBus 定义事件总线行为

@@ -25,7 +25,7 @@ func (m *Manager) loadTasks() {
 			continue
 		}
 		if tCfg.Extra == nil {
-			tCfg.Extra = make(map[string]interface{})
+			tCfg.Extra = make(map[string]any)
 		}
 		t, err := task.NewTask(tCfg, store)
 		if err != nil {

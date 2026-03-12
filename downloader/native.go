@@ -88,14 +88,14 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		var fileList []map[string]string
 
 		if files, ok := filesVal.(primitive.A); ok {
-			filesVal = []interface{}(files)
+			filesVal = []any(files)
 		}
 
 		if files, ok := filesVal.([]map[string]string); ok {
 			fileList = files
-		} else if files, ok := filesVal.([]interface{}); ok {
+		} else if files, ok := filesVal.([]any); ok {
 			for _, f := range files {
-				if fm, ok := f.(map[string]interface{}); ok {
+				if fm, ok := f.(map[string]any); ok {
 					m := make(map[string]string)
 					for k, v := range fm {
 						if s, ok := v.(string); ok {
@@ -171,7 +171,7 @@ func (d *NativeHTTPDownloader) downloadFile(subObj *model.DownloadObject, trackP
 		subObj.Metadata = make(map[string]string)
 	}
 	if subObj.Extra == nil {
-		subObj.Extra = make(map[string]interface{})
+		subObj.Extra = make(map[string]any)
 	}
 
 	if subObj.Metadata["status"] == model.StatusCompleted {

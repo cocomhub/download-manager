@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"maps"
 	"sync"
 
 	"download-manager/model"
@@ -34,15 +35,11 @@ func cloneObject(src *model.DownloadObject) *model.DownloadObject {
 	}
 	if src.Metadata != nil {
 		dst.Metadata = make(map[string]string, len(src.Metadata))
-		for k, v := range src.Metadata {
-			dst.Metadata[k] = v
-		}
+		maps.Copy(dst.Metadata, src.Metadata)
 	}
 	if src.Extra != nil {
-		dst.Extra = make(map[string]interface{}, len(src.Extra))
-		for k, v := range src.Extra {
-			dst.Extra[k] = v
-		}
+		dst.Extra = make(map[string]any, len(src.Extra))
+		maps.Copy(dst.Extra, src.Extra)
 	}
 	return dst
 }

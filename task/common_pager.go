@@ -3,9 +3,9 @@ package task
 type PageFuncs struct {
 	BuildPageURL    func(page int) string
 	RunScraper      func(url string) (string, error)
-	ParseHomePage   func(html string) (interface{}, error)
+	ParseHomePage   func(html string) (any, error)
 	ParseTotalPages func(html string) int
-	ProcessItems    func(items interface{}) (newItems []interface{}, allKnown bool)
+	ProcessItems    func(items any) (newItems []any, allKnown bool)
 }
 
 type CommonPager struct {
@@ -16,10 +16,10 @@ func NewCommonPager(funcs PageFuncs) *CommonPager {
 	return &CommonPager{funcs: funcs}
 }
 
-func (p *CommonPager) RefreshLatest() ([]interface{}, error) {
+func (p *CommonPager) RefreshLatest() ([]any, error) {
 	page := 1
 	maxPages := -1
-	var newObjects []interface{}
+	var newObjects []any
 	for {
 		url := p.funcs.BuildPageURL(page)
 		html, err := p.funcs.RunScraper(url)

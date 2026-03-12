@@ -37,10 +37,10 @@ func NewMemoryStorage(config map[string]string) (core.Storage, error) {
 	return &MemoryStorage{}, nil
 }
 
-func (s *MemoryStorage) Get(id string) (*model.DownloadObject, error)               { return nil, nil }
-func (s *MemoryStorage) Update(obj *model.DownloadObject) error                     { return nil }
-func (s *MemoryStorage) Delete(id string) error                                     { return nil }
-func (s *MemoryStorage) Search(filter interface{}) ([]*model.DownloadObject, error) { return nil, nil }
+func (s *MemoryStorage) Get(id string) (*model.DownloadObject, error)       { return nil, nil }
+func (s *MemoryStorage) Update(obj *model.DownloadObject) error             { return nil }
+func (s *MemoryStorage) Delete(id string) error                             { return nil }
+func (s *MemoryStorage) Search(filter any) ([]*model.DownloadObject, error) { return nil, nil }
 
 func init() {
 	Register("file", func(config map[string]string) (core.Storage, error) {

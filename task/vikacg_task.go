@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -52,7 +53,7 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 			switch vv := v.(type) {
 			case []string:
 				urls = vv
-			case []interface{}:
+			case []any:
 				for _, it := range vv {
 					if s, ok := it.(string); ok && s != "" {
 						urls = append(urls, s)
@@ -306,7 +307,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 			"type": "image",
 		})
 	}
-	tagAny := make([]interface{}, len(tags))
+	tagAny := make([]any, len(tags))
 	for i := range tags {
 		tagAny[i] = tags[i]
 	}
@@ -322,7 +323,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 			"section":  section,
 			"updated":  updated,
 		},
-		Extra: map[string]interface{}{
+		Extra: map[string]any{
 			"tags":         tagAny,
 			"content_text": contentText,
 			"content_html": strings.TrimSpace(contentHTML),
@@ -393,9 +394,9 @@ func (t *VikacgTask) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 				}
 			}
 		}
-		if list, ok := filesVal.([]interface{}); ok {
+		if list, ok := filesVal.([]any); ok {
 			for _, it := range list {
-				if m, ok := it.(map[string]interface{}); ok {
+				if m, ok := it.(map[string]any); ok {
 					if u, ok := m["url"].(string); ok && strings.TrimSpace(u) != "" {
 						imgSet[strings.TrimSpace(u)] = struct{}{}
 					}
@@ -411,7 +412,7 @@ func (t *VikacgTask) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 				}
 			}
 		}
-		if arr, ok := imgsVal.([]interface{}); ok {
+		if arr, ok := imgsVal.([]any); ok {
 			for _, it := range arr {
 				if u, ok := it.(string); ok && strings.TrimSpace(u) != "" {
 					imgSet[strings.TrimSpace(u)] = struct{}{}
@@ -447,8 +448,8 @@ func stripSiteSuffix(title string) string {
 		" - 维咔",
 	}
 	for _, s := range suffixes {
-		if strings.HasSuffix(t, s) {
-			return strings.TrimSpace(strings.TrimSuffix(t, s))
+		if before, ok := strings.CutSuffix(t, s); ok {
+			return strings.TrimSpace(before)
 		}
 	}
 	// 兜底：出现“ - 维咔”时按首次出现截断
@@ -578,7 +579,7 @@ type getPostsResp struct {
 }
 
 func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
-	body := map[string]interface{}{
+	body := map[string]any{
 		"order":      "updated_at",
 		"sort":       "desc",
 		"status":     []string{"publish", "publish_anti"},
@@ -633,9 +634,7 @@ func (t *VikacgTask) scrapeUserAllPages() {
 	defer t.initialized.Store(1)
 	t.mu.Lock()
 	startKnown := make(map[string]bool, len(t.knownURLs))
-	for k, v := range t.knownURLs {
-		startKnown[k] = v
-	}
+	maps.Copy(startKnown, t.knownURLs)
 	t.mu.Unlock()
 	page := 1
 	for {

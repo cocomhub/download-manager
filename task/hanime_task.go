@@ -97,9 +97,9 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 	t.pager = NewCommonPager(PageFuncs{
 		BuildPageURL:    t.buildPageURL,
 		RunScraper:      t.runScraper,
-		ParseHomePage:   func(html string) (interface{}, error) { return t.parseHomePage(html) },
+		ParseHomePage:   func(html string) (any, error) { return t.parseHomePage(html) },
 		ParseTotalPages: t.parseTotalPages,
-		ProcessItems: func(items interface{}) ([]interface{}, bool) {
+		ProcessItems: func(items any) ([]any, bool) {
 			vs, _ := items.([]hanimeItem)
 			t.mu.Lock()
 			defer t.mu.Unlock()
@@ -115,7 +115,7 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 				t.knownURLs[v.href] = true
 				pageNew = append(pageNew, obj)
 			}
-			out := make([]interface{}, len(pageNew))
+			out := make([]any, len(pageNew))
 			for i := range pageNew {
 				out[i] = pageNew[i]
 			}
@@ -407,7 +407,7 @@ func (t *HanimeTask) createObjectFromItem(v hanimeItem) *model.DownloadObject {
 			"page_url": v.href,
 			"type":     "composite",
 		},
-		Extra: map[string]interface{}{
+		Extra: map[string]any{
 			"thumb_url": v.thumbURL,
 		},
 		Status: model.StatusPending,
@@ -670,7 +670,7 @@ func extractVideoIDFromURL(u string) string {
 		parts := strings.Split(u, "?")
 		if len(parts) >= 2 {
 			q := parts[1]
-			for _, kv := range strings.Split(q, "&") {
+			for kv := range strings.SplitSeq(q, "&") {
 				p := strings.SplitN(kv, "=", 2)
 				if len(p) == 2 && (p[0] == "v" || p[0] == "video_id" || p[0] == "id") {
 					return p[1]

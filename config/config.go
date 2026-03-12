@@ -55,11 +55,11 @@ type UIDefaults struct {
 }
 
 type Task struct {
-	ID      string                 `yaml:"id" json:"id"`
-	Type    string                 `yaml:"type" json:"type"`
-	SaveDir string                 `yaml:"save_dir" json:"save_dir"`
-	Storage StorageConfig          `yaml:"storage" json:"storage"`
-	Extra   map[string]interface{} `yaml:"extra" json:"extra"`
+	ID      string         `yaml:"id" json:"id"`
+	Type    string         `yaml:"type" json:"type"`
+	SaveDir string         `yaml:"save_dir" json:"save_dir"`
+	Storage StorageConfig  `yaml:"storage" json:"storage"`
+	Extra   map[string]any `yaml:"extra" json:"extra"`
 }
 
 type StorageConfig struct {
@@ -137,9 +137,9 @@ func (c *Config) ValidateAndClamp() {
 }
 
 type Change struct {
-	Path string      `json:"path"`
-	A    interface{} `json:"a"`
-	B    interface{} `json:"b"`
+	Path string `json:"path"`
+	A    any    `json:"a"`
+	B    any    `json:"b"`
 }
 
 func taskIndex(tasks []Task, id string) int {

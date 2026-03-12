@@ -59,7 +59,7 @@ var _ core.Task = &TktubeTask{}
 func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	extra := cfg.Extra
 	if extra == nil {
-		extra = make(map[string]interface{})
+		extra = make(map[string]any)
 	}
 
 	getString := func(key, def string) string {
@@ -114,9 +114,9 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	t.pager = NewCommonPager(PageFuncs{
 		BuildPageURL:    t.buildPageURL,
 		RunScraper:      t.runScraper,
-		ParseHomePage:   func(html string) (interface{}, error) { return t.parseHomePage(html) },
+		ParseHomePage:   func(html string) (any, error) { return t.parseHomePage(html) },
 		ParseTotalPages: t.parseTotalPages,
-		ProcessItems: func(items interface{}) ([]interface{}, bool) {
+		ProcessItems: func(items any) ([]any, bool) {
 			vs, _ := items.([]videoItem)
 			t.mu.Lock()
 			defer t.mu.Unlock()
@@ -132,7 +132,7 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 				pageNew = append(pageNew, obj)
 				t.queuePrefetch(obj)
 			}
-			out := make([]interface{}, len(pageNew))
+			out := make([]any, len(pageNew))
 			for i := range pageNew {
 				out[i] = pageNew[i]
 			}
@@ -503,10 +503,10 @@ func (t *TktubeTask) parseTotalPages(html string) int {
 		params, exists := s.Attr("data-parameters")
 		if exists {
 			// "sort_by:post_date;from:24"
-			parts := strings.Split(params, ";")
-			for _, p := range parts {
-				if strings.HasPrefix(p, "from:") {
-					valStr := strings.TrimPrefix(p, "from:")
+			parts := strings.SplitSeq(params, ";")
+			for p := range parts {
+				if after, ok := strings.CutPrefix(p, "from:"); ok {
+					valStr := after
 					if val, err := strconv.Atoi(valStr); err == nil {
 						lastPage = val
 					}
@@ -520,10 +520,10 @@ func (t *TktubeTask) parseTotalPages(html string) int {
 		doc.Find(".pagination .page a").Each(func(i int, s *goquery.Selection) {
 			params, exists := s.Attr("data-parameters")
 			if exists {
-				parts := strings.Split(params, ";")
-				for _, p := range parts {
-					if strings.HasPrefix(p, "from:") {
-						valStr := strings.TrimPrefix(p, "from:")
+				parts := strings.SplitSeq(params, ";")
+				for p := range parts {
+					if after, ok := strings.CutPrefix(p, "from:"); ok {
+						valStr := after
 						if val, err := strconv.Atoi(valStr); err == nil {
 							if val > lastPage {
 								lastPage = val
@@ -561,7 +561,7 @@ func (t *TktubeTask) queuePrefetch(obj *model.DownloadObject) {
 // --- Prefetch Logic ---
 
 func (t *TktubeTask) startPrefetchWorkers(count int) {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		go func(workerID int) {
 			for obj := range t.prefetchQueue {
 				if t.prefetchRate > 0 {
@@ -655,7 +655,7 @@ func (t *TktubeTask) downloadFile(url, path string) error {
 		URL:      url,
 		SavePath: path,
 		Metadata: map[string]string{"type": "image"},
-		Extra:    map[string]interface{}{},
+		Extra:    map[string]any{},
 		Status:   model.StatusPending,
 	}
 	return t.dl.Download(obj, t.GetDownloadHeaders())
@@ -715,7 +715,7 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 			"duration": v.duration,
 			"date":     v.date,
 		},
-		Extra: map[string]interface{}{
+		Extra: map[string]any{
 			"preview_url": v.previewURL,
 			"thumb_url":   v.thumbURL,
 		},
@@ -1036,7 +1036,7 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 	// Setup JS VM
 	vm := goja.New()
 
-	vm.Set("window", map[string]interface{}{
+	vm.Set("window", map[string]any{
 		"parseInt": func(s string) int64 {
 			return 0
 		},
@@ -1075,7 +1075,7 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 	}
 
 	resultExport := val.Export()
-	resultArray, ok := resultExport.([]interface{})
+	resultArray, ok := resultExport.([]any)
 	if !ok {
 		return nil, fmt.Errorf("main() result is not an array")
 	}

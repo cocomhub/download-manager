@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -102,7 +103,7 @@ func (m *Manager) RollbackConfig(filename string, audit *AuditInfo) error {
 	return m.UpdateConfig(&cfg, audit)
 }
 
-func (m *Manager) DiffConfigFiles(left, right string) (map[string]interface{}, error) {
+func (m *Manager) DiffConfigFiles(left, right string) (map[string]any, error) {
 	var leftCfg, rightCfg config.Config
 	var leftYml, rightYml []byte
 	var err error
@@ -145,7 +146,7 @@ func (m *Manager) DiffConfigFiles(left, right string) (map[string]interface{}, e
 		}
 	}
 	diff := leftCfg.Diff(rightCfg)
-	return map[string]interface{}{
+	return map[string]any{
 		"left":       left,
 		"right":      right,
 		"left_yaml":  string(leftYml),
@@ -173,7 +174,7 @@ func normalizeYAML(src string, ignoreWS, ignoreComments bool) string {
 	return strings.Join(out, "\n")
 }
 
-func (m *Manager) DiffConfigFilesOpts(left, right string, ignoreWS, ignoreComments bool) (map[string]interface{}, error) {
+func (m *Manager) DiffConfigFilesOpts(left, right string, ignoreWS, ignoreComments bool) (map[string]any, error) {
 	res, err := m.DiffConfigFiles(left, right)
 	if err != nil {
 		return nil, err
@@ -202,10 +203,8 @@ func (m *Manager) AddConfigTag(filename, tag string) error {
 	if data, err := os.ReadFile(meta); err == nil {
 		_ = json.Unmarshal(data, &obj)
 	}
-	for _, t := range obj.Tags {
-		if t == tag {
-			return nil
-		}
+	if slices.Contains(obj.Tags, tag) {
+		return nil
 	}
 	obj.Tags = append(obj.Tags, tag)
 	var buf bytes.Buffer

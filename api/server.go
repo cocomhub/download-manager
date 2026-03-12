@@ -271,7 +271,7 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task config: %v", err))
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"applied": applied,
 	})
 }
@@ -294,7 +294,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task runtime: %v", err))
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"applied": applied,
 	})
 }
@@ -531,12 +531,12 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.mgr.GetConfig()
-	resp := map[string]interface{}{
-		"task_scan": map[string]interface{}{
+	resp := map[string]any{
+		"task_scan": map[string]any{
 			"disable":  cfg.TaskScan.Disable,
 			"interval": cfg.TaskScan.Interval,
 		},
-		"downloader": map[string]interface{}{
+		"downloader": map[string]any{
 			"proxies":           cfg.Downloader.Proxies,
 			"global_concurrent": cfg.Downloader.GlobalConcurrent,
 			"force_proxy":       cfg.Downloader.ForceProxy,
@@ -544,7 +544,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"type":              cfg.Downloader.Type,
 			"domain_limits":     cfg.Downloader.DomainLimits,
 		},
-		"ui_defaults": map[string]interface{}{
+		"ui_defaults": map[string]any{
 			"default_save_dir":    cfg.Server.UIDefaults.DefaultSaveDir,
 			"window_width":        cfg.Server.UIDefaults.WindowWidth,
 			"window_height":       cfg.Server.UIDefaults.WindowHeight,
@@ -639,7 +639,7 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 	typesParam := strings.TrimSpace(r.URL.Query().Get("types"))
 	var types []string
 	if typesParam != "" {
-		for _, t := range strings.Split(typesParam, ",") {
+		for t := range strings.SplitSeq(typesParam, ",") {
 			t = strings.TrimSpace(t)
 			if t != "" {
 				types = append(types, t)

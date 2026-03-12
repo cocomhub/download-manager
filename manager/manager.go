@@ -421,7 +421,7 @@ func (m *Manager) scheduler() {
 }
 
 func (m *Manager) broadcastProgress() {
-	m.downloadingObj.Range(func(key, value interface{}) bool {
+	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
 
 		// Check if progress has changed
@@ -442,7 +442,7 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 		return
 	}
 
-	summary := map[string]interface{}{
+	summary := map[string]any{
 		"id":   taskID,
 		"type": t.Type(),
 	}
@@ -570,11 +570,11 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 }
 
 // New API methods
-func (m *Manager) GetActiveDownloads() []map[string]interface{} {
-	actives := make([]map[string]interface{}, 0)
-	m.downloadingObj.Range(func(key, value interface{}) bool {
+func (m *Manager) GetActiveDownloads() []map[string]any {
+	actives := make([]map[string]any, 0)
+	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
-		actives = append(actives, map[string]interface{}{
+		actives = append(actives, map[string]any{
 			"task_id":  obj.TaskID,
 			"url":      obj.URL,
 			"title":    obj.Metadata["title"],
@@ -587,8 +587,8 @@ func (m *Manager) GetActiveDownloads() []map[string]interface{} {
 	return actives
 }
 
-func (m *Manager) GetTaskSummaries() []map[string]interface{} {
-	var summaries []map[string]interface{}
+func (m *Manager) GetTaskSummaries() []map[string]any {
+	var summaries []map[string]any
 	// Iterate using config order to maintain consistency
 	for _, tCfg := range m.currentCfg().Tasks {
 		id := tCfg.ID
@@ -597,7 +597,7 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 			continue
 		}
 
-		summary := map[string]interface{}{
+		summary := map[string]any{
 			"id":   id,
 			"type": t.Type(),
 		}
@@ -624,7 +624,7 @@ func (m *Manager) GetTaskSummaries() []map[string]interface{} {
 	return summaries
 }
 
-func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]interface{}, error) {
+func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]any, error) {
 	t, ok := m.getTask(id)
 	// also locate config entry for readonly fields
 	var tCfg *config.Task
@@ -640,7 +640,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 		return nil, fmt.Errorf("task not found")
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"id":   t.ID(),
 		"type": t.Type(),
 	}
@@ -680,7 +680,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 					match = true
 				} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
 					match = true
-				} else if tags, ok := obj.Extra["tags"].([]interface{}); ok {
+				} else if tags, ok := obj.Extra["tags"].([]any); ok {
 					for _, t := range tags {
 						if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
 							match = true
@@ -738,14 +738,8 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 			if page < 1 {
 				page = 1
 			}
-			start := (page - 1) * limit
-			if start > total {
-				start = total
-			}
-			end := start + limit
-			if end > total {
-				end = total
-			}
+			start := min((page-1)*limit, total)
+			end := min(start+limit, total)
 			pagedObjs = objs[start:end]
 		}
 
@@ -758,7 +752,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 	return result, nil
 }
 
-func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status string, types []string) (map[string]interface{}, error) {
+func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status string, types []string) (map[string]any, error) {
 	all := make([]*model.DownloadObject, 0, 1024)
 	cfg := m.currentCfg()
 	typeMatches := func(t core.Task) bool {
@@ -804,7 +798,7 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 				match = true
 			} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
 				match = true
-			} else if tags, ok := obj.Extra["tags"].([]interface{}); ok {
+			} else if tags, ok := obj.Extra["tags"].([]any); ok {
 				for _, t := range tags {
 					if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
 						match = true
@@ -855,17 +849,11 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 		if page < 1 {
 			page = 1
 		}
-		start := (page - 1) * limit
-		if start > total {
-			start = total
-		}
-		end := start + limit
-		if end > total {
-			end = total
-		}
+		start := min((page-1)*limit, total)
+		end := min(start+limit, total)
 		paged = all[start:end]
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"objects": paged,
 		"total":   total,
 		"page":    page,
@@ -873,7 +861,7 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 	}, nil
 }
 
-func hasMethod(i interface{}, name string) bool {
+func hasMethod(i any, name string) bool {
 	// lightweight capability hint via type assertion
 	switch name {
 	case "SetConcurrency":
