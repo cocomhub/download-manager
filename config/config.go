@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/cocomhub/download-manager/logutil"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 type Config struct {

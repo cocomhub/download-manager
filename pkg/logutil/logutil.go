@@ -14,9 +14,9 @@ import (
 type LogConfig struct {
 	Level      string `yaml:"level" json:"level"`
 	Filename   string `yaml:"filename" json:"filename"`
-	MaxSize    int    `yaml:"max_size" json:"max_size"`       // megabytes
-	MaxBackups int    `yaml:"max_backups" json:"max_backups"` // max number of old log files to retain
-	MaxAge     int    `yaml:"max_age" json:"max_age"`         // max number of days to retain old log files
+	MaxSize    int    `yaml:"max_size" json:"max_size"`
+	MaxBackups int    `yaml:"max_backups" json:"max_backups"`
+	MaxAge     int    `yaml:"max_age" json:"max_age"`
 	Console    bool   `yaml:"console" json:"console"`
 	Compress   bool   `yaml:"compress" json:"compress"`
 }

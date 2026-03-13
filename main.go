@@ -15,8 +15,9 @@ import (
 
 	"github.com/cocomhub/download-manager/api"
 	"github.com/cocomhub/download-manager/config"
-	"github.com/cocomhub/download-manager/logutil"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/gofrs/flock"
 )
 
 var (
@@ -161,18 +162,22 @@ func main() {
 		lockFile = "download-manager.lock" // Default
 	}
 
-	lockFd, err := syscall.Open(lockFile, syscall.O_CREAT|syscall.O_RDWR, 0666)
+	fl := flock.New(lockFile)
+	locked, err := fl.TryLock()
 	if err != nil {
-		slog.Error("Failed to open lock file", "file", lockFile, "error", err)
+		slog.Error("Failed to acquire lock", "lock", lockFile, "error", err)
 		os.Exit(1)
 	}
-	defer syscall.Close(lockFd)
-
-	if err := syscall.Flock(lockFd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if !locked {
 		slog.Error("Another instance is running", "lock", lockFile)
 		os.Exit(1)
 	}
-	defer syscall.Flock(lockFd, syscall.LOCK_UN)
+	defer func() {
+		if err := fl.Unlock(); err != nil {
+			slog.Warn("unlock failed", "lock", lockFile, "error", err)
+		}
+		_ = fl.Close()
+	}()
 
 	mgr := manager.NewManager(cfg)
 

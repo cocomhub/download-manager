@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/cocomhub/download-manager/config"
-	"github.com/cocomhub/download-manager/logutil"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/task"
 	"github.com/cocomhub/download-manager/web"
 

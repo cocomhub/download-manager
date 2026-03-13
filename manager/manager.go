@@ -19,8 +19,8 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
-	"github.com/cocomhub/download-manager/logutil"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/storage"
 )
 
