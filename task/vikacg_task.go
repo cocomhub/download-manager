@@ -141,7 +141,7 @@ func (t *VikacgTask) ID() string {
 }
 
 func (t *VikacgTask) Type() string {
-	return "vikacg"
+	return TypeVikacg
 }
 
 func (t *VikacgTask) Close() error {

@@ -782,9 +782,10 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 		if len(types) == 0 {
 			return true
 		}
-		tt := t.Type()
+		tt := strings.ToLower(t.Type())
 		for _, pref := range types {
-			if strings.HasPrefix(tt, pref) {
+			p := strings.ToLower(pref)
+			if strings.HasPrefix(tt, p) {
 				return true
 			}
 		}

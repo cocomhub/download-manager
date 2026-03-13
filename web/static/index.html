@@ -137,9 +137,9 @@
                     <div class="flex justify-between items-start mb-1">
                         <div class="flex items-center gap-2">
                             <input type="checkbox" :value="task.id" v-model="selectedTaskIds" @click.stop class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded">
-                            <span class="font-medium text-gray-800 truncate pr-2" :title="task.id">{{ task.id }}</span>
+                            <span class="font-medium text-gray-800 truncate pr-2" :title="getTaskDisplayName(task)">{{ getTaskDisplayName(task) }}</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 whitespace-nowrap">{{ task.type }}</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 whitespace-nowrap" :title="task.type">{{ getTaskTypeBadge(task) }}</span>
                     </div>
 
                     <div class="flex justify-between text-xs text-gray-500 mt-2">
@@ -151,6 +151,7 @@
                         <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" :style="{ width: (task.total ? (task.completed / task.total * 100) : 0) + '%' }"></div>
                     </div>
                 </div>
+                <div v-if="filteredTasks.length === 0" class="text-sm text-gray-400 text-center py-6">当前类型无任务</div>
             </div>
         </aside>
 
@@ -159,8 +160,8 @@
             <!-- Top Bar -->
             <header class="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm z-10">
                 <div class="flex items-center space-x-4 flex-1">
-                    <h2 class="text-xl font-semibold text-gray-700 truncate" v-if="selectedTask">
-                        {{ selectedTask.id }}
+                    <h2 class="text-xl font-semibold text-gray-700 truncate" v-if="selectedTask" :title="getTaskDisplayName(selectedTask)">
+                        {{ getTaskDisplayName(selectedTask) }}
                     </h2>
                     <h2 class="text-xl font-semibold text-gray-500" v-if="!selectedTask">Select a Task</h2>
                 </div>
@@ -934,6 +935,66 @@
                 </div>
             </div>
         </div>
+        <div v-if="showHanimeModal" class="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-bold text-gray-800">{{ hanimeModalObj ? getHanimeTitle(hanimeModalObj) : '' }}</h3>
+                    </div>
+                    <button @click="closeHanime" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="flex-1 overflow-y-auto">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                        <div class="space-y-4">
+                            <div class="bg-gray-100 rounded-lg overflow-hidden">
+                                <div class="aspect-[16/9] bg-black flex items-center justify-center">
+                                    <video v-if="canPlayHanimeVideo(hanimeModalObj)" :src="getHanimeVideoURL(hanimeModalObj)" :poster="getHanimePoster(hanimeModalObj)[0]||''" controls class="w-full rounded-lg bg-black" @error="hanimeVideoError = true"></video>
+                                    <template v-else>
+                                        <img v-if="getHanimePoster(hanimeModalObj).length" :src="getHanimePoster(hanimeModalObj)[0]" class="w-full h-full object-contain">
+                                        <div v-else class="text-gray-400 p-6">暂无封面</div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div v-if="!canPlayHanimeVideo(hanimeModalObj) || hanimeVideoError">
+                                <button @click="() => window.open(getHanimeOriginLink(hanimeModalObj),'_blank')" class="px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 text-sm w-full">无法播放？打开原页面</button>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-3" v-if="getHanimePlaylist(hanimeModalObj).length>0">
+                                <div class="text-xs text-gray-500 mb-2">播放列表</div>
+                                <ul class="space-y-2">
+                                    <li v-for="(item, idx) in getHanimePlaylist(hanimeModalObj)" :key="(item.title||'') + idx" @click="() => item.url && window.open(item.url,'_blank')" class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                                        <img v-if="item.thumbnail" :src="item.thumbnail" class="w-16 h-10 object-cover rounded border">
+                                        <div class="text-sm text-gray-800 truncate">{{ item.title || item.url }}</div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="text-sm text-gray-700">
+                                <div class="text-xs text-gray-500 mb-1">元信息</div>
+                                <div class="text-sm text-gray-800 break-words">
+                                    <span v-if="getHanimeGenres(hanimeModalObj).length">{{ getHanimeGenres(hanimeModalObj).join(', ') }}</span>
+                                    <span v-if="getHanimeDate(hanimeModalObj)"> · {{ getHanimeDate(hanimeModalObj) }}</span>
+                                    <span v-if="getHanimeTags(hanimeModalObj).length"> · {{ getHanimeTags(hanimeModalObj).join(', ') }}</span>
+                                    <span v-if="getHanimeArtist(hanimeModalObj)"> · {{ getHanimeArtist(hanimeModalObj) }}</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-gray-500 mb-1">详情</div>
+                                <div class="text-sm text-gray-700 whitespace-pre-line break-words">{{ getHanimeDetails(hanimeModalObj) }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-3 border-t bg-gray-50 flex justify-between items-center">
+                    <div class="flex gap-2">
+                        <button @click="() => window.open(getHanimeOriginLink(hanimeModalObj),'_blank')" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 text-sm">打开原页面</button>
+                        <button @click="copyText(getHanimeTitle(hanimeModalObj))" class="px-3 py-1.5 rounded bg-white border hover:bg-gray-100 text-sm">复制标题</button>
+                        <button @click="copyText(getHanimeOriginLink(hanimeModalObj))" class="px-3 py-1.5 rounded bg-white border hover:bg-gray-100 text-sm">复制链接</button>
+                    </div>
+                    <button @click="closeHanime" class="px-3 py-1.5 rounded bg-white border hover:bg-gray-100 text-sm">关闭</button>
+                </div>
+            </div>
+        </div>
         <!-- Hover Preview Config Toggle -->
         <div class="fixed bottom-4 right-4 bg-white p-3 rounded-full shadow-lg z-40 cursor-pointer hover:bg-gray-50" @click="enablePreview = !enablePreview" :title="enablePreview ? 'Disable Hover Preview' : 'Enable Hover Preview'">
             <i class="fas" :class="enablePreview ? 'fa-eye text-blue-500' : 'fa-eye-slash text-gray-400'"></i>
@@ -1552,7 +1613,12 @@
                     tktubeAggMinIntervalMs: 3000,
                     showVikacgModal: false,
                     vikacgModalObj: null,
-                    vikacgActiveImgIdx: 0
+                    vikacgActiveImgIdx: 0,
+                    showHanimeModal: false,
+                    hanimeModalObj: null,
+                    hanimeActiveCoverIdx: 0,
+                    hanimeActivePosterIdx: 0,
+                    hanimeVideoError: false
                 }
             },
             computed: {
@@ -1569,7 +1635,7 @@
                 filteredTasks() {
                     if (this.selectedType === 'all') return this.tasks || []
                     const type = this.selectedType
-                    return (this.tasks || []).filter(t => t && t.type === type)
+                    return (this.tasks || []).filter(t => t && String(t.type || '').toLowerCase() === String(type).toLowerCase())
                 },
                 filteredObjects() {
                     if (!this.selectedTask || !this.selectedTask.objects) return []
@@ -1682,6 +1748,10 @@
                     const u = (obj.metadata && obj.metadata.page_url) || obj.url || ''
                     return u.includes('vikacg.com')
                 },
+                isHanime(obj) {
+                    const u = ((obj && obj.metadata && obj.metadata.page_url) || obj.url || '').toLowerCase()
+                    return u.includes('hanime.tv') || u.includes('hanime1')
+                },
                 getVikacgImages(obj) {
                     const imgs = []
                     if (obj.extra && Array.isArray(obj.extra.files)) {
@@ -1737,6 +1807,279 @@
                     this.showVikacgModal = false
                     this.vikacgModalObj = null
                     this.vikacgActiveImgIdx = 0
+                },
+                openHanime(obj) {
+                    this.hanimeModalObj = obj
+                    this.hanimeActiveCoverIdx = 0
+                    this.hanimeActivePosterIdx = 0
+                    this.hanimeVideoError = false
+                    this.showHanimeModal = true
+                },
+                closeHanime() {
+                    this.showHanimeModal = false
+                    this.hanimeModalObj = null
+                    this.hanimeActiveCoverIdx = 0
+                    this.hanimeActivePosterIdx = 0
+                    this.hanimeVideoError = false
+                },
+                getHanimeTitle(obj) {
+                    if (obj && obj.metadata && obj.metadata.title) return obj.metadata.title
+                    if (obj && obj.extra && obj.extra.title) return obj.extra.title
+                    return this.getTitle(obj)
+                },
+                getHanimeTags(obj) {
+                    const tags = []
+                    if (obj && obj.extra && Array.isArray(obj.extra.tags)) tags.push(...obj.extra.tags)
+                    if (obj && obj.metadata && Array.isArray(obj.metadata.tags)) tags.push(...obj.metadata.tags)
+                    const set = new Set()
+                    const out = []
+                    tags.forEach(t => {
+                        const s = (t || '').toString().trim()
+                        if (s && !set.has(s)) {
+                            set.add(s)
+                            out.push(s)
+                        }
+                    })
+                    return out
+                },
+                getHanimeArtist(obj) {
+                    if (obj && obj.extra && obj.extra.artist) return obj.extra.artist
+                    if (obj && obj.metadata && obj.metadata.artist) return obj.metadata.artist
+                    if (obj && obj.metadata && Array.isArray(obj.metadata.authors) && obj.metadata.authors.length > 0) return obj.metadata.authors.join(', ')
+                    return ''
+                },
+                getHanimeDescription(obj) {
+                    let s = ''
+                    if (obj && obj.extra && obj.extra.description) s = obj.extra.description
+                    else if (obj && obj.metadata && obj.metadata.description) s = obj.metadata.description
+                    else if (obj && obj.extra && obj.extra.content_text) s = obj.extra.content_text
+                    if (typeof s !== 'string') s = ''
+                    return s
+                },
+                getHanimeOriginLink(obj) {
+                    if (obj && obj.metadata && obj.metadata.page_url) return obj.metadata.page_url
+                    if (obj && obj.extra && obj.extra.origin_url) return obj.extra.origin_url
+                    return (obj && obj.url) || ''
+                },
+                getHanimeCover(obj) {
+                    const imgs = []
+                    const pushUrl = (u) => {
+                        if (typeof u !== 'string' || !u) return
+                        imgs.push(u)
+                    }
+                    if (obj && obj.extra) {
+                        if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
+                        if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
+                        if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
+                        if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
+                        if (obj.extra.cover) pushUrl(obj.extra.cover)
+                        if (obj.extra.local_cover) pushUrl(this.pathToUrl(obj.extra.local_cover))
+                        if (Array.isArray(obj.extra.files)) {
+                            obj.extra.files.forEach(f => {
+                                const name = (f.name || f.path || '').toString().toLowerCase()
+                                if (f.type === 'image' && (name.includes('cover') || name.includes('thumb') || name.includes('thumbnail'))) {
+                                    if (f.path) imgs.push(this.pathToUrl(f.path))
+                                }
+                            })
+                        }
+                        if (imgs.length === 0 && Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
+                    }
+                    const uniq = []
+                    const seen = new Set()
+                    imgs.forEach(u => {
+                        if (u && !seen.has(u)) {
+                            seen.add(u)
+                            uniq.push(u)
+                        }
+                    })
+                    return uniq
+                },
+                getHanimePoster(obj) {
+                    const imgs = []
+                    const pushUrl = (u) => {
+                        if (typeof u !== 'string' || !u) return
+                        imgs.push(u)
+                    }
+                    if (obj && obj.extra) {
+                        if (Array.isArray(obj.extra.poster_images)) obj.extra.poster_images.forEach(pushUrl)
+                        if (Array.isArray(obj.extra.poster_urls)) obj.extra.poster_urls.forEach(pushUrl)
+                        if (Array.isArray(obj.extra.posters)) obj.extra.posters.forEach(pushUrl)
+                        if (obj.extra.poster_url) pushUrl(obj.extra.poster_url)
+                        if (obj.extra.poster) pushUrl(obj.extra.poster)
+                        if (Array.isArray(obj.extra.files)) {
+                            obj.extra.files.forEach(f => {
+                                const name = (f.name || f.path || '').toString().toLowerCase()
+                                if (f.type === 'image' && (name.includes('poster') || name.includes('fanart') || name.includes('kv'))) {
+                                    if (f.path) imgs.push(this.pathToUrl(f.path))
+                                }
+                            })
+                        }
+                    }
+                    const uniq = []
+                    const seen = new Set()
+                    imgs.forEach(u => {
+                        if (u && !seen.has(u)) {
+                            seen.add(u)
+                            uniq.push(u)
+                        }
+                    })
+                    return uniq
+                },
+                getHanimeVideoURL(obj) {
+                    if (!obj) return ''
+                    let u = ''
+                    if (obj.metadata && obj.metadata.video_url) u = obj.metadata.video_url
+                    if (!u && obj.extra && obj.extra.video_url) u = obj.extra.video_url
+                    if (obj.status === 'completed') {
+                        if (this.isVideo(obj)) return this.getVideoUrl(obj)
+                        if (obj.extra && Array.isArray(obj.extra.files)) {
+                            const f = obj.extra.files.find(x => x && (x.type === 'video' || (x.path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(x.path.toString()))))
+                            if (f && f.path) return this.pathToUrl(f.path)
+                        }
+                        if (obj.extra && obj.extra.local_url) return this.pathToUrl(obj.extra.local_url)
+                        if (obj.extra && obj.extra.file_url) return this.pathToUrl(obj.extra.file_url)
+                        if (obj.path) return this.pathToUrl(obj.path)
+                        if (obj.save_path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(obj.save_path.toString())) return this.pathToUrl(obj.save_path)
+                    }
+                    if (typeof u === 'string' && u) return u
+                    return ''
+                },
+                isSafariHlsSupported() {
+                    const ua = navigator.userAgent || ''
+                    const isSafari = /safari/i.test(ua) && !/chrome|crios|chromium|edg/i.test(ua)
+                    if (isSafari) return true
+                    try {
+                        const v = document.createElement('video')
+                        return !!v.canPlayType && v.canPlayType('application/vnd.apple.mpegurl') !== ''
+                    } catch (e) {
+                        return false
+                    }
+                },
+                canPlayHanimeVideo(obj) {
+                    const u = this.getHanimeVideoURL(obj)
+                    if (!u) return false
+                    if (/\.m3u8(\?.*)?$/i.test(u)) return this.isSafariHlsSupported()
+                    return true
+                },
+                getHanimeGenres(obj) {
+                    const vals = []
+                    const pushVal = (v) => {
+                        if (Array.isArray(v)) {
+                            v.forEach(s => pushVal(s))
+                            return
+                        }
+                        if (typeof v === 'string') {
+                            v.split(/[，、,|/]/).forEach(x => {
+                                const t = x.trim()
+                                if (t) vals.push(t)
+                            })
+                        }
+                    }
+                    if (obj && obj.extra) {
+                        if (obj.extra.genre) pushVal(obj.extra.genre)
+                        if (obj.extra.genres) pushVal(obj.extra.genres)
+                        if (obj.extra.categories) pushVal(obj.extra.categories)
+                        if (obj.extra.tags) pushVal(obj.extra.tags)
+                    }
+                    if (obj && obj.metadata) {
+                        if (obj.metadata.genre) pushVal(obj.metadata.genre)
+                        if (obj.metadata.genres) pushVal(obj.metadata.genres)
+                        if (obj.metadata.categories) pushVal(obj.metadata.categories)
+                        if (obj.metadata.tags) pushVal(obj.metadata.tags)
+                    }
+                    const out = []
+                    const set = new Set()
+                    vals.forEach(s => {
+                        const t = (s || '').toString().trim()
+                        if (t && !set.has(t)) {
+                            set.add(t)
+                            out.push(t)
+                        }
+                    })
+                    return out
+                },
+                getHanimeDetails(obj) {
+                    let s = ''
+                    if (obj && obj.extra && obj.extra.details) s = obj.extra.details
+                    else if (obj && obj.metadata && obj.metadata.details) s = obj.metadata.details
+                    else if (obj && obj.metadata && obj.metadata.description) s = obj.metadata.description
+                    else if (obj && obj.extra && obj.extra.description) s = obj.extra.description
+                    if (typeof s !== 'string') s = ''
+                    const t = s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+                    return t
+                },
+                getHanimeDate(obj) {
+                    if (obj && obj.extra && obj.extra.date) return obj.extra.date
+                    if (obj && obj.metadata && obj.metadata.date) return obj.metadata.date
+                    return ''
+                },
+                getHanimePlaylist(obj) {
+                    const src = (obj && obj.extra && obj.extra.playlist) || (obj && obj.metadata && obj.metadata.playlist) || []
+                    const items = []
+                    const norm = (it) => {
+                        if (!it) return null
+                        if (typeof it === 'string') {
+                            const s = it.trim()
+                            if (!s) return null
+                            if (/^https?:\/\//i.test(s) || s.startsWith('/')) return {
+                                title: '',
+                                thumbnail: '',
+                                url: s
+                            }
+                            if (obj && obj.status === 'completed') return {
+                                title: '',
+                                thumbnail: '',
+                                url: this.pathToUrl(s)
+                            }
+                            return {
+                                title: s,
+                                thumbnail: '',
+                                url: ''
+                            }
+                        }
+                        if (typeof it === 'object') {
+                            let title = it.title || it.name || it.label || ''
+                            let url = it.url || it.href || it.link || it.src || ''
+                            let thumb = it.thumbnail || it.thumb || it.image || it.cover || ''
+                            if (!url) {
+                                if (it.path && obj && obj.status === 'completed') url = this.pathToUrl(it.path)
+                                else if (it.local_url && obj && obj.status === 'completed') url = this.pathToUrl(it.local_url)
+                                else if (it.file_url && obj && obj.status === 'completed') url = this.pathToUrl(it.file_url)
+                            } else {
+                                const pLike = typeof url === 'string' && url && !/^https?:\/\//i.test(url) && !url.startsWith('/')
+                                if (pLike && obj && obj.status === 'completed') url = this.pathToUrl(url)
+                            }
+                            if (typeof title !== 'string') title = ''
+                            if (typeof url !== 'string') url = ''
+                            if (typeof thumb !== 'string') thumb = ''
+                            if (!title && !url) return null
+                            return {
+                                title,
+                                thumbnail: thumb,
+                                url
+                            }
+                        }
+                        return null
+                    }
+                    if (Array.isArray(src)) {
+                        src.forEach(x => {
+                            const n = norm(x)
+                            if (n) items.push(n)
+                        })
+                    } else {
+                        const n = norm(src)
+                        if (n) items.push(n)
+                    }
+                    const seen = new Set()
+                    const out = []
+                    items.forEach(it => {
+                        const k = (it.title || '') + '|' + (it.url || '') + '|' + (it.thumbnail || '')
+                        if (!seen.has(k)) {
+                            seen.add(k)
+                            out.push(it)
+                        }
+                    })
+                    return out
                 },
                 async initUiDefaults() {
                     try {
@@ -3176,6 +3519,23 @@
                 },
 
                 // ... Helpers ...
+                getTaskDisplayName(task) {
+                    const t = task || {}
+                    const e = (t && t.extra) || {}
+                    const candidates = [t.title, t.name, e.title, e.name, e.keyword, e.subtype]
+                    for (let i = 0; i < candidates.length; i++) {
+                        const v = candidates[i]
+                        if (typeof v === 'string' && v.trim()) return v.trim()
+                    }
+                    return t.id
+                },
+                getTaskTypeBadge(task) {
+                    const raw = ((task && task.type) || '').toString().toLowerCase()
+                    if (raw.startsWith('hanime')) return 'Hanime'
+                    if (raw.startsWith('vikacg')) return 'VikACG'
+                    if (raw.startsWith('tktube')) return 'TKtube'
+                    return (task && task.type) || ''
+                },
                 getTitle(obj) {
                     if (obj.metadata && obj.metadata.title) return obj.metadata.title;
                     return obj.url.split('/').pop()
@@ -3239,6 +3599,10 @@
                 handleCardClick(obj) {
                     if (this.isVikacg(obj)) {
                         this.openVikacg(obj)
+                        return
+                    }
+                    if (this.isHanime(obj)) {
+                        this.openHanime(obj)
                         return
                     }
                     if (this.isVideo(obj) && obj.status === 'completed') this.playVideo(obj);

@@ -183,7 +183,7 @@ func (t *TktubeTask) ID() string {
 }
 
 func (t *TktubeTask) Type() string {
-	return "tktube_" + t.taskType
+	return TypeTktube
 }
 
 func (t *TktubeTask) Close() error {

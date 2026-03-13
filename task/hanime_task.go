@@ -150,7 +150,7 @@ func (t *HanimeTask) ID() string {
 }
 
 func (t *HanimeTask) Type() string {
-	return "hanime_search"
+	return TypeHanime
 }
 
 func (t *HanimeTask) Close() error {

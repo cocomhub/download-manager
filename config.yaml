@@ -3,6 +3,7 @@
 
 server:
   http_port: 8080
+  ui_only_port: 8091
   work_dir: ./build/test
   lock_file: ./build/test/download-manager.lock
   scraper_path: ./build/bin/scraper_get

@@ -15,6 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/logutil"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/task"
 	"github.com/cocomhub/download-manager/web"
 
 	"github.com/gorilla/mux"
@@ -700,7 +701,7 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 	var types []string
 	if typesParam != "" {
 		for t := range strings.SplitSeq(typesParam, ",") {
-			t = strings.TrimSpace(t)
+			t = task.NormalizeType(t)
 			if t != "" {
 				types = append(types, t)
 			}
