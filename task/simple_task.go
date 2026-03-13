@@ -12,6 +12,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 type SimpleTask struct {
@@ -61,7 +62,7 @@ func NewSimpleTask(id string, urls []string, saveDir string, store core.Storage)
 			TaskID:   id,
 			URL:      u,
 			SavePath: filepath.Join(saveDir, filename),
-			Status:   model.StatusPending,
+			Status:   dlcore.StatusPending,
 		}
 
 		// Check storage for this object
@@ -76,9 +77,9 @@ func NewSimpleTask(id string, urls []string, saveDir string, store core.Storage)
 				// Fix "Zombie" downloading state
 				// If we just started and storage says "downloading", it means it crashed.
 				// Reset to pending.
-				if obj.Status == model.StatusDownloading {
+				if obj.Status == dlcore.StatusDownloading {
 					slog.Warn("Found zombie downloading state, resetting to pending", "task_id", id, "url", u)
-					obj.Status = model.StatusPending
+					obj.Status = dlcore.StatusPending
 					// We should probably sync this reset back to storage immediately or lazily
 					// Let's sync immediately to be safe
 					if err := store.Update(obj); err != nil {
@@ -139,7 +140,7 @@ func (t *SimpleTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	var pending []*model.DownloadObject
 	for _, obj := range t.objects {
-		if obj.Status == model.StatusPending || obj.Status == model.StatusFailed {
+		if obj.Status == dlcore.StatusPending || obj.Status == dlcore.StatusFailed {
 			pending = append(pending, obj)
 		}
 	}

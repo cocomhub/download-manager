@@ -22,6 +22,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -184,7 +185,7 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	pending := make([]*model.DownloadObject, 0)
 	for _, o := range t.objects {
-		if o.Status == model.StatusPending || o.Status == model.StatusFailed {
+		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
 			pending = append(pending, o)
 		}
 	}
@@ -341,7 +342,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 			"files":        files,
 			"links":        links,
 		},
-		Status: model.StatusPending,
+		Status: dlcore.StatusPending,
 	}
 	t.restoreStatus(obj)
 	return obj, nil
@@ -564,9 +565,9 @@ func (t *VikacgTask) LoadCache() error {
 		t.knownURLs[obj.URL] = true
 		t.restoreStatus(obj)
 		t.sanitizeCachedContentHTML(obj)
-		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
-			if obj.Status == model.StatusDownloading {
-				obj.Status = model.StatusPending
+		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+			if obj.Status == dlcore.StatusDownloading {
+				obj.Status = dlcore.StatusPending
 			}
 		}
 	}

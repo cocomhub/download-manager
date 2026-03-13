@@ -13,11 +13,3 @@ type DownloadObject struct {
 	Status   string            `json:"status" bson:"status"` // pending, downloading, completed, failed
 	Progress int               `json:"progress" bson:"progress"`
 }
-
-const (
-	StatusPending     = "pending"
-	StatusDownloading = "downloading"
-	StatusCompleted   = "completed"
-	StatusFailed      = "failed"
-	StatusCancelled   = "cancelled"
-)

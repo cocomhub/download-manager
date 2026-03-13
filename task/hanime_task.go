@@ -21,6 +21,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -191,7 +192,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
 	for _, obj := range t.objects {
-		if obj.Status == model.StatusDownloading {
+		if obj.Status == dlcore.StatusDownloading {
 			activeCount++
 		}
 	}
@@ -200,7 +201,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		if _, ok := t.markAsFailed.Load(obj.URL); ok {
 			continue
 		}
-		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
+		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
 			if _, hasFiles := obj.Extra["files"]; hasFiles {
 				candidates = append(candidates, obj)
 			} else {
@@ -216,7 +217,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			if err := t.ResolveObject(obj); err == nil {
 				candidates = append(candidates, obj)
 			} else {
-				t.UpdateStatus(obj, model.StatusFailed, err)
+				t.UpdateStatus(obj, dlcore.StatusFailed, err)
 			}
 		}
 	}
@@ -300,9 +301,9 @@ func (t *HanimeTask) LoadCache() error {
 				*obj = *so
 			}
 		}
-		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
-			if obj.Status == model.StatusDownloading {
-				obj.Status = model.StatusPending
+		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+			if obj.Status == dlcore.StatusDownloading {
+				obj.Status = dlcore.StatusPending
 			}
 			delete(obj.Extra, "files")
 		}
@@ -436,7 +437,7 @@ func (t *HanimeTask) createObjectFromItem(v hanimeItem) *model.DownloadObject {
 		Extra: map[string]any{
 			"thumb_url": v.thumbURL,
 		},
-		Status: model.StatusPending,
+		Status: dlcore.StatusPending,
 	}
 	if t.shared != nil {
 		if so, err := t.shared.Get(obj.URL); err == nil && so != nil {

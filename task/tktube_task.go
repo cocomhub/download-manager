@@ -21,6 +21,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/dop251/goja"
@@ -229,7 +230,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// 2. Return pending objects that are ready for download
 	activeCount := 0
 	for _, obj := range t.objects {
-		if obj.Status == model.StatusDownloading {
+		if obj.Status == dlcore.StatusDownloading {
 			activeCount++
 		}
 	}
@@ -242,7 +243,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	// Collect candidates
 	for _, obj := range t.objects {
-		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
+		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
 			// Check if failed
 			if _, ok := t.markAsFailed.Load(obj.URL); ok {
 				continue
@@ -281,7 +282,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 				if err := t.resolveVideoDetails(o); err != nil {
 					slog.Error("Failed to resolve video details", "task_id", t.id, "url", o.URL, "error", err)
-					t.UpdateStatus(o, model.StatusFailed, err)
+					t.UpdateStatus(o, dlcore.StatusFailed, err)
 				} else {
 					mu.Lock()
 					candidates = append(candidates, o)
@@ -388,8 +389,8 @@ func (t *TktubeTask) LoadCache() error {
 		t.checkAndRestoreStatus(obj)
 
 		// Reset Downloading status to Pending on restart
-		if obj.Status != model.StatusCompleted && obj.Status != model.StatusCancelled {
-			obj.Status = model.StatusPending
+		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+			obj.Status = dlcore.StatusPending
 			// Clear files list to trigger re-resolution
 			delete(obj.Extra, "files")
 		}
@@ -557,7 +558,7 @@ func (t *TktubeTask) parseTotalPages(html string) int {
 
 func (t *TktubeTask) queuePendingPrefetches() {
 	for _, obj := range t.objects {
-		if obj.Status == model.StatusPending {
+		if obj.Status == dlcore.StatusPending {
 			// Check if prefetch needed
 			_, hasLocalPreview := obj.Extra["local_preview"]
 			if !hasLocalPreview {
@@ -592,7 +593,7 @@ func (t *TktubeTask) startPrefetchWorkers(count int) {
 
 func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 	// Don't prefetch if already completed or downloading main
-	if obj.Status == model.StatusCompleted || obj.Status == model.StatusDownloading || obj.Status == model.StatusCancelled {
+	if obj.Status == dlcore.StatusCompleted || obj.Status == dlcore.StatusDownloading || obj.Status == dlcore.StatusCancelled {
 		return
 	}
 
@@ -673,7 +674,7 @@ func (t *TktubeTask) downloadFile(url, path string) error {
 		SavePath: path,
 		Metadata: map[string]string{"type": "image"},
 		Extra:    map[string]any{},
-		Status:   model.StatusPending,
+		Status:   dlcore.StatusPending,
 	}
 	return t.dl.Download(obj, t.GetDownloadHeaders())
 }
@@ -736,7 +737,7 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 			"preview_url": v.previewURL,
 			"thumb_url":   v.thumbURL,
 		},
-		Status: model.StatusPending,
+		Status: dlcore.StatusPending,
 	}
 
 	// Deduplication / Restore Status from DB

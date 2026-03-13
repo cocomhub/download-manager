@@ -20,6 +20,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/storage"
 )
@@ -477,7 +478,7 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 		summary["total"] = len(objs)
 		completed := 0
 		for _, o := range objs {
-			if o.Status == model.StatusCompleted {
+			if o.Status == dlcore.StatusCompleted {
 				completed++
 			}
 		}
@@ -521,7 +522,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		m.BroadcastTaskUpdate(t.ID())
 	}()
 
-	t.UpdateStatus(obj, model.StatusDownloading, nil)
+	t.UpdateStatus(obj, dlcore.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
@@ -531,15 +532,15 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
-		if obj.Status == model.StatusCancelled {
+		if obj.Status == dlcore.StatusCancelled {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			return
 		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
-		t.UpdateStatus(obj, model.StatusFailed, err)
+		t.UpdateStatus(obj, dlcore.StatusFailed, err)
 
-		if errors.Is(err, downloader.ErrNoTry) {
+		if dlcore.IsNoTry(err) {
 			if ft, ok := t.(core.FailedTask); ok {
 				ft.MarkAsFailed(obj, err)
 			}
@@ -560,7 +561,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			}
 		}
 	} else {
-		t.UpdateStatus(obj, model.StatusCompleted, nil)
+		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
 			mt := v.(*taskMetrics)
 			mt.completed++
@@ -632,7 +633,7 @@ func (m *Manager) GetTaskSummaries() []map[string]any {
 			summary["total"] = len(objs)
 			completed := 0
 			for _, o := range objs {
-				if o.Status == model.StatusCompleted {
+				if o.Status == dlcore.StatusCompleted {
 					completed++
 				}
 			}
@@ -913,11 +914,11 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		objs := st.GetAllObjects()
 		for _, obj := range objs {
 			if obj.URL == url {
-				if obj.Status == model.StatusCompleted {
+				if obj.Status == dlcore.StatusCompleted {
 					return fmt.Errorf("object already completed")
 				}
 				// Reset status
-				t.UpdateStatus(obj, model.StatusPending, nil)
+				t.UpdateStatus(obj, dlcore.StatusPending, nil)
 				obj.Progress = 0
 
 				// Resolve details if needed (JIT for forced retry?)
@@ -970,8 +971,8 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 		objs := st.GetAllObjects()
 		count := 0
 		for _, obj := range objs {
-			if obj.Status == model.StatusFailed {
-				t.UpdateStatus(obj, model.StatusPending, nil)
+			if obj.Status == dlcore.StatusFailed {
+				t.UpdateStatus(obj, dlcore.StatusPending, nil)
 				obj.Progress = 0
 				// Should we force download all? That might be too many.
 				// Just let them be picked up by scan.
@@ -997,10 +998,10 @@ func (m *Manager) CancelTask(taskID string) error {
 	}); ok {
 		objs := st.GetAllObjects()
 		for _, obj := range objs {
-			if obj.Status == model.StatusCompleted {
+			if obj.Status == dlcore.StatusCompleted {
 				continue
 			}
-			t.UpdateStatus(obj, model.StatusCancelled, nil)
+			t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			if _, active := m.downloadingObj.Load(obj.URL); active {
@@ -1047,10 +1048,10 @@ func (m *Manager) CancelObject(taskID, url string) error {
 		objs := st.GetAllObjects()
 		for _, obj := range objs {
 			if obj.URL == url {
-				if obj.Status == model.StatusCompleted {
+				if obj.Status == dlcore.StatusCompleted {
 					return fmt.Errorf("object already completed")
 				}
-				t.UpdateStatus(obj, model.StatusCancelled, nil)
+				t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
 				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 				if _, active := m.downloadingObj.Load(obj.URL); active {
@@ -1087,10 +1088,10 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 		objs := st.GetAllObjects()
 		for _, obj := range objs {
 			if obj.URL == url {
-				if obj.Status != model.StatusCancelled {
+				if obj.Status != dlcore.StatusCancelled {
 					return fmt.Errorf("object status is not cancelled")
 				}
-				t.UpdateStatus(obj, model.StatusPending, nil)
+				t.UpdateStatus(obj, dlcore.StatusPending, nil)
 				obj.Progress = 0
 				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})

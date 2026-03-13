@@ -9,6 +9,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 type fakeStorage struct {
@@ -120,7 +121,7 @@ func TestExampleMinimalTask_UpdateStatusAndClose(t *testing.T) {
 		Status:   "",
 	}
 
-	if err := task.UpdateStatus(obj, model.StatusPending, nil); err != nil {
+	if err := task.UpdateStatus(obj, dlcore.StatusPending, nil); err != nil {
 		t.Fatalf("UpdateStatus error: %v", err)
 	}
 
@@ -128,16 +129,16 @@ func TestExampleMinimalTask_UpdateStatusAndClose(t *testing.T) {
 	if gotS == nil {
 		t.Fatalf("fakeStorage missing object")
 	}
-	if gotS.Status != model.StatusPending {
-		t.Fatalf("fakeStorage status = %s, want %s", gotS.Status, model.StatusPending)
+	if gotS.Status != dlcore.StatusPending {
+		t.Fatalf("fakeStorage status = %s, want %s", gotS.Status, dlcore.StatusPending)
 	}
 
 	gotR, _ := fr.Get(obj.URL)
 	if gotR == nil {
 		t.Fatalf("fakeRegistry missing object")
 	}
-	if gotR.Status != model.StatusPending {
-		t.Fatalf("fakeRegistry status = %s, want %s", gotR.Status, model.StatusPending)
+	if gotR.Status != dlcore.StatusPending {
+		t.Fatalf("fakeRegistry status = %s, want %s", gotR.Status, dlcore.StatusPending)
 	}
 
 	_ = task.Close()

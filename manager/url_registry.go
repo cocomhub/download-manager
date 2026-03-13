@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 // URLStateRegistry 提供基于 URL 的全局对象状态共享
@@ -87,7 +88,7 @@ func (r *URLStateRegistry) Delete(url string) error {
 	delete(r.owners, url)
 	for _, ch := range r.subs {
 		select {
-		case ch <- &model.DownloadObject{URL: url, Status: model.StatusFailed}:
+		case ch <- &model.DownloadObject{URL: url, Status: dlcore.StatusFailed}:
 		default:
 		}
 	}
