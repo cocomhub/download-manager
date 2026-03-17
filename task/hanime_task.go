@@ -169,6 +169,11 @@ func (t *HanimeTask) Close() error {
 	return nil
 }
 
+// GetConcurrency returns the configured concurrency limit for this task
+func (t *HanimeTask) GetConcurrency() int {
+	return t.concurrency
+}
+
 func (t *HanimeTask) SetSharedRegistry(reg core.SharedRegistry) {
 	t.shared = reg
 }
@@ -217,6 +222,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			if err := t.ResolveObject(obj); err == nil {
 				candidates = append(candidates, obj)
 			} else {
+				slog.Error("hanime resolve object failed", "task_id", t.id, "url", obj.URL, "error", err)
 				t.UpdateStatus(obj, dlcore.StatusFailed, err)
 			}
 		}

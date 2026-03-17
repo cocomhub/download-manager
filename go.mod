@@ -4,6 +4,7 @@ go 1.26
 
 require (
 	github.com/PuerkitoBio/goquery v1.11.0
+	github.com/cavaliergopher/grab/v3 v3.0.1
 	github.com/dop251/goja v0.0.0-20251201205617-2bb4c724c0f9
 	github.com/gofrs/flock v0.13.0
 	github.com/gorilla/mux v1.8.1

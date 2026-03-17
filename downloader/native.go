@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -147,9 +146,6 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 				return fmt.Errorf("failed to create directory for composite file: %w", err)
 			}
 
-			subMeta := map[string]string{}
-			maps.Copy(subMeta, fileMap)
-
 			trackProgress := (fType == "video" || len(fileList) == 1)
 
 			req := &dlcore.Request{
@@ -160,7 +156,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 				OnProgress: func(p float64, downloaded, total int64) {
 					obj.Progress = int(p)
 				},
-				Metadata: subMeta,
+				Metadata: fileMap,
 			}
 			if err := d.coreClient.Download(context.Background(), req); err != nil {
 				return err
