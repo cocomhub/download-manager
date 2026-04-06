@@ -28,23 +28,24 @@ import (
 )
 
 type VikacgTask struct {
-	id          string
-	saveDir     string
-	concurrency int
-	objects     []*model.DownloadObject
-	store       core.Storage
-	shared      core.SharedRegistry
-	mu          sync.Mutex
-	refreshInt  int
-	initialized atomic.Int32
-	refresher   *CommonRefresher
-	knownURLs   map[string]bool
-	userID      int
-	hasUpdate   atomic.Bool
-	pageCount   int
-	authToken   string
-	cookie      string
-	userAgent   string
+	id           string
+	saveDir      string
+	concurrency  int
+	objects      []*model.DownloadObject
+	store        core.Storage
+	shared       core.SharedRegistry
+	mu           sync.Mutex
+	refreshInt   int
+	initialized  atomic.Int32
+	refresher    *CommonRefresher
+	knownURLs    map[string]bool
+	userID       int
+	markAsFailed sync.Map
+	hasUpdate    atomic.Bool
+	pageCount    int
+	authToken    string
+	cookie       string
+	userAgent    string
 }
 
 var _ core.Task = &VikacgTask{}
@@ -137,6 +138,10 @@ func (t *VikacgTask) SetSharedRegistry(reg core.SharedRegistry) {
 	t.shared = reg
 }
 
+func (t *VikacgTask) MarkAsFailed(obj *model.DownloadObject, err error) {
+	t.markAsFailed.Store(obj.URL, err)
+}
+
 func (t *VikacgTask) ID() string {
 	return t.id
 }
@@ -185,6 +190,9 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	pending := make([]*model.DownloadObject, 0)
 	for _, o := range t.objects {
+		if _, ok := t.markAsFailed.Load(o.URL); ok {
+			continue
+		}
 		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
 			pending = append(pending, o)
 		}

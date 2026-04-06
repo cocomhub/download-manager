@@ -163,7 +163,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		}
 
 		if len(fileList) == 0 {
-			return fmt.Errorf("composite download error: 'files' metadata found but empty")
+			return fmt.Errorf("%w: composite download error: 'files' metadata found but empty", dlcore.ErrNoTry)
 		}
 
 		slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
