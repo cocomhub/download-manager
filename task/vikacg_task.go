@@ -327,12 +327,11 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 		URL:      pageURL,
 		SavePath: savePath,
 		Metadata: map[string]string{
-			"title":    title,
-			"page_url": pageURL,
-			"type":     "composite",
-			"date":     date,
-			"section":  section,
-			"updated":  updated,
+			"title":   title,
+			"type":    "composite",
+			"date":    date,
+			"section": section,
+			"updated": updated,
 		},
 		Extra: map[string]any{
 			"tags":         tagAny,

@@ -728,7 +728,6 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 		SavePath: videoPath,
 		Metadata: map[string]string{
 			"title":    v.title,
-			"page_url": v.href,
 			"type":     "composite",
 			"duration": v.duration,
 			"date":     v.date,

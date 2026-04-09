@@ -963,7 +963,7 @@
                                 <ul class="space-y-2">
                                     <li v-for="(item, idx) in getHanimePlaylist(hanimeModalObj)" :key="(item.title||'') + idx" @click="() => item.url && window.open(item.url,'_blank')" class="flex items-center gap-3 p-2 border rounded hover:bg-gray-50 cursor-pointer">
                                         <img v-if="item.thumbnail" :src="item.thumbnail" class="w-16 h-10 object-cover rounded border">
-                                        <div class="text-sm text-gray-800 truncate">{{ item.title || item.url }}</div>
+                                        <div class="text-sm text-gray-800 truncate" @click="handlePlaylist2Card(item.url)">{{ item.title || item.url }}</div>
                                     </li>
                                 </ul>
                             </div>
@@ -3595,6 +3595,11 @@
                     const parts = path.split('/downloads/');
                     if (parts.length > 1) return "/files/" + encodeURIComponent(parts[1]);
                     return "/files/" + path
+                },
+                handlePlaylist2Card(url) {
+                    const obj = this.selectedTask.objects.find(o => o.url === url)
+                    if (obj) this.handleCardClick(obj)
+                    return
                 },
                 handleCardClick(obj) {
                     if (this.isVikacg(obj)) {

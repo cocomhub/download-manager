@@ -44,6 +44,7 @@ type HanimeTask struct {
 	refresher    *CommonRefresher
 	pager        *CommonPager
 	markAsFailed sync.Map
+	onceInit     sync.Once
 }
 
 var _ core.Task = &HanimeTask{}
@@ -193,6 +194,142 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		return []*model.DownloadObject{}, nil
 	}
 	t.mu.Lock()
+
+	t.onceInit.Do(func() {
+		url2Obj := make(map[string]*model.DownloadObject)
+		for _, obj := range t.objects {
+			url2Obj[obj.URL] = obj
+		}
+
+		// vl := strings.Split("14516,22354,22355,22356,22357,22368,22373,22374,24790,27552,27568,27573,27579,27581,27661,27684,37180,37398,37438,37617,37638,37719,37774,37775,84020", ",")
+
+		for _, obj := range t.objects {
+			needSave := false
+			// for _, vv := range vl {
+			// 	if strings.HasSuffix(obj.URL, "v="+vv) {
+			// 		slog.Info("[GG]hanime item found", "task_id", t.id, "url", obj.URL, "vv", vv)
+			// 		obj.Progress = 0
+			// 		obj.Status = dlcore.StatusPending
+			// 		obj.Extra["files"].([]any)[2].(map[string]any)["status"] = dlcore.StatusPending
+			// 		obj.Extra["files"].([]any)[2].(map[string]any)["total_size"] = "0"
+			// 		needSave = true
+			// 		break
+			// 	}
+			// }
+
+			hasErr := false
+			// if playlist, ok := obj.Extra["playlist"].([]any); ok {
+			// 	for _, p := range playlist {
+			// 		f := p.(map[string]any)
+			// 		if url, ok := f["url"].(string); ok {
+			// 			if _, ok := url2Obj[url]; !ok {
+			// 				slog.Error("[GG]hanime cache file url not found", "task_id", t.id, "url", url)
+			// 				// hasErr = true
+			// 			} else {
+			// 				if extFiles, ok := url2Obj[url].Extra["files"].([]any); ok {
+			// 					old := f["thumb"]
+			// 					for _, v := range extFiles {
+			// 						v := v.(map[string]any)
+			// 						if strings.Contains(v["url"].(string), "thumbnail") {
+			// 							_, path, found := strings.Cut(v["path"].(string), "/downloads/")
+			// 							if !found {
+			// 								slog.Error("[GG]thumb path not found", "task_id", t.id, "url", f["url"], "path", v["path"])
+			// 								continue
+			// 							}
+			// 							f["thumb"] = "/files/" + path
+			// 							needSave = true
+			// 							break
+			// 						}
+			// 					}
+			// 					if old == f["thumb"] {
+			// 						hasErr = true
+			// 						slog.Error("[GG]thumb not found", "task_id", t.id, "url", f["url"])
+			// 					}
+			// 				}
+			// 			}
+			// 		} else {
+			// 			hasErr = true
+			// 			slog.Error("[GG]hanime cache file url not found", "task_id", t.id, "url", f["url"])
+			// 		}
+			// 	}
+			// } else {
+			// 	hasErr = true
+			// 	if len(obj.Extra) > 0 && obj.Extra["playlist"] != nil {
+			// 		slog.Error("[GG]hanime cache file playlist not found", "task_id", t.id, "url", obj.URL, "type", reflect.TypeOf(obj.Extra["playlist"]).String())
+			// 	}
+			// }
+
+			ch := make(chan *model.DownloadObject, 10)
+			wg := sync.WaitGroup{}
+			wg.Go(func() {
+				for {
+					select {
+					case <-ch:
+						return
+					case <-time.NewTicker(10 * time.Second).C:
+						t.SaveCache()
+						continue
+					}
+				}
+			})
+			for range 10 {
+				wg.Go(func() {
+					for obj := range ch {
+						tmpObj := &model.DownloadObject{
+							URL:      obj.URL,
+							Metadata: make(map[string]string),
+							Extra:    make(map[string]any),
+						}
+						err := t.resolveObject(tmpObj, false)
+						if err != nil {
+							slog.Error("[GG]hanime resolve object failed", "task_id", t.id, "url", obj.URL, "error", err)
+							continue
+						}
+						slog.Info("[GG]hanime resolve object done", "task_id", t.id, "url", obj.URL, "old", obj.Metadata, "new", tmpObj.Metadata)
+
+						t.mu.Lock()
+						obj.Metadata = tmpObj.Metadata
+						t.mu.Unlock()
+						needSave = true
+						if t.store != nil {
+							t.store.Update(obj)
+						}
+						if t.shared != nil {
+							t.shared.Update(obj)
+						}
+					}
+				})
+			}
+
+			t.mu.Unlock()
+
+			if _, ok := obj.Metadata["date"]; !ok {
+				slog.Info("[GG]hanime item check done", "task_id", t.id, "url", obj.URL, "obj.Metadata", obj.Metadata)
+				ch <- obj
+			}
+			close(ch)
+			wg.Wait()
+
+			t.mu.Lock()
+
+			if hasErr {
+				return
+			}
+
+			if needSave {
+				if t.store != nil {
+					t.store.Update(obj)
+				}
+				if t.shared != nil {
+					t.shared.Update(obj)
+				}
+			}
+		}
+		t.mu.Unlock()
+		t.SaveCache()
+		t.mu.Lock()
+	})
+
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
@@ -295,16 +432,20 @@ func (t *HanimeTask) LoadCache() error {
 	}
 	t.objects = objects
 	t.knownURLs = make(map[string]bool)
-	for _, obj := range t.objects {
-		slog.Info("hanime load cache item", "task_id", t.id, "url", obj.URL)
+	i := 0
+	for idx, obj := range t.objects {
 		t.knownURLs[obj.URL] = true
 		if t.shared != nil {
 			if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
 				*obj = *so
-			}
-		} else if t.store != nil {
-			if so, err := t.store.Get(obj.URL); err == nil && so != nil {
-				*obj = *so
+			} else if t.store != nil {
+				if so, err := t.store.Get(obj.URL); err == nil && so != nil {
+					if obj.Metadata["date"] != so.Metadata["date"] {
+						i = idx
+						slog.Info("update obj by store", "idx", idx, "oldMetadata", obj.Metadata, "newMetadata", so.Metadata)
+					}
+					*obj = *so
+				}
 			}
 		}
 		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
@@ -314,6 +455,7 @@ func (t *HanimeTask) LoadCache() error {
 			delete(obj.Extra, "files")
 		}
 	}
+	slog.Info("[GG]update obj by store", "idx", i, "Metadata", t.objects[i].Metadata)
 	return nil
 }
 
@@ -436,9 +578,8 @@ func (t *HanimeTask) createObjectFromItem(v hanimeItem) *model.DownloadObject {
 		URL:      v.href,
 		SavePath: videoPath,
 		Metadata: map[string]string{
-			"title":    v.title,
-			"page_url": v.href,
-			"type":     "composite",
+			"title": v.title,
+			"type":  "composite",
 		},
 		Extra: map[string]any{
 			"thumb_url": v.thumbURL,
@@ -607,7 +748,7 @@ func parseVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 			}
 		}
 	})
-	if vurl == "" {
+	if vurl == "" && info.date == "" {
 		return nil, fmt.Errorf("video url not found")
 	}
 	info.videoURL = vurl
@@ -615,6 +756,10 @@ func parseVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 }
 
 func (t *HanimeTask) ResolveObject(obj *model.DownloadObject) error {
+	return t.resolveObject(obj, true)
+}
+
+func (t *HanimeTask) resolveObject(obj *model.DownloadObject, lock bool) error {
 	info, err := t.parseVideoPage(obj.URL)
 	if err != nil {
 		return err
@@ -653,7 +798,9 @@ func (t *HanimeTask) ResolveObject(obj *model.DownloadObject) error {
 			"type": typ,
 		})
 	}
-	t.mu.Lock()
+	if lock {
+		t.mu.Lock()
+	}
 	obj.Metadata["title"] = info.title
 	obj.Metadata["date"] = info.date
 	obj.SavePath = videoPath
@@ -678,13 +825,15 @@ func (t *HanimeTask) ResolveObject(obj *model.DownloadObject) error {
 		}
 		obj.Extra["playlist"] = pl
 	}
-	t.mu.Unlock()
-	if t.store != nil {
-		t.store.Update(obj)
+	if lock {
+		t.mu.Unlock()
 	}
-	if t.shared != nil {
-		t.shared.Update(obj)
-	}
+	// if t.store != nil {
+	// 	t.store.Update(obj)
+	// }
+	// if t.shared != nil {
+	// 	t.shared.Update(obj)
+	// }
 	return nil
 }
 
