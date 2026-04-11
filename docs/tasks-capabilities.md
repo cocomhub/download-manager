@@ -18,6 +18,7 @@
     - 刷新：CommonRefresher（已用）
     - 缓存：JSON（Load/SaveCache）
     - 路径策略：支持（字段 pathStrategy），工厂可注入
+    - 内容分组：根据标题提取内容组名，写入对象 Metadata.content_group（示例：CLUB-100、CLUB-100C、【高画质】CLUB-100* 均归为 CLUB-100）
     - 自定义头：无
   - vikacg
     - 分页：用户帖子 API 分页（内部实现）
@@ -40,4 +41,3 @@
   - tasks[].extra.path_strategy：first_fixed 等
   - tasks[].extra.refresh_interval：整数秒
   - tasks[].extra.headers：字典，按需传入
-

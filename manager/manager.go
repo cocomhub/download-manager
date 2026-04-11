@@ -22,7 +22,9 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
+	"github.com/cocomhub/download-manager/task"
 )
 
 type downloadRequest struct {
@@ -562,6 +564,8 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	} else {
 		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
+		// Apply group priority policies for content groups
+		m.applyGroupPriorityPolicies(t, obj)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
 			mt := v.(*taskMetrics)
 			mt.completed++
@@ -884,6 +888,322 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 		"page":    page,
 		"limit":   limit,
 	}, nil
+}
+
+// AggregateByContent groups objects by content_group and returns representatives
+func (m *Manager) AggregateByContent(page, limit int, search, sortBy, status string, types []string) (map[string]any, error) {
+	// Collect all objects similar to AggregateObjects
+	cfg := m.currentCfg()
+	typeMatches := func(t core.Task) bool {
+		if len(types) == 0 {
+			return true
+		}
+		tt := strings.ToLower(t.Type())
+		for _, pref := range types {
+			p := strings.ToLower(pref)
+			if strings.HasPrefix(tt, p) {
+				return true
+			}
+		}
+		return false
+	}
+	type taskObj struct {
+		t   core.Task
+		obj *model.DownloadObject
+	}
+	all := make([]taskObj, 0, 1024)
+	for _, tCfg := range cfg.Tasks {
+		id := tCfg.ID
+		tk, ok := m.getTask(id)
+		if !ok {
+			continue
+		}
+		if !typeMatches(tk) {
+			continue
+		}
+		if st, ok := tk.(interface {
+			GetAllObjects() []*model.DownloadObject
+		}); ok {
+			for _, o := range st.GetAllObjects() {
+				if status != "" && status != "all" {
+					if o.Status != status {
+						continue
+					}
+				}
+				all = append(all, taskObj{t: tk, obj: o})
+			}
+		}
+	}
+	// Filter by search
+	if search = strings.ToLower(strings.TrimSpace(search)); search != "" {
+		filtered := make([]taskObj, 0, len(all))
+		for _, to := range all {
+			obj := to.obj
+			match := false
+			if strings.Contains(strings.ToLower(obj.URL), search) {
+				match = true
+			} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
+				match = true
+			} else if tags, ok := obj.Extra["tags"].([]any); ok {
+				for _, t := range tags {
+					if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
+						match = true
+						break
+					}
+				}
+			}
+			if match {
+				filtered = append(filtered, to)
+			}
+		}
+		all = filtered
+	}
+	// Group by content_group (empty as its own group)
+	type groupEntry struct {
+		t   core.Task
+		obj *model.DownloadObject
+	}
+	groups := make(map[string][]groupEntry)
+	for _, to := range all {
+		obj := to.obj
+		group := ""
+		if obj.Metadata != nil {
+			group = obj.Metadata["content_group"]
+		}
+		groups[group] = append(groups[group], groupEntry{t: to.t, obj: obj})
+	}
+	// Pick representative by priority (hasHQ > hasC), tie -> first
+	reps := make([]*model.DownloadObject, 0, len(groups))
+	for _, entries := range groups {
+		var rep *model.DownloadObject
+		var repScore [2]int
+		for idx, e := range entries {
+			hq, c := false, false
+			if e.t.Type() == task.TypeTktube {
+				hq, c = titlegroup.TKTVariantFlags(e.obj.Metadata["title"])
+			}
+			score := [2]int{boolToInt(hq), boolToInt(c)}
+			if idx == 0 || score[0] > repScore[0] || (score[0] == repScore[0] && score[1] > repScore[1]) {
+				rep = e.obj
+				repScore = score
+			}
+		}
+		if rep != nil {
+			// shallow copy to add group_size without mutating original
+			copyObj := *rep
+			if copyObj.Extra == nil {
+				copyObj.Extra = make(map[string]any)
+			} else {
+				// shallow copy map to avoid side effects
+				newExtra := make(map[string]any, len(copyObj.Extra)+1)
+				for k, v := range copyObj.Extra {
+					newExtra[k] = v
+				}
+				copyObj.Extra = newExtra
+			}
+			copyObj.Extra["group_size"] = len(entries)
+			reps = append(reps, &copyObj)
+		}
+	}
+	// Sort representatives
+	sort.Slice(reps, func(i, j int) bool {
+		switch sortBy {
+		case "date_asc":
+			return reps[i].Metadata["date"] < reps[j].Metadata["date"]
+		case "date_desc":
+			return reps[i].Metadata["date"] > reps[j].Metadata["date"]
+		case "name_asc":
+			ti := reps[i].Metadata["title"]
+			if ti == "" {
+				ti = reps[i].URL
+			}
+			tj := reps[j].Metadata["title"]
+			if tj == "" {
+				tj = reps[j].URL
+			}
+			return strings.ToLower(ti) < strings.ToLower(tj)
+		default:
+			di := reps[i].Metadata["date"]
+			dj := reps[j].Metadata["date"]
+			if di != dj {
+				return di > dj
+			}
+			return reps[i].URL < reps[j].URL
+		}
+	})
+	total := len(reps)
+	var paged []*model.DownloadObject
+	if limit <= 0 {
+		paged = reps
+		page = 1
+		limit = total
+	} else {
+		if page < 1 {
+			page = 1
+		}
+		start := min((page-1)*limit, total)
+		end := min(start+limit, total)
+		paged = reps[start:end]
+	}
+	return map[string]any{
+		"objects": paged,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	}, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// BackfillContentGroups scans storages and backfills missing content_group metadata
+func (m *Manager) BackfillContentGroups() {
+	m.tasks.Range(func(key, value any) bool {
+		t, _ := value.(core.Task)
+		sp, ok := value.(core.StorageProvider)
+		if !ok {
+			return true
+		}
+		st := sp.GetStorage()
+		if st == nil {
+			return true
+		}
+		list, err := st.Search(nil)
+		if err != nil || list == nil {
+			return true
+		}
+		count := 0
+		for _, obj := range list {
+			if obj == nil {
+				continue
+			}
+			if obj.Metadata == nil {
+				obj.Metadata = make(map[string]string)
+			}
+			if obj.Metadata["content_group"] != "" {
+				continue
+			}
+			switch t.Type() {
+			case task.TypeTktube:
+				group := titlegroup.TKTGroupNameFromTitle(obj.Metadata["title"])
+				if group != "" {
+					obj.Metadata["content_group"] = group
+					if err := st.Update(obj); err == nil {
+						count++
+					}
+				}
+			default:
+				// no-op for other types
+			}
+		}
+		if count > 0 {
+			slog.Info("Backfilled content_group", "task_id", t.ID(), "count", count)
+		}
+		return true
+	})
+}
+
+// applyGroupPriorityPolicies enforces group priority and auto-cancels lower-priority duplicates
+func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObject) {
+	if t.Type() != task.TypeTktube {
+		return
+	}
+	if obj == nil || obj.Status != dlcore.StatusCompleted {
+		return
+	}
+	group := ""
+	if obj.Metadata != nil {
+		group = obj.Metadata["content_group"]
+	}
+	if strings.TrimSpace(group) == "" {
+		return
+	}
+	sp, ok := t.(core.StorageProvider)
+	if !ok {
+		return
+	}
+	st := sp.GetStorage()
+	if st == nil {
+		return
+	}
+	list, err := st.Search(nil)
+	if err != nil || list == nil {
+		return
+	}
+	type candidate struct {
+		o     *model.DownloadObject
+		score [2]int
+	}
+	var canonical *model.DownloadObject
+	bestScore := [2]int{-1, -1}
+	cands := make([]candidate, 0, 8)
+	for _, o := range list {
+		if o == nil {
+			continue
+		}
+		if o.Metadata == nil || o.Metadata["content_group"] != group {
+			continue
+		}
+		hq, c := titlegroup.TKTVariantFlags(o.Metadata["title"])
+		score := [2]int{boolToInt(hq), boolToInt(c)}
+		cands = append(cands, candidate{o: o, score: score})
+		if o.Status == dlcore.StatusCompleted {
+			if canonical == nil || score[0] > bestScore[0] || (score[0] == bestScore[0] && score[1] > bestScore[1]) {
+				canonical = o
+				bestScore = score
+			}
+		}
+	}
+	if canonical == nil {
+		return
+	}
+	for _, cnd := range cands {
+		o := cnd.o
+		if o.URL == canonical.URL {
+			continue
+		}
+		// Cancel only if lower priority and not yet completed
+		if cnd.score[0] < bestScore[0] || (cnd.score[0] == bestScore[0] && cnd.score[1] < bestScore[1]) {
+			if o.Status != dlcore.StatusCompleted {
+				if o.Extra == nil {
+					o.Extra = make(map[string]any)
+				}
+				o.Extra["redirect_url"] = canonical.URL
+				_ = t.UpdateStatus(o, dlcore.StatusCancelled, nil)
+			}
+		}
+	}
+}
+
+// GetObjectsByGroup returns all objects across tasks with the given content_group
+func (m *Manager) GetObjectsByGroup(group string) []*model.DownloadObject {
+	list := make([]*model.DownloadObject, 0, 64)
+	group = strings.TrimSpace(group)
+	cfg := m.currentCfg()
+	for _, tCfg := range cfg.Tasks {
+		tk, ok := m.getTask(tCfg.ID)
+		if !ok {
+			continue
+		}
+		if st, ok := tk.(interface {
+			GetAllObjects() []*model.DownloadObject
+		}); ok {
+			for _, o := range st.GetAllObjects() {
+				g := ""
+				if o.Metadata != nil {
+					g = o.Metadata["content_group"]
+				}
+				if g == group {
+					list = append(list, o)
+				}
+			}
+		}
+	}
+	return list
 }
 
 func hasMethod(i any, name string) bool {

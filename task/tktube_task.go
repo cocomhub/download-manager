@@ -22,6 +22,7 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/pkg/titlegroup"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/dop251/goja"
@@ -721,16 +722,18 @@ func (t *TktubeTask) simpleDownload(url, path string) error {
 func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObject {
 	// Basic object with metadata from list page
 	videoPath, _ := t.pathStrategy.Resolve(t.saveDir, t.id, v.title, "video")
+	group := titlegroup.TKTGroupNameFromTitle(v.title)
 
 	obj := &model.DownloadObject{
 		TaskID:   t.id,
 		URL:      v.href, // Page URL as ID
 		SavePath: videoPath,
 		Metadata: map[string]string{
-			"title":    v.title,
-			"type":     "composite",
-			"duration": v.duration,
-			"date":     v.date,
+			"title":         v.title,
+			"type":          "composite",
+			"duration":      v.duration,
+			"date":          v.date,
+			"content_group": group,
 		},
 		Extra: map[string]any{
 			"preview_url": v.previewURL,

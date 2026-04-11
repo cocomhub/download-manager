@@ -72,6 +72,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks", s.listTasks).Methods("GET")
 	r.HandleFunc("/api/tasks", s.createTaskPersistent).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
+	r.HandleFunc("/api/groups/{group}/objects", s.getGroupObjects).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", s.updateTaskPersistent).Methods("PUT")
 	r.HandleFunc("/api/tasks/{id}/retry", s.wrapWrite(s.retryTask)).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/cancel", s.wrapWrite(s.cancelTask)).Methods("POST")
@@ -697,6 +698,7 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("search"))
 	sortBy := r.URL.Query().Get("sort")
 	status := r.URL.Query().Get("status")
+	groupBy := r.URL.Query().Get("group_by")
 	typesParam := strings.TrimSpace(r.URL.Query().Get("types"))
 	var types []string
 	if typesParam != "" {
@@ -707,12 +709,31 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	res, err := s.mgr.AggregateObjects(page, limit, search, sortBy, status, types)
+	var (
+		res map[string]any
+		err error
+	)
+	if groupBy == "content" {
+		res, err = s.mgr.AggregateByContent(page, limit, search, sortBy, status, types)
+	} else {
+		res, err = s.mgr.AggregateObjects(page, limit, search, sortBy, status, types)
+	}
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "aggregate_failed", fmt.Sprintf("Failed to aggregate objects: %v", err))
 		return
 	}
 	json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) getGroupObjects(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	group := vars["group"]
+	list := s.mgr.GetObjectsByGroup(group)
+	json.NewEncoder(w).Encode(map[string]any{
+		"group":   group,
+		"objects": list,
+		"total":   len(list),
+	})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

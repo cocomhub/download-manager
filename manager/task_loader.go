@@ -70,6 +70,8 @@ func (m *Manager) loadTasks() {
 		}
 		return true
 	})
+	// Backfill content_group after cold start rehydration
+	m.BackfillContentGroups()
 }
 
 func (m *Manager) saveAllCaches(close bool) {
