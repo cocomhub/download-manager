@@ -1,0 +1,9 @@
+- [x] 所有 pkg/dlcore 文件操作均经 RootFS（os.Root）限制在 downloader.root_dir 内
+- [x] SavePath 上跳/绝对路径越界被拒绝并返回明确错误
+- [x] 默认 UA/headers、HTTP 超时、缓冲区、权限、进度阈值等均可通过配置覆盖
+- [x] 代理探测超时、决策 TTL、带宽路径后缀均可配置且默认与现状一致
+- [x] 日志与缓存目录在 root_dir 下的相对路径正常解析，拒绝根外路径
+- [x] 移除 /Volumes… 与 /opt… 等环境专属绝对路径逻辑
+- [x] ffmpeg 参数可经配置扩展，日志在 root 内生成
+- [x] 既有 Option 行为保持兼容，未设置 root_dir 时默认 <server.work_dir>/downloads
+- [x] 配置示例与文档更新完成

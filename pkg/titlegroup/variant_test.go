@@ -1,11 +1,14 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package titlegroup
 
 import "testing"
 
 func TestTKTVariantFlags(t *testing.T) {
 	cases := []struct {
-		in           string
-		hasHQ, hasC  bool
+		in          string
+		hasHQ, hasC bool
 	}{
 		{"【高画质】CLUB-100", true, false},
 		{"CLUB-100C", false, true},
@@ -20,4 +23,3 @@ func TestTKTVariantFlags(t *testing.T) {
 		}
 	}
 }
-

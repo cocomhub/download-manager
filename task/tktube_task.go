@@ -722,7 +722,7 @@ func (t *TktubeTask) simpleDownload(url, path string) error {
 func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObject {
 	// Basic object with metadata from list page
 	videoPath, _ := t.pathStrategy.Resolve(t.saveDir, t.id, v.title, "video")
-	group := titlegroup.TKTGroupNameFromTitle(v.title)
+	group := titlegroup.TKTContentGroupKey(v.title, v.href)
 
 	obj := &model.DownloadObject{
 		TaskID:   t.id,
@@ -731,6 +731,7 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 		Metadata: map[string]string{
 			"title":         v.title,
 			"type":          "composite",
+			"task_type":     t.Type(),
 			"duration":      v.duration,
 			"date":          v.date,
 			"content_group": group,
