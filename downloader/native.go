@@ -43,32 +43,67 @@ type NativeHTTPDownloader struct {
 var _ core.Downloader = &NativeHTTPDownloader{}
 
 func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
-	logDir := cfg.LogDir
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		slog.Error("Failed to create log directory", "dir", logDir, "error", err)
-		logDir = ""
+	rootDir := cfg.Filesystem.RootDir
+	logDirRel := cfg.Filesystem.LogDir
+	logDir := ""
+	if logDirRel != "" {
+		logDir = filepath.Join(rootDir, logDirRel)
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			slog.Error("Failed to create log directory", "dir", logDir, "error", err)
+			logDir = ""
+		}
 	}
 
 	home, _ := os.UserHomeDir()
+	cacheDir := filepath.Join(cfg.Filesystem.RootDir, cfg.Filesystem.CacheDir)
+
+	// 计算可选项需要的绝对路径
+	var (
+		moveEnabled bool
+		moveDirAbs  string
+		hlsLogEn    bool
+		hlsLogPath  string
+	)
+	if cfg.FFmpeg.MoveIfExists.Enabled && cfg.FFmpeg.MoveIfExists.Dir != "" {
+		moveEnabled = true
+		moveDirAbs = filepath.Join(rootDir, cfg.FFmpeg.MoveIfExists.Dir)
+	}
+	if cfg.FFmpeg.ExternalHLSLog.Enabled && cfg.FFmpeg.ExternalHLSLog.Path != "" {
+		hlsLogEn = true
+		hlsLogPath = filepath.Join(rootDir, cfg.FFmpeg.ExternalHLSLog.Path)
+	}
 
 	// 创建配置化的 HTTP 客户端 [1,2](@ref)
 	client := &http.Client{
-		Timeout: 600 * time.Second,
+		Timeout: time.Duration(cfg.HTTP.TimeoutSeconds) * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     30 * time.Second,
+			MaxIdleConns:        cfg.HTTP.MaxIdleConns,
+			MaxIdleConnsPerHost: cfg.HTTP.MaxIdleConnsPerHost,
+			IdleConnTimeout:     time.Duration(cfg.HTTP.IdleConnTimeoutSeconds) * time.Second,
 		},
 	}
 
 	coreClient := dlcore.NewClient(
 		dlcore.WithHTTPClient(client),
+		dlcore.WithRootDir(rootDir),
 		dlcore.WithLoggerDir(logDir),
+		dlcore.WithCacheDir(cacheDir),
+		dlcore.WithDefaultUserAgent(cfg.HTTP.DefaultUserAgent),
+		dlcore.WithDisableInjectBrowserLikeHeaders(cfg.HTTP.DisableInjectBrowserLikeHeaders),
 		dlcore.WithProxies(cfg.Proxies),
 		dlcore.WithForceProxy(cfg.ForceProxy),
+		dlcore.WithProxyTuning(
+			cfg.Proxy.DecisionCacheTTLSecs,
+			cfg.Proxy.DirectProbeTimeoutSecs,
+			cfg.Proxy.BandwidthPathSuffix,
+		),
+		dlcore.WithProgressTuning(cfg.Progress.MinPercentStep, cfg.Progress.MaxIntervalSeconds),
 		dlcore.WithMaxRetries(cfg.MaxRetries),
-		dlcore.WithFFmpegPath(cfg.FfmpegPath),
-		dlcore.WithHLSAutoMarkAsFail(cfg.HlsAutoMarkAsFail),
+		dlcore.WithFFmpegPath(cfg.FFmpeg.Path),
+		dlcore.WithFFmpegExtraArgs(cfg.FFmpeg.ExtraArgs),
+		dlcore.WithMoveIfExists(moveEnabled, moveDirAbs),
+		dlcore.WithExternalHLSLog(hlsLogEn, hlsLogPath),
+		dlcore.WithHLSAutoMarkAsFail(cfg.FFmpeg.HLSAutoMarkAsFail || cfg.HlsAutoMarkAsFail),
 	)
 
 	return &NativeHTTPDownloader{

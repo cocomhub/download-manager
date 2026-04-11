@@ -1,7 +1,12 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package m3u8d
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,9 +53,11 @@ func NewM3U8Downloader(config *DownloadConfig) (*M3U8Downloader, error) {
 		return nil, fmt.Errorf("无效的URL: %v", err)
 	}
 
+	base64URL := base64.URLEncoding.EncodeToString([]byte(parsedURL.String()))
+
 	// 设置工作目录
 	if config.WorkDir == "" {
-		config.WorkDir = fmt.Sprintf("download_%d", time.Now().UnixNano())
+		config.WorkDir = fmt.Sprintf("download_%s", base64URL[:10])
 	}
 
 	// 确保工作目录存在
@@ -161,6 +168,7 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 		if err != nil {
 			return err
 		}
+		req = req.WithContext(ctx)
 		req.HTTPRequest.Header.Set("User-Agent", d.Config.UserAgent)
 		for k, v := range d.Config.Headers {
 			req.HTTPRequest.Header.Set(k, v)
@@ -168,17 +176,19 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 		reqs = append(reqs, req)
 	}
 
-	// 创建响应通道
-	respch := client.DoBatch(d.Config.Concurrency, reqs...)
-
 	// 监控下载进度
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	completed := 0
-	inProgress := 0
 	responses := make([]*grab.Response, 0, len(reqs))
 
+retry:
+	// 创建响应通道
+	respch := client.DoBatch(d.Config.Concurrency, reqs...)
+
+	completed := 0
+	inProgress := 0
+	errReqs := make([]*grab.Request, 0)
 	for completed < len(reqs) {
 		select {
 		case <-ticker.C:
@@ -188,12 +198,27 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 			}
 
 		case resp := <-respch:
+			completed++
+
+			if resp != nil && resp.Err() != nil {
+				fmt.Printf("下载失败: %s - %v - %v\n", filepath.Base(resp.Filename), resp.HTTPResponse.Status, resp.Err())
+				if resp.HTTPResponse.StatusCode == 472 {
+					d.Config.Concurrency = 1
+				}
+				req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
+				if err != nil {
+					return err
+				}
+				req = req.WithContext(ctx)
+				errReqs = append(errReqs, req)
+				continue
+			}
+
 			if resp != nil {
 				responses = append(responses, resp)
 			}
 
 			if resp != nil && resp.HTTPResponse != nil && resp.HTTPResponse.Request != nil {
-				completed++
 				d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
 				d.downloadedCount++
 
@@ -208,6 +233,11 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 				}
 			}
 		}
+	}
+
+	if len(errReqs) > 0 {
+		reqs = errReqs
+		goto retry
 	}
 
 	// 检查错误
@@ -241,6 +271,8 @@ func (d *M3U8Downloader) parseM3U8(ctx context.Context, m3u8URL, localPath strin
 	if err != nil {
 		return nil, err
 	}
+
+	os.Rename(localPath, localPath+".bak")
 
 	// 计算基础URL
 	base, err := url.Parse(m3u8URL)
@@ -326,15 +358,15 @@ func (d *M3U8Downloader) parseM3U8(ctx context.Context, m3u8URL, localPath strin
 	}
 
 	// 更新m3u8文件
-	if len(modifiedLines) != len(lines) {
-		updatedContent := strings.Join(modifiedLines, "\n")
-		if err := os.WriteFile(localPath, []byte(updatedContent), 0644); err != nil {
-			return nil, err
-		}
+	updatedContent := strings.Join(modifiedLines, "\n")
+	if err := os.WriteFile(localPath, []byte(updatedContent), 0644); err != nil {
+		return nil, err
 	}
 
 	return tasks, nil
 }
+
+var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
 
 // 下载所有资源
 func (d *M3U8Downloader) DownloadAll(ctx context.Context) (string, error) {
@@ -355,9 +387,15 @@ func (d *M3U8Downloader) DownloadAll(ctx context.Context) (string, error) {
 		fmt.Printf("发现 %d 个资源需要下载\n", d.totalFiles)
 	}
 
+	if d.totalFiles < 10 {
+		return mainM3U8Path, ErrNotEnoughFiles
+	}
+
 	// 并发下载
 	if err := d.downloadFilesConcurrently(ctx, tasks); err != nil {
-		return "", fmt.Errorf("下载失败: %v", err)
+		if err := d.downloadFilesConcurrently(ctx, tasks); err != nil {
+			return "", fmt.Errorf("下载失败: %v", err)
+		}
 	}
 
 	return mainM3U8Path, nil

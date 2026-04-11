@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -38,8 +41,8 @@ func main() {
 	// 解析headers
 	headerMap := make(map[string]string)
 	if *headers != "" {
-		pairs := strings.Split(*headers, ";")
-		for _, pair := range pairs {
+		pairs := strings.SplitSeq(*headers, ";")
+		for pair := range pairs {
 			kv := strings.SplitN(strings.TrimSpace(pair), ":", 2)
 			if len(kv) == 2 {
 				headerMap[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])

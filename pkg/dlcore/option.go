@@ -17,6 +17,14 @@ func WithLoggerDir(dir string) Option {
 	return func(cl *Client) { cl.logDir = dir }
 }
 
+func WithRootDir(root string) Option {
+	return func(cl *Client) { cl.rootDir = root }
+}
+
+func WithCacheDir(dir string) Option {
+	return func(cl *Client) { cl.cacheDir = dir }
+}
+
 func WithProxies(proxies []string) Option {
 	return func(cl *Client) { cl.proxies = proxies }
 }
@@ -35,4 +43,45 @@ func WithFFmpegPath(path string) Option {
 
 func WithHLSAutoMarkAsFail(v bool) Option {
 	return func(cl *Client) { cl.hlsAutoMarkAsFail = v }
+}
+
+func WithDefaultUserAgent(ua string) Option {
+	return func(cl *Client) { cl.defaultUserAgent = ua }
+}
+
+func WithDisableInjectBrowserLikeHeaders(v bool) Option {
+	return func(cl *Client) { cl.disableInjectBrowserLikeHeaders = v }
+}
+
+func WithProxyTuning(ttlSecs int, directProbeTimeoutSecs int, bandwidthPathSuffix string) Option {
+	return func(cl *Client) {
+		cl.proxyDecisionTTLSecs = ttlSecs
+		cl.directProbeTimeoutSecs = directProbeTimeoutSecs
+		cl.bandwidthPathSuffix = bandwidthPathSuffix
+	}
+}
+
+func WithProgressTuning(minPercentStep float64, maxIntervalSeconds int) Option {
+	return func(cl *Client) {
+		cl.progressMinPercentStep = minPercentStep
+		cl.progressMaxIntervalSeconds = maxIntervalSeconds
+	}
+}
+
+func WithFFmpegExtraArgs(args []string) Option {
+	return func(cl *Client) { cl.ffmpegExtraArgs = args }
+}
+
+func WithMoveIfExists(enabled bool, dir string) Option {
+	return func(cl *Client) {
+		cl.moveIfExistsEnabled = enabled
+		cl.moveIfExistsDir = dir
+	}
+}
+
+func WithExternalHLSLog(enabled bool, path string) Option {
+	return func(cl *Client) {
+		cl.externalHLSLogEnabled = enabled
+		cl.externalHLSLogPath = path
+	}
 }

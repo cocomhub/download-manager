@@ -52,7 +52,9 @@ type Request struct {
 }
 
 type Client struct {
+	rootDir           string
 	logDir            string
+	cacheDir          string
 	proxies           []string
 	forceProxy        bool
 	maxRetries        int
@@ -61,6 +63,19 @@ type Client struct {
 	active            sync.Map
 	ffmpegPath        string
 	hlsAutoMarkAsFail bool
+	// new externalized parameters
+	defaultUserAgent                string
+	disableInjectBrowserLikeHeaders bool
+	proxyDecisionTTLSecs            int
+	directProbeTimeoutSecs          int
+	bandwidthPathSuffix             string
+	progressMinPercentStep          float64
+	progressMaxIntervalSeconds      int
+	ffmpegExtraArgs                 []string
+	moveIfExistsEnabled             bool
+	moveIfExistsDir                 string
+	externalHLSLogEnabled           bool
+	externalHLSLogPath              string
 }
 
 func NewClient(opts ...Option) *Client {
@@ -102,6 +117,14 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		return fmt.Errorf("invalid request: missing URL or SavePath")
 	}
 
+	rPath := req.SavePath
+	if c.rootDir != "" {
+		rPath, err = ResolvePath(c.rootDir, req.SavePath)
+		if err != nil {
+			return err
+		}
+	}
+
 	if req.Metadata == nil {
 		req.Metadata = make(map[string]string)
 	}
@@ -116,7 +139,7 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		return c.downloadHLSWithFFmpeg(ctx, req)
 	}
 	// 确保目录存在
-	dir := filepath.Dir(req.SavePath)
+	dir := filepath.Dir(rPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -125,7 +148,15 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 	var logFile string
 	var f io.Writer = io.Discard
 	if c.logDir != "" {
-		logFile = filepath.Join(c.logDir, filepath.Base(req.SavePath)+"."+
+		logDir := c.logDir
+		if c.rootDir != "" {
+			if l, e := ResolvePath(c.rootDir, c.logDir); e == nil {
+				logDir = l
+			} else {
+				slog.Warn("Failed to resolve log dir", "dir", c.logDir, "error", e)
+			}
+		}
+		logFile = filepath.Join(logDir, filepath.Base(rPath)+"."+
 			time.Now().Format("20060102150405")+".native.log")
 		ff, err := os.Create(logFile)
 		if err != nil {
@@ -157,7 +188,7 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 
 	// 检查文件是否存在以支持断点续传
 	var startOffset int64 = 0
-	fileInfo, err := os.Stat(req.SavePath)
+	fileInfo, err := os.Stat(rPath)
 	if err == nil && fileInfo.Size() > 0 {
 		startOffset = fileInfo.Size()
 		slog.Info("Resuming download", "file", req.SavePath, "offset", startOffset)
@@ -193,17 +224,25 @@ startDownload:
 	}
 
 	// 设置请求头模拟浏览器行为
-	hreq.Header.Set("accept", "*/*")
-	hreq.Header.Set("cache-control", "no-cache")
-	hreq.Header.Set("pragma", "no-cache")
-	hreq.Header.Set("priority", "i")
-	hreq.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
-	hreq.Header.Set("sec-ch-ua-mobile", "?0")
-	hreq.Header.Set("sec-ch-ua-platform", `"macOS"`)
-	hreq.Header.Set("sec-fetch-dest", "video")
-	hreq.Header.Set("sec-fetch-mode", "no-cors")
-	hreq.Header.Set("sec-fetch-site", "same-origin")
-	hreq.Header.Set("user-agent", DefaultUserAgent)
+	if !c.disableInjectBrowserLikeHeaders {
+		hreq.Header.Set("accept", "*/*")
+		hreq.Header.Set("cache-control", "no-cache")
+		hreq.Header.Set("pragma", "no-cache")
+		hreq.Header.Set("priority", "i")
+		hreq.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
+		hreq.Header.Set("sec-ch-ua-mobile", "?0")
+		hreq.Header.Set("sec-ch-ua-platform", `"macOS"`)
+		hreq.Header.Set("sec-fetch-dest", "video")
+		hreq.Header.Set("sec-fetch-mode", "no-cors")
+		hreq.Header.Set("sec-fetch-site", "same-origin")
+		ua := c.defaultUserAgent
+		if strings.TrimSpace(ua) == "" {
+			ua = DefaultUserAgent
+		}
+		if strings.TrimSpace(ua) != "" {
+			hreq.Header.Set("user-agent", ua)
+		}
+	}
 
 	// 添加自定义请求头
 	for k, v := range req.Headers {
@@ -232,7 +271,7 @@ startDownload:
 				fmt.Fprintf(f, "The file is already fully retrieved; nothing to do.")
 				return nil
 			}
-			base64MD5, hexMD5, err := computeFileMD5(req.SavePath)
+			base64MD5, hexMD5, err := computeFileMD5(rPath)
 			if err != nil {
 				return fmt.Errorf("failed to compute file MD5: %w", err)
 			}
@@ -244,7 +283,7 @@ startDownload:
 				if modTimeStr != "" {
 					modTime, err := time.Parse(time.RFC1123, modTimeStr)
 					if err == nil {
-						os.Chtimes(req.SavePath, modTime, modTime)
+						os.Chtimes(rPath, modTime, modTime)
 					}
 					req.Metadata["mod_time"] = modTime.Format(time.RFC3339Nano)
 				}
@@ -331,7 +370,7 @@ startDownload:
 	} else {
 		fileFlags |= os.O_TRUNC
 	}
-	file, err := os.OpenFile(req.SavePath, fileFlags, 0644)
+	file, err := os.OpenFile(rPath, fileFlags, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -355,7 +394,15 @@ startDownload:
 			downloaded: startOffset,
 			onProgress: func(progress float64, downloaded, total int64) {
 				req.OnProgress(progress, downloaded, total)
-				if f != nil && (progress-lastProgress > 0.5 || time.Since(lastUpdate) >= 10*time.Second) {
+				minStep := c.progressMinPercentStep
+				if minStep <= 0 {
+					minStep = 0.5
+				}
+				maxInterval := c.progressMaxIntervalSeconds
+				if maxInterval <= 0 {
+					maxInterval = 10
+				}
+				if f != nil && (progress-lastProgress > minStep || time.Since(lastUpdate) >= time.Duration(maxInterval)*time.Second) {
 					bps := float64(downloaded-lastDownloaded) / (time.Since(lastUpdate).Seconds())
 					index := 0
 					suffixs := []string{"B/s", "KB/s", "MB/s"}
@@ -381,7 +428,7 @@ startDownload:
 	}
 
 	if wantMd5 := resp.Header.Get("X-Amz-Meta-Md5chksum"); wantMd5 != "" {
-		base64MD5, hexMD5, err := computeFileMD5(req.SavePath)
+		base64MD5, hexMD5, err := computeFileMD5(rPath)
 		if err != nil {
 			return fmt.Errorf("failed to compute file MD5: %w", err)
 		}
@@ -406,12 +453,12 @@ startDownload:
 	modTimeStr := resp.Header.Get("Last-Modified")
 	if modTimeStr != "" {
 		if modTime, err := time.Parse(time.RFC1123, modTimeStr); err == nil {
-			os.Chtimes(req.SavePath, modTime, modTime)
+			os.Chtimes(rPath, modTime, modTime)
 			req.Metadata["mod_time"] = modTime.Format(time.RFC3339Nano)
 		}
 	}
 	if totalSize <= 0 {
-		if info, statErr := os.Stat(req.SavePath); statErr == nil && info.Size() > 0 {
+		if info, statErr := os.Stat(rPath); statErr == nil && info.Size() > 0 {
 			totalSize = info.Size()
 		} else {
 			totalSize = written
@@ -505,9 +552,22 @@ func (c *Client) determineProxy(targetURL string) (string, error) {
 		return "", err
 	}
 	domain := u.Host
-	cachePath := filepath.Join(filepath.Join(os.TempDir(), "dlcore_proxy_cache"), domain)
+	cacheBase := c.cacheDir
+	if cacheBase == "" {
+		cacheBase = filepath.Join(os.TempDir(), "dlcore_proxy_cache")
+	}
+	if c.rootDir != "" {
+		if rp, e := ResolvePath(c.rootDir, cacheBase); e == nil {
+			cacheBase = rp
+		}
+	}
+	cachePath := filepath.Join(cacheBase, domain)
 	if info, err := os.Stat(cachePath); err == nil {
-		if time.Since(info.ModTime()) < 1*time.Second {
+		ttl := c.proxyDecisionTTLSecs
+		if ttl <= 0 {
+			ttl = 1
+		}
+		if time.Since(info.ModTime()) < time.Duration(ttl)*time.Second {
 			content, _ := os.ReadFile(cachePath)
 			s := strings.TrimSpace(string(content))
 			if s == "direct" {
@@ -541,7 +601,11 @@ func (c *Client) checkDirect(u string) bool {
 	if c.forceProxy {
 		return false
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
+	timeoutSecs := c.directProbeTimeoutSecs
+	if timeoutSecs <= 0 {
+		timeoutSecs = 3
+	}
+	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	resp, err := client.Head(u)
 	if err != nil {
 		return false
@@ -551,8 +615,19 @@ func (c *Client) checkDirect(u string) bool {
 }
 
 func (c *Client) getProxyBandwidth(proxyURL string) float64 {
-	target := fmt.Sprintf("%s/bandwidth", strings.TrimRight(proxyURL, "/"))
-	client := &http.Client{Timeout: 3 * time.Second}
+	suffix := c.bandwidthPathSuffix
+	if strings.TrimSpace(suffix) == "" {
+		suffix = "/bandwidth"
+	}
+	if !strings.HasPrefix(suffix, "/") {
+		suffix = "/" + suffix
+	}
+	target := fmt.Sprintf("%s%s", strings.TrimRight(proxyURL, "/"), suffix)
+	timeoutSecs := c.directProbeTimeoutSecs
+	if timeoutSecs <= 0 {
+		timeoutSecs = 3
+	}
+	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	resp, err := client.Get(target)
 	if err != nil {
 		return 999999

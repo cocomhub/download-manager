@@ -37,6 +37,36 @@ downloader:
   proxies:
     - http://129.226.212.209:18080
     - http://43.159.49.114:18080
+  # 新配置结构（可选，未设置时按默认值与兼容逻辑工作）：
+  # filesystem:
+  #   root_dir: ./build/test/downloads     # 若未设置，默认 <server.work_dir>/downloads
+  #   log_dir: logs                        # 相对 root_dir，默认 "logs"
+  #   cache_dir: .cache                    # 相对 root_dir，默认 ".cache"
+  # http:
+  #   timeout_seconds: 600
+  #   idle_conn_timeout_seconds: 30
+  #   max_idle_conns: 100
+  #   max_idle_conns_per_host: 10
+  #   default_user_agent: ""               # 为空则使用内置 UA
+  #   disable_inject_browser_like_headers: false
+  # proxy:
+  #   force: false
+  #   list:
+  #     - http://127.0.0.1:7890
+  #   decision_cache_ttl_secs: 1
+  #   direct_probe_timeout_secs: 3
+  #   bandwidth_path_suffix: /bandwidth
+  # progress:
+  #   min_percent_step: 0.5
+  #   max_interval_seconds: 10
+  # ffmpeg:
+  #   path: ffmpeg
+  #   extra_args: []
+  #   move_if_exists:
+  #     enabled: false
+  #   external_hls_log:
+  #     enabled: false
+  #   hls_auto_mark_as_fail: false
 task_scan:
   disable: false
   interval: 10

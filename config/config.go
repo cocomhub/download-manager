@@ -5,8 +5,10 @@ package config
 
 import (
 	"log/slog"
+	"path/filepath"
 	"reflect"
 
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -52,6 +54,52 @@ type MongoSource struct {
 	URI  string `yaml:"uri" json:"uri"`
 }
 
+type DcFilesystem struct {
+	RootDir  string `yaml:"root_dir" json:"root_dir"`
+	LogDir   string `yaml:"log_dir" json:"log_dir"`
+	CacheDir string `yaml:"cache_dir" json:"cache_dir"`
+}
+
+type DcHTTP struct {
+	TimeoutSeconds                  int    `yaml:"timeout_seconds" json:"timeout_seconds"`
+	IdleConnTimeoutSeconds          int    `yaml:"idle_conn_timeout_seconds" json:"idle_conn_timeout_seconds"`
+	MaxIdleConns                    int    `yaml:"max_idle_conns" json:"max_idle_conns"`
+	MaxIdleConnsPerHost             int    `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
+	DefaultUserAgent                string `yaml:"default_user_agent" json:"default_user_agent"`
+	DisableInjectBrowserLikeHeaders bool   `yaml:"disable_inject_browser_like_headers" json:"disable_inject_browser_like_headers"`
+}
+
+type DcProxy struct {
+	Force                  bool     `yaml:"force" json:"force"`
+	List                   []string `yaml:"list" json:"list"`
+	DecisionCacheTTLSecs   int      `yaml:"decision_cache_ttl_secs" json:"decision_cache_ttl_secs"`
+	DirectProbeTimeoutSecs int      `yaml:"direct_probe_timeout_secs" json:"direct_probe_timeout_secs"`
+	BandwidthPathSuffix    string   `yaml:"bandwidth_path_suffix" json:"bandwidth_path_suffix"`
+}
+
+type DcProgress struct {
+	MinPercentStep     float64 `yaml:"min_percent_step" json:"min_percent_step"`
+	MaxIntervalSeconds int     `yaml:"max_interval_seconds" json:"max_interval_seconds"`
+}
+
+type EnabledFlag struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+type DcFFmpeg struct {
+	Path         string   `yaml:"path" json:"path"`
+	ExtraArgs    []string `yaml:"extra_args" json:"extra_args"`
+	MoveIfExists struct {
+		Enabled bool   `yaml:"enabled" json:"enabled"`
+		Dir     string `yaml:"dir" json:"dir"`
+	} `yaml:"move_if_exists" json:"move_if_exists"`
+	ExternalHLSLog struct {
+		Enabled bool   `yaml:"enabled" json:"enabled"`
+		Path    string `yaml:"path" json:"path"`
+	} `yaml:"external_hls_log" json:"external_hls_log"`
+	HLSAutoMarkAsFail bool `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
+}
+
 type Downloader struct {
 	Type              string         `yaml:"type" json:"type"`
 	GlobalConcurrent  int            `yaml:"global_concurrent" json:"global_concurrent"`
@@ -62,6 +110,11 @@ type Downloader struct {
 	DomainLimits      map[string]int `yaml:"domain_limits" json:"domain_limits"`
 	FfmpegPath        string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
 	HlsAutoMarkAsFail bool           `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
+	Filesystem        DcFilesystem   `yaml:"filesystem" json:"filesystem"`
+	HTTP              DcHTTP         `yaml:"http" json:"http"`
+	Proxy             DcProxy        `yaml:"proxy" json:"proxy"`
+	Progress          DcProgress     `yaml:"progress" json:"progress"`
+	FFmpeg            DcFFmpeg       `yaml:"ffmpeg" json:"ffmpeg"`
 }
 
 type TaskScan struct {
@@ -105,6 +158,22 @@ func clampInt(v, min, max int) int {
 func (c *Config) ValidateAndClamp() {
 	if c == nil {
 		return
+	}
+	isFSConfigured := func(fs DcFilesystem) bool {
+		return fs.RootDir != "" || fs.LogDir != "" || fs.CacheDir != ""
+	}
+	isHTTPConfigured := func(h DcHTTP) bool {
+		return h.TimeoutSeconds != 0 || h.IdleConnTimeoutSeconds != 0 ||
+			h.MaxIdleConns != 0 || h.MaxIdleConnsPerHost != 0 ||
+			h.DefaultUserAgent != "" || h.DisableInjectBrowserLikeHeaders
+	}
+	isProxyConfigured := func(p DcProxy) bool {
+		return p.Force || len(p.List) > 0 || p.DecisionCacheTTLSecs != 0 ||
+			p.DirectProbeTimeoutSecs != 0 || p.BandwidthPathSuffix != ""
+	}
+	isFFmpegConfigured := func(f DcFFmpeg) bool {
+		return f.Path != "" || len(f.ExtraArgs) > 0 || f.MoveIfExists.Enabled ||
+			f.ExternalHLSLog.Enabled || f.HLSAutoMarkAsFail
 	}
 	// Runtime defaults and validation
 	if c.Runtime.Mode == "" {
@@ -169,6 +238,88 @@ func (c *Config) ValidateAndClamp() {
 	}
 	if c.Server.UIDefaults.StatusStyle == "" {
 		c.Server.UIDefaults.StatusStyle = "pill"
+	}
+
+	// Migration: old fields -> new sub-structures when new not explicitly set
+	if !isFSConfigured(c.Downloader.Filesystem) && c.Downloader.LogDir != "" {
+		c.Downloader.Filesystem.LogDir = c.Downloader.LogDir
+	}
+	if !isProxyConfigured(c.Downloader.Proxy) {
+		if len(c.Downloader.Proxies) > 0 {
+			c.Downloader.Proxy.List = append([]string(nil), c.Downloader.Proxies...)
+		}
+		if c.Downloader.ForceProxy {
+			c.Downloader.Proxy.Force = true
+		}
+	}
+	if !isFFmpegConfigured(c.Downloader.FFmpeg) {
+		if c.Downloader.FfmpegPath != "" {
+			c.Downloader.FFmpeg.Path = c.Downloader.FfmpegPath
+		}
+		if c.Downloader.HlsAutoMarkAsFail {
+			c.Downloader.FFmpeg.HLSAutoMarkAsFail = true
+		}
+	}
+
+	// Defaults for new sub-structures
+	if c.Downloader.Filesystem.RootDir == "" {
+		wd := c.Server.WorkDir
+		if wd == "" {
+			wd = "."
+		}
+		c.Downloader.Filesystem.RootDir = filepath.Join(wd, "downloads")
+	}
+	if c.Downloader.Filesystem.LogDir == "" {
+		c.Downloader.Filesystem.LogDir = "logs"
+	}
+	if c.Downloader.Filesystem.CacheDir == "" {
+		c.Downloader.Filesystem.CacheDir = ".cache"
+	}
+
+	if !isHTTPConfigured(c.Downloader.HTTP) {
+		c.Downloader.HTTP.TimeoutSeconds = 600
+		c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
+		c.Downloader.HTTP.MaxIdleConns = 100
+		c.Downloader.HTTP.MaxIdleConnsPerHost = 10
+		c.Downloader.HTTP.DefaultUserAgent = dlcore.DefaultUserAgent
+	} else {
+		// Partial defaults if some fields were left zero
+		if c.Downloader.HTTP.TimeoutSeconds == 0 {
+			c.Downloader.HTTP.TimeoutSeconds = 600
+		}
+		if c.Downloader.HTTP.IdleConnTimeoutSeconds == 0 {
+			c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
+		}
+		if c.Downloader.HTTP.MaxIdleConns == 0 {
+			c.Downloader.HTTP.MaxIdleConns = 100
+		}
+		if c.Downloader.HTTP.MaxIdleConnsPerHost == 0 {
+			c.Downloader.HTTP.MaxIdleConnsPerHost = 10
+		}
+		if c.Downloader.HTTP.DefaultUserAgent == "" {
+			c.Downloader.HTTP.DefaultUserAgent = dlcore.DefaultUserAgent
+		}
+	}
+
+	if c.Downloader.Proxy.DecisionCacheTTLSecs == 0 {
+		c.Downloader.Proxy.DecisionCacheTTLSecs = 1
+	}
+	if c.Downloader.Proxy.DirectProbeTimeoutSecs == 0 {
+		c.Downloader.Proxy.DirectProbeTimeoutSecs = 3
+	}
+	if c.Downloader.Proxy.BandwidthPathSuffix == "" {
+		c.Downloader.Proxy.BandwidthPathSuffix = "/bandwidth"
+	}
+
+	if c.Downloader.Progress.MinPercentStep <= 0 {
+		c.Downloader.Progress.MinPercentStep = 0.5
+	}
+	if c.Downloader.Progress.MaxIntervalSeconds <= 0 {
+		c.Downloader.Progress.MaxIntervalSeconds = 10
+	}
+
+	if c.Downloader.FFmpeg.Path == "" {
+		c.Downloader.FFmpeg.Path = "ffmpeg"
 	}
 }
 
@@ -264,6 +415,70 @@ func (a Config) Diff(b Config) []Change {
 	}
 	if !reflect.DeepEqual(a.Downloader.Proxies, b.Downloader.Proxies) {
 		changes = append(changes, Change{Path: "downloader.proxies", A: a.Downloader.Proxies, B: b.Downloader.Proxies})
+	}
+	// Downloader (new sub-structures)
+	if a.Downloader.Filesystem.RootDir != b.Downloader.Filesystem.RootDir {
+		changes = append(changes, Change{Path: "downloader.filesystem.root_dir", A: a.Downloader.Filesystem.RootDir, B: b.Downloader.Filesystem.RootDir})
+	}
+	if a.Downloader.Filesystem.LogDir != b.Downloader.Filesystem.LogDir {
+		changes = append(changes, Change{Path: "downloader.filesystem.log_dir", A: a.Downloader.Filesystem.LogDir, B: b.Downloader.Filesystem.LogDir})
+	}
+	if a.Downloader.Filesystem.CacheDir != b.Downloader.Filesystem.CacheDir {
+		changes = append(changes, Change{Path: "downloader.filesystem.cache_dir", A: a.Downloader.Filesystem.CacheDir, B: b.Downloader.Filesystem.CacheDir})
+	}
+	if a.Downloader.HTTP.TimeoutSeconds != b.Downloader.HTTP.TimeoutSeconds {
+		changes = append(changes, Change{Path: "downloader.http.timeout_seconds", A: a.Downloader.HTTP.TimeoutSeconds, B: b.Downloader.HTTP.TimeoutSeconds})
+	}
+	if a.Downloader.HTTP.IdleConnTimeoutSeconds != b.Downloader.HTTP.IdleConnTimeoutSeconds {
+		changes = append(changes, Change{Path: "downloader.http.idle_conn_timeout_seconds", A: a.Downloader.HTTP.IdleConnTimeoutSeconds, B: b.Downloader.HTTP.IdleConnTimeoutSeconds})
+	}
+	if a.Downloader.HTTP.MaxIdleConns != b.Downloader.HTTP.MaxIdleConns {
+		changes = append(changes, Change{Path: "downloader.http.max_idle_conns", A: a.Downloader.HTTP.MaxIdleConns, B: b.Downloader.HTTP.MaxIdleConns})
+	}
+	if a.Downloader.HTTP.MaxIdleConnsPerHost != b.Downloader.HTTP.MaxIdleConnsPerHost {
+		changes = append(changes, Change{Path: "downloader.http.max_idle_conns_per_host", A: a.Downloader.HTTP.MaxIdleConnsPerHost, B: b.Downloader.HTTP.MaxIdleConnsPerHost})
+	}
+	if a.Downloader.HTTP.DefaultUserAgent != b.Downloader.HTTP.DefaultUserAgent {
+		changes = append(changes, Change{Path: "downloader.http.default_user_agent", A: a.Downloader.HTTP.DefaultUserAgent, B: b.Downloader.HTTP.DefaultUserAgent})
+	}
+	if a.Downloader.HTTP.DisableInjectBrowserLikeHeaders != b.Downloader.HTTP.DisableInjectBrowserLikeHeaders {
+		changes = append(changes, Change{Path: "downloader.http.disable_inject_browser_like_headers", A: a.Downloader.HTTP.DisableInjectBrowserLikeHeaders, B: b.Downloader.HTTP.DisableInjectBrowserLikeHeaders})
+	}
+	if a.Downloader.Proxy.Force != b.Downloader.Proxy.Force {
+		changes = append(changes, Change{Path: "downloader.proxy.force", A: a.Downloader.Proxy.Force, B: b.Downloader.Proxy.Force})
+	}
+	if !reflect.DeepEqual(a.Downloader.Proxy.List, b.Downloader.Proxy.List) {
+		changes = append(changes, Change{Path: "downloader.proxy.list", A: a.Downloader.Proxy.List, B: b.Downloader.Proxy.List})
+	}
+	if a.Downloader.Proxy.DecisionCacheTTLSecs != b.Downloader.Proxy.DecisionCacheTTLSecs {
+		changes = append(changes, Change{Path: "downloader.proxy.decision_cache_ttl_secs", A: a.Downloader.Proxy.DecisionCacheTTLSecs, B: b.Downloader.Proxy.DecisionCacheTTLSecs})
+	}
+	if a.Downloader.Proxy.DirectProbeTimeoutSecs != b.Downloader.Proxy.DirectProbeTimeoutSecs {
+		changes = append(changes, Change{Path: "downloader.proxy.direct_probe_timeout_secs", A: a.Downloader.Proxy.DirectProbeTimeoutSecs, B: b.Downloader.Proxy.DirectProbeTimeoutSecs})
+	}
+	if a.Downloader.Proxy.BandwidthPathSuffix != b.Downloader.Proxy.BandwidthPathSuffix {
+		changes = append(changes, Change{Path: "downloader.proxy.bandwidth_path_suffix", A: a.Downloader.Proxy.BandwidthPathSuffix, B: b.Downloader.Proxy.BandwidthPathSuffix})
+	}
+	if a.Downloader.Progress.MinPercentStep != b.Downloader.Progress.MinPercentStep {
+		changes = append(changes, Change{Path: "downloader.progress.min_percent_step", A: a.Downloader.Progress.MinPercentStep, B: b.Downloader.Progress.MinPercentStep})
+	}
+	if a.Downloader.Progress.MaxIntervalSeconds != b.Downloader.Progress.MaxIntervalSeconds {
+		changes = append(changes, Change{Path: "downloader.progress.max_interval_seconds", A: a.Downloader.Progress.MaxIntervalSeconds, B: b.Downloader.Progress.MaxIntervalSeconds})
+	}
+	if a.Downloader.FFmpeg.Path != b.Downloader.FFmpeg.Path {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.path", A: a.Downloader.FFmpeg.Path, B: b.Downloader.FFmpeg.Path})
+	}
+	if !reflect.DeepEqual(a.Downloader.FFmpeg.ExtraArgs, b.Downloader.FFmpeg.ExtraArgs) {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.extra_args", A: a.Downloader.FFmpeg.ExtraArgs, B: b.Downloader.FFmpeg.ExtraArgs})
+	}
+	if a.Downloader.FFmpeg.MoveIfExists.Enabled != b.Downloader.FFmpeg.MoveIfExists.Enabled {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.move_if_exists.enabled", A: a.Downloader.FFmpeg.MoveIfExists.Enabled, B: b.Downloader.FFmpeg.MoveIfExists.Enabled})
+	}
+	if a.Downloader.FFmpeg.ExternalHLSLog.Enabled != b.Downloader.FFmpeg.ExternalHLSLog.Enabled {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.external_hls_log.enabled", A: a.Downloader.FFmpeg.ExternalHLSLog.Enabled, B: b.Downloader.FFmpeg.ExternalHLSLog.Enabled})
+	}
+	if a.Downloader.FFmpeg.HLSAutoMarkAsFail != b.Downloader.FFmpeg.HLSAutoMarkAsFail {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.hls_auto_mark_as_fail", A: a.Downloader.FFmpeg.HLSAutoMarkAsFail, B: b.Downloader.FFmpeg.HLSAutoMarkAsFail})
 	}
 	// TaskScan
 	if a.TaskScan.Disable != b.TaskScan.Disable {
