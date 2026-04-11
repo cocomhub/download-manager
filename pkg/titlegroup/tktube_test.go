@@ -23,3 +23,27 @@ func TestTKTGroupNameFromTitle(t *testing.T) {
 	}
 }
 
+func TestTKTContentGroupKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		title string
+		url   string
+		want  string
+	}{
+		{name: "合法组名", title: "【高画质】CLUB-100C", url: "https://example.com/a", want: "CLUB-100"},
+		{name: "未知标题", title: "  随机标题  ", url: "https://example.com/b", want: "unknown+随机标题"},
+		{name: "空标题", title: "   ", url: "https://example.com/c", want: "unknown+https://example.com/c"},
+		{name: "全空仍非空", title: "", url: "", want: "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := TKTContentGroupKey(tc.title, tc.url)
+			if got != tc.want {
+				t.Fatalf("want %q, got %q", tc.want, got)
+			}
+			if got == "" {
+				t.Fatal("content group key should never be empty")
+			}
+		})
+	}
+}

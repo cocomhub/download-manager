@@ -38,18 +38,18 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	o1 := &model.DownloadObject{
 		TaskID: "t1", URL: "u1",
 		Metadata: map[string]string{"title": "【高画质】CLUB-100", "content_group": "CLUB-100", "date": "2024-01-01"},
-		Extra:   map[string]any{},
+		Extra:    map[string]any{},
 	}
 	o2 := &model.DownloadObject{
 		TaskID: "t1", URL: "u2",
 		Metadata: map[string]string{"title": "CLUB-100C", "content_group": "CLUB-100", "date": "2024-01-02"},
-		Extra:   map[string]any{},
+		Extra:    map[string]any{},
 	}
 	// Group B: single item no flags
 	o3 := &model.DownloadObject{
 		TaskID: "t1", URL: "u3",
 		Metadata: map[string]string{"title": "ABP-456", "content_group": "ABP-456", "date": "2024-02-01"},
-		Extra:   map[string]any{},
+		Extra:    map[string]any{},
 	}
 	t1 := &mockTaskWithStore{
 		id:   "t1",
@@ -91,3 +91,91 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	}
 }
 
+func TestAggregateByContent_ScopesSameGroupAcrossTasks(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: []config.Task{
+			{ID: "t1", Type: "tktube"},
+			{ID: "t2", Type: "tktube"},
+		},
+	}
+	m := NewManager(cfg)
+	m.cfgVal.Store(cfg)
+
+	t1Obj := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u1",
+		Metadata: map[string]string{
+			"title":         "CLUB-100",
+			"content_group": "CLUB-100",
+			"date":          "2024-01-01",
+		},
+		Extra: map[string]any{},
+	}
+	t2Obj := &model.DownloadObject{
+		TaskID: "t2",
+		URL:    "u2",
+		Metadata: map[string]string{
+			"title":         "CLUB-100",
+			"content_group": "CLUB-100",
+			"date":          "2024-01-02",
+		},
+		Extra: map[string]any{},
+	}
+	m.tasks.Store("t1", &mockTaskWithStore{id: "t1", typ: "tktube", objs: []*model.DownloadObject{t1Obj}})
+	m.tasks.Store("t2", &mockTaskWithStore{id: "t2", typ: "tktube", objs: []*model.DownloadObject{t2Obj}})
+
+	res, err := m.AggregateByContent(1, -1, "", "date_desc", "all", []string{})
+	if err != nil {
+		t.Fatalf("aggregate error: %v", err)
+	}
+	objs := res["objects"].([]*model.DownloadObject)
+	if len(objs) != 2 {
+		t.Fatalf("expect 2 scoped groups, got %d", len(objs))
+	}
+
+	got := m.GetObjectsByScopedGroup("t1", "tktube", "CLUB-100")
+	if len(got) != 1 || got[0].TaskID != "t1" {
+		t.Fatalf("expect only t1 object, got %+v", got)
+	}
+}
+
+func TestAggregateByContent_UnknownKeysStaySeparated(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: []config.Task{
+			{ID: "t1", Type: "tktube"},
+		},
+	}
+	m := NewManager(cfg)
+	m.cfgVal.Store(cfg)
+
+	o1 := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u1",
+		Metadata: map[string]string{
+			"title":         "随机标题甲",
+			"content_group": "unknown+随机标题甲",
+			"date":          "2024-01-01",
+		},
+		Extra: map[string]any{},
+	}
+	o2 := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u2",
+		Metadata: map[string]string{
+			"title":         "随机标题乙",
+			"content_group": "unknown+随机标题乙",
+			"date":          "2024-01-02",
+		},
+		Extra: map[string]any{},
+	}
+	m.tasks.Store("t1", &mockTaskWithStore{id: "t1", typ: "tktube", objs: []*model.DownloadObject{o1, o2}})
+
+	res, err := m.AggregateByContent(1, -1, "", "date_desc", "all", []string{})
+	if err != nil {
+		t.Fatalf("aggregate error: %v", err)
+	}
+	objs := res["objects"].([]*model.DownloadObject)
+	if len(objs) != 2 {
+		t.Fatalf("expect 2 unknown groups, got %d", len(objs))
+	}
+}

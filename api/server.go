@@ -728,11 +728,19 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getGroupObjects(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	group := vars["group"]
-	list := s.mgr.GetObjectsByGroup(group)
+	taskID := strings.TrimSpace(r.URL.Query().Get("task_id"))
+	taskType := strings.TrimSpace(r.URL.Query().Get("task_type"))
+	if taskID == "" || taskType == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_scope", "task_id and task_type are required")
+		return
+	}
+	list := s.mgr.GetObjectsByScopedGroup(taskID, taskType, group)
 	json.NewEncoder(w).Encode(map[string]any{
-		"group":   group,
-		"objects": list,
-		"total":   len(list),
+		"task_id":   taskID,
+		"task_type": taskType,
+		"group":     group,
+		"objects":   list,
+		"total":     len(list),
 	})
 }
 

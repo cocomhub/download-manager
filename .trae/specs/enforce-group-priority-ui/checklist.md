@@ -1,0 +1,6 @@
+- [x] 启动回填确保所有对象具备 Metadata.content_group（无法解析可为空）
+- [x] tktube 优先级计算符合规则：has_hq 优先于无前缀；同前缀下 has_c 优先于无 C
+- [x] 组内存在已完成的最高优先级对象时，低优先级对象自动置为 canceled 并写入 Extra.redirect_url
+- [x] 点击被取消对象时能跳转至 redirect_url 所指向的高优先级对象
+- [x] 列表接口支持 group_by=content，返回代表对象与 group_size；提供展开接口返回组内全部对象
+- [x] UI 支持“按内容分组展示”开关；聚合视图仅显示代表对象，展开可见全部；可一键取消/删除低优先级对象

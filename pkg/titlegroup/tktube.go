@@ -33,3 +33,24 @@ func TKTGroupNameFromTitle(title string) string {
 	}
 	return ""
 }
+
+// TKTContentGroupKey returns a non-empty tktube content group key.
+// Parsed canonical groups keep their legal group name, otherwise the key falls
+// back to a per-object unknown bucket so unknown titles are never merged.
+func TKTContentGroupKey(title, url string) string {
+	if group := TKTGroupNameFromTitle(title); group != "" {
+		return group
+	}
+
+	title = strings.TrimSpace(title)
+	if title != "" {
+		return "unknown+" + title
+	}
+
+	url = strings.TrimSpace(url)
+	if url != "" {
+		return "unknown+" + url
+	}
+
+	return "unknown"
+}

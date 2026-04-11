@@ -899,14 +899,28 @@
                     <div class="flex items-center gap-3">
                         <h3 class="text-lg font-bold text-gray-800">分组：{{ groupModal.title }}</h3>
                         <span class="text-xs text-gray-500">{{ (groupModal.list||[]).length }} 个对象</span>
+                        <span v-if="groupModalSafety.taskId" class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">任务 {{ groupModalSafety.taskId }}</span>
+                        <span v-if="groupModalSafety.taskType" class="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-700">{{ groupModalSafety.taskType }}</span>
                     </div>
                     <button @click="closeGroupModal" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
                 </div>
                 <div class="flex-1 overflow-y-auto p-4">
+                    <div class="space-y-3 mb-4">
+                        <div v-if="groupModalSafety.taskId || groupModalSafety.taskType" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                            当前操作范围：任务 {{ groupModalSafety.taskId || '-' }}，类型 {{ groupModalSafety.taskType || '-' }}。
+                        </div>
+                        <div v-if="groupModalSafety.hasPriorityConflict" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 font-medium">
+                            冲突组，已禁用自动取消。
+                        </div>
+                        <div v-if="groupModalSafety.hasDownloading" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                            组内存在 downloading 对象，批量取消仅会作用于 pending 的低优先级对象。
+                        </div>
+                    </div>
                     <table class="min-w-full divide-y divide-gray-200 text-sm">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">优先级</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">任务</th>
                             </tr>
@@ -916,9 +930,12 @@
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-2">
                                         <span class="font-medium text-gray-800 truncate max-w-xs">{{ getTitle(it) }}</span>
-                                        <span v-if="groupModal.repObj && it.url === groupModal.repObj.url" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">代表</span>
+                                        <span v-if="isGroupRepresentative(it)" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">代表</span>
                                     </div>
                                     <div class="text-xs text-gray-500 truncate max-w-md">{{ it.url }}</div>
+                                </td>
+                                <td class="px-4 py-2">
+                                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">{{ getObjectVariantLabel(it) }}</span>
                                 </td>
                                 <td class="px-4 py-2">
                                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full" :class="{
@@ -934,9 +951,11 @@
                     </table>
                 </div>
                 <div class="p-3 border-t bg-gray-50 flex justify-between items-center">
-                    <div class="text-xs text-gray-500">仅取消“非代表且未完成”的对象</div>
+                    <div class="text-xs text-gray-500">
+                        仅取消同任务范围内、非代表、低优先级且状态为 pending 的对象；当前可取消 {{ groupModalSafety.pendingCancelableCount }} 个。
+                    </div>
                     <div class="flex items-center gap-2">
-                        <button @click="cancelLowPriorityInGroup" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 text-sm disabled:opacity-50">取消低优先级对象</button>
+                        <button @click="cancelLowPriorityInGroup" :disabled="isWriteDisabled || groupModalSafety.hasPriorityConflict || groupModalSafety.pendingCancelableCount === 0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : (groupModalSafety.hasPriorityConflict ? '冲突组，已禁用自动取消' : (groupModalSafety.pendingCancelableCount === 0 ? '无可取消的待下载对象' : ''))" class="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 text-sm disabled:opacity-50">取消低优先级待下载对象</button>
                         <button @click="closeGroupModal" class="px-3 py-1.5 rounded bg-white border hover:bg-gray-100 text-sm">关闭</button>
                     </div>
                 </div>
@@ -1682,7 +1701,7 @@
                     hanimeActivePosterIdx: 0,
                     hanimeVideoError: false,
                     showGroupModal: false,
-                    groupModal: { title: '', list: [], repObj: null }
+                    groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' }
                 }
             },
             computed: {
@@ -1715,6 +1734,29 @@
                 },
                 tktubePagedObjects() {
                     return this.tktubeFilteredObjects || []
+                },
+                groupModalSafety() {
+                    const list = Array.isArray(this.groupModal.list) ? this.groupModal.list : []
+                    const priorityCounts = {}
+                    let hasDownloading = false
+                    list.forEach(it => {
+                        if (!it) return
+                        const priority = this.getObjectVariantPriority(it)
+                        priorityCounts[priority] = (priorityCounts[priority] || 0) + 1
+                        if (it.status === 'downloading') {
+                            hasDownloading = true
+                        }
+                    })
+                    const hasPriorityConflict = Object.values(priorityCounts).some(count => count > 1)
+                    const pendingTargets = hasPriorityConflict ? [] : list.filter(it => this.isGroupCancelTarget(it))
+                    return {
+                        hasPriorityConflict,
+                        hasDownloading,
+                        pendingTargets,
+                        pendingCancelableCount: pendingTargets.length,
+                        taskId: (this.groupModal.taskId || '').trim(),
+                        taskType: (this.groupModal.taskType || '').trim()
+                    }
                 },
                 filteredChanges() {
                     if (!this.configDiff || !this.configDiff.changes) return []
@@ -2799,12 +2841,19 @@
                     try {
                         const gid = (obj && obj.metadata && obj.metadata.content_group) || ''
                         if (!gid) return
-                        const res = await fetch(`/api/groups/${encodeURIComponent(gid)}/objects`)
+                        const scopedTask = this.getScopedTaskInfo(obj)
+                        const params = new URLSearchParams()
+                        if (scopedTask.taskId) params.set('task_id', scopedTask.taskId)
+                        if (scopedTask.taskType) params.set('task_type', scopedTask.taskType)
+                        const query = params.toString()
+                        const res = await fetch(`/api/groups/${encodeURIComponent(gid)}/objects${query ? '?' + query : ''}`)
                         if (!res.ok) throw new Error('加载分组失败')
                         const data = await res.json()
                         this.groupModal.title = gid
                         this.groupModal.list = Array.isArray(data && data.objects) ? data.objects : []
                         this.groupModal.repObj = obj
+                        this.groupModal.taskId = scopedTask.taskId
+                        this.groupModal.taskType = scopedTask.taskType
                         this.showGroupModal = true
                     } catch (e) {
                         this.showToast('加载分组失败', 'error')
@@ -2816,10 +2865,14 @@
                         return
                     }
                     try {
+                        if (this.groupModalSafety.hasPriorityConflict) {
+                            this.showToast('冲突组，已禁用自动取消', 'error')
+                            return
+                        }
                         const rep = this.groupModal.repObj
-                        const targets = (this.groupModal.list || []).filter(it => it && it.url && it.url !== (rep && rep.url) && it.status !== 'completed')
+                        const targets = this.groupModalSafety.pendingTargets
                         if (targets.length === 0) {
-                            this.showToast('无可取消的低优先级对象', 'info')
+                            this.showToast('无可取消的低优先级待下载对象', 'info')
                             return
                         }
                         const results = await Promise.allSettled(targets.map(it => {
@@ -2831,8 +2884,19 @@
                         }))
                         const okCount = results.filter(r => r.status === 'fulfilled' && r.value && r.value.ok).length
                         const failCount = results.length - okCount
-                        if (failCount === 0) this.showToast(`已取消 ${okCount} 个对象`, 'success')
-                        else this.showToast(`已取消 ${okCount} 个对象，失败 ${failCount} 个`, 'error')
+                        results.forEach((result, idx) => {
+                            if (result.status === 'fulfilled' && result.value && result.value.ok) {
+                                const target = targets[idx]
+                                if (target) {
+                                    target.status = 'cancelled'
+                                    target.progress = 0
+                                    if (!target.extra) target.extra = {}
+                                    if (rep && rep.url) target.extra.redirect_url = rep.url
+                                }
+                            }
+                        })
+                        if (failCount === 0) this.showToast(`已取消 ${okCount} 个待下载对象`, 'success')
+                        else this.showToast(`已取消 ${okCount} 个待下载对象，失败 ${failCount} 个`, 'error')
                         await this.fetchAggregateByType(this.selectedType)
                     } catch (e) {
                         this.showToast('批量取消失败', 'error')
@@ -2840,7 +2904,7 @@
                 },
                 closeGroupModal() {
                     this.showGroupModal = false
-                    this.groupModal = { title: '', list: [], repObj: null }
+                    this.groupModal = { title: '', list: [], repObj: null, taskId: '', taskType: '' }
                 },
                 async cancelAggObject(obj) {
                     if (this.isWriteDisabled) {
@@ -3653,6 +3717,78 @@
                     if (raw.startsWith('vikacg')) return 'VikACG'
                     if (raw.startsWith('tktube')) return 'TKtube'
                     return (task && task.type) || ''
+                },
+                normalizeTaskType(taskType) {
+                    return ((taskType || '') + '').trim().toLowerCase()
+                },
+                resolveObjectTaskType(obj) {
+                    const direct = ((obj && obj.task_type) || '').toString().trim()
+                    if (direct) return direct
+                    const taskId = ((obj && obj.task_id) || '').toString().trim()
+                    if (!taskId) return ''
+                    const task = (this.tasks || []).find(t => ((t && t.id) || '').toString().trim() === taskId)
+                    return ((task && task.type) || '').toString().trim()
+                },
+                getScopedTaskInfo(obj) {
+                    const taskId = ((obj && obj.task_id) || '').toString().trim()
+                    const taskType = this.resolveObjectTaskType(obj)
+                    return { taskId, taskType }
+                },
+                getTitleVariantFlags(title) {
+                    let current = ((title || '') + '').trim()
+                    let hasHQ = false
+                    if (current.startsWith('【')) {
+                        const idx = current.indexOf('】')
+                        if (idx > 0) {
+                            hasHQ = true
+                            current = current.slice(idx + 1).trim()
+                        }
+                    }
+                    const matched = current.toUpperCase().match(/([A-Z]+-\d{2,5})(?:C)?\b/)
+                    const hasC = !!(matched && matched[0] && matched[0].endsWith('C'))
+                    return { hasHQ, hasC }
+                },
+                getObjectVariantPriority(obj) {
+                    const flags = this.getTitleVariantFlags(this.getTitle(obj))
+                    if (flags.hasHQ && flags.hasC) return 4
+                    if (flags.hasHQ) return 3
+                    if (flags.hasC) return 2
+                    return 1
+                },
+                getObjectVariantLabel(obj) {
+                    const priority = this.getObjectVariantPriority(obj)
+                    if (priority === 4) return 'HQ+C'
+                    if (priority === 3) return 'HQ'
+                    if (priority === 2) return 'Plain+C'
+                    return 'Plain'
+                },
+                isGroupRepresentative(obj, repObj) {
+                    const rep = repObj || this.groupModal.repObj
+                    if (!obj || !rep) return false
+                    return ((obj.url || '') === (rep.url || '')) && (((obj.task_id || '') + '') === (((rep.task_id || '') + '')))
+                },
+                isSameGroupTaskScope(obj, taskId, taskType) {
+                    if (!obj) return false
+                    const objectTaskId = ((obj.task_id || '') + '').trim()
+                    if (!objectTaskId || objectTaskId !== ((taskId || '') + '').trim()) {
+                        return false
+                    }
+                    const normalizedScopeType = this.normalizeTaskType(taskType)
+                    if (!normalizedScopeType) {
+                        return true
+                    }
+                    const objectTaskType = this.normalizeTaskType(this.resolveObjectTaskType(obj))
+                    return !objectTaskType || objectTaskType === normalizedScopeType
+                },
+                isGroupCancelTarget(obj) {
+                    const rep = this.groupModal.repObj
+                    const taskId = this.groupModal.taskId
+                    const taskType = this.groupModal.taskType
+                    if (!obj || !obj.url || !rep) return false
+                    if (this.isGroupRepresentative(obj, rep)) return false
+                    if (!this.isSameGroupTaskScope(obj, taskId, taskType)) return false
+                    if (obj.status !== 'pending') return false
+                    return this.getObjectVariantPriority(obj) < this.getObjectVariantPriority(rep)
                 },
                 getTitle(obj) {
                     if (obj.metadata && obj.metadata.title) return obj.metadata.title;
