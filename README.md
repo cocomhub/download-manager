@@ -17,3 +17,9 @@ UI 仅模式：
 ```
 ./download-manager --ui-only
 ```
+
+## 文档
+- [当前功能特性总览](./docs/current-capabilities.md)
+- [实施 Roadmap](./docs/implementation-roadmap.md)
+- [任务能力矩阵](./docs/tasks-capabilities.md)
+- [新任务开发指南](./docs/new-task-guide.md)
