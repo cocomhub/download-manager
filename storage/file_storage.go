@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -120,15 +121,38 @@ func (s *FileStorage) Delete(id string) error {
 	return nil
 }
 
-func (s *FileStorage) Search(filter any) ([]*model.DownloadObject, error) {
+func (s *FileStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var list []*model.DownloadObject
+	list := make([]*model.DownloadObject, 0, len(s.objects))
 	for _, obj := range s.objects {
 		list = append(list, obj)
 	}
-	return list, nil
+	return ApplyQueryToObjects(list, query), nil
+}
+
+func (s *FileStorage) Count(query *core.StorageQuery) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	list := make([]*model.DownloadObject, 0, len(s.objects))
+	for _, obj := range s.objects {
+		list = append(list, obj)
+	}
+	return CountObjects(list, query), nil
+}
+
+func (s *FileStorage) Exists(ids []string) (map[string]bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		_, ok := s.objects[id]
+		result[id] = ok
+	}
+	return result, nil
 }
 
 // flushAsync is called by the timer

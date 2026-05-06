@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -139,6 +139,122 @@ func (m *Manager) currentCfg() *config.Config {
 	return m.cfg
 }
 
+func cloneStorageQuery(query *core.StorageQuery) *core.StorageQuery {
+	if query == nil {
+		return &core.StorageQuery{}
+	}
+	cloned := *query
+	cloned.Filter.TaskIDs = append([]string(nil), query.Filter.TaskIDs...)
+	cloned.Filter.URLs = append([]string(nil), query.Filter.URLs...)
+	cloned.Filter.Statuses = append([]string(nil), query.Filter.Statuses...)
+	if query.Filter.Metadata != nil {
+		cloned.Filter.Metadata = make(map[string]string, len(query.Filter.Metadata))
+		maps.Copy(cloned.Filter.Metadata, query.Filter.Metadata)
+	}
+	cloned.Sort = append([]core.StorageSort(nil), query.Sort...)
+	return &cloned
+}
+
+func queryForTask(taskID string, query *core.StorageQuery) *core.StorageQuery {
+	cloned := cloneStorageQuery(query)
+	cloned.Filter.TaskIDs = []string{strings.TrimSpace(taskID)}
+	return cloned
+}
+
+func sortRules(sortBy string) []core.StorageSort {
+	switch sortBy {
+	case "date_asc":
+		return []core.StorageSort{{Field: "date"}, {Field: "url"}}
+	case "date_desc":
+		return []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}}
+	case "name_asc":
+		return []core.StorageSort{{Field: "name"}, {Field: "url"}}
+	case "duration_desc":
+		return []core.StorageSort{{Field: "duration", Desc: true}, {Field: "url"}}
+	default:
+		return []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}}
+	}
+}
+
+func (m *Manager) storageForTask(t core.Task) core.Storage {
+	sp, ok := t.(core.StorageProvider)
+	if !ok {
+		return nil
+	}
+	return sp.GetStorage()
+}
+
+func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*model.DownloadObject, error) {
+	taskQuery := queryForTask(t.ID(), query)
+	if st := m.storageForTask(t); st != nil {
+		return st.Search(taskQuery)
+	}
+	if accessor, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		return storage.ApplyQueryToObjects(accessor.GetAllObjects(), taskQuery), nil
+	}
+	return []*model.DownloadObject{}, nil
+}
+
+func (m *Manager) countTaskObjects(t core.Task, query *core.StorageQuery) (int, error) {
+	taskQuery := queryForTask(t.ID(), query)
+	if st := m.storageForTask(t); st != nil {
+		return st.Count(taskQuery)
+	}
+	if accessor, ok := t.(interface {
+		GetAllObjects() []*model.DownloadObject
+	}); ok {
+		return storage.CountObjects(accessor.GetAllObjects(), taskQuery), nil
+	}
+	return 0, nil
+}
+
+func (m *Manager) collectTaskObjects(t core.Task, query *core.StorageQuery, batchSize int) ([]*model.DownloadObject, error) {
+	if query != nil && query.Limit > 0 {
+		return m.searchTaskObjects(t, query)
+	}
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	collected := make([]*model.DownloadObject, 0, batchSize)
+	offset := 0
+	for {
+		pageQuery := cloneStorageQuery(query)
+		pageQuery.Offset = offset
+		pageQuery.Limit = batchSize
+		chunk, err := m.searchTaskObjects(t, pageQuery)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			break
+		}
+		collected = append(collected, chunk...)
+		if len(chunk) < batchSize {
+			break
+		}
+		offset += len(chunk)
+	}
+	return collected, nil
+}
+
+func (m *Manager) getTaskObject(t core.Task, url string) (*model.DownloadObject, error) {
+	list, err := m.searchTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			URLs: []string{url},
+		},
+		Limit: 1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, nil
+	}
+	return list[0], nil
+}
+
 func (m *Manager) Unsubscribe(ch <-chan core.Event) {
 	m.eventMu.Lock()
 	defer m.eventMu.Unlock()
@@ -168,7 +284,6 @@ func (m *Manager) Start() {
 	m.workersEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled
 	m.schedulerEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
 	slog.Info("disabled components", "scheduler", !m.schedulerEnabled, "workers", !m.workersEnabled)
-	os.MkdirAll(filepath.Join(config.GetWorkDir(), "cache"), 0755)
 	m.loadTasks()
 	if m.workersEnabled {
 		limit := m.cfg.Downloader.GlobalConcurrent
@@ -193,17 +308,11 @@ func (m *Manager) Start() {
 	}
 	ticker := time.NewTicker(interval)
 
-	// Save cache ticker
-	cacheTicker := time.NewTicker(5 * time.Minute)
-
 	// Progress broadcast ticker
 	progressTicker := time.NewTicker(1 * time.Second)
-	alignTicker := time.NewTicker(5 * time.Minute)
 
 	defer ticker.Stop()
-	defer cacheTicker.Stop()
 	defer progressTicker.Stop()
-	defer alignTicker.Stop()
 
 	// Immediate scan on start
 	m.scan()
@@ -214,47 +323,13 @@ func (m *Manager) Start() {
 			m.scan()
 		case <-progressTicker.C:
 			m.broadcastProgress()
-		case <-cacheTicker.C:
-			m.saveAllCaches(false)
-		case <-alignTicker.C:
-			m.alignStorages()
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
 			if m.schedulerStop != nil {
 				close(m.schedulerStop)
 			}
-			// Close queue? Or just wait for context cancel if we had one.
-			// Currently worker reads from queue forever.
-			// We can close queue here but ensure no writes happen after.
-			// m.scan happens in this loop, so no new writes from scan.
-			// But RetryObject might write.
-			m.saveAllCaches(true)
+			m.closeAllTasks()
 			return
-		}
-	}
-}
-
-func (m *Manager) alignStorages() {
-	tasks := make([]core.Task, 0, 64)
-	m.tasks.Range(func(key, value any) bool {
-		tasks = append(tasks, value.(core.Task))
-		return true
-	})
-	for _, t := range tasks {
-		if sp, ok := t.(core.StorageProvider); ok {
-			st := sp.GetStorage()
-			if st != nil {
-				list, err := st.Search(nil)
-				if err == nil {
-					for _, obj := range list {
-						if m.urlRegistry.Owners(obj.URL) < 2 {
-							continue
-						}
-						m.urlRegistry.Update(obj)
-						m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-					}
-				}
-			}
 		}
 	}
 }
@@ -473,17 +548,14 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 		"type": t.Type(),
 	}
 
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		summary["total"] = len(objs)
-		completed := 0
-		for _, o := range objs {
-			if o.Status == dlcore.StatusCompleted {
-				completed++
-			}
-		}
+	if total, err := m.countTaskObjects(t, nil); err == nil {
+		summary["total"] = total
+	}
+	if completed, err := m.countTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Statuses: []string{dlcore.StatusCompleted},
+		},
+	}); err == nil {
 		summary["completed"] = completed
 	}
 	{
@@ -630,17 +702,14 @@ func (m *Manager) GetTaskSummaries() []map[string]any {
 			"type": t.Type(),
 		}
 
-		if st, ok := t.(interface {
-			GetAllObjects() []*model.DownloadObject
-		}); ok {
-			objs := st.GetAllObjects()
-			summary["total"] = len(objs)
-			completed := 0
-			for _, o := range objs {
-				if o.Status == dlcore.StatusCompleted {
-					completed++
-				}
-			}
+		if total, err := m.countTaskObjects(t, nil); err == nil {
+			summary["total"] = total
+		}
+		if completed, err := m.countTaskObjects(t, &core.StorageQuery{
+			Filter: core.StorageFilter{
+				Statuses: []string{dlcore.StatusCompleted},
+			},
+		}); err == nil {
 			summary["completed"] = completed
 		}
 
@@ -690,92 +759,50 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 		"refresh_interval": hasMethod(t, "SetRefreshInterval"),
 	}
 
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		if objs == nil {
-			objs = make([]*model.DownloadObject, 0)
-		}
-
-		// Filter by search query
-		if search != "" {
-			search = strings.ToLower(strings.TrimSpace(search))
-			var filtered []*model.DownloadObject
-			for _, obj := range objs {
-				match := false
-				if strings.Contains(strings.ToLower(obj.URL), search) {
-					match = true
-				} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
-					match = true
-				} else if tags, ok := obj.Extra["tags"].([]any); ok {
-					for _, t := range tags {
-						if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
-							match = true
-							break
-						}
-					}
-				}
-
-				if match {
-					filtered = append(filtered, obj)
-				}
-			}
-			objs = filtered
-		}
-
-		// Sort objects
-		sort.Slice(objs, func(i, j int) bool {
-			switch sortBy {
-			case "date_asc":
-				return objs[i].Metadata["date"] < objs[j].Metadata["date"]
-			case "date_desc":
-				return objs[i].Metadata["date"] > objs[j].Metadata["date"]
-			case "name_asc":
-				titleI := objs[i].Metadata["title"]
-				if titleI == "" {
-					titleI = objs[i].URL
-				}
-				titleJ := objs[j].Metadata["title"]
-				if titleJ == "" {
-					titleJ = objs[j].URL
-				}
-				return strings.ToLower(titleI) < strings.ToLower(titleJ)
-			case "duration_desc":
-				return objs[i].Metadata["duration"] > objs[j].Metadata["duration"]
-			default:
-				// Default: Date Desc, then URL Asc
-				dateI := objs[i].Metadata["date"]
-				dateJ := objs[j].Metadata["date"]
-				if dateI != dateJ {
-					return dateI > dateJ
-				}
-				return objs[i].URL < objs[j].URL
-			}
-		})
-
-		total := len(objs)
-		var pagedObjs []*model.DownloadObject
-
-		if limit <= 0 {
-			// All
-			pagedObjs = objs
-			page = 1
-			limit = total
-		} else {
-			if page < 1 {
-				page = 1
-			}
-			start := min((page-1)*limit, total)
-			end := min(start+limit, total)
-			pagedObjs = objs[start:end]
-		}
-
-		result["objects"] = pagedObjs
-		result["total"] = total
-		result["page"] = page
-		result["limit"] = limit
+	if page < 1 {
+		page = 1
 	}
+	offset := 0
+	if limit > 0 {
+		offset = (page - 1) * limit
+	} else {
+		page = 1
+	}
+	baseQuery := &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Search: search,
+		},
+		Sort:   sortRules(sortBy),
+		Offset: offset,
+		Limit:  limit,
+	}
+	total, err := m.countTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Search: search,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var objs []*model.DownloadObject
+	if limit > 0 {
+		objs, err = m.searchTaskObjects(t, baseQuery)
+	} else {
+		objs, err = m.collectTaskObjects(t, baseQuery, 200)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if objs == nil {
+		objs = make([]*model.DownloadObject, 0)
+	}
+	if limit <= 0 {
+		limit = total
+	}
+	result["objects"] = objs
+	result["total"] = total
+	result["page"] = page
+	result["limit"] = limit
 
 	return result, nil
 }
@@ -805,83 +832,36 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 		if !typeMatches(t) {
 			continue
 		}
-		if st, ok := t.(interface {
-			GetAllObjects() []*model.DownloadObject
-		}); ok {
-			objs := st.GetAllObjects()
-			for _, o := range objs {
-				if status != "" && status != "all" {
-					if o.Status != status {
-						continue
-					}
-				}
-				all = append(all, o)
-			}
+		query := &core.StorageQuery{
+			Filter: core.StorageFilter{
+				Search: search,
+			},
 		}
+		if status != "" && status != "all" {
+			query.Filter.Statuses = []string{status}
+		}
+		objs, err := m.collectTaskObjects(t, query, 200)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, objs...)
 	}
-	if search = strings.ToLower(strings.TrimSpace(search)); search != "" {
-		filtered := make([]*model.DownloadObject, 0, len(all))
-		for _, obj := range all {
-			match := false
-			if strings.Contains(strings.ToLower(obj.URL), search) {
-				match = true
-			} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
-				match = true
-			} else if tags, ok := obj.Extra["tags"].([]any); ok {
-				for _, t := range tags {
-					if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
-						match = true
-						break
-					}
-				}
-			}
-			if match {
-				filtered = append(filtered, obj)
-			}
-		}
-		all = filtered
-	}
-	sort.Slice(all, func(i, j int) bool {
-		switch sortBy {
-		case "date_asc":
-			return all[i].Metadata["date"] < all[j].Metadata["date"]
-		case "date_desc":
-			return all[i].Metadata["date"] > all[j].Metadata["date"]
-		case "name_asc":
-			ti := all[i].Metadata["title"]
-			if ti == "" {
-				ti = all[i].URL
-			}
-			tj := all[j].Metadata["title"]
-			if tj == "" {
-				tj = all[j].URL
-			}
-			return strings.ToLower(ti) < strings.ToLower(tj)
-		case "duration_desc":
-			return all[i].Metadata["duration"] > all[j].Metadata["duration"]
-		default:
-			di := all[i].Metadata["date"]
-			dj := all[j].Metadata["date"]
-			if di != dj {
-				return di > dj
-			}
-			return all[i].URL < all[j].URL
-		}
-	})
 	total := len(all)
-	var paged []*model.DownloadObject
+	if page < 1 {
+		page = 1
+	}
+	var offset int
 	if limit <= 0 {
-		paged = all
 		page = 1
 		limit = total
 	} else {
-		if page < 1 {
-			page = 1
-		}
-		start := min((page-1)*limit, total)
-		end := min(start+limit, total)
-		paged = all[start:end]
+		offset = (page - 1) * limit
 	}
+	paged := storage.ApplyQueryToObjects(all, &core.StorageQuery{
+		Sort:   sortRules(sortBy),
+		Offset: offset,
+		Limit:  limit,
+	})
 	return map[string]any{
 		"objects": paged,
 		"total":   total,
@@ -921,42 +901,21 @@ func (m *Manager) AggregateByContent(page, limit int, search, sortBy, status str
 		if !typeMatches(tk) {
 			continue
 		}
-		if st, ok := tk.(interface {
-			GetAllObjects() []*model.DownloadObject
-		}); ok {
-			for _, o := range st.GetAllObjects() {
-				if status != "" && status != "all" {
-					if o.Status != status {
-						continue
-					}
-				}
-				all = append(all, taskObj{t: tk, obj: o})
-			}
+		query := &core.StorageQuery{
+			Filter: core.StorageFilter{
+				Search: search,
+			},
 		}
-	}
-	// Filter by search
-	if search = strings.ToLower(strings.TrimSpace(search)); search != "" {
-		filtered := make([]taskObj, 0, len(all))
-		for _, to := range all {
-			obj := to.obj
-			match := false
-			if strings.Contains(strings.ToLower(obj.URL), search) {
-				match = true
-			} else if title, ok := obj.Metadata["title"]; ok && strings.Contains(strings.ToLower(title), search) {
-				match = true
-			} else if tags, ok := obj.Extra["tags"].([]any); ok {
-				for _, t := range tags {
-					if tStr, ok := t.(string); ok && strings.Contains(strings.ToLower(tStr), search) {
-						match = true
-						break
-					}
-				}
-			}
-			if match {
-				filtered = append(filtered, to)
-			}
+		if status != "" && status != "all" {
+			query.Filter.Statuses = []string{status}
 		}
-		all = filtered
+		objs, err := m.collectTaskObjects(tk, query, 200)
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range objs {
+			all = append(all, taskObj{t: tk, obj: o})
+		}
 	}
 	// Group by task_id + task_type + content_group to avoid cross-task leakage.
 	type groupEntry struct {
@@ -988,55 +947,29 @@ func (m *Manager) AggregateByContent(page, limit int, search, sortBy, status str
 			} else {
 				// shallow copy map to avoid side effects
 				newExtra := make(map[string]any, len(copyObj.Extra)+1)
-				for k, v := range copyObj.Extra {
-					newExtra[k] = v
-				}
+				maps.Copy(newExtra, copyObj.Extra)
 				copyObj.Extra = newExtra
 			}
 			copyObj.Extra["group_size"] = len(entries)
 			reps = append(reps, &copyObj)
 		}
 	}
-	// Sort representatives
-	sort.Slice(reps, func(i, j int) bool {
-		switch sortBy {
-		case "date_asc":
-			return reps[i].Metadata["date"] < reps[j].Metadata["date"]
-		case "date_desc":
-			return reps[i].Metadata["date"] > reps[j].Metadata["date"]
-		case "name_asc":
-			ti := reps[i].Metadata["title"]
-			if ti == "" {
-				ti = reps[i].URL
-			}
-			tj := reps[j].Metadata["title"]
-			if tj == "" {
-				tj = reps[j].URL
-			}
-			return strings.ToLower(ti) < strings.ToLower(tj)
-		default:
-			di := reps[i].Metadata["date"]
-			dj := reps[j].Metadata["date"]
-			if di != dj {
-				return di > dj
-			}
-			return reps[i].URL < reps[j].URL
-		}
-	})
 	total := len(reps)
-	var paged []*model.DownloadObject
+	if page < 1 {
+		page = 1
+	}
+	var offset int
 	if limit <= 0 {
-		paged = reps
 		page = 1
 		limit = total
 	} else {
-		if page < 1 {
-			page = 1
-		}
-		start := min((page-1)*limit, total)
-		end := min(start+limit, total)
-		paged = reps[start:end]
+		offset = (page - 1) * limit
 	}
+	paged := storage.ApplyQueryToObjects(reps, &core.StorageQuery{
+		Sort:   sortRules(sortBy),
+		Offset: offset,
+		Limit:  limit,
+	})
 	return map[string]any{
 		"objects": paged,
 		"total":   total,
@@ -1095,7 +1028,11 @@ func (m *Manager) BackfillContentGroups() {
 		if st == nil {
 			return true
 		}
-		list, err := st.Search(nil)
+		list, err := m.collectTaskObjects(t, &core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs: []string{strings.TrimSpace(t.ID())},
+			},
+		}, 200)
 		if err != nil || list == nil {
 			return true
 		}
@@ -1164,7 +1101,11 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	if st == nil {
 		return
 	}
-	list, err := st.Search(nil)
+	list, err := m.collectTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Metadata: map[string]string{"task_type": taskType, "content_group": group},
+		},
+	}, 200)
 	if err != nil || list == nil {
 		return
 	}
@@ -1236,14 +1177,13 @@ func (m *Manager) GetObjectsByScopedGroup(taskID, taskType, group string) []*mod
 	if !ok || tk.Type() != taskType {
 		return list
 	}
-	if st, ok := tk.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		for _, o := range st.GetAllObjects() {
-			if metadataContentGroup(o) == group {
-				list = append(list, o)
-			}
-		}
+	objs, err := m.collectTaskObjects(tk, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Metadata: map[string]string{"content_group": group},
+		},
+	}, 200)
+	if err == nil {
+		list = append(list, objs...)
 	}
 	return list
 }
@@ -1270,37 +1210,33 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		return fmt.Errorf("task not found")
 	}
 
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		for _, obj := range objs {
-			if obj.URL == url {
-				if obj.Status == dlcore.StatusCompleted {
-					return fmt.Errorf("object already completed")
-				}
-				// Reset status
-				t.UpdateStatus(obj, dlcore.StatusPending, nil)
-				obj.Progress = 0
+	obj, err := m.getTaskObject(t, url)
+	if err != nil {
+		return err
+	}
+	if obj != nil {
+		if obj.Status == dlcore.StatusCompleted {
+			return fmt.Errorf("object already completed")
+		}
+		// Reset status
+		t.UpdateStatus(obj, dlcore.StatusPending, nil)
+		obj.Progress = 0
 
-				// Resolve details if needed (JIT for forced retry?)
-				if resolver, ok := t.(interface {
-					ResolveObject(*model.DownloadObject) error
-				}); ok {
-					slog.Info("Resolving object before retry", "task_id", taskID, "url", url)
-					if err := resolver.ResolveObject(obj); err != nil {
-						slog.Error("Failed to resolve object for retry", "error", err)
-						return fmt.Errorf("failed to resolve object: %v", err)
-					}
-				}
-
-				m.forceDownload(t, obj)
-				return nil
+		// Resolve details if needed (JIT for forced retry?)
+		if resolver, ok := t.(interface {
+			ResolveObject(*model.DownloadObject) error
+		}); ok {
+			slog.Info("Resolving object before retry", "task_id", taskID, "url", url)
+			if err := resolver.ResolveObject(obj); err != nil {
+				slog.Error("Failed to resolve object for retry", "error", err)
+				return fmt.Errorf("failed to resolve object: %v", err)
 			}
 		}
-		return fmt.Errorf("object not found")
+
+		m.forceDownload(t, obj)
+		return nil
 	}
-	return fmt.Errorf("task does not support object access")
+	return fmt.Errorf("object not found")
 }
 
 // ReorderObject moves an object to a new position
@@ -1327,27 +1263,24 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 		return fmt.Errorf("task not found")
 	}
 
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		count := 0
-		for _, obj := range objs {
-			if obj.Status == dlcore.StatusFailed {
-				t.UpdateStatus(obj, dlcore.StatusPending, nil)
-				obj.Progress = 0
-				// Should we force download all? That might be too many.
-				// Just let them be picked up by scan.
-				count++
-			}
-		}
-		if count > 0 {
-			// Trigger scan
-			go m.processTask(t)
-		}
-		return nil
+	objs, err := m.collectTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Statuses: []string{dlcore.StatusFailed},
+		},
+	}, 200)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("task does not support object access")
+	count := 0
+	for _, obj := range objs {
+		t.UpdateStatus(obj, dlcore.StatusPending, nil)
+		obj.Progress = 0
+		count++
+	}
+	if count > 0 {
+		go m.processTask(t)
+	}
+	return nil
 }
 
 func (m *Manager) CancelTask(taskID string) error {
@@ -1355,35 +1288,33 @@ func (m *Manager) CancelTask(taskID string) error {
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		for _, obj := range objs {
-			if obj.Status == dlcore.StatusCompleted {
-				continue
-			}
-			t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
-			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-			if _, active := m.downloadingObj.Load(obj.URL); active {
-				if c, ok := m.downloader.(interface {
-					Cancel(url string) error
-				}); ok {
-					_ = c.Cancel(obj.URL)
-				}
-				m.downloadingObj.Delete(obj.URL)
-				m.mu.Lock()
-				if m.activeDownloads[taskID] > 0 {
-					m.activeDownloads[taskID]--
-				}
-				m.mu.Unlock()
-			}
-		}
-		m.BroadcastTaskUpdate(taskID)
-		return nil
+	objs, err := m.collectTaskObjects(t, &core.StorageQuery{}, 200)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("task does not support object access")
+	for _, obj := range objs {
+		if obj.Status == dlcore.StatusCompleted {
+			continue
+		}
+		t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
+		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+		if _, active := m.downloadingObj.Load(obj.URL); active {
+			if c, ok := m.downloader.(interface {
+				Cancel(url string) error
+			}); ok {
+				_ = c.Cancel(obj.URL)
+			}
+			m.downloadingObj.Delete(obj.URL)
+			m.mu.Lock()
+			if m.activeDownloads[taskID] > 0 {
+				m.activeDownloads[taskID]--
+			}
+			m.mu.Unlock()
+		}
+	}
+	m.BroadcastTaskUpdate(taskID)
+	return nil
 }
 
 func (m *Manager) CancelTasks(ids []string) map[string]string {
@@ -1404,38 +1335,34 @@ func (m *Manager) CancelObject(taskID, url string) error {
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		for _, obj := range objs {
-			if obj.URL == url {
-				if obj.Status == dlcore.StatusCompleted {
-					return fmt.Errorf("object already completed")
-				}
-				t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
-				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-				if _, active := m.downloadingObj.Load(obj.URL); active {
-					if c, ok := m.downloader.(interface {
-						Cancel(url string) error
-					}); ok {
-						_ = c.Cancel(obj.URL)
-					}
-					m.downloadingObj.Delete(obj.URL)
-					m.mu.Lock()
-					if m.activeDownloads[taskID] > 0 {
-						m.activeDownloads[taskID]--
-					}
-					m.mu.Unlock()
-				}
-				m.BroadcastTaskUpdate(taskID)
-				return nil
-			}
-		}
+	obj, err := m.getTaskObject(t, url)
+	if err != nil {
+		return err
+	}
+	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	return fmt.Errorf("task does not support object access")
+	if obj.Status == dlcore.StatusCompleted {
+		return fmt.Errorf("object already completed")
+	}
+	t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+	if _, active := m.downloadingObj.Load(obj.URL); active {
+		if c, ok := m.downloader.(interface {
+			Cancel(url string) error
+		}); ok {
+			_ = c.Cancel(obj.URL)
+		}
+		m.downloadingObj.Delete(obj.URL)
+		m.mu.Lock()
+		if m.activeDownloads[taskID] > 0 {
+			m.activeDownloads[taskID]--
+		}
+		m.mu.Unlock()
+	}
+	m.BroadcastTaskUpdate(taskID)
+	return nil
 }
 
 // UndoCancelObject 撤销取消，将对象恢复为待下载
@@ -1444,28 +1371,23 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	if !ok {
 		return fmt.Errorf("task not found")
 	}
-	if st, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
-	}); ok {
-		objs := st.GetAllObjects()
-		for _, obj := range objs {
-			if obj.URL == url {
-				if obj.Status != dlcore.StatusCancelled {
-					return fmt.Errorf("object status is not cancelled")
-				}
-				t.UpdateStatus(obj, dlcore.StatusPending, nil)
-				obj.Progress = 0
-				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-				// 让调度器自然拾取，或立即触发该任务的处理
-				go m.processTask(t)
-				m.BroadcastTaskUpdate(taskID)
-				return nil
-			}
-		}
+	obj, err := m.getTaskObject(t, url)
+	if err != nil {
+		return err
+	}
+	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	return fmt.Errorf("task does not support object access")
+	if obj.Status != dlcore.StatusCancelled {
+		return fmt.Errorf("object status is not cancelled")
+	}
+	t.UpdateStatus(obj, dlcore.StatusPending, nil)
+	obj.Progress = 0
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+	go m.processTask(t)
+	m.BroadcastTaskUpdate(taskID)
+	return nil
 }
 
 // --- Config Management ---

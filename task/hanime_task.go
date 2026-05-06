@@ -4,7 +4,6 @@
 package task
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -15,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
@@ -38,7 +36,6 @@ type HanimeTask struct {
 	objects      []*model.DownloadObject
 	mu           sync.Mutex
 	initialized  atomic.Int32
-	hasUpdate    atomic.Bool
 	knownURLs    map[string]bool
 	pathStrategy core.PathStrategy
 	refresher    *CommonRefresher
@@ -107,18 +104,18 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 		ParseTotalPages: t.parseTotalPages,
 		ProcessItems: func(items any) ([]any, bool) {
 			vs, _ := items.([]hanimeItem)
-			t.mu.Lock()
-			defer t.mu.Unlock()
+			existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), hanimeItemURLs(vs))
 			var pageNew []*model.DownloadObject
 			allKnown := true
 			for _, v := range vs {
-				if t.knownURLs[v.href] {
+				if existing[v.href] {
 					slog.Info("hanime item already known", "task_id", t.id, "url", v.href)
 					continue
 				}
 				allKnown = false
 				obj := t.createObjectFromItem(v)
-				t.knownURLs[v.href] = true
+				persistTaskObject(t.store, t.shared, obj)
+				t.rememberRuntimeObject(obj)
 				pageNew = append(pageNew, obj)
 			}
 			out := make([]any, len(pageNew))
@@ -153,6 +150,10 @@ func (t *HanimeTask) ID() string {
 
 func (t *HanimeTask) Type() string {
 	return TypeHanime
+}
+
+func (t *HanimeTask) GetStorage() core.Storage {
+	return t.store
 }
 
 func (t *HanimeTask) Close() error {
@@ -261,17 +262,6 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 			ch := make(chan *model.DownloadObject, 10)
 			wg := sync.WaitGroup{}
-			wg.Go(func() {
-				for {
-					select {
-					case <-ch:
-						return
-					case <-time.NewTicker(10 * time.Second).C:
-						t.SaveCache()
-						continue
-					}
-				}
-			})
 			for range 10 {
 				wg.Go(func() {
 					for obj := range ch {
@@ -326,19 +316,34 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			}
 		}
 		t.mu.Unlock()
-		t.SaveCache()
 		t.mu.Lock()
 	})
 
+	objects := append([]*model.DownloadObject(nil), t.objects...)
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
-	for _, obj := range t.objects {
+	if t.store != nil {
+		if stored, err := t.store.Search(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs:  []string{t.id},
+				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
+			},
+			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
+			Limit: 64,
+		}); err == nil {
+			objects = stored
+			for _, obj := range stored {
+				t.rememberRuntimeObject(obj)
+			}
+		}
+	}
+	for _, obj := range objects {
 		if obj.Status == dlcore.StatusDownloading {
 			activeCount++
 		}
 	}
-	for _, obj := range t.objects {
+	for _, obj := range objects {
 		// Check if failed
 		if _, ok := t.markAsFailed.Load(obj.URL); ok {
 			continue
@@ -378,7 +383,8 @@ func (t *HanimeTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 	if t.shared != nil {
 		_ = t.shared.Update(obj)
 	}
-	t.hasUpdate.Store(true)
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
 	return e
 }
 
@@ -386,77 +392,6 @@ func (t *HanimeTask) GetAllObjects() []*model.DownloadObject {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.objects
-}
-
-func (t *HanimeTask) getCachePath() string {
-	return filepath.Join(config.GetWorkDir(), "cache", t.id+".json")
-}
-
-func (t *HanimeTask) SaveCache() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if !t.hasUpdate.CompareAndSwap(true, false) {
-		return nil
-	}
-	data, err := json.MarshalIndent(t.objects, "", "  ")
-	if err != nil {
-		t.hasUpdate.Store(true)
-		return err
-	}
-	path := t.getCachePath()
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	return os.WriteFile(path, data, 0644)
-}
-
-func (t *HanimeTask) LoadCache() error {
-	t.initialized.Store(-1)
-	defer func() {
-		if len(t.objects) > 0 {
-			t.initialized.Store(1)
-		} else {
-			t.initialized.Store(0)
-		}
-	}()
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	path := t.getCachePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		slog.Error("hanime load cache failed", "task_id", t.id, "error", err)
-		return err
-	}
-	var objects []*model.DownloadObject
-	if err := json.Unmarshal(data, &objects); err != nil {
-		slog.Error("hanime unmarshal cache failed", "task_id", t.id, "error", err)
-		return err
-	}
-	t.objects = objects
-	t.knownURLs = make(map[string]bool)
-	i := 0
-	for idx, obj := range t.objects {
-		t.knownURLs[obj.URL] = true
-		if t.shared != nil {
-			if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
-				*obj = *so
-			} else if t.store != nil {
-				if so, err := t.store.Get(obj.URL); err == nil && so != nil {
-					if obj.Metadata["date"] != so.Metadata["date"] {
-						i = idx
-						slog.Info("update obj by store", "idx", idx, "oldMetadata", obj.Metadata, "newMetadata", so.Metadata)
-					}
-					*obj = *so
-				}
-			}
-		}
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
-			if obj.Status == dlcore.StatusDownloading {
-				obj.Status = dlcore.StatusPending
-			}
-			delete(obj.Extra, "files")
-		}
-	}
-	slog.Info("[GG]update obj by store", "idx", i, "Metadata", t.objects[i].Metadata)
-	return nil
 }
 
 func (t *HanimeTask) MarkAsFailed(obj *model.DownloadObject, err error) {
@@ -885,14 +820,16 @@ parsePage1:
 	slog.Info("hanime total pages", "task_id", t.id, "url", page1, "total", total)
 	items1, err := t.parseHomePage(html)
 	if err == nil {
+		existing := storageExistenceMap(t.store, append([]*model.DownloadObject(nil), t.objects...), hanimeItemURLs(items1))
 		for _, it := range items1 {
-			if t.knownURLs[it.href] {
+			if existing[it.href] {
 				slog.Info("hanime item already known", "task_id", t.id, "url", it.href)
 				continue
 			}
 			obj := t.createObjectFromItem(it)
-			t.objects = append(t.objects, obj)
-			t.knownURLs[it.href] = true
+			persistTaskObject(t.store, t.shared, obj)
+			t.objects = upsertRuntimeObject(t.objects, obj)
+			t.knownURLs = rememberRuntimeURLs(t.objects)
 		}
 	}
 	for i := 2; i <= total; i++ {
@@ -909,29 +846,20 @@ parsePage1:
 			i--
 			continue
 		}
+		existing := storageExistenceMap(t.store, append([]*model.DownloadObject(nil), t.objects...), hanimeItemURLs(items))
 		for _, it := range items {
-			if t.knownURLs[it.href] {
+			if existing[it.href] {
 				slog.Info("hanime item already known", "task_id", t.id, "url", it.href)
 				continue
 			}
 			obj := t.createObjectFromItem(it)
-			t.objects = append(t.objects, obj)
-			t.knownURLs[it.href] = true
+			persistTaskObject(t.store, t.shared, obj)
+			t.objects = upsertRuntimeObject(t.objects, obj)
+			t.knownURLs = rememberRuntimeURLs(t.objects)
 		}
 		slog.Info("hanime parsed page", "task_id", t.id, "url", u, "page", i, "items", len(items), "objects", len(t.objects))
 	}
-	t.hasUpdate.Store(true)
 	t.mu.Unlock()
-
-	interval := 1 * time.Second
-	for err := t.SaveCache(); err != nil; err = t.SaveCache() {
-		slog.Error("hanime save cache failed", "task_id", t.id, "error", err)
-		interval *= 2
-		if interval > 1*time.Minute {
-			interval = 1 * time.Minute
-		}
-		time.Sleep(interval)
-	}
 	slog.Info("hanime scrape all pages done", "task_id", t.id, "objects", len(t.objects))
 }
 
@@ -947,14 +875,34 @@ func (t *HanimeTask) refreshLatest() {
 	if len(newAny) == 0 {
 		return
 	}
-	t.mu.Lock()
-	pageObjs := make([]*model.DownloadObject, len(newAny))
 	for i := range newAny {
-		pageObjs[i] = newAny[i].(*model.DownloadObject)
+		t.rememberRuntimeObject(newAny[i].(*model.DownloadObject))
 	}
-	t.objects = append(pageObjs, t.objects...)
-	t.mu.Unlock()
-	if err := t.SaveCache(); err != nil {
-		slog.Error("hanime save cache failed", "task_id", t.id, "error", err)
+}
+
+func (t *HanimeTask) snapshotRuntimeObjects() []*model.DownloadObject {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]*model.DownloadObject(nil), t.objects...)
+}
+
+func (t *HanimeTask) rememberRuntimeObject(obj *model.DownloadObject) {
+	if obj == nil {
+		return
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
+}
+
+func hanimeItemURLs(items []hanimeItem) []string {
+	urls := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.href == "" {
+			continue
+		}
+		urls = append(urls, item.href)
+	}
+	return urls
 }

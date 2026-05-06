@@ -7,9 +7,15 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
+
+type registeredStorage struct {
+	taskID string
+	store  core.Storage
+}
 
 // URLStateRegistry 提供基于 URL 的全局对象状态共享
 type URLStateRegistry struct {
@@ -17,6 +23,7 @@ type URLStateRegistry struct {
 	objects map[string]*model.DownloadObject
 	owners  map[string]map[string]struct{}
 	subs    []chan *model.DownloadObject
+	stores  []registeredStorage
 }
 
 func NewURLStateRegistry() *URLStateRegistry {
@@ -50,11 +57,47 @@ func cloneObject(src *model.DownloadObject) *model.DownloadObject {
 
 func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	if obj, ok := r.objects[url]; ok {
+		r.mu.RUnlock()
 		return cloneObject(obj), nil
 	}
-	return nil, nil
+	stores := append([]registeredStorage(nil), r.stores...)
+	r.mu.RUnlock()
+
+	var best *model.DownloadObject
+	owners := make(map[string]struct{})
+	for _, entry := range stores {
+		if entry.store == nil {
+			continue
+		}
+		obj, err := entry.store.Get(url)
+		if err != nil || obj == nil {
+			continue
+		}
+		owners[ownerID(entry.taskID, obj)] = struct{}{}
+		if betterSharedObject(obj, best) {
+			best = obj
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+
+	r.mu.Lock()
+	if existing, ok := r.objects[url]; ok {
+		for owner := range owners {
+			r.addOwnerLocked(url, owner)
+		}
+		r.mu.Unlock()
+		return cloneObject(existing), nil
+	}
+	r.objects[url] = cloneObject(best)
+	for owner := range owners {
+		r.addOwnerLocked(url, owner)
+	}
+	cached := cloneObject(r.objects[url])
+	r.mu.Unlock()
+	return cached, nil
 }
 
 func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {
@@ -64,14 +107,7 @@ func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.objects[obj.URL] = cloneObject(obj)
-	if obj.TaskID != "" {
-		owners := r.owners[obj.URL]
-		if owners == nil {
-			owners = make(map[string]struct{})
-			r.owners[obj.URL] = owners
-		}
-		owners[obj.TaskID] = struct{}{}
-	}
+	r.addOwnerLocked(obj.URL, stringsTrim(obj.TaskID))
 	for _, ch := range r.subs {
 		select {
 		case ch <- r.objects[obj.URL]:
@@ -97,11 +133,33 @@ func (r *URLStateRegistry) Delete(url string) error {
 
 func (r *URLStateRegistry) Owners(url string) int {
 	r.mu.RLock()
+	if s := r.owners[url]; s != nil {
+		r.mu.RUnlock()
+		return len(s)
+	}
+	r.mu.RUnlock()
+	_, _ = r.Get(url)
+	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if s := r.owners[url]; s != nil {
 		return len(s)
 	}
 	return 0
+}
+
+func (r *URLStateRegistry) RegisterStorage(taskID string, store core.Storage) {
+	if store == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.stores {
+		if r.stores[i].taskID == taskID {
+			r.stores[i].store = store
+			return
+		}
+	}
+	r.stores = append(r.stores, registeredStorage{taskID: taskID, store: store})
 }
 
 func (r *URLStateRegistry) Subscribe() <-chan *model.DownloadObject {
@@ -122,4 +180,78 @@ func (r *URLStateRegistry) Unsubscribe(ch <-chan *model.DownloadObject) {
 			break
 		}
 	}
+}
+
+func (r *URLStateRegistry) addOwnerLocked(url, taskID string) {
+	if taskID == "" {
+		return
+	}
+	owners := r.owners[url]
+	if owners == nil {
+		owners = make(map[string]struct{})
+		r.owners[url] = owners
+	}
+	owners[taskID] = struct{}{}
+}
+
+func ownerID(taskID string, obj *model.DownloadObject) string {
+	if trimmed := stringsTrim(taskID); trimmed != "" {
+		return trimmed
+	}
+	if obj == nil {
+		return ""
+	}
+	return stringsTrim(obj.TaskID)
+}
+
+func betterSharedObject(candidate, current *model.DownloadObject) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	left := sharedObjectScore(candidate)
+	right := sharedObjectScore(current)
+	if left != right {
+		return left > right
+	}
+	return len(candidate.Metadata)+len(candidate.Extra) > len(current.Metadata)+len(current.Extra)
+}
+
+func sharedObjectScore(obj *model.DownloadObject) int {
+	if obj == nil {
+		return -1
+	}
+	score := 0
+	switch obj.Status {
+	case dlcore.StatusCompleted:
+		score += 40
+	case dlcore.StatusDownloading:
+		score += 30
+	case dlcore.StatusFailed:
+		score += 20
+	case dlcore.StatusPending:
+		score += 10
+	case dlcore.StatusCancelled:
+		score += 5
+	}
+	if _, ok := obj.Extra["files"]; ok {
+		score += 5
+	}
+	score += len(obj.Metadata)
+	score += len(obj.Extra)
+	return score
+}
+
+func stringsTrim(value string) string {
+	start := 0
+	end := len(value)
+	for start < end && (value[start] == ' ' || value[start] == '\t' || value[start] == '\n' || value[start] == '\r') {
+		start++
+	}
+	for end > start && (value[end-1] == ' ' || value[end-1] == '\t' || value[end-1] == '\n' || value[end-1] == '\r') {
+		end--
+	}
+	return value[start:end]
 }

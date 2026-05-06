@@ -5,7 +5,6 @@ package task
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -38,7 +37,6 @@ type TktubeTask struct {
 	saveDir     string
 	concurrency int
 	refreshInt  int // Refresh interval in seconds
-	hasUpdate   atomic.Bool
 
 	objects       []*model.DownloadObject
 	store         core.Storage
@@ -138,16 +136,19 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 		ProcessItems: func(items any) ([]any, bool) {
 			vs, _ := items.([]videoItem)
 			t.mu.Lock()
-			defer t.mu.Unlock()
+			runtimeObjects := append([]*model.DownloadObject(nil), t.objects...)
+			t.mu.Unlock()
+			existing := storageExistenceMap(t.store, runtimeObjects, videoItemURLs(vs))
 			var pageNew []*model.DownloadObject
 			allKnown := true
 			for _, v := range vs {
-				if t.knownURLs[v.href] {
+				if existing[v.href] {
 					continue
 				}
 				allKnown = false
 				obj := t.createObjectFromVideoItem(v)
-				t.knownURLs[v.href] = true
+				persistTaskObject(t.store, t.shared, obj)
+				t.rememberRuntimeObject(obj)
 				pageNew = append(pageNew, obj)
 				t.queuePrefetch(obj)
 			}
@@ -224,15 +225,28 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 
 	t.mu.Lock()
-
-	// Try to queue pending objects for prefetch if needed
 	t.queuePendingPrefetches()
+	runtimeObjects := append([]*model.DownloadObject(nil), t.objects...)
+	t.mu.Unlock()
 
 	// 2. Return pending objects that are ready for download
 	activeCount := 0
-	for _, obj := range t.objects {
-		if obj.Status == dlcore.StatusDownloading {
-			activeCount++
+	if t.store != nil {
+		count, err := t.store.Count(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs:  []string{t.id},
+				Statuses: []string{dlcore.StatusDownloading},
+			},
+		})
+		if err == nil {
+			activeCount = count
+		}
+	}
+	if activeCount == 0 {
+		for _, obj := range runtimeObjects {
+			if obj.Status == dlcore.StatusDownloading {
+				activeCount++
+			}
 		}
 	}
 	// if activeCount != 0 {
@@ -242,8 +256,26 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
 
+	queryLimit := max(t.concurrency*3+8, 16)
+	objects := runtimeObjects
+	if t.store != nil {
+		if stored, err := t.store.Search(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs:  []string{t.id},
+				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
+			},
+			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
+			Limit: queryLimit,
+		}); err == nil {
+			objects = stored
+			for _, obj := range stored {
+				t.rememberRuntimeObject(obj)
+			}
+		}
+	}
+
 	// Collect candidates
-	for _, obj := range t.objects {
+	for _, obj := range objects {
 		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
 			// Check if failed
 			if _, ok := t.markAsFailed.Load(obj.URL); ok {
@@ -263,8 +295,6 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			}
 		}
 	}
-
-	t.mu.Unlock() // Unlock while resolving
 
 	// Resolve in parallel
 	if len(toResolve) > 0 {
@@ -319,85 +349,6 @@ func (t *TktubeTask) ResolveObject(obj *model.DownloadObject) error {
 		return nil
 	}
 	return t.resolveVideoDetails(obj)
-}
-
-// --- Persistence ---
-
-func (t *TktubeTask) getCachePath() string {
-	return filepath.Join(config.GetWorkDir(), "cache", t.id+".json")
-}
-
-func (t *TktubeTask) SaveCache() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	return t.saveCache()
-}
-
-func (t *TktubeTask) saveCache() (err error) {
-	if !t.hasUpdate.CompareAndSwap(true, false) {
-		return nil
-	}
-	defer func() {
-		if err == nil {
-			slog.Debug("Saving cache", "task_id", t.id, "count", len(t.objects))
-		} else {
-			t.hasUpdate.Store(true)
-			slog.Error("Saving cache", "task_id", t.id, "count", len(t.objects), "error", err)
-		}
-	}()
-
-	path := t.getCachePath()
-	data, err := json.MarshalIndent(t.objects, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
-
-func (t *TktubeTask) LoadCache() error {
-	t.initialized.Store(-1)
-	defer func() {
-		if len(t.objects) > 0 {
-			t.initialized.Store(1)
-		} else {
-			t.initialized.Store(0)
-		}
-	}()
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	path := t.getCachePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	var objects []*model.DownloadObject
-	if err := json.Unmarshal(data, &objects); err != nil {
-		return err
-	}
-
-	// Rebuild knownURLs map
-	t.knownURLs = make(map[string]bool)
-	t.objects = objects
-	for _, obj := range t.objects {
-		t.knownURLs[obj.URL] = true
-
-		// Sync with storage to get latest status (in case JSON cache is stale)
-		t.checkAndRestoreStatus(obj)
-
-		// Reset Downloading status to Pending on restart
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
-			obj.Status = dlcore.StatusPending
-			// Clear files list to trigger re-resolution
-			delete(obj.Extra, "files")
-		}
-	}
-
-	return nil
 }
 
 // --- Scraping Logic ---
@@ -458,11 +409,6 @@ func (t *TktubeTask) scrapeAllPages() {
 		t.addVideoItems(items)
 	}
 
-	t.hasUpdate.Store(true)
-	if err := t.saveCache(); err != nil {
-		slog.Error("Failed to save cache", "task_id", t.id, "error", err)
-		return
-	}
 	slog.Info("Initialization done", "task_id", t.id, "total_objects", len(t.objects))
 }
 
@@ -474,35 +420,26 @@ func (t *TktubeTask) refreshLatest() {
 		return
 	}
 	if len(newAny) > 0 {
-		t.mu.Lock()
-		// Prepend newObjects to t.objects
-		pageObjs := make([]*model.DownloadObject, len(newAny))
 		for i := range newAny {
-			pageObjs[i] = newAny[i].(*model.DownloadObject)
+			t.rememberRuntimeObject(newAny[i].(*model.DownloadObject))
 		}
-		t.objects = append(pageObjs, t.objects...)
-		t.mu.Unlock()
 
 		slog.Info("Refresh finished", "task_id", t.id, "new_items", len(newAny))
-		if err := t.SaveCache(); err != nil {
-			slog.Error("Failed to save cache after refresh", "task_id", t.id, "error", err)
-		}
 	} else {
 		slog.Info("No new items found", "task_id", t.id)
 	}
 }
 
 func (t *TktubeTask) addVideoItems(items []videoItem) {
+	existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), videoItemURLs(items))
 	for _, v := range items {
-		if t.knownURLs[v.href] {
+		if existing[v.href] {
 			continue
 		}
 
 		obj := t.createObjectFromVideoItem(v)
-
-		t.objects = append(t.objects, obj)
-		t.knownURLs[v.href] = true
-
+		persistTaskObject(t.store, t.shared, obj)
+		t.rememberRuntimeObject(obj)
 		t.queuePrefetch(obj)
 	}
 }
@@ -824,7 +761,8 @@ func (t *TktubeTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 	if t.shared != nil {
 		_ = t.shared.Update(obj)
 	}
-	t.hasUpdate.Store(true)
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
 	return storeErr
 }
 
@@ -832,6 +770,20 @@ func (t *TktubeTask) GetAllObjects() []*model.DownloadObject {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.objects
+}
+
+func (t *TktubeTask) snapshotRuntimeObjects() []*model.DownloadObject {
+	return append([]*model.DownloadObject(nil), t.objects...)
+}
+
+func (t *TktubeTask) rememberRuntimeObject(obj *model.DownloadObject) {
+	if obj == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
 }
 
 // GetConcurrency returns the configured concurrency limit for this task
@@ -932,6 +884,17 @@ type videoItem struct {
 	thumbURL   string
 	duration   string
 	date       string
+}
+
+func videoItemURLs(items []videoItem) []string {
+	urls := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.href == "" {
+			continue
+		}
+		urls = append(urls, item.href)
+	}
+	return urls
 }
 
 func (t *TktubeTask) parseHomePage(html string) ([]videoItem, error) {

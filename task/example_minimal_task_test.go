@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/storage"
 )
 
 type fakeStorage struct {
@@ -52,14 +54,35 @@ func (f *fakeStorage) Delete(id string) error {
 	return nil
 }
 
-func (f *fakeStorage) Search(filter any) ([]*model.DownloadObject, error) {
+func (f *fakeStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	var out []*model.DownloadObject
 	for _, v := range f.mem {
 		out = append(out, v)
 	}
-	return out, nil
+	return storage.ApplyQueryToObjects(out, query), nil
+}
+
+func (f *fakeStorage) Count(query *core.StorageQuery) (int, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	var out []*model.DownloadObject
+	for _, v := range f.mem {
+		out = append(out, v)
+	}
+	return storage.CountObjects(out, query), nil
+}
+
+func (f *fakeStorage) Exists(ids []string) (map[string]bool, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		_, ok := f.mem[id]
+		result[id] = ok
+	}
+	return result, nil
 }
 
 type fakeRegistry struct {

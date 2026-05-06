@@ -1,11 +1,17 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
+	"github.com/cocomhub/download-manager/storage"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -21,15 +27,11 @@ func cloneDownloadObject(obj *model.DownloadObject) *model.DownloadObject {
 	cp := *obj
 	if obj.Metadata != nil {
 		cp.Metadata = make(map[string]string, len(obj.Metadata))
-		for k, v := range obj.Metadata {
-			cp.Metadata[k] = v
-		}
+		maps.Copy(cp.Metadata, obj.Metadata)
 	}
 	if obj.Extra != nil {
 		cp.Extra = make(map[string]any, len(obj.Extra))
-		for k, v := range obj.Extra {
-			cp.Extra[k] = v
-		}
+		maps.Copy(cp.Extra, obj.Extra)
 	}
 	return &cp
 }
@@ -52,12 +54,29 @@ func (s *snapshotStore) Delete(id string) error {
 	return nil
 }
 
-func (s *snapshotStore) Search(filter any) ([]*model.DownloadObject, error) {
+func (s *snapshotStore) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	out := make([]*model.DownloadObject, 0, len(s.m))
 	for _, obj := range s.m {
 		out = append(out, cloneDownloadObject(obj))
 	}
-	return out, nil
+	return storage.ApplyQueryToObjects(out, query), nil
+}
+
+func (s *snapshotStore) Count(query *core.StorageQuery) (int, error) {
+	out := make([]*model.DownloadObject, 0, len(s.m))
+	for _, obj := range s.m {
+		out = append(out, cloneDownloadObject(obj))
+	}
+	return storage.CountObjects(out, query), nil
+}
+
+func (s *snapshotStore) Exists(ids []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		_, ok := s.m[id]
+		result[id] = ok
+	}
+	return result, nil
 }
 
 func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {

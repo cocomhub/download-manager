@@ -8,9 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -41,7 +39,6 @@ type VikacgTask struct {
 	knownURLs    map[string]bool
 	userID       int
 	markAsFailed sync.Map
-	hasUpdate    atomic.Bool
 	pageCount    int
 	authToken    string
 	cookie       string
@@ -106,7 +103,8 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 		if cached != nil {
 			cached.TaskID = t.id
 			t.sanitizeCachedContentHTML(cached)
-			t.objects = append(t.objects, cached)
+			t.objects = upsertRuntimeObject(t.objects, cached)
+			t.knownURLs = rememberRuntimeURLs(t.objects)
 			continue
 		}
 		obj, err := t.scrapeAndBuild(u)
@@ -114,10 +112,9 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 			slog.Warn("vikacg parse failed", "task_id", cfg.ID, "url", u, "error", err)
 			continue
 		}
-		t.objects = append(t.objects, obj)
-	}
-	for _, o := range t.objects {
-		t.knownURLs[o.URL] = true
+		persistTaskObject(t.store, t.shared, obj)
+		t.objects = upsertRuntimeObject(t.objects, obj)
+		t.knownURLs = rememberRuntimeURLs(t.objects)
 	}
 	t.userID = getInt("user_id", 0)
 	if t.userID > 0 {
@@ -179,17 +176,29 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			return []*model.DownloadObject{}, nil
 		}
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.shared != nil {
-		for _, obj := range t.objects {
-			if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
-				*obj = *so
+	objects := t.snapshotRuntimeObjects()
+	if t.store != nil {
+		if stored, err := t.store.Search(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs:  []string{t.id},
+				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
+			},
+			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
+			Limit: 64,
+		}); err == nil {
+			objects = stored
+			for _, obj := range stored {
+				t.rememberRuntimeObject(obj)
 			}
 		}
 	}
 	pending := make([]*model.DownloadObject, 0)
-	for _, o := range t.objects {
+	for _, o := range objects {
+		if t.shared != nil {
+			if so, err := t.shared.Get(o.URL); err == nil && so != nil {
+				*o = *so
+			}
+		}
 		if _, ok := t.markAsFailed.Load(o.URL); ok {
 			continue
 		}
@@ -212,7 +221,8 @@ func (t *VikacgTask) UpdateStatus(obj *model.DownloadObject, status string, err 
 	if t.shared != nil {
 		_ = t.shared.Update(obj)
 	}
-	t.hasUpdate.Store(true)
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
 	return nil
 }
 
@@ -526,61 +536,6 @@ func (t *VikacgTask) SetRefreshInterval(sec int) error {
 	return nil
 }
 
-func (t *VikacgTask) getCachePath() string {
-	return filepath.Join(config.GetWorkDir(), "cache", t.id+".json")
-}
-
-func (t *VikacgTask) SaveCache() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if !t.hasUpdate.CompareAndSwap(true, false) {
-		return nil
-	}
-	data, err := json.MarshalIndent(t.objects, "", "  ")
-	if err != nil {
-		t.hasUpdate.Store(true)
-		return err
-	}
-	path := t.getCachePath()
-	os.MkdirAll(filepath.Dir(path), 0755)
-	return os.WriteFile(path, data, 0644)
-}
-
-func (t *VikacgTask) LoadCache() error {
-	t.initialized.Store(-1)
-	defer func() {
-		if len(t.objects) > 0 {
-			t.initialized.Store(1)
-		} else {
-			t.initialized.Store(0)
-		}
-	}()
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	path := t.getCachePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var objects []*model.DownloadObject
-	if err := json.Unmarshal(data, &objects); err != nil {
-		return err
-	}
-	t.objects = objects
-	t.knownURLs = make(map[string]bool)
-	for _, obj := range t.objects {
-		t.knownURLs[obj.URL] = true
-		t.restoreStatus(obj)
-		t.sanitizeCachedContentHTML(obj)
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
-			if obj.Status == dlcore.StatusDownloading {
-				obj.Status = dlcore.StatusPending
-			}
-		}
-	}
-	return nil
-}
-
 type vikPost struct {
 	ID        int    `json:"id"`
 	Title     string `json:"title"`
@@ -650,10 +605,6 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 
 func (t *VikacgTask) scrapeUserAllPages() {
 	defer t.initialized.Store(1)
-	t.mu.Lock()
-	startKnown := make(map[string]bool, len(t.knownURLs))
-	maps.Copy(startKnown, t.knownURLs)
-	t.mu.Unlock()
 	page := 1
 	for {
 		posts, err := t.getPostsPage(page)
@@ -665,12 +616,10 @@ func (t *VikacgTask) scrapeUserAllPages() {
 			break
 		}
 		newObjs := make([]*model.DownloadObject, 0, len(posts))
+		existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), vikPostURLs(posts))
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
-			t.mu.Lock()
-			known := t.knownURLs[u]
-			t.mu.Unlock()
-			if known {
+			if existing[u] {
 				continue
 			}
 			if cached := t.getCachedObject(u); cached != nil {
@@ -685,18 +634,8 @@ func (t *VikacgTask) scrapeUserAllPages() {
 				}
 				newObjs = append(newObjs, obj)
 			}
-			t.mu.Lock()
-			t.knownURLs[u] = true
-			t.mu.Unlock()
-		}
-		if len(newObjs) > 0 {
-			t.mu.Lock()
-			t.objects = append(newObjs, t.objects...)
-			t.mu.Unlock()
-			t.hasUpdate.Store(true)
-			if err := t.SaveCache(); err != nil {
-				slog.Error("vikacg save cache failed", "task_id", t.id, "error", err)
-			}
+			persistTaskObject(t.store, t.shared, newObjs[len(newObjs)-1])
+			t.rememberRuntimeObject(newObjs[len(newObjs)-1])
 		}
 		page++
 	}
@@ -722,13 +661,11 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 		if len(posts) == 0 {
 			break
 		}
+		existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), vikPostURLs(posts))
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
-			t.mu.Lock()
-			known2 := t.knownURLs[u]
-			t.mu.Unlock()
-			if known2 {
-				known = known2
+			if existing[u] {
+				known = true
 				continue
 			}
 			if cached := t.getCachedObject(u); cached != nil {
@@ -743,21 +680,41 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 				}
 				pageObjs = append(pageObjs, obj)
 			}
-			t.mu.Lock()
-			t.knownURLs[u] = true
-			t.mu.Unlock()
+			persistTaskObject(t.store, t.shared, pageObjs[len(pageObjs)-1])
+			t.rememberRuntimeObject(pageObjs[len(pageObjs)-1])
 		}
+		page++
 	}
 	if len(pageObjs) > 0 {
-		t.mu.Lock()
-		t.objects = append(pageObjs, t.objects...)
-		t.mu.Unlock()
-		t.hasUpdate.Store(true)
-		if err := t.SaveCache(); err != nil {
-			slog.Error("vikacg save cache failed after refresh", "task_id", t.id, "error", err)
-		}
 		slog.Info("vikacg refresh finished", "task_id", t.id, "new_items", len(pageObjs))
 	} else {
 		slog.Info("vikacg refresh no new", "task_id", t.id)
 	}
+}
+
+func (t *VikacgTask) snapshotRuntimeObjects() []*model.DownloadObject {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]*model.DownloadObject(nil), t.objects...)
+}
+
+func (t *VikacgTask) rememberRuntimeObject(obj *model.DownloadObject) {
+	if obj == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.objects = upsertRuntimeObject(t.objects, obj)
+	t.knownURLs = rememberRuntimeURLs(t.objects)
+}
+
+func vikPostURLs(posts []vikPost) []string {
+	urls := make([]string, 0, len(posts))
+	for _, p := range posts {
+		if p.ID <= 0 {
+			continue
+		}
+		urls = append(urls, fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID))
+	}
+	return urls
 }

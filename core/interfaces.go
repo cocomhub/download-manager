@@ -7,6 +7,26 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
+type StorageFilter struct {
+	TaskIDs  []string
+	URLs     []string
+	Statuses []string
+	Metadata map[string]string
+	Search   string
+}
+
+type StorageSort struct {
+	Field string
+	Desc  bool
+}
+
+type StorageQuery struct {
+	Filter StorageFilter
+	Sort   []StorageSort
+	Offset int
+	Limit  int
+}
+
 // Storage 定义下载状态存储的行为
 type Storage interface {
 	// Get 获取单个对象状态
@@ -15,9 +35,13 @@ type Storage interface {
 	Update(obj *model.DownloadObject) error
 	// Delete 删除对象状态
 	Delete(id string) error
-	// Search 搜索对象 (简单起见，返回所有或根据filter返回)
-	// 在本系统中，通常用于获取该Task下的所有对象状态
-	Search(filter any) ([]*model.DownloadObject, error)
+	// Search 按查询条件搜索对象。
+	// nil 查询表示不过滤、不排序、不分页，返回当前存储中的全部对象。
+	Search(query *StorageQuery) ([]*model.DownloadObject, error)
+	// Count 返回匹配查询过滤条件的对象总数，忽略排序与分页参数。
+	Count(query *StorageQuery) (int, error)
+	// Exists 批量检查给定对象 ID 是否存在。
+	Exists(ids []string) (map[string]bool, error)
 }
 
 // Task 定义下载任务的行为
@@ -64,16 +88,6 @@ type SharedRegistrySetter interface {
 // DownloaderSetter 任务可实现该接口以接收下载器
 type DownloaderSetter interface {
 	SetDownloader(d Downloader)
-}
-
-// CacheLoader 任务可实现该接口以加载缓存
-type CacheLoader interface {
-	LoadCache() error
-}
-
-// CacheSaver 任务可实现该接口以保存缓存
-type CacheSaver interface {
-	SaveCache() error
 }
 
 // EventType 定义事件类型

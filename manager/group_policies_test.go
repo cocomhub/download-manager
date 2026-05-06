@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package manager
 
 import (
@@ -6,6 +9,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/storage"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -22,12 +26,27 @@ func (s *memStore) Update(obj *model.DownloadObject) error {
 	return nil
 }
 func (s *memStore) Delete(id string) error { delete(s.m, id); return nil }
-func (s *memStore) Search(filter any) ([]*model.DownloadObject, error) {
+func (s *memStore) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	var list []*model.DownloadObject
 	for _, o := range s.m {
 		list = append(list, o)
 	}
-	return list, nil
+	return storage.ApplyQueryToObjects(list, query), nil
+}
+func (s *memStore) Count(query *core.StorageQuery) (int, error) {
+	var list []*model.DownloadObject
+	for _, o := range s.m {
+		list = append(list, o)
+	}
+	return storage.CountObjects(list, query), nil
+}
+func (s *memStore) Exists(ids []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		_, ok := s.m[id]
+		result[id] = ok
+	}
+	return result, nil
 }
 
 type fakeTktTask struct {
