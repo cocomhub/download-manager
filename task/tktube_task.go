@@ -359,6 +359,7 @@ func (t *TktubeTask) scrapeAllPages() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+tryAgain:
 	// First scrape page 1 to get total pages and initial items
 	page1URL := t.buildPageURL(t.pageStart)
 	slog.Info("Scraping first page to detect total pages", "task_id", t.id, "url", page1URL)
@@ -366,7 +367,7 @@ func (t *TktubeTask) scrapeAllPages() {
 	html, err := t.runScraper(page1URL)
 	if err != nil {
 		slog.Error("Failed to scrape first page", "error", err)
-		return
+		goto tryAgain
 	}
 
 	// Parse total pages
@@ -376,13 +377,14 @@ func (t *TktubeTask) scrapeAllPages() {
 		t.pageEnd = totalPages
 	}
 
+tryAgain2:
 	// Parse items from page 1
 	items1, err := t.parseHomePage(html)
 	if err == nil {
 		t.addVideoItems(items1)
 	} else {
 		slog.Error("Failed to parse first page", "task_id", t.id, "error", err)
-		return
+		goto tryAgain2
 	}
 
 	// Scrape remaining pages
@@ -391,19 +393,20 @@ func (t *TktubeTask) scrapeAllPages() {
 	// we have page 1.
 	// If we want to scrape EVERYTHING, we just loop.
 	for i := t.pageStart + 1; i <= t.pageEnd; i++ {
+	tryAgain3:
 		url := t.buildPageURL(i)
 		slog.Info("Scraping All pages", "task_id", t.id, "page", i, "url", url)
 
 		html, err := t.runScraper(url)
 		if err != nil {
 			slog.Error("Failed to scrape page", "task_id", t.id, "page", i, "error", err)
-			continue
+			goto tryAgain3
 		}
 
 		items, err := t.parseHomePage(html)
 		if err != nil {
 			slog.Error("Failed to parse page", "task_id", t.id, "page", i, "error", err)
-			continue
+			goto tryAgain3
 		}
 
 		t.addVideoItems(items)

@@ -5,18 +5,22 @@ package downloader
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 )
 
 func Scrape(url string, cookie string) (string, error) {
-	cmd := exec.Command(config.GetServerConfig().ScraperPath, url)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, config.GetServerConfig().ScraperPath, url)
 	if cookie != "" {
 		cmd.Args = append(cmd.Args, "-cookie", cookie)
 	}
