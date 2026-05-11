@@ -566,7 +566,7 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 		"user_id":    t.userID,
 	}
 	data, _ := json.Marshal(body)
-	url := "http://129.226.212.209:18080/www.vikacg.com/api/vikacg/v1/getPosts"
+	url := "http://129.226.212.209:18082/www.vikacg.com/api/vikacg/v1/getPosts"
 	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
