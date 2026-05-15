@@ -13,13 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 
@@ -29,49 +29,19 @@ import (
 
 // TktubeTask implements core.Task for Tktube
 type TktubeTask struct {
-	id          string
-	taskType    string // "tag", "model", "search"
-	keyword     string
-	pageStart   int // Configured start page (usually 1)
-	pageEnd     int // Configured end page (can be overridden by auto-detection)
-	saveDir     string
-	concurrency int
-	refreshInt  int // Refresh interval in seconds
-
-	objects       []*model.DownloadObject
-	store         core.Storage
-	shared        core.SharedRegistry
-	mu            sync.Mutex
-	initialized   atomic.Int32
+	BaseTask
+	taskType      string // "tag", "model", "search"
+	keyword       string
+	pageStart     int
+	pageEnd       int
 	prefetchQueue chan *model.DownloadObject
 	prefetchRate  int
-	pathStrategy  core.PathStrategy
-	refresher     *CommonRefresher
-	pager         *CommonPager
 
-	// Set to track existing URLs for quick lookup
-	knownURLs map[string]bool
-
-	markAsFailed sync.Map
-	dl           core.Downloader
+	resolvedURLs sync.Map
 }
 
 // Ensure TktubeTask implements core.Task
 var _ core.Task = &TktubeTask{}
-
-// SetPathStrategy allows factory to inject a default path strategy when not set
-func (t *TktubeTask) SetPathStrategy(ps core.PathStrategy) {
-	if t.pathStrategy == nil && ps != nil {
-		t.pathStrategy = ps
-	}
-}
-
-// SetRefresher allows factory to inject a default refresher when not set
-func (t *TktubeTask) SetRefresher(r *CommonRefresher) {
-	if t.refresher == nil && r != nil {
-		t.refresher = r
-	}
-}
 
 func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	extra := cfg.Extra
@@ -79,53 +49,27 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 		extra = make(map[string]any)
 	}
 
-	getString := func(key, def string) string {
-		if v, ok := extra[key].(string); ok {
-			return v
-		}
-		return def
-	}
-	getInt := func(key string, def int) int {
-		if v, ok := extra[key].(int); ok {
-			return v
-		}
-		if v, ok := extra[key].(float64); ok {
-			return int(v)
-		}
-		return def
-	}
-	getBool := func(key string, def bool) bool {
-		if v, ok := extra[key].(bool); ok {
-			return v
-		}
-		return def
-	}
-
-	subtype := getString("subtype", "tag")
-	keyword := getString("keyword", "")
-	concurrency := getInt("max_concurrent", 2)
-	refreshInt := getInt("refresh_interval", 3600) // Default 1 hour
+	subtype := configutil.GetString(extra, "subtype", "tag")
+	keyword := configutil.GetString(extra, "keyword", "")
+	concurrency := configutil.GetInt(extra, "max_concurrent", 2)
+	refreshInt := configutil.GetInt(extra, "refresh_interval", 3600) // Default 1 hour
 	saveDir := cfg.SaveDir
-	if getBool("save_dir_add_keyword", false) {
+	if configutil.GetBool(extra, "save_dir_add_keyword", false) {
 		saveDir = filepath.Join(cfg.SaveDir, keyword)
 	}
-	psMode := getString("path_strategy", "first_fixed")
+	psMode := configutil.GetString(extra, "path_strategy", "first_fixed")
 
 	t := &TktubeTask{
-		id:            cfg.ID,
+		BaseTask:      NewBaseTask(cfg.ID, saveDir, store),
 		taskType:      subtype,
 		keyword:       keyword,
 		pageStart:     1,
 		pageEnd:       1,
-		saveDir:       saveDir,
-		concurrency:   concurrency,
-		refreshInt:    refreshInt,
-		objects:       make([]*model.DownloadObject, 0),
-		store:         store,
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
-		prefetchRate:  getInt("prefetch_rate", 10),
-		knownURLs:     make(map[string]bool),
+		prefetchRate:  configutil.GetInt(extra, "prefetch_rate", 10),
 	}
+	t.concurrency = concurrency
+	t.refreshInt = refreshInt
 	t.pathStrategy = NewPathStrategy(psMode, saveDir)
 	// Common pager setup
 	t.pager = NewCommonPager(PageFuncs{
@@ -148,7 +92,7 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 				allKnown = false
 				obj := t.createObjectFromVideoItem(v)
 				persistTaskObject(t.store, t.shared, obj)
-				t.rememberRuntimeObject(obj)
+				t.RememberRuntimeObject(obj)
 				pageNew = append(pageNew, obj)
 				t.queuePrefetch(obj)
 			}
@@ -169,49 +113,9 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 	return t, nil
 }
 
-func (t *TktubeTask) SetDownloader(d core.Downloader) {
-	t.dl = d
-}
-
-func (t *TktubeTask) SetSharedRegistry(reg core.SharedRegistry) {
-	t.shared = reg
-}
-
-func (t *TktubeTask) GetStorage() core.Storage {
-	return t.store
-}
-
-func (t *TktubeTask) ID() string {
-	return t.id
-}
-
 func (t *TktubeTask) Type() string {
 	return TypeTktube
 }
-
-func (t *TktubeTask) Close() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Flush storage if supported
-	if t.store != nil {
-		if flusher, ok := t.store.(interface{ ForceFlush() error }); ok {
-			if err := flusher.ForceFlush(); err != nil {
-				slog.Error("Failed to flush storage", "task_id", t.id, "error", err)
-			}
-		}
-	}
-	if t.refresher != nil {
-		t.refresher.Stop()
-	}
-	return nil
-}
-
-func (t *TktubeTask) GetDownloadHeaders() map[string]string {
-	return map[string]string{}
-}
-
-var resolvedURLs sync.Map // URL -> true
 
 func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// 1. Initialize (Scrape all pages) if not done
@@ -251,9 +155,6 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			}
 		}
 	}
-	// if activeCount != 0 {
-	// 	slog.Debug("Active count", "task_id", t.id, "count", activeCount)
-	// }
 
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
@@ -271,7 +172,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}); err == nil {
 			objects = stored
 			for _, obj := range stored {
-				t.rememberRuntimeObject(obj)
+				t.RememberRuntimeObject(obj)
 			}
 		}
 	}
@@ -280,13 +181,13 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	for _, obj := range objects {
 		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
 			// Check if failed
-			if _, ok := t.markAsFailed.Load(obj.URL); ok {
+			if t.IsMarkedFailed(obj.URL) {
 				continue
 			}
 			// We look ahead a bit more to ensure we have enough resolved objects
 			if len(candidates)+len(toResolve)+activeCount < t.concurrency*2+2 {
 				// Check if resolved
-				_, ok := resolvedURLs.Load(obj.URL)
+				_, ok := t.resolvedURLs.Load(obj.URL)
 				if _, hasFiles := obj.Extra["files"]; hasFiles && ok {
 					candidates = append(candidates, obj)
 				} else {
@@ -319,7 +220,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 					t.UpdateStatus(o, dlcore.StatusFailed, err)
 				} else {
 					mu.Lock()
-					resolvedURLs.Store(o.URL, true)
+					t.resolvedURLs.Store(o.URL, true)
 					candidates = append(candidates, o)
 					mu.Unlock()
 				}
@@ -329,10 +230,6 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 
 	return candidates, nil
-}
-
-func (t *TktubeTask) MarkAsFailed(obj *model.DownloadObject, err error) {
-	t.markAsFailed.Store(obj.URL, err)
 }
 
 // ResolveObject explicitly resolves an object (exposed for Manager)
@@ -392,10 +289,6 @@ tryAgain2:
 	}
 
 	// Scrape remaining pages
-	// We iterate from start+1 to end.
-	// Note: If we want "newest first" and pages are 1..N (newest on 1),
-	// we have page 1.
-	// If we want to scrape EVERYTHING, we just loop.
 	for i := t.pageStart + 1; i <= t.pageEnd; i++ {
 	tryAgain3:
 		url := t.buildPageURL(i)
@@ -428,7 +321,7 @@ func (t *TktubeTask) refreshLatest() {
 	}
 	if len(newAny) > 0 {
 		for i := range newAny {
-			t.rememberRuntimeObject(newAny[i].(*model.DownloadObject))
+			t.RememberRuntimeObject(newAny[i].(*model.DownloadObject))
 		}
 
 		slog.Info("Refresh finished", "task_id", t.id, "new_items", len(newAny))
@@ -438,7 +331,7 @@ func (t *TktubeTask) refreshLatest() {
 }
 
 func (t *TktubeTask) addVideoItems(items []videoItem) {
-	existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), videoItemURLs(items))
+	existing := t.StorageExistenceMapLocked(videoItemURLs(items))
 	for _, v := range items {
 		if existing[v.href] {
 			continue
@@ -446,7 +339,7 @@ func (t *TktubeTask) addVideoItems(items []videoItem) {
 
 		obj := t.createObjectFromVideoItem(v)
 		persistTaskObject(t.store, t.shared, obj)
-		t.rememberRuntimeObject(obj)
+		t.RememberRuntimeObject(obj)
 		t.queuePrefetch(obj)
 	}
 }
@@ -458,14 +351,10 @@ func (t *TktubeTask) parseTotalPages(html string) int {
 	}
 
 	// Find .pagination .last
-	// <li class="last"><a ... data-parameters="...;from:24">最後</a></li>
-	// Extract 'from:24'
-
 	var lastPage int
 	doc.Find(".pagination .last a").Each(func(i int, s *goquery.Selection) {
 		params, exists := s.Attr("data-parameters")
 		if exists {
-			// "sort_by:post_date;from:24"
 			parts := strings.SplitSeq(params, ";")
 			for p := range parts {
 				if after, ok := strings.CutPrefix(p, "from:"); ok {
@@ -568,15 +457,11 @@ func (t *TktubeTask) prefetchAssets(obj *model.DownloadObject) {
 			slog.Debug("Prefetched preview", "task_id", t.id, "title", obj.Metadata["title"])
 		} else {
 			slog.Warn("Failed to prefetch preview, retrying later", "task_id", t.id, "url", previewURL, "error", err)
-			// Re-queue for retry?
-			// Simple backoff or re-add to queue
-			// To avoid infinite loop on bad URL, maybe check retry count?
-			// For now, just re-queue with non-blocking
 			go func() {
 				time.Sleep(10 * time.Second)
 				t.queuePrefetch(obj)
 			}()
-			return // Don't try cover if preview failed? Or try cover anyway? Try cover.
+			return
 		}
 	}
 
@@ -688,9 +573,48 @@ func (t *TktubeTask) createObjectFromVideoItem(v videoItem) *model.DownloadObjec
 	}
 
 	// Deduplication / Restore Status from DB
-	t.checkAndRestoreStatus(obj)
+	t.CheckAndRestoreStatus(obj)
 
 	return obj
+}
+
+// SetObjectIndex moves an object to a new position (for reordering)
+func (t *TktubeTask) SetObjectIndex(url string, newIndex int) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	currentIndex := -1
+	for i, obj := range t.objects {
+		if obj.URL == url {
+			currentIndex = i
+			break
+		}
+	}
+
+	if currentIndex == -1 {
+		return fmt.Errorf("object not found")
+	}
+
+	if newIndex < 0 {
+		newIndex = 0
+	}
+	if newIndex >= len(t.objects) {
+		newIndex = len(t.objects) - 1
+	}
+
+	if currentIndex == newIndex {
+		return nil
+	}
+
+	obj := t.objects[currentIndex]
+
+	// Remove
+	t.objects = append(t.objects[:currentIndex], t.objects[currentIndex+1:]...)
+
+	// Insert
+	t.objects = append(t.objects[:newIndex], append([]*model.DownloadObject{obj}, t.objects[newIndex:]...)...)
+
+	return nil
 }
 
 func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
@@ -736,130 +660,6 @@ func (t *TktubeTask) resolveVideoDetails(obj *model.DownloadObject) error {
 	if t.shared != nil {
 		t.shared.Update(obj)
 	}
-
-	return nil
-}
-
-func (t *TktubeTask) checkAndRestoreStatus(obj *model.DownloadObject) {
-	// Prefer shared registry
-	if t.shared != nil {
-		if storedObj, err := t.shared.Get(obj.URL); err == nil && storedObj != nil {
-			*obj = *storedObj
-			return
-		}
-	}
-	// Fallback to task-local storage
-	if t.store != nil {
-		if storedObj, err := t.store.Get(obj.URL); err == nil && storedObj != nil {
-			*obj = *storedObj
-		}
-	}
-}
-
-func (t *TktubeTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	obj.Status = status
-	var storeErr error
-	if t.store != nil {
-		storeErr = t.store.Update(obj)
-	}
-	// Update shared registry as well
-	if t.shared != nil {
-		_ = t.shared.Update(obj)
-	}
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
-	return storeErr
-}
-
-func (t *TktubeTask) GetAllObjects() []*model.DownloadObject {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.objects
-}
-
-func (t *TktubeTask) snapshotRuntimeObjects() []*model.DownloadObject {
-	return append([]*model.DownloadObject(nil), t.objects...)
-}
-
-func (t *TktubeTask) rememberRuntimeObject(obj *model.DownloadObject) {
-	if obj == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
-}
-
-// GetConcurrency returns the configured concurrency limit for this task
-func (t *TktubeTask) GetConcurrency() int {
-	return t.concurrency
-}
-
-func (t *TktubeTask) GetRefreshInterval() int {
-	return t.refreshInt
-}
-
-func (t *TktubeTask) SetConcurrency(n int) error {
-	if n < 0 || n > 100 {
-		return fmt.Errorf("concurrency must be >= 0 and <= 100")
-	}
-	t.mu.Lock()
-	t.concurrency = n
-	t.mu.Unlock()
-	return nil
-}
-
-func (t *TktubeTask) SetRefreshInterval(sec int) error {
-	if sec < 10 || sec > 86400 {
-		return fmt.Errorf("refresh interval must be >= 10 and <= 86400")
-	}
-	t.mu.Lock()
-	t.refreshInt = sec
-	t.mu.Unlock()
-	if t.refresher != nil {
-		t.refresher.UpdateInterval(sec)
-	}
-	return nil
-}
-
-// SetObjectIndex moves an object to a new position (for reordering)
-func (t *TktubeTask) SetObjectIndex(url string, newIndex int) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	currentIndex := -1
-	for i, obj := range t.objects {
-		if obj.URL == url {
-			currentIndex = i
-			break
-		}
-	}
-
-	if currentIndex == -1 {
-		return fmt.Errorf("object not found")
-	}
-
-	if newIndex < 0 {
-		newIndex = 0
-	}
-	if newIndex >= len(t.objects) {
-		newIndex = len(t.objects) - 1
-	}
-
-	if currentIndex == newIndex {
-		return nil
-	}
-
-	obj := t.objects[currentIndex]
-
-	// Remove
-	t.objects = append(t.objects[:currentIndex], t.objects[currentIndex+1:]...)
-
-	// Insert
-	t.objects = append(t.objects[:newIndex], append([]*model.DownloadObject{obj}, t.objects[newIndex:]...)...)
 
 	return nil
 }
@@ -1004,8 +804,6 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 	scriptContent := ""
 
 	// Try finding the specific script (nth-child(3))
-	// goquery uses 0-based index for Eq.
-	// .player>.player-holder script
 	playerScripts := doc.Find(".player>.player-holder script")
 	if playerScripts.Length() >= 3 {
 		scriptContent = playerScripts.Eq(2).Text()
@@ -1054,8 +852,6 @@ func (t *TktubeTask) parseVideoPage(pageURL string) (*detailedVideoInfo, error) 
 			return nil, fmt.Errorf("failed to run flashvars definition: %v", err)
 		}
 	} else {
-		// Fallback: try to find the matching brace properly if nested?
-		// For now, assume it ends with }; as per standard pattern
 		return nil, fmt.Errorf("could not find end of flashvars definition")
 	}
 
@@ -1117,7 +913,7 @@ function step1(a, b, c, d, e) {
 function step2(a, b, c) {
     var e, g, h, i, j, k, l, m, n, d = "",
         f = "",
-        o = parseInt; 
+        o = parseInt;
     for (e in a)
         if (e.indexOf(b) > 0 && a[e].length == o(c)) {
             d = a[e];

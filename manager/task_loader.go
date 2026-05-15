@@ -33,15 +33,11 @@ func (m *Manager) loadTasks() {
 			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue
 		}
-		if setter, ok := t.(core.DownloaderSetter); ok {
-			setter.SetDownloader(m.downloader)
-		}
+		t.SetDownloader(m.downloader)
 		if srSetter, ok := t.(core.SharedRegistrySetter); ok {
 			srSetter.SetSharedRegistry(m.urlRegistry)
 		}
-		if sp, ok := t.(core.StorageProvider); ok {
-			m.urlRegistry.RegisterStorage(tCfg.ID, sp.GetStorage())
-		}
+		m.urlRegistry.RegisterStorage(tCfg.ID, t.GetStorage())
 		m.tasks.Store(tCfg.ID, t)
 		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
 	}

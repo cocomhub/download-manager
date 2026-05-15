@@ -176,17 +176,9 @@ func sortRules(sortBy string) []core.StorageSort {
 	}
 }
 
-func (m *Manager) storageForTask(t core.Task) core.Storage {
-	sp, ok := t.(core.StorageProvider)
-	if !ok {
-		return nil
-	}
-	return sp.GetStorage()
-}
-
 func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	taskQuery := queryForTask(t.ID(), query)
-	if st := m.storageForTask(t); st != nil {
+	if st := t.GetStorage(); st != nil {
 		return st.Search(taskQuery)
 	}
 	if accessor, ok := t.(interface {
@@ -199,7 +191,7 @@ func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*m
 
 func (m *Manager) countTaskObjects(t core.Task, query *core.StorageQuery) (int, error) {
 	taskQuery := queryForTask(t.ID(), query)
-	if st := m.storageForTask(t); st != nil {
+	if st := t.GetStorage(); st != nil {
 		return st.Count(taskQuery)
 	}
 	if accessor, ok := t.(interface {
@@ -1020,11 +1012,7 @@ func (m *Manager) BackfillContentGroups() {
 		if t == nil || t.Type() != task.TypeTktube {
 			return true
 		}
-		sp, ok := value.(core.StorageProvider)
-		if !ok {
-			return true
-		}
-		st := sp.GetStorage()
+		st := t.GetStorage()
 		if st == nil {
 			return true
 		}
@@ -1093,11 +1081,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	if taskID == "" || strings.TrimSpace(obj.TaskID) != taskID {
 		return
 	}
-	sp, ok := t.(core.StorageProvider)
-	if !ok {
-		return
-	}
-	st := sp.GetStorage()
+	st := t.GetStorage()
 	if st == nil {
 		return
 	}

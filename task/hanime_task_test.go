@@ -17,20 +17,13 @@ func TestExtractVideoIDFromURL(t *testing.T) {
 	}
 }
 
-func TestUrlEncodeGenre(t *testing.T) {
-	enc := urlEncodeGenre("Motion Anime")
-	if !(enc == "Motion+Anime" || enc == "Motion%20Anime") {
-		t.Fatalf("unexpected encoding: %s", enc)
-	}
-}
-
-func TestParseVideoPageHTML(t *testing.T) {
-	path := filepath.Join("/Users/libing/Documents/trae_projects/download-manager/web/hanime", "watch?v=404480.html")
+func TestParseHanimeVideoPageHTML(t *testing.T) {
+	path := filepath.Join("testdata", "hanime", "watch?v=404480.html")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Skipf("fixture not found: %v", err)
 	}
-	info, err := parseVideoPageHTML("https://hanime1.me/watch?v=404480", string(data))
+	info, err := parseHanimeVideoPageHTML("https://hanime1.me/watch?v=404480", string(data))
 	if err != nil {
 		t.Fatalf("parse video html error: %v", err)
 	}
@@ -40,7 +33,7 @@ func TestParseVideoPageHTML(t *testing.T) {
 }
 
 func TestParseHomePage(t *testing.T) {
-	path := filepath.Join("/Users/libing/Documents/trae_projects/download-manager/web/hanime", "search?genre=Motion Anime.html")
+	path := filepath.Join("testdata", "hanime", "search?genre=Motion Anime.html")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Skipf("fixture not found: %v", err)

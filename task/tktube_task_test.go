@@ -7,10 +7,9 @@ import "testing"
 
 func TestCreateObjectFromVideoItem_PersistsTaskTypeMetadata(t *testing.T) {
 	tk := &TktubeTask{
-		id:           "t1",
-		saveDir:      "/tmp/save",
-		pathStrategy: NewPathStrategy("first_fixed", "/tmp/save"),
+		BaseTask: NewBaseTask("t1", "/tmp/save", nil),
 	}
+	tk.pathStrategy = NewPathStrategy("first_fixed", "/tmp/save")
 
 	obj := tk.createObjectFromVideoItem(videoItem{
 		href:     "https://example.com/video/1",

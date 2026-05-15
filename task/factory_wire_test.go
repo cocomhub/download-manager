@@ -14,6 +14,8 @@ import (
 
 type fakeTask struct {
 	id        string
+	store     core.Storage
+	dl        core.Downloader
 	ps        core.PathStrategy
 	refresher *CommonRefresher
 	headers   map[string]string
@@ -25,6 +27,8 @@ var _ RefreshingCap = (*fakeTask)(nil)
 var _ HeadersCap = (*fakeTask)(nil)
 
 func (f *fakeTask) ID() string                                           { return f.id }
+func (f *fakeTask) GetStorage() core.Storage                             { return f.store }
+func (f *fakeTask) SetDownloader(dl core.Downloader)                     { f.dl = dl }
 func (f *fakeTask) GetDownloadHeaders() map[string]string                { return f.headers }
 func (f *fakeTask) GetDownloadObjects() ([]*model.DownloadObject, error) { return nil, nil }
 func (f *fakeTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {

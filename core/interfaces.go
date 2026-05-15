@@ -48,6 +48,10 @@ type Storage interface {
 type Task interface {
 	// ID 返回任务唯一标识
 	ID() string
+	// GetStorage 返回任务的存储后端
+	GetStorage() Storage
+	// SetDownloader 设置下载器
+	SetDownloader(d Downloader)
 	// GetDownloadHeaders 获取下载对象的自定义HTTP头
 	GetDownloadHeaders() map[string]string
 	// GetDownloadObjects 获取该任务当前需要下载的对象列表
@@ -83,11 +87,6 @@ type SharedRegistry interface {
 // SharedRegistrySetter 任务可实现该接口以接收共享注册表
 type SharedRegistrySetter interface {
 	SetSharedRegistry(reg SharedRegistry)
-}
-
-// DownloaderSetter 任务可实现该接口以接收下载器
-type DownloaderSetter interface {
-	SetDownloader(d Downloader)
 }
 
 // EventType 定义事件类型

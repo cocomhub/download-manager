@@ -12,37 +12,25 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
 type VikacgTask struct {
-	id           string
-	saveDir      string
-	concurrency  int
-	objects      []*model.DownloadObject
-	store        core.Storage
-	shared       core.SharedRegistry
-	mu           sync.Mutex
-	refreshInt   int
-	initialized  atomic.Int32
-	refresher    *CommonRefresher
-	knownURLs    map[string]bool
-	userID       int
-	markAsFailed sync.Map
-	pageCount    int
-	authToken    string
-	cookie       string
-	userAgent    string
+	BaseTask
+	userID    int
+	pageCount int
+	authToken string
+	cookie    string
+	userAgent string
 }
 
 var _ core.Task = &VikacgTask{}
@@ -64,47 +52,24 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 			}
 		}
 	}
-	getString := func(key, def string) string {
-		if extra == nil {
-			return def
-		}
-		if v, ok := extra[key].(string); ok {
-			return v
-		}
-		return def
-	}
-	getInt := func(key string, def int) int {
-		if extra == nil {
-			return def
-		}
-		if v, ok := extra[key].(int); ok {
-			return v
-		}
-		if v, ok := extra[key].(float64); ok {
-			return int(v)
-		}
-		return def
-	}
+
 	t := &VikacgTask{
-		id:          cfg.ID,
-		saveDir:     cfg.SaveDir,
-		concurrency: getInt("max_concurrent", 2),
-		objects:     make([]*model.DownloadObject, 0),
-		store:       store,
-		refreshInt:  getInt("refresh_interval", 3600),
-		knownURLs:   make(map[string]bool),
-		pageCount:   getInt("page_count", 24),
-		authToken:   getString("auth_token", ""),
-		cookie:      getString("cookie", ""),
-		userAgent:   getString("user_agent", downloader.DefaultUserAgent),
+		BaseTask:  NewBaseTask(cfg.ID, cfg.SaveDir, store),
+		userID:    configutil.GetInt(extra, "user_id", 0),
+		pageCount: configutil.GetInt(extra, "page_count", 24),
+		authToken: configutil.GetString(extra, "auth_token", ""),
+		cookie:    configutil.GetString(extra, "cookie", ""),
+		userAgent: configutil.GetString(extra, "user_agent", downloader.DefaultUserAgent),
 	}
+	t.concurrency = configutil.GetInt(extra, "max_concurrent", 2)
+	t.refreshInt = configutil.GetInt(extra, "refresh_interval", 3600)
+
 	for _, u := range urls {
-		cached := t.getCachedObject(u)
+		cached := t.GetCachedObject(u)
 		if cached != nil {
 			cached.TaskID = t.id
 			t.sanitizeCachedContentHTML(cached)
-			t.objects = upsertRuntimeObject(t.objects, cached)
-			t.knownURLs = rememberRuntimeURLs(t.objects)
+			t.RememberRuntimeObject(cached)
 			continue
 		}
 		obj, err := t.scrapeAndBuild(u)
@@ -112,11 +77,10 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 			slog.Warn("vikacg parse failed", "task_id", cfg.ID, "url", u, "error", err)
 			continue
 		}
-		persistTaskObject(t.store, t.shared, obj)
-		t.objects = upsertRuntimeObject(t.objects, obj)
-		t.knownURLs = rememberRuntimeURLs(t.objects)
+		t.PersistTaskObject(obj)
+		t.RememberRuntimeObject(obj)
 	}
-	t.userID = getInt("user_id", 0)
+
 	if t.userID > 0 {
 		t.refresher = NewCommonRefresher(t.refreshInt)
 		t.refresher.Start(t.refreshLatestUserPosts)
@@ -124,39 +88,8 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 	return t, nil
 }
 
-// SetRefresher allows factory to inject a default refresher when not set
-func (t *VikacgTask) SetRefresher(r *CommonRefresher) {
-	if t.refresher == nil && r != nil {
-		t.refresher = r
-	}
-}
-
-func (t *VikacgTask) SetSharedRegistry(reg core.SharedRegistry) {
-	t.shared = reg
-}
-
-func (t *VikacgTask) MarkAsFailed(obj *model.DownloadObject, err error) {
-	t.markAsFailed.Store(obj.URL, err)
-}
-
-func (t *VikacgTask) ID() string {
-	return t.id
-}
-
 func (t *VikacgTask) Type() string {
 	return TypeVikacg
-}
-
-func (t *VikacgTask) Close() error {
-	if t.store != nil {
-		if flusher, ok := t.store.(interface{ ForceFlush() error }); ok {
-			return flusher.ForceFlush()
-		}
-	}
-	if t.refresher != nil {
-		t.refresher.Stop()
-	}
-	return nil
 }
 
 func (t *VikacgTask) GetDownloadHeaders() map[string]string {
@@ -176,7 +109,7 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			return []*model.DownloadObject{}, nil
 		}
 	}
-	objects := t.snapshotRuntimeObjects()
+	objects := t.SnapshotRuntimeObjects()
 	if t.store != nil {
 		if stored, err := t.store.Search(&core.StorageQuery{
 			Filter: core.StorageFilter{
@@ -188,7 +121,7 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}); err == nil {
 			objects = stored
 			for _, obj := range stored {
-				t.rememberRuntimeObject(obj)
+				t.RememberRuntimeObject(obj)
 			}
 		}
 	}
@@ -199,7 +132,7 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				*o = *so
 			}
 		}
-		if _, ok := t.markAsFailed.Load(o.URL); ok {
+		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
 		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
@@ -207,33 +140,6 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}
 	}
 	return pending, nil
-}
-
-func (t *VikacgTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	obj.Status = status
-	if t.store != nil {
-		if e := t.store.Update(obj); e != nil {
-			slog.Error("storage update failed", "task_id", t.id, "error", e)
-		}
-	}
-	if t.shared != nil {
-		_ = t.shared.Update(obj)
-	}
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
-	return nil
-}
-
-func (t *VikacgTask) GetAllObjects() []*model.DownloadObject {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.objects
-}
-
-func (t *VikacgTask) GetConcurrency() int {
-	return t.concurrency
 }
 
 func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
@@ -361,22 +267,8 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 		},
 		Status: dlcore.StatusPending,
 	}
-	t.restoreStatus(obj)
+	t.CheckAndRestoreStatus(obj)
 	return obj, nil
-}
-
-func (t *VikacgTask) restoreStatus(obj *model.DownloadObject) {
-	if t.shared != nil {
-		if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
-			return
-		}
-	}
-	if t.store != nil {
-		if so, err := t.store.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
-		}
-	}
 }
 
 func sanitize(s string) string {
@@ -384,20 +276,6 @@ func sanitize(s string) string {
 	s = strings.ReplaceAll(s, "/", "_")
 	s = strings.ReplaceAll(s, "\\", "_")
 	return s
-}
-
-func (t *VikacgTask) getCachedObject(url string) *model.DownloadObject {
-	if t.shared != nil {
-		if so, err := t.shared.Get(url); err == nil && so != nil {
-			return so
-		}
-	}
-	if t.store != nil {
-		if so, err := t.store.Get(url); err == nil && so != nil {
-			return so
-		}
-	}
-	return nil
 }
 
 func (t *VikacgTask) sanitizeCachedContentHTML(obj *model.DownloadObject) {
@@ -505,37 +383,6 @@ func dedupe(items []string) []string {
 	return out
 }
 
-func (t *VikacgTask) GetStorage() core.Storage {
-	return t.store
-}
-
-func (t *VikacgTask) GetRefreshInterval() int {
-	return t.refreshInt
-}
-
-func (t *VikacgTask) SetConcurrency(n int) error {
-	if n < 0 || n > 100 {
-		return fmt.Errorf("concurrency must be >= 0 and <= 100")
-	}
-	t.mu.Lock()
-	t.concurrency = n
-	t.mu.Unlock()
-	return nil
-}
-
-func (t *VikacgTask) SetRefreshInterval(sec int) error {
-	if sec < 10 || sec > 86400 {
-		return fmt.Errorf("refresh interval must be >= 10 and <= 86400")
-	}
-	t.mu.Lock()
-	t.refreshInt = sec
-	t.mu.Unlock()
-	if t.refresher != nil {
-		t.refresher.UpdateInterval(sec)
-	}
-	return nil
-}
-
 type vikPost struct {
 	ID        int    `json:"id"`
 	Title     string `json:"title"`
@@ -616,13 +463,13 @@ func (t *VikacgTask) scrapeUserAllPages() {
 			break
 		}
 		newObjs := make([]*model.DownloadObject, 0, len(posts))
-		existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), vikPostURLs(posts))
+		existing := t.StorageExistenceMap(vikPostURLs(posts))
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
 			if existing[u] {
 				continue
 			}
-			if cached := t.getCachedObject(u); cached != nil {
+			if cached := t.GetCachedObject(u); cached != nil {
 				cached.TaskID = t.id
 				t.sanitizeCachedContentHTML(cached)
 				newObjs = append(newObjs, cached)
@@ -634,8 +481,8 @@ func (t *VikacgTask) scrapeUserAllPages() {
 				}
 				newObjs = append(newObjs, obj)
 			}
-			persistTaskObject(t.store, t.shared, newObjs[len(newObjs)-1])
-			t.rememberRuntimeObject(newObjs[len(newObjs)-1])
+			t.PersistTaskObject(newObjs[len(newObjs)-1])
+			t.RememberRuntimeObject(newObjs[len(newObjs)-1])
 		}
 		page++
 	}
@@ -661,14 +508,14 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 		if len(posts) == 0 {
 			break
 		}
-		existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), vikPostURLs(posts))
+		existing := t.StorageExistenceMap(vikPostURLs(posts))
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
 			if existing[u] {
 				known = true
 				continue
 			}
-			if cached := t.getCachedObject(u); cached != nil {
+			if cached := t.GetCachedObject(u); cached != nil {
 				cached.TaskID = t.id
 				t.sanitizeCachedContentHTML(cached)
 				pageObjs = append(pageObjs, cached)
@@ -680,8 +527,8 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 				}
 				pageObjs = append(pageObjs, obj)
 			}
-			persistTaskObject(t.store, t.shared, pageObjs[len(pageObjs)-1])
-			t.rememberRuntimeObject(pageObjs[len(pageObjs)-1])
+			t.PersistTaskObject(pageObjs[len(pageObjs)-1])
+			t.RememberRuntimeObject(pageObjs[len(pageObjs)-1])
 		}
 		page++
 	}
@@ -690,22 +537,6 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 	} else {
 		slog.Info("vikacg refresh no new", "task_id", t.id)
 	}
-}
-
-func (t *VikacgTask) snapshotRuntimeObjects() []*model.DownloadObject {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return append([]*model.DownloadObject(nil), t.objects...)
-}
-
-func (t *VikacgTask) rememberRuntimeObject(obj *model.DownloadObject) {
-	if obj == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
 }
 
 func vikPostURLs(posts []vikPost) []string {

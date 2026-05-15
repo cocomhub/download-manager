@@ -13,89 +13,43 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
 type HanimeTask struct {
-	id           string
-	genre        string
-	cookie       string
-	saveDir      string
-	concurrency  int
-	refreshInt   int
-	store        core.Storage
-	shared       core.SharedRegistry
-	objects      []*model.DownloadObject
-	mu           sync.Mutex
-	initialized  atomic.Int32
-	knownURLs    map[string]bool
-	pathStrategy core.PathStrategy
-	refresher    *CommonRefresher
-	pager        *CommonPager
-	markAsFailed sync.Map
-	onceInit     sync.Once
+	BaseTask
+	genre    string
+	cookie   string
+	onceInit sync.Once
 }
 
+// Ensure HanimeTask implements core.Task
 var _ core.Task = &HanimeTask{}
 
 func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 	extra := cfg.Extra
-	getString := func(key, def string) string {
-		if extra == nil {
-			return def
-		}
-		if v, ok := extra[key].(string); ok {
-			return v
-		}
-		return def
-	}
-	getInt := func(key string, def int) int {
-		if extra == nil {
-			return def
-		}
-		if v, ok := extra[key].(int); ok {
-			return v
-		}
-		if v, ok := extra[key].(float64); ok {
-			return int(v)
-		}
-		return def
-	}
-	getBool := func(key string, def bool) bool {
-		if extra == nil {
-			return def
-		}
-		if v, ok := extra[key].(bool); ok {
-			return v
-		}
-		return def
-	}
-	genre := getString("genre", "裏番")
+	genre := configutil.GetString(extra, "genre", "裏番")
 	saveDir := cfg.SaveDir
-	if getBool("save_dir_add_genre", false) && genre != "" {
+	if configutil.GetBool(extra, "save_dir_add_genre", false) && genre != "" {
 		saveDir = filepath.Join(cfg.SaveDir, genre)
 	}
-	psMode := getString("path_strategy", "first_fixed")
+	psMode := configutil.GetString(extra, "path_strategy", "first_fixed")
 
 	t := &HanimeTask{
-		id:          cfg.ID,
-		genre:       genre,
-		cookie:      getString("cookie", ""),
-		saveDir:     saveDir,
-		concurrency: getInt("max_concurrent", 2),
-		refreshInt:  getInt("refresh_interval", 3600),
-		store:       store,
-		objects:     make([]*model.DownloadObject, 0),
-		knownURLs:   make(map[string]bool),
+		BaseTask: NewBaseTask(cfg.ID, saveDir, store),
+		genre:    genre,
+		cookie:   configutil.GetString(extra, "cookie", ""),
 	}
+	t.concurrency = configutil.GetInt(extra, "max_concurrent", 2)
+	t.refreshInt = configutil.GetInt(extra, "refresh_interval", 3600)
 	t.pathStrategy = NewPathStrategy(psMode, saveDir)
 	t.pager = NewCommonPager(PageFuncs{
 		BuildPageURL:    t.buildPageURL,
@@ -104,7 +58,7 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 		ParseTotalPages: t.parseTotalPages,
 		ProcessItems: func(items any) ([]any, bool) {
 			vs, _ := items.([]hanimeItem)
-			existing := storageExistenceMap(t.store, t.snapshotRuntimeObjects(), hanimeItemURLs(vs))
+			existing := t.StorageExistenceMap(hanimeItemURLs(vs))
 			var pageNew []*model.DownloadObject
 			allKnown := true
 			for _, v := range vs {
@@ -114,8 +68,8 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 				}
 				allKnown = false
 				obj := t.createObjectFromItem(v)
-				persistTaskObject(t.store, t.shared, obj)
-				t.rememberRuntimeObject(obj)
+				t.PersistTaskObject(obj)
+				t.RememberRuntimeObject(obj)
 				pageNew = append(pageNew, obj)
 			}
 			out := make([]any, len(pageNew))
@@ -130,54 +84,8 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 	return t, nil
 }
 
-// SetPathStrategy allows factory to inject a default path strategy when not set
-func (t *HanimeTask) SetPathStrategy(ps core.PathStrategy) {
-	if t.pathStrategy == nil && ps != nil {
-		t.pathStrategy = ps
-	}
-}
-
-// SetRefresher allows factory to inject a default refresher when not set
-func (t *HanimeTask) SetRefresher(r *CommonRefresher) {
-	if t.refresher == nil && r != nil {
-		t.refresher = r
-	}
-}
-
-func (t *HanimeTask) ID() string {
-	return t.id
-}
-
 func (t *HanimeTask) Type() string {
 	return TypeHanime
-}
-
-func (t *HanimeTask) GetStorage() core.Storage {
-	return t.store
-}
-
-func (t *HanimeTask) Close() error {
-	if t.store != nil {
-		if flusher, ok := t.store.(interface{ ForceFlush() error }); ok {
-			if err := flusher.ForceFlush(); err != nil {
-				slog.Error("hanime force flush store failed", "task_id", t.id, "error", err)
-				return err
-			}
-		}
-	}
-	if t.refresher != nil {
-		t.refresher.Stop()
-	}
-	return nil
-}
-
-// GetConcurrency returns the configured concurrency limit for this task
-func (t *HanimeTask) GetConcurrency() int {
-	return t.concurrency
-}
-
-func (t *HanimeTask) SetSharedRegistry(reg core.SharedRegistry) {
-	t.shared = reg
 }
 
 func (t *HanimeTask) GetDownloadHeaders() map[string]string {
@@ -202,63 +110,8 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			url2Obj[obj.URL] = obj
 		}
 
-		// vl := strings.Split("14516,22354,22355,22356,22357,22368,22373,22374,24790,27552,27568,27573,27579,27581,27661,27684,37180,37398,37438,37617,37638,37719,37774,37775,84020", ",")
-
 		for _, obj := range t.objects {
-			needSave := false
-			// for _, vv := range vl {
-			// 	if strings.HasSuffix(obj.URL, "v="+vv) {
-			// 		slog.Info("[GG]hanime item found", "task_id", t.id, "url", obj.URL, "vv", vv)
-			// 		obj.Progress = 0
-			// 		obj.Status = dlcore.StatusPending
-			// 		obj.Extra["files"].([]any)[2].(map[string]any)["status"] = dlcore.StatusPending
-			// 		obj.Extra["files"].([]any)[2].(map[string]any)["total_size"] = "0"
-			// 		needSave = true
-			// 		break
-			// 	}
-			// }
-
 			hasErr := false
-			// if playlist, ok := obj.Extra["playlist"].([]any); ok {
-			// 	for _, p := range playlist {
-			// 		f := p.(map[string]any)
-			// 		if url, ok := f["url"].(string); ok {
-			// 			if _, ok := url2Obj[url]; !ok {
-			// 				slog.Error("[GG]hanime cache file url not found", "task_id", t.id, "url", url)
-			// 				// hasErr = true
-			// 			} else {
-			// 				if extFiles, ok := url2Obj[url].Extra["files"].([]any); ok {
-			// 					old := f["thumb"]
-			// 					for _, v := range extFiles {
-			// 						v := v.(map[string]any)
-			// 						if strings.Contains(v["url"].(string), "thumbnail") {
-			// 							_, path, found := strings.Cut(v["path"].(string), "/downloads/")
-			// 							if !found {
-			// 								slog.Error("[GG]thumb path not found", "task_id", t.id, "url", f["url"], "path", v["path"])
-			// 								continue
-			// 							}
-			// 							f["thumb"] = "/files/" + path
-			// 							needSave = true
-			// 							break
-			// 						}
-			// 					}
-			// 					if old == f["thumb"] {
-			// 						hasErr = true
-			// 						slog.Error("[GG]thumb not found", "task_id", t.id, "url", f["url"])
-			// 					}
-			// 				}
-			// 			}
-			// 		} else {
-			// 			hasErr = true
-			// 			slog.Error("[GG]hanime cache file url not found", "task_id", t.id, "url", f["url"])
-			// 		}
-			// 	}
-			// } else {
-			// 	hasErr = true
-			// 	if len(obj.Extra) > 0 && obj.Extra["playlist"] != nil {
-			// 		slog.Error("[GG]hanime cache file playlist not found", "task_id", t.id, "url", obj.URL, "type", reflect.TypeOf(obj.Extra["playlist"]).String())
-			// 	}
-			// }
 
 			ch := make(chan *model.DownloadObject, 10)
 			wg := sync.WaitGroup{}
@@ -280,7 +133,6 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 						t.mu.Lock()
 						obj.Metadata = tmpObj.Metadata
 						t.mu.Unlock()
-						needSave = true
 						if t.store != nil {
 							t.store.Update(obj)
 						}
@@ -305,15 +157,6 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			if hasErr {
 				return
 			}
-
-			if needSave {
-				if t.store != nil {
-					t.store.Update(obj)
-				}
-				if t.shared != nil {
-					t.shared.Update(obj)
-				}
-			}
 		}
 		t.mu.Unlock()
 		t.mu.Lock()
@@ -334,7 +177,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}); err == nil {
 			objects = stored
 			for _, obj := range stored {
-				t.rememberRuntimeObject(obj)
+				t.RememberRuntimeObject(obj)
 			}
 		}
 	}
@@ -344,8 +187,7 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}
 	}
 	for _, obj := range objects {
-		// Check if failed
-		if _, ok := t.markAsFailed.Load(obj.URL); ok {
+		if t.IsMarkedFailed(obj.URL) {
 			continue
 		}
 		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
@@ -372,32 +214,6 @@ func (t *HanimeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return candidates, nil
 }
 
-func (t *HanimeTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	obj.Status = status
-	var e error
-	if t.store != nil {
-		e = t.store.Update(obj)
-	}
-	if t.shared != nil {
-		_ = t.shared.Update(obj)
-	}
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
-	return e
-}
-
-func (t *HanimeTask) GetAllObjects() []*model.DownloadObject {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.objects
-}
-
-func (t *HanimeTask) MarkAsFailed(obj *model.DownloadObject, err error) {
-	t.markAsFailed.Store(obj.URL, err)
-}
-
 type hanimeItem struct {
 	href     string
 	title    string
@@ -409,7 +225,7 @@ func (t *HanimeTask) buildPageURL(page int) string {
 	if g == "" {
 		return ""
 	}
-	return fmt.Sprintf("https://hanime1.me/search?genre=%s&page=%d", urlEncodeGenre(g), page)
+	return fmt.Sprintf("https://hanime1.me/search?genre=%s&page=%d", url.QueryEscape(g), page)
 }
 
 func (t *HanimeTask) runScraper(url string) (string, error) {
@@ -521,17 +337,7 @@ func (t *HanimeTask) createObjectFromItem(v hanimeItem) *model.DownloadObject {
 		},
 		Status: dlcore.StatusPending,
 	}
-	if t.shared != nil {
-		if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
-			return obj
-		}
-	}
-	if t.store != nil {
-		if so, err := t.store.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
-		}
-	}
+	t.CheckAndRestoreStatus(obj)
 	return obj
 }
 
@@ -551,10 +357,10 @@ func (t *HanimeTask) parseVideoPage(pageURL string) (*hanimeDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseVideoPageHTML(pageURL, html)
+	return parseHanimeVideoPageHTML(pageURL, html)
 }
 
-func parseVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
+func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, err
@@ -763,19 +569,7 @@ func (t *HanimeTask) resolveObject(obj *model.DownloadObject, lock bool) error {
 	if lock {
 		t.mu.Unlock()
 	}
-	// if t.store != nil {
-	// 	t.store.Update(obj)
-	// }
-	// if t.shared != nil {
-	// 	t.shared.Update(obj)
-	// }
 	return nil
-}
-
-func urlEncodeGenre(g string) string {
-	// Hanime 使用空格分隔的类型，如 "Motion Anime"
-	// 使用 QueryEscape 进行编码
-	return url.QueryEscape(g)
 }
 
 func extractVideoIDFromURL(u string) string {
@@ -802,6 +596,7 @@ func extractVideoIDFromURL(u string) string {
 	}
 	return ""
 }
+
 func (t *HanimeTask) scrapeAllPages() {
 	defer t.initialized.Store(1)
 	t.mu.Lock()
@@ -820,16 +615,15 @@ parsePage1:
 	slog.Info("hanime total pages", "task_id", t.id, "url", page1, "total", total)
 	items1, err := t.parseHomePage(html)
 	if err == nil {
-		existing := storageExistenceMap(t.store, append([]*model.DownloadObject(nil), t.objects...), hanimeItemURLs(items1))
+		existing := t.StorageExistenceMapLocked(hanimeItemURLs(items1))
 		for _, it := range items1 {
 			if existing[it.href] {
 				slog.Info("hanime item already known", "task_id", t.id, "url", it.href)
 				continue
 			}
 			obj := t.createObjectFromItem(it)
-			persistTaskObject(t.store, t.shared, obj)
-			t.objects = upsertRuntimeObject(t.objects, obj)
-			t.knownURLs = rememberRuntimeURLs(t.objects)
+			t.PersistTaskObject(obj)
+			t.UpsertRuntimeObjectLocked(obj)
 		}
 	}
 	for i := 2; i <= total; i++ {
@@ -846,16 +640,15 @@ parsePage1:
 			i--
 			continue
 		}
-		existing := storageExistenceMap(t.store, append([]*model.DownloadObject(nil), t.objects...), hanimeItemURLs(items))
+		existing := t.StorageExistenceMapLocked(hanimeItemURLs(items))
 		for _, it := range items {
 			if existing[it.href] {
 				slog.Info("hanime item already known", "task_id", t.id, "url", it.href)
 				continue
 			}
 			obj := t.createObjectFromItem(it)
-			persistTaskObject(t.store, t.shared, obj)
-			t.objects = upsertRuntimeObject(t.objects, obj)
-			t.knownURLs = rememberRuntimeURLs(t.objects)
+			t.PersistTaskObject(obj)
+			t.UpsertRuntimeObjectLocked(obj)
 		}
 		slog.Info("hanime parsed page", "task_id", t.id, "url", u, "page", i, "items", len(items), "objects", len(t.objects))
 	}
@@ -876,24 +669,8 @@ func (t *HanimeTask) refreshLatest() {
 		return
 	}
 	for i := range newAny {
-		t.rememberRuntimeObject(newAny[i].(*model.DownloadObject))
+		t.RememberRuntimeObject(newAny[i].(*model.DownloadObject))
 	}
-}
-
-func (t *HanimeTask) snapshotRuntimeObjects() []*model.DownloadObject {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return append([]*model.DownloadObject(nil), t.objects...)
-}
-
-func (t *HanimeTask) rememberRuntimeObject(obj *model.DownloadObject) {
-	if obj == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.objects = upsertRuntimeObject(t.objects, obj)
-	t.knownURLs = rememberRuntimeURLs(t.objects)
 }
 
 func hanimeItemURLs(items []hanimeItem) []string {
