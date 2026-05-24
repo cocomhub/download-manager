@@ -148,7 +148,7 @@ func NewTktubeTask(cfg config.Task, store core.Storage) (*TktubeTask, error) {
 				allKnown = false
 				obj := t.createObjectFromVideoItem(v)
 				persistTaskObject(t.store, t.shared, obj)
-				t.rememberRuntimeObject(obj)
+				t.rememberRuntimeObject(obj, false)
 				pageNew = append(pageNew, obj)
 				t.queuePrefetch(obj)
 			}
@@ -271,7 +271,7 @@ func (t *TktubeTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}); err == nil {
 			objects = stored
 			for _, obj := range stored {
-				t.rememberRuntimeObject(obj)
+				t.rememberRuntimeObject(obj, false)
 			}
 		}
 	}
@@ -360,6 +360,7 @@ func (t *TktubeTask) ResolveObject(obj *model.DownloadObject) error {
 func (t *TktubeTask) scrapeAllPages() {
 	defer t.initialized.Store(1)
 
+	resolvedURLs.Store("https://tktube.com/videos/394784/snos-136c-u-2-2-2-h/", true)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -385,6 +386,7 @@ tryAgain2:
 	// Parse items from page 1
 	items1, err := t.parseHomePage(html)
 	if err == nil {
+		slog.Info("First page parsed", "task_id", t.id, "items", len(items1))
 		t.addVideoItems(items1)
 	} else {
 		slog.Error("Failed to parse first page", "task_id", t.id, "error", err)
@@ -428,7 +430,7 @@ func (t *TktubeTask) refreshLatest() {
 	}
 	if len(newAny) > 0 {
 		for i := range newAny {
-			t.rememberRuntimeObject(newAny[i].(*model.DownloadObject))
+			t.rememberRuntimeObject(newAny[i].(*model.DownloadObject), false)
 		}
 
 		slog.Info("Refresh finished", "task_id", t.id, "new_items", len(newAny))
@@ -443,11 +445,16 @@ func (t *TktubeTask) addVideoItems(items []videoItem) {
 		if existing[v.href] {
 			continue
 		}
+		slog.Info("Adding video item", "task_id", t.id, "url", v.href, "title", v.title)
 
 		obj := t.createObjectFromVideoItem(v)
+		slog.Info("Created object", "task_id", t.id, "url", v.href, "title", v.title, "date", v.date)
 		persistTaskObject(t.store, t.shared, obj)
-		t.rememberRuntimeObject(obj)
+		slog.Info("Persisted object", "task_id", t.id, "url", v.href, "title", v.title, "date", v.date)
+		t.rememberRuntimeObject(obj, true)
+		slog.Info("Remembered object", "task_id", t.id, "url", v.href, "title", v.title, "date", v.date)
 		t.queuePrefetch(obj)
+		slog.Info("Queued prefetch", "task_id", t.id, "url", v.href, "title", v.title, "date", v.date)
 	}
 }
 
@@ -783,12 +790,14 @@ func (t *TktubeTask) snapshotRuntimeObjects() []*model.DownloadObject {
 	return append([]*model.DownloadObject(nil), t.objects...)
 }
 
-func (t *TktubeTask) rememberRuntimeObject(obj *model.DownloadObject) {
+func (t *TktubeTask) rememberRuntimeObject(obj *model.DownloadObject, locked bool) {
 	if obj == nil {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	if !locked {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+	}
 	t.objects = upsertRuntimeObject(t.objects, obj)
 	t.knownURLs = rememberRuntimeURLs(t.objects)
 }

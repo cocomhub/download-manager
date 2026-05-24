@@ -36,6 +36,7 @@ type HanimeTask struct {
 	objects      []*model.DownloadObject
 	mu           sync.Mutex
 	initialized  atomic.Int32
+	maxInitPage  int
 	knownURLs    map[string]bool
 	pathStrategy core.PathStrategy
 	refresher    *CommonRefresher
@@ -92,6 +93,7 @@ func NewHanimeTask(cfg config.Task, store core.Storage) (*HanimeTask, error) {
 		saveDir:     saveDir,
 		concurrency: getInt("max_concurrent", 2),
 		refreshInt:  getInt("refresh_interval", 3600),
+		maxInitPage: getInt("max_init_page", 5),
 		store:       store,
 		objects:     make([]*model.DownloadObject, 0),
 		knownURLs:   make(map[string]bool),
@@ -890,8 +892,7 @@ func (t *HanimeTask) rememberRuntimeObject(obj *model.DownloadObject) {
 	if obj == nil {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
+
 	t.objects = upsertRuntimeObject(t.objects, obj)
 	t.knownURLs = rememberRuntimeURLs(t.objects)
 }

@@ -47,13 +47,6 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 	var f *os.File
 	if c.logDir != "" {
 		logDir := c.logDir
-		if c.rootDir != "" {
-			if l, e := ResolvePath(c.rootDir, c.logDir); e == nil {
-				logDir = l
-			} else {
-				slog.Warn("Failed to resolve ffmpeg log dir", "dir", c.logDir, "error", e)
-			}
-		}
 		logFile = filepath.Join(logDir, filepath.Base(rPath)+"."+time.Now().Format("20060102150405")+".ffmpeg.log")
 		var err error
 		f, err = os.Create(logFile)

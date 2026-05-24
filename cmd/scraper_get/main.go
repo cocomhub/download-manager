@@ -4,6 +4,9 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/base64"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -24,8 +27,41 @@ var (
 	cookie      = flag.String("cookie", "", "Cookie string")
 )
 
+// computeFileMD5 计算文件的MD5校验值，返回Base64和十六进制两种格式
+func computeFileMD5(filePath string) (string, string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", "", err
+	}
+	defer file.Close()
+	hasher := md5.New()
+
+	// 从池子里获取缓冲区
+	buf := make([]byte, 32*1024)
+
+	if _, err := io.CopyBuffer(hasher, file, buf); err != nil {
+		return "", "", err
+	}
+	hashBytes := hasher.Sum(nil)
+	// 转换为Base64编码（常见于HTTP头部）
+	base64MD5 := base64.StdEncoding.EncodeToString(hashBytes)
+	// 转换为十六进制字符串（便于阅读比较）
+	hexMD5 := hex.EncodeToString(hashBytes)
+	return base64MD5, hexMD5, nil
+}
+
 func main() {
 	flag.Parse()
+
+	if 1 < 2 {
+		base64MD5, hexMD5, err := computeFileMD5(flag.Args()[0])
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Base64 MD5: %s\n", base64MD5)
+		fmt.Printf("Hex MD5: %s\n", hexMD5)
+		return
+	}
 
 	if *downloadURL == "" && len(flag.Args()) > 0 {
 		*downloadURL = flag.Args()[0]
@@ -85,7 +121,7 @@ func httpGet(url string) error {
 			Timeout:          30,
 			TunnelKey:        "7693db0059a3c14fd6bfec175c8e2d1d3d821a414aab77c467df06aefb70e3b7",
 			TunnelEndpoint:   "/tunnel",
-		}, "GET", url, header, "", true, true)
+		}, "GET", url, header, "", false, false)
 		if err != nil {
 			return err
 		}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -203,11 +204,24 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			continue
 		}
 		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
+			if _, ok := resolved2URLs.Load(o.URL); !ok {
+				obj, err := t.scrapeAndBuild(o.URL)
+				if err == nil {
+					slog.Info("vikacg parse pending success", "task_id", t.id, "url", o.URL, "obj", obj)
+					*o = *obj
+				} else {
+					slog.Error("vikacg parse pending failed", "task_id", t.id, "url", o.URL, "error", err)
+					continue
+				}
+				resolved2URLs.Store(o.URL, true)
+			}
 			pending = append(pending, o)
 		}
 	}
 	return pending, nil
 }
+
+var resolved2URLs sync.Map // URL -> true
 
 func (t *VikacgTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	t.mu.Lock()
@@ -249,6 +263,10 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 	title := strings.TrimSpace(doc.Find("meta[property='og:title']").AttrOr("content", ""))
 	if title == "" {
 		title = strings.TrimSpace(doc.Find("title").Text())
+	}
+	if title == "" {
+		os.WriteFile(fmt.Sprintf("%s.html", id), []byte(html), 0644)
+		return nil, fmt.Errorf("title is empty")
 	}
 	title = stripSiteSuffix(title)
 	title = strings.ReplaceAll(title, "/", "／")
@@ -367,13 +385,13 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 
 func (t *VikacgTask) restoreStatus(obj *model.DownloadObject) {
 	if t.shared != nil {
-		if so, err := t.shared.Get(obj.URL); err == nil && so != nil {
+		if so, err := t.shared.Get(obj.URL); err == nil && so != nil && so.Status != dlcore.StatusPending && so.Status != dlcore.StatusFailed {
 			*obj = *so
 			return
 		}
 	}
 	if t.store != nil {
-		if so, err := t.store.Get(obj.URL); err == nil && so != nil {
+		if so, err := t.store.Get(obj.URL); err == nil && so != nil && so.Status != dlcore.StatusPending && so.Status != dlcore.StatusFailed {
 			*obj = *so
 		}
 	}
