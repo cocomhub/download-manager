@@ -85,7 +85,7 @@ func httpGet(url string) error {
 			Timeout:          30,
 			TunnelKey:        "7693db0059a3c14fd6bfec175c8e2d1d3d821a414aab77c467df06aefb70e3b7",
 			TunnelEndpoint:   "/tunnel",
-		}, "GET", url, header, "", true, true)
+		}, "GET", url, header, "", false, false)
 		if err != nil {
 			return err
 		}

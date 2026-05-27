@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,9 +21,16 @@ func isHlsURL(u string) bool {
 	return strings.Contains(lu, ".m3u8")
 }
 
-var (
-	hlsData sync.Map
-)
+func isImageURL(u string) bool {
+	lower := strings.ToLower(u)
+	extensions := []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+	for _, ext := range extensions {
+		if strings.Contains(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
 
 func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error {
 	slog.Info("hls_auto_mark_as_fail", "status", c.hlsAutoMarkAsFail)
@@ -46,15 +52,16 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 	var logFile string
 	var f *os.File
 	if c.logDir != "" {
-		logDir := c.logDir
-		if c.rootDir != "" {
-			if l, e := ResolvePath(c.rootDir, c.logDir); e == nil {
-				logDir = l
-			} else {
-				slog.Warn("Failed to resolve ffmpeg log dir", "dir", c.logDir, "error", e)
+		logFileName := filepath.Base(rPath)
+		if strings.HasPrefix(logFileName, "0") {
+			s := strings.Split(rPath, "/")
+			if len(s) > 2 {
+				logFileName = s[len(s)-2] + " -- " + s[len(s)-1]
 			}
 		}
-		logFile = filepath.Join(logDir, filepath.Base(rPath)+"."+time.Now().Format("20060102150405")+".ffmpeg.log")
+		logFile = filepath.Join(c.logDir, logFileName+"."+
+			time.Now().Format("20060102150405")+".ffmpeg.log")
+
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {

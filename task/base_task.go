@@ -271,6 +271,23 @@ func (b *BaseTask) CheckAndRestoreStatus(obj *model.DownloadObject) {
 	}
 }
 
+// CheckRestoreCompleted is like CheckAndRestoreStatus but only restores if the
+// stored object has a completed status. This is used when re-scraping pending/failed
+// objects to avoid stale metadata from overwriting fresh content.
+func (b *BaseTask) CheckRestoreCompleted(obj *model.DownloadObject) {
+	if b.shared != nil {
+		if so, err := b.shared.Get(obj.URL); err == nil && so != nil && so.Status == dlcore.StatusCompleted {
+			applySharedState(obj, so)
+			return
+		}
+	}
+	if b.store != nil {
+		if so, err := b.store.Get(obj.URL); err == nil && so != nil && so.Status == dlcore.StatusCompleted {
+			applySharedState(obj, so)
+		}
+	}
+}
+
 // GetCachedObject returns a cached object from shared registry or storage, or nil.
 func (b *BaseTask) GetCachedObject(url string) *model.DownloadObject {
 	if b.shared != nil {

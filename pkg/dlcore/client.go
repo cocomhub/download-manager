@@ -117,6 +117,22 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		return fmt.Errorf("invalid request: missing URL or SavePath")
 	}
 
+	// 图片类型 URL 自动设置较短超时，避免长时间挂起
+	if isImageURL(req.URL) {
+		timeout := 30 * time.Second
+		if strings.Contains(req.URL, "huaacg.com") {
+			timeout = 5 * time.Second
+			defer func() {
+				if err != nil {
+					err = fmt.Errorf("%w: [huaacg] %v", ErrNoTry, err)
+				}
+			}()
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	rPath := req.SavePath
 	if c.rootDir != "" {
 		rPath, err = ResolvePath(c.rootDir, req.SavePath)
@@ -148,15 +164,14 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 	var logFile string
 	var f io.Writer = io.Discard
 	if c.logDir != "" {
-		logDir := c.logDir
-		if c.rootDir != "" {
-			if l, e := ResolvePath(c.rootDir, c.logDir); e == nil {
-				logDir = l
-			} else {
-				slog.Warn("Failed to resolve log dir", "dir", c.logDir, "error", e)
+		logFileName := filepath.Base(rPath)
+		if strings.HasPrefix(logFileName, "0") {
+			s := strings.Split(rPath, "/")
+			if len(s) > 2 {
+				logFileName = s[len(s)-2] + " -- " + s[len(s)-1]
 			}
 		}
-		logFile = filepath.Join(logDir, filepath.Base(rPath)+"."+
+		logFile = filepath.Join(c.logDir, logFileName+"."+
 			time.Now().Format("20060102150405")+".native.log")
 		ff, err := os.Create(logFile)
 		if err != nil {
@@ -167,10 +182,12 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		}
 	}
 
+	fmt.Fprintf(f, "\n\nSave file to %s\n\n", rPath)
+
 	// 确定代理设置
 	proxyURL := ""
 	if len(c.proxies) > 0 {
-		proxyURL, err = c.determineProxy(req.URL)
+		proxyURL, err = c.determineProxy(req)
 		if err != nil {
 			slog.Warn("Proxy selection failed, falling back to direct",
 				"url", req.URL, "error", err)
@@ -224,30 +241,7 @@ startDownload:
 	}
 
 	// 设置请求头模拟浏览器行为
-	if !c.disableInjectBrowserLikeHeaders {
-		hreq.Header.Set("accept", "*/*")
-		hreq.Header.Set("cache-control", "no-cache")
-		hreq.Header.Set("pragma", "no-cache")
-		hreq.Header.Set("priority", "i")
-		hreq.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
-		hreq.Header.Set("sec-ch-ua-mobile", "?0")
-		hreq.Header.Set("sec-ch-ua-platform", `"macOS"`)
-		hreq.Header.Set("sec-fetch-dest", "video")
-		hreq.Header.Set("sec-fetch-mode", "no-cors")
-		hreq.Header.Set("sec-fetch-site", "same-origin")
-		ua := c.defaultUserAgent
-		if strings.TrimSpace(ua) == "" {
-			ua = DefaultUserAgent
-		}
-		if strings.TrimSpace(ua) != "" {
-			hreq.Header.Set("user-agent", ua)
-		}
-	}
-
-	// 添加自定义请求头
-	for k, v := range req.Headers {
-		hreq.Header.Set(k, v)
-	}
+	c.addBrowserLikeHeaders(req, hreq)
 
 	var resp *http.Response
 	// 设置 Range 头支持断点续传
@@ -255,10 +249,10 @@ startDownload:
 		nreq := hreq.Clone(dctx)
 		printRequestHeaders(f, nreq)
 		resp, err = client.Do(nreq)
+		if resp != nil && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) {
+			return fmt.Errorf("%w: HTTP %d", ErrNoTry, resp.StatusCode)
+		}
 		if err != nil {
-			if resp != nil && resp.StatusCode == http.StatusForbidden {
-				return fmt.Errorf("%w: HTTP request failed: %w", ErrNoTry, err)
-			}
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
@@ -266,7 +260,7 @@ startDownload:
 
 		contentLength, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 		if err == nil && (contentLength == startOffset || contentLength == 0 || contentLength == -1 || resp.ContentLength == startOffset) {
-			wantMd5 := resp.Header.Get("X-Amz-Meta-Md5chksum")
+			wantMd5 := TryGetMd5(resp)
 			if wantMd5 == "" {
 				fmt.Fprintf(f, "The file is already fully retrieved; nothing to do.")
 				return nil
@@ -275,8 +269,8 @@ startDownload:
 			if err != nil {
 				return fmt.Errorf("failed to compute file MD5: %w", err)
 			}
-			if base64MD5 == wantMd5 {
-				fmt.Fprintf(f, "MD5 check passed: %s\n", base64MD5)
+			if base64MD5 == wantMd5 || hexMD5 == wantMd5 {
+				fmt.Fprintf(f, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
 				req.Metadata["md5_base64"] = base64MD5
 				req.Metadata["md5_hex"] = hexMD5
 				modTimeStr := resp.Header.Get("Last-Modified")
@@ -309,17 +303,18 @@ startDownload:
 	if resp == nil {
 		printRequestHeaders(f, hreq)
 		resp, err = client.Do(hreq)
+		if resp != nil && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) {
+			return fmt.Errorf("%w: HTTP %d", ErrNoTry, resp.StatusCode)
+		}
 		if err != nil {
-			if resp != nil && resp.StatusCode == http.StatusForbidden {
-				return fmt.Errorf("%w: HTTP request failed: %w", ErrNoTry, err)
-			}
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
 		printResponseHeaders(f, resp)
 	}
 
-	if strings.Contains(urlStr, "tk") && (resp.ContentLength == 146 || resp.ContentLength == -1) {
+	wantMd5 := TryGetMd5(resp)
+	if strings.Contains(urlStr, "tk") && wantMd5 == "" && (resp.ContentLength == 146 || resp.ContentLength == -1) {
 		return fmt.Errorf("%w: invalid content length: %d url:%s", ErrNoTry, resp.ContentLength, urlStr)
 	}
 
@@ -427,20 +422,20 @@ startDownload:
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	if wantMd5 := resp.Header.Get("X-Amz-Meta-Md5chksum"); wantMd5 != "" {
+	if wantMd5 != "" {
 		base64MD5, hexMD5, err := computeFileMD5(rPath)
 		if err != nil {
 			return fmt.Errorf("failed to compute file MD5: %w", err)
 		}
-		if base64MD5 != wantMd5 {
-			fmt.Fprintf(f, "MD5 check failed: want %s, got %s\n"+
+		if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
+			fmt.Fprintf(f, "MD5 check failed: want %s, got %s (hex: %s)\n"+
 				"\tTruncating existing file.\n",
-				wantMd5, base64MD5)
+				wantMd5, base64MD5, hexMD5)
 			startOffset = 0
 			resp.Body.Close()
 			goto startDownload
 		}
-		fmt.Fprintf(f, "MD5 check passed: %s\n", base64MD5)
+		fmt.Fprintf(f, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
 		req.Metadata["md5_base64"] = base64MD5
 		req.Metadata["md5_hex"] = hexMD5
 	}
@@ -546,7 +541,58 @@ func (d *DomainLimiter) Release(raw string) {
 	d.mu.Unlock()
 }
 
-func (c *Client) determineProxy(targetURL string) (string, error) {
+func (c *Client) addBrowserLikeHeaders(req *Request, hreq *http.Request) {
+	// 设置请求头模拟浏览器行为
+	if !c.disableInjectBrowserLikeHeaders {
+		hreq.Header.Set("accept", "*/*")
+		hreq.Header.Set("cache-control", "no-cache")
+		hreq.Header.Set("pragma", "no-cache")
+		hreq.Header.Set("priority", "i")
+		hreq.Header.Set("sec-ch-ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
+		hreq.Header.Set("sec-ch-ua-mobile", "?0")
+		hreq.Header.Set("sec-ch-ua-platform", `"macOS"`)
+		hreq.Header.Set("sec-fetch-dest", "video")
+		hreq.Header.Set("sec-fetch-mode", "no-cors")
+		hreq.Header.Set("sec-fetch-site", "same-origin")
+		ua := c.defaultUserAgent
+		if strings.TrimSpace(ua) == "" {
+			ua = DefaultUserAgent
+		}
+		if strings.TrimSpace(ua) != "" {
+			hreq.Header.Set("user-agent", ua)
+		}
+	}
+
+	// 添加自定义请求头
+	for k, v := range req.Headers {
+		hreq.Header.Set(k, v)
+	}
+}
+
+func TryGetMd5(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+
+	url := resp.Request.URL.String()
+
+	if xAmzMetaMd5 := resp.Header.Get("X-Amz-Meta-Md5chksum"); len(xAmzMetaMd5) == 24 {
+		slog.Info("MD5chksum header is not empty", "url", url, "md5", xAmzMetaMd5)
+		return xAmzMetaMd5
+	} else if etag, ok := strings.CutPrefix(resp.Header.Get("Etag"), "W/"); ok && len(etag) == 34 && etag[0] == '"' && etag[33] == '"' {
+		etag = etag[1:33]
+		slog.Info("Etag is weak, using it", "url", url, "md5", etag)
+		return etag
+	} else if wantHexMd5 := resp.Header.Get("Content-MD5"); len(wantHexMd5) == 32 {
+		slog.Info("Content-MD5 header is not empty", "url", url, "md5", wantHexMd5)
+		return wantHexMd5
+	}
+	slog.Debug("md5 header is empty", "url", url, "md5", "")
+	return ""
+}
+
+func (c *Client) determineProxy(req *Request) (string, error) {
+	targetURL := req.URL
 	u, err := url.Parse(targetURL)
 	if err != nil {
 		return "", err
@@ -563,6 +609,7 @@ func (c *Client) determineProxy(targetURL string) (string, error) {
 	}
 	cachePath := filepath.Join(cacheBase, domain)
 	if info, err := os.Stat(cachePath); err == nil {
+		slog.Info("cache file exists", "path", cachePath, "mod", info.ModTime())
 		ttl := c.proxyDecisionTTLSecs
 		if ttl <= 0 {
 			ttl = 1
@@ -575,7 +622,8 @@ func (c *Client) determineProxy(targetURL string) (string, error) {
 			}
 		}
 	}
-	if c.checkDirect(targetURL) {
+	if c.checkDirect(req) {
+		slog.Info("direct access is available", "url", targetURL)
 		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
 		_ = os.WriteFile(cachePath, []byte("direct"), 0644)
 		return "", nil
@@ -590,6 +638,7 @@ func (c *Client) determineProxy(targetURL string) (string, error) {
 		}
 	}
 	if bestProxy != "" {
+		slog.Info("best proxy found", "proxy", bestProxy, "bandwidth", minBandwidth)
 		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
 		_ = os.WriteFile(cachePath, []byte("proxy"), 0644)
 		return bestProxy, nil
@@ -597,7 +646,7 @@ func (c *Client) determineProxy(targetURL string) (string, error) {
 	return "", fmt.Errorf("no suitable proxy found")
 }
 
-func (c *Client) checkDirect(u string) bool {
+func (c *Client) checkDirect(req *Request) bool {
 	if c.forceProxy {
 		return false
 	}
@@ -606,8 +655,13 @@ func (c *Client) checkDirect(u string) bool {
 		timeoutSecs = 3
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	resp, err := client.Head(u)
+	hreq, err := http.NewRequest("HEAD", req.URL, nil)
 	if err != nil {
+		return false
+	}
+	c.addBrowserLikeHeaders(req, hreq)
+	resp, err := client.Do(hreq)
+	if err != nil || resp.StatusCode != 200 {
 		return false
 	}
 	defer resp.Body.Close()

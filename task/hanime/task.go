@@ -36,9 +36,10 @@ func init() {
 
 type Task struct {
 	*task.BaseTask
-	genre    string
-	cookie   string
-	onceInit sync.Once
+	genre       string
+	cookie      string
+	onceInit    sync.Once
+	maxInitPage int
 }
 
 // Ensure Task implements core.Task
@@ -60,6 +61,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		genre:    genre,
 		cookie:   configutil.GetString(extra, "cookie", ""),
 	}
+	t.maxInitPage = int(configutil.GetInt64(extra, "max_init_page", 0))
 	t.SetPager(task.NewCommonPager(task.PageFuncs{
 		BuildPageURL:    t.buildPageURL,
 		RunScraper:      t.runScraper,
@@ -599,6 +601,9 @@ parsePage1:
 	total := t.parseTotalPages(html)
 	if total == 0 {
 		goto parsePage1
+	}
+	if t.maxInitPage > 0 && total > t.maxInitPage {
+		total = t.maxInitPage
 	}
 	t.Logger().Info("hanime total pages", "url", page1, "total", total)
 	items1, err := t.parseHomePage(html)

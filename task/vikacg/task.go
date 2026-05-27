@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -34,11 +36,12 @@ func init() {
 
 type Task struct {
 	*task.BaseTask
-	userID    int64
-	pageCount int64
-	authToken string
-	cookie    string
-	userAgent string
+	userID        int64
+	pageCount     int64
+	authToken     string
+	cookie        string
+	userAgent     string
+	resolved2URLs sync.Map
 }
 
 var _ core.Task = &Task{}
@@ -141,6 +144,19 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			continue
 		}
 		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
+			// Re-scrape pending/failed objects to get fresh content (images, title, etc.)
+			if _, loaded := t.resolved2URLs.LoadOrStore(o.URL, struct{}{}); !loaded {
+				if newObj, err := t.scrapeAndBuild(o.URL); err == nil {
+					newObj.TaskID = t.ID()
+					newObj.Status = dlcore.StatusPending
+					t.PersistTaskObject(newObj)
+					t.RememberRuntimeObject(newObj, true)
+					pending = append(pending, newObj)
+					continue
+				} else {
+					t.Logger().Warn("vikacg re-scrape failed", "url", o.URL, "error", err)
+				}
+			}
 			pending = append(pending, o)
 		}
 	}
@@ -160,6 +176,10 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 	title := strings.TrimSpace(doc.Find("meta[property='og:title']").AttrOr("content", ""))
 	if title == "" {
 		title = strings.TrimSpace(doc.Find("title").Text())
+	}
+	if title == "" {
+		os.WriteFile(fmt.Sprintf("%s.html", id), []byte(html), 0644)
+		return nil, fmt.Errorf("title is empty")
 	}
 	title = stripSiteSuffix(title)
 	title = strings.ReplaceAll(title, "/", "／")
@@ -272,7 +292,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		},
 		Status: dlcore.StatusPending,
 	}
-	t.CheckAndRestoreStatus(obj)
+	t.CheckRestoreCompleted(obj)
 	return obj, nil
 }
 

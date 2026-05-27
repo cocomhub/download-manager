@@ -6,6 +6,7 @@ package tktube
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -284,6 +285,7 @@ tryAgain2:
 	// Parse items from page 1
 	items1, err := t.parseHomePage(html)
 	if err == nil {
+		slog.Info("First page parsed", "task_id", t.ID(), "items", len(items1))
 		t.addVideoItems(items1)
 	} else {
 		t.Logger().Error("Failed to parse first page", "error", err)
