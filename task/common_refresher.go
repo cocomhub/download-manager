@@ -38,7 +38,7 @@ func (r *CommonRefresher) Start(fn func()) {
 	}()
 }
 
-func (r *CommonRefresher) UpdateInterval(sec int) {
+func (r *CommonRefresher) UpdateInterval(sec int64) {
 	if sec <= 0 {
 		sec = 3600
 	}

@@ -5,6 +5,10 @@
 // map[string]any configuration maps (commonly used in config.Task.Extra).
 package configutil
 
+import (
+	"github.com/spf13/cast"
+)
+
 // GetString retrieves a string value from m by key, returning def if the key
 // is missing, m is nil, or the value is not a string.
 func GetString(m map[string]any, key, def string) string {
@@ -17,20 +21,19 @@ func GetString(m map[string]any, key, def string) string {
 	return def
 }
 
-// GetInt retrieves an int value from m by key. It handles both int and
-// float64 (the default JSON number type) values, returning def if the key
-// is missing, m is nil, or the value is not a number.
-func GetInt(m map[string]any, key string, def int) int {
+func GetInt64(m map[string]any, key string, def int64) int64 {
 	if m == nil {
 		return def
 	}
-	if v, ok := m[key].(int); ok {
-		return v
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return def
 	}
-	if v, ok := m[key].(float64); ok {
-		return int(v)
+	v, err := cast.ToInt64E(raw)
+	if err != nil {
+		return def
 	}
-	return def
+	return v
 }
 
 // GetBool retrieves a bool value from m by key, returning def if the key
@@ -39,8 +42,13 @@ func GetBool(m map[string]any, key string, def bool) bool {
 	if m == nil {
 		return def
 	}
-	if v, ok := m[key].(bool); ok {
-		return v
+	raw, ok := m[key]
+	if !ok || raw == nil {
+		return def
 	}
-	return def
+	v, err := cast.ToBoolE(raw)
+	if err != nil {
+		return def
+	}
+	return v
 }

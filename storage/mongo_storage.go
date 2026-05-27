@@ -153,7 +153,7 @@ func (s *MongoStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject
 	return results, nil
 }
 
-func (s *MongoStorage) Count(query *core.StorageQuery) (int, error) {
+func (s *MongoStorage) Count(query *core.StorageQuery) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -161,7 +161,7 @@ func (s *MongoStorage) Count(query *core.StorageQuery) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(count), nil
+	return count, nil
 }
 
 func (s *MongoStorage) Exists(ids []string) (map[string]bool, error) {

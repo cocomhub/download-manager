@@ -11,7 +11,7 @@
   - full：启动任务、调度、下载与 Web 管理接口
   - ui：仅提供管理界面与只读浏览场景
 - 任务类型
-  - simple_url_list：通用 URL 列表下载
+  - url_list：通用 URL 列表下载
   - tktube：分页抓取、详情解析、内容分组、优先级淘汰
   - hanime：分页抓取、Cookie 请求头、HLS 下载链路
   - vikacg：页面/用户帖子抓取、图片资源组织、增量刷新

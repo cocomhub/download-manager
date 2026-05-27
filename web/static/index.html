@@ -560,10 +560,10 @@
                                     <div><span class="text-gray-400">并发：</span>{{ selectedTask.extra.max_concurrent||'-' }}</div>
                                     <div><span class="text-gray-400">刷新间隔：</span>{{ selectedTask.extra.refresh_interval||'-' }}</div>
                                 </div>
-                                <div class="text-xs text-gray-600" v-if="selectedTask.type==='simple_url_list'">
+                                <div class="text-xs text-gray-600" v-if="selectedTask.type==='url_list'">
                                     <span class="text-gray-400">URL数量：</span>{{ (selectedTask.extra.urls && selectedTask.extra.urls.length) || (selectedTask.urls && selectedTask.urls.length) || 0 }}
                                 </div>
-                                <div class="text-xs text-gray-600 break-all" v-if="selectedTask.type !== 'simple_url_list' && !selectedTask.type.startsWith('tktube')">
+                                <div class="text-xs text-gray-600 break-all" v-if="selectedTask.type !== 'url_list' && !selectedTask.type.startsWith('tktube')">
                                     {{ JSON.stringify(selectedTask.extra, null, 2) }}
                                 </div>
                             </div>
@@ -1368,7 +1368,7 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">任务类型</label>
                             <select v-model="newTask.type" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="simple_url_list">简单 URL 列表</option>
+                                <option value="url_list">简单 URL 列表</option>
                                 <option value="tktube">TKTube</option>
                             </select>
                         </div>
@@ -1406,7 +1406,7 @@
                         </div>
 
                         <!-- Simple URL Fields -->
-                        <div v-if="newTask.type === 'simple_url_list'">
+                        <div v-if="newTask.type === 'url_list'">
                             <label class="block text-sm font-medium text-gray-700 mb-1">URL 列表（每行一个）</label>
                             <textarea v-model="newTask.urls_text" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="https://example.com/file1.zip"></textarea>
                         </div>
@@ -3606,7 +3606,7 @@
                             }
                         }
 
-                        if (this.newTask.type === 'simple_url_list') {
+                        if (this.newTask.type === 'url_list') {
                             taskConfig.extra = {
                                 urls: this.newTask.urls_text.split('\n').map(s => s.trim()).filter(s => s)
                             }

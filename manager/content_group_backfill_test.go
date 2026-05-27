@@ -12,7 +12,8 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
-	"github.com/cocomhub/download-manager/task"
+	"github.com/cocomhub/download-manager/task/hanime"
+	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 type snapshotStore struct {
@@ -62,7 +63,7 @@ func (s *snapshotStore) Search(query *core.StorageQuery) ([]*model.DownloadObjec
 	return storage.ApplyQueryToObjects(out, query), nil
 }
 
-func (s *snapshotStore) Count(query *core.StorageQuery) (int, error) {
+func (s *snapshotStore) Count(query *core.StorageQuery) (int64, error) {
 	out := make([]*model.DownloadObject, 0, len(s.m))
 	for _, obj := range s.m {
 		out = append(out, cloneDownloadObject(obj))
@@ -94,7 +95,7 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100C",
 			"content_group": "WRONG-GROUP",
-			"task_type":     task.TypeHanime,
+			"task_type":     hanime.TaskType,
 		},
 	}
 	missingTaskType := &model.DownloadObject{
@@ -118,11 +119,11 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 	if got != want {
 		t.Fatalf("expect corrected content_group %q, got %q", want, got)
 	}
-	if gotType := store.m[obj.URL].Metadata["task_type"]; gotType != task.TypeTktube {
-		t.Fatalf("expect corrected task_type %q, got %q", task.TypeTktube, gotType)
+	if gotType := store.m[obj.URL].Metadata["task_type"]; gotType != tktube.TaskType {
+		t.Fatalf("expect corrected task_type %q, got %q", tktube.TaskType, gotType)
 	}
-	if gotType := store.m[missingTaskType.URL].Metadata["task_type"]; gotType != task.TypeTktube {
-		t.Fatalf("expect missing task_type backfilled to %q, got %q", task.TypeTktube, gotType)
+	if gotType := store.m[missingTaskType.URL].Metadata["task_type"]; gotType != tktube.TaskType {
+		t.Fatalf("expect missing task_type backfilled to %q, got %q", tktube.TaskType, gotType)
 	}
 	if store.updates != 2 {
 		t.Fatalf("expect 2 persisted updates, got %d", store.updates)

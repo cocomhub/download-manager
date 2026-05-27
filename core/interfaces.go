@@ -4,6 +4,8 @@
 package core
 
 import (
+	"log/slog"
+
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -23,8 +25,8 @@ type StorageSort struct {
 type StorageQuery struct {
 	Filter StorageFilter
 	Sort   []StorageSort
-	Offset int
-	Limit  int
+	Offset int64
+	Limit  int64
 }
 
 // Storage 定义下载状态存储的行为
@@ -39,7 +41,7 @@ type Storage interface {
 	// nil 查询表示不过滤、不排序、不分页，返回当前存储中的全部对象。
 	Search(query *StorageQuery) ([]*model.DownloadObject, error)
 	// Count 返回匹配查询过滤条件的对象总数，忽略排序与分页参数。
-	Count(query *StorageQuery) (int, error)
+	Count(query *StorageQuery) (int64, error)
 	// Exists 批量检查给定对象 ID 是否存在。
 	Exists(ids []string) (map[string]bool, error)
 }
@@ -48,8 +50,12 @@ type Storage interface {
 type Task interface {
 	// ID 返回任务唯一标识
 	ID() string
-	// GetStorage 返回任务的存储后端
-	GetStorage() Storage
+	// Type 返回任务类型
+	Type() string
+	// Logger 日志
+	Logger() *slog.Logger
+	// Storage 返回任务的存储后端
+	Storage() Storage
 	// SetDownloader 设置下载器
 	SetDownloader(d Downloader)
 	// GetDownloadHeaders 获取下载对象的自定义HTTP头
@@ -58,8 +64,16 @@ type Task interface {
 	GetDownloadObjects() ([]*model.DownloadObject, error)
 	// UpdateStatus 更新下载对象的状态
 	UpdateStatus(obj *model.DownloadObject, status string, err error) error
-	// Type 返回任务类型
-	Type() string
+	// Concurrency 并发数
+	Concurrency() int
+	// SetConcurrency 设置并发数
+	SetConcurrency(int) error
+	// RefreshInterval 刷新时间
+	RefreshInterval() int
+	// SetRefreshInterval 设置刷新时间
+	SetRefreshInterval(int) error
+	// Start 开始任务
+	Start() error
 	// Close 关闭任务，执行清理或持久化操作
 	Close() error
 }

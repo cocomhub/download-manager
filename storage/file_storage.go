@@ -132,7 +132,7 @@ func (s *FileStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject,
 	return ApplyQueryToObjects(list, query), nil
 }
 
-func (s *FileStorage) Count(query *core.StorageQuery) (int, error) {
+func (s *FileStorage) Count(query *core.StorageQuery) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

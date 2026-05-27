@@ -4,9 +4,11 @@
 package manager
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -17,6 +19,10 @@ type mockTaskWithStore struct {
 }
 
 func (m *mockTaskWithStore) ID() string                            { return m.id }
+func (m *mockTaskWithStore) Type() string                          { return m.typ }
+func (m *mockTaskWithStore) Logger() *slog.Logger                  { return slog.Default() }
+func (m *mockTaskWithStore) Storage() core.Storage                 { return nil }
+func (m *mockTaskWithStore) SetDownloader(core.Downloader)         {}
 func (m *mockTaskWithStore) GetDownloadHeaders() map[string]string { return map[string]string{} }
 func (m *mockTaskWithStore) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return []*model.DownloadObject{}, nil
@@ -24,9 +30,13 @@ func (m *mockTaskWithStore) GetDownloadObjects() ([]*model.DownloadObject, error
 func (m *mockTaskWithStore) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	return nil
 }
-func (m *mockTaskWithStore) Type() string                           { return m.typ }
-func (m *mockTaskWithStore) Close() error                           { return nil }
-func (m *mockTaskWithStore) GetAllObjects() []*model.DownloadObject { return m.objs }
+func (m *mockTaskWithStore) Concurrency() int                                { return 1 }
+func (m *mockTaskWithStore) SetConcurrency(int) error                        { return nil }
+func (m *mockTaskWithStore) RefreshInterval() int                            { return 0 }
+func (m *mockTaskWithStore) SetRefreshInterval(int) error                    { return nil }
+func (m *mockTaskWithStore) Start() error                                    { return nil }
+func (m *mockTaskWithStore) Close() error                                    { return nil }
+func (m *mockTaskWithStore) GetAllObjects(lock bool) []*model.DownloadObject { return m.objs }
 
 func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	cfg := &config.Config{

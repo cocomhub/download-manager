@@ -5,12 +5,6 @@ package task
 
 import "strings"
 
-const (
-	TypeVikacg = "vikacg"
-	TypeHanime = "hanime"
-	TypeTktube = "tktube"
-)
-
 func NormalizeType(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }

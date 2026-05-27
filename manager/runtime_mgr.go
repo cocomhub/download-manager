@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 )
 
 func (m *Manager) worker() {
@@ -58,42 +59,18 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 func (m *Manager) applyTaskRuntime(newCfg *config.Config) {
 	for _, tCfg := range newCfg.Tasks {
 		if t, ok := m.getTask(tCfg.ID); ok {
-			if setter, ok := t.(interface{ SetConcurrency(int) error }); ok {
-				var cfgVal int
-				if tCfg.Extra != nil {
-					if v, ok := tCfg.Extra["max_concurrent"].(int); ok {
-						cfgVal = v
-					} else if v, ok := tCfg.Extra["max_concurrent"].(float64); ok {
-						cfgVal = int(v)
-					}
-				}
-				if cfgVal > 0 {
-					if getter, ok := t.(interface{ GetConcurrency() int }); !ok || getter.GetConcurrency() != cfgVal {
-						if err := setter.SetConcurrency(cfgVal); err != nil {
-							slog.Warn("SetConcurrency failed", "task_id", tCfg.ID, "error", err)
-						} else {
-							slog.Info("Task concurrency updated", "task_id", tCfg.ID, "value", cfgVal)
-						}
-					}
+			if cfgVal := int(configutil.GetInt64(tCfg.Extra, "max_concurrent", 2)); t.Concurrency() != cfgVal {
+				if err := t.SetConcurrency(cfgVal); err != nil {
+					slog.Warn("SetConcurrency failed", "task_id", tCfg.ID, "error", err)
+				} else {
+					slog.Info("Task concurrency updated", "task_id", tCfg.ID, "value", cfgVal)
 				}
 			}
-			if setter, ok := t.(interface{ SetRefreshInterval(int) error }); ok {
-				var cfgVal int
-				if tCfg.Extra != nil {
-					if v, ok := tCfg.Extra["refresh_interval"].(int); ok {
-						cfgVal = v
-					} else if v, ok := tCfg.Extra["refresh_interval"].(float64); ok {
-						cfgVal = int(v)
-					}
-				}
-				if cfgVal > 0 {
-					if getter, ok := t.(interface{ GetRefreshInterval() int }); !ok || getter.GetRefreshInterval() != cfgVal {
-						if err := setter.SetRefreshInterval(cfgVal); err != nil {
-							slog.Warn("SetRefreshInterval failed", "task_id", tCfg.ID, "error", err)
-						} else {
-							slog.Info("Task refresh interval updated", "task_id", tCfg.ID, "value", cfgVal)
-						}
-					}
+			if cfgVal := int(configutil.GetInt64(tCfg.Extra, "refresh_interval", 3600)); t.RefreshInterval() != cfgVal {
+				if err := t.SetRefreshInterval(cfgVal); err != nil {
+					slog.Warn("SetRefreshInterval failed", "task_id", tCfg.ID, "error", err)
+				} else {
+					slog.Info("Task refresh interval updated", "task_id", tCfg.ID, "value", cfgVal)
 				}
 			}
 		}
@@ -107,20 +84,12 @@ func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval
 	}
 	result := map[string]bool{"concurrency": false, "refresh_interval": false}
 	if concurrency != nil {
-		if setter, ok := t.(interface{ SetConcurrency(int) error }); ok {
-			if err := setter.SetConcurrency(*concurrency); err != nil {
-				return result, err
-			}
-			result["concurrency"] = true
-		}
+		t.SetConcurrency(*concurrency)
+		result["concurrency"] = true
 	}
 	if refreshInterval != nil {
-		if setter, ok := t.(interface{ SetRefreshInterval(int) error }); ok {
-			if err := setter.SetRefreshInterval(*refreshInterval); err != nil {
-				return result, err
-			}
-			result["refresh_interval"] = true
-		}
+		t.SetRefreshInterval(*refreshInterval)
+		result["refresh_interval"] = true
 	}
 	if result["concurrency"] || result["refresh_interval"] {
 		// Persist to config file

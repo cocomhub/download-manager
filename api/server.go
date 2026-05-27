@@ -145,18 +145,18 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	page := 1
-	limit := 50 // Default
+	page := int64(1)
+	limit := int64(50) // Default
 
 	if pStr := r.URL.Query().Get("page"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+		if p, err := strconv.ParseInt(pStr, 10, 64); err == nil && p > 0 {
 			page = p
 		}
 	}
 	if lStr := r.URL.Query().Get("limit"); lStr != "" {
 		if lStr == "all" {
 			limit = -1
-		} else if l, err := strconv.Atoi(lStr); err == nil {
+		} else if l, err := strconv.ParseInt(lStr, 10, 64); err == nil {
 			limit = l
 		}
 	}
@@ -681,17 +681,17 @@ func (s *Server) getActiveDownloads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
-	page := 1
-	limit := 50
+	page := int64(1)
+	limit := int64(50)
 	if pStr := r.URL.Query().Get("page"); pStr != "" {
-		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
+		if p, err := strconv.ParseInt(pStr, 10, 64); err == nil && p > 0 {
 			page = p
 		}
 	}
 	if lStr := r.URL.Query().Get("limit"); lStr != "" {
 		if lStr == "all" {
 			limit = -1
-		} else if l, err := strconv.Atoi(lStr); err == nil {
+		} else if l, err := strconv.ParseInt(lStr, 10, 64); err == nil {
 			limit = l
 		}
 	}

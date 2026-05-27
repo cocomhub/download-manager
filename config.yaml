@@ -72,7 +72,7 @@ task_scan:
   interval: 10
 tasks:
   - id: task-file-001
-    type: simple_url_list
+    type: url_list
     save_dir: ./build/test/downloads/task1
     storage:
       type: file
@@ -84,7 +84,7 @@ tasks:
         - https://www.baidu.com/robots.txt
         - https://www.bing.com/robots.txt
   - id: task-mongo-001
-    type: simple_url_list
+    type: url_list
     save_dir: ./build/test/downloads/task2
     storage:
       type: mongo

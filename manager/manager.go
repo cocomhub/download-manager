@@ -24,7 +24,7 @@ import (
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
-	"github.com/cocomhub/download-manager/task"
+	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 type downloadRequest struct {
@@ -178,31 +178,31 @@ func sortRules(sortBy string) []core.StorageSort {
 
 func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	taskQuery := queryForTask(t.ID(), query)
-	if st := t.GetStorage(); st != nil {
+	if st := t.Storage(); st != nil {
 		return st.Search(taskQuery)
 	}
 	if accessor, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
+		GetAllObjects(lock bool) []*model.DownloadObject
 	}); ok {
-		return storage.ApplyQueryToObjects(accessor.GetAllObjects(), taskQuery), nil
+		return storage.ApplyQueryToObjects(accessor.GetAllObjects(true), taskQuery), nil
 	}
 	return []*model.DownloadObject{}, nil
 }
 
-func (m *Manager) countTaskObjects(t core.Task, query *core.StorageQuery) (int, error) {
+func (m *Manager) countTaskObjects(t core.Task, query *core.StorageQuery) (int64, error) {
 	taskQuery := queryForTask(t.ID(), query)
-	if st := t.GetStorage(); st != nil {
+	if st := t.Storage(); st != nil {
 		return st.Count(taskQuery)
 	}
 	if accessor, ok := t.(interface {
-		GetAllObjects() []*model.DownloadObject
+		GetAllObjects(lock bool) []*model.DownloadObject
 	}); ok {
-		return storage.CountObjects(accessor.GetAllObjects(), taskQuery), nil
+		return storage.CountObjects(accessor.GetAllObjects(true), taskQuery), nil
 	}
 	return 0, nil
 }
 
-func (m *Manager) collectTaskObjects(t core.Task, query *core.StorageQuery, batchSize int) ([]*model.DownloadObject, error) {
+func (m *Manager) collectTaskObjects(t core.Task, query *core.StorageQuery, batchSize int64) ([]*model.DownloadObject, error) {
 	if query != nil && query.Limit > 0 {
 		return m.searchTaskObjects(t, query)
 	}
@@ -210,7 +210,7 @@ func (m *Manager) collectTaskObjects(t core.Task, query *core.StorageQuery, batc
 		batchSize = 200
 	}
 	collected := make([]*model.DownloadObject, 0, batchSize)
-	offset := 0
+	var offset int64
 	for {
 		pageQuery := cloneStorageQuery(query)
 		pageQuery.Offset = offset
@@ -223,10 +223,10 @@ func (m *Manager) collectTaskObjects(t core.Task, query *core.StorageQuery, batc
 			break
 		}
 		collected = append(collected, chunk...)
-		if len(chunk) < batchSize {
+		if int64(len(chunk)) < batchSize {
 			break
 		}
-		offset += len(chunk)
+		offset += int64(len(chunk))
 	}
 	return collected, nil
 }
@@ -364,10 +364,7 @@ func (m *Manager) processTask(t core.Task) {
 	// If global limit is used, task limit might be redundant or acts as "fairness" limit.
 	// Let's keep it.
 
-	limit := 10 // Default limit
-	if ct, ok := t.(interface{ GetConcurrency() int }); ok {
-		limit = ct.GetConcurrency()
-	}
+	limit := t.Concurrency()
 
 	m.mu.Lock()
 	active := m.activeDownloads[t.ID()]
@@ -713,7 +710,7 @@ func (m *Manager) GetTaskSummaries() []map[string]any {
 	return summaries
 }
 
-func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy string) (map[string]any, error) {
+func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy string) (map[string]any, error) {
 	t, ok := m.getTask(id)
 	// also locate config entry for readonly fields
 	var tCfg *config.Task
@@ -740,21 +737,17 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 	}
 
 	// Task configuration exposure
-	if getter, ok := t.(interface{ GetConcurrency() int }); ok {
-		result["concurrency"] = getter.GetConcurrency()
-	}
-	if getter, ok := t.(interface{ GetRefreshInterval() int }); ok {
-		result["refresh_interval"] = getter.GetRefreshInterval()
-	}
+	result["concurrency"] = t.Concurrency()
+	result["refresh_interval"] = t.RefreshInterval()
 	result["supports"] = map[string]bool{
-		"concurrency":      hasMethod(t, "SetConcurrency"),
-		"refresh_interval": hasMethod(t, "SetRefreshInterval"),
+		"concurrency":      true,
+		"refresh_interval": true,
 	}
 
 	if page < 1 {
 		page = 1
 	}
-	offset := 0
+	var offset int64
 	if limit > 0 {
 		offset = (page - 1) * limit
 	} else {
@@ -799,7 +792,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int, search, sortBy stri
 	return result, nil
 }
 
-func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status string, types []string) (map[string]any, error) {
+func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
 	all := make([]*model.DownloadObject, 0, 1024)
 	cfg := m.currentCfg()
 	typeMatches := func(t core.Task) bool {
@@ -838,11 +831,11 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 		}
 		all = append(all, objs...)
 	}
-	total := len(all)
+	total := int64(len(all))
 	if page < 1 {
 		page = 1
 	}
-	var offset int
+	var offset int64
 	if limit <= 0 {
 		page = 1
 		limit = total
@@ -863,7 +856,7 @@ func (m *Manager) AggregateObjects(page, limit int, search, sortBy, status strin
 }
 
 // AggregateByContent groups objects by scoped content group and returns representatives.
-func (m *Manager) AggregateByContent(page, limit int, search, sortBy, status string, types []string) (map[string]any, error) {
+func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
 	// Collect all objects similar to AggregateObjects
 	cfg := m.currentCfg()
 	typeMatches := func(t core.Task) bool {
@@ -946,11 +939,11 @@ func (m *Manager) AggregateByContent(page, limit int, search, sortBy, status str
 			reps = append(reps, &copyObj)
 		}
 	}
-	total := len(reps)
+	total := int64(len(reps))
 	if page < 1 {
 		page = 1
 	}
-	var offset int
+	var offset int64
 	if limit <= 0 {
 		page = 1
 		limit = total
@@ -989,7 +982,7 @@ func scopedContentGroupKey(taskID, taskType, group string) string {
 }
 
 func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
-	if t == nil || obj == nil || t.Type() != task.TypeTktube {
+	if t == nil || obj == nil || t.Type() != tktube.TaskType {
 		return 0
 	}
 	hq, c := titlegroup.TKTVariantFlags(obj.Metadata["title"])
@@ -1009,10 +1002,10 @@ func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
 func (m *Manager) BackfillContentGroups() {
 	m.tasks.Range(func(key, value any) bool {
 		t, _ := value.(core.Task)
-		if t == nil || t.Type() != task.TypeTktube {
+		if t == nil || t.Type() != tktube.TaskType {
 			return true
 		}
-		st := t.GetStorage()
+		st := t.Storage()
 		if st == nil {
 			return true
 		}
@@ -1063,7 +1056,7 @@ func (m *Manager) BackfillContentGroups() {
 // Even if multiple tasks share the same storage, only objects whose TaskID matches t.ID()
 // and whose task_type/content_group match the completed object are eligible.
 func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObject) {
-	if t.Type() != task.TypeTktube {
+	if t.Type() != tktube.TaskType {
 		return
 	}
 	if obj == nil || obj.Status != dlcore.StatusCompleted {
@@ -1081,7 +1074,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	if taskID == "" || strings.TrimSpace(obj.TaskID) != taskID {
 		return
 	}
-	st := t.GetStorage()
+	st := t.Storage()
 	if st == nil {
 		return
 	}

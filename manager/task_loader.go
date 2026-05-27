@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/core"
-	"github.com/cocomhub/download-manager/storage"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -16,19 +15,10 @@ func (m *Manager) loadTasks() {
 		if _, exists := m.tasks.Load(tCfg.ID); exists {
 			continue
 		}
-		storeType := tCfg.Storage.Type
-		if storeType == "" {
-			storeType = "memory"
-		}
-		store, err := storage.NewStorage(storeType, tCfg.Storage.Config)
-		if err != nil {
-			slog.Error("Failed to create storage for task", "task_id", tCfg.ID, "error", err)
-			continue
-		}
 		if tCfg.Extra == nil {
 			tCfg.Extra = make(map[string]any)
 		}
-		t, err := task.NewTask(tCfg, store)
+		t, err := task.NewTask(&tCfg)
 		if err != nil {
 			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue
@@ -37,9 +27,14 @@ func (m *Manager) loadTasks() {
 		if srSetter, ok := t.(core.SharedRegistrySetter); ok {
 			srSetter.SetSharedRegistry(m.urlRegistry)
 		}
-		m.urlRegistry.RegisterStorage(tCfg.ID, t.GetStorage())
+		if err = t.Start(); err != nil {
+			slog.Error("Failed to start task", "task_id", tCfg.ID, "error", err)
+			_ = t.Close()
+			continue
+		}
+		m.urlRegistry.RegisterStorage(tCfg.ID, t.Storage())
 		m.tasks.Store(tCfg.ID, t)
-		slog.Info("Task loaded", "task_id", tCfg.ID, "storage_type", storeType)
+		slog.Info("Task loaded", "task_id", tCfg.ID)
 	}
 }
 

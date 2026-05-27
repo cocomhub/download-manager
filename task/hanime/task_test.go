@@ -1,7 +1,7 @@
 // Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package task
+package hanime
 
 import (
 	"os"
@@ -38,7 +38,7 @@ func TestParseHomePage(t *testing.T) {
 	if err != nil {
 		t.Skipf("fixture not found: %v", err)
 	}
-	items, err := (&HanimeTask{}).parseHomePage(string(data))
+	items, err := (&Task{}).parseHomePage(string(data))
 	if err != nil {
 		t.Fatalf("parse home error: %v", err)
 	}

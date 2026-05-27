@@ -4,9 +4,11 @@
 package manager
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -17,6 +19,10 @@ type mockTask struct {
 }
 
 func (m *mockTask) ID() string                            { return m.id }
+func (m *mockTask) Type() string                          { return m.typ }
+func (m *mockTask) Logger() *slog.Logger                  { return slog.Default() }
+func (m *mockTask) Storage() core.Storage                 { return nil }
+func (m *mockTask) SetDownloader(core.Downloader)         {}
 func (m *mockTask) GetDownloadHeaders() map[string]string { return map[string]string{} }
 func (m *mockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return []*model.DownloadObject{}, nil
@@ -24,9 +30,13 @@ func (m *mockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 func (m *mockTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	return nil
 }
-func (m *mockTask) Type() string                           { return m.typ }
-func (m *mockTask) Close() error                           { return nil }
-func (m *mockTask) GetAllObjects() []*model.DownloadObject { return m.objs }
+func (m *mockTask) Concurrency() int                                { return 1 }
+func (m *mockTask) SetConcurrency(int) error                        { return nil }
+func (m *mockTask) RefreshInterval() int                            { return 0 }
+func (m *mockTask) SetRefreshInterval(int) error                    { return nil }
+func (m *mockTask) Start() error                                    { return nil }
+func (m *mockTask) Close() error                                    { return nil }
+func (m *mockTask) GetAllObjects(lock bool) []*model.DownloadObject { return m.objs }
 
 func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	cfg := &config.Config{

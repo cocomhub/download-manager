@@ -4,13 +4,15 @@
 package manager
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/storage"
-	"github.com/cocomhub/download-manager/task"
+	"github.com/cocomhub/download-manager/task/hanime"
+	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 type memStore struct {
@@ -33,7 +35,7 @@ func (s *memStore) Search(query *core.StorageQuery) ([]*model.DownloadObject, er
 	}
 	return storage.ApplyQueryToObjects(list, query), nil
 }
-func (s *memStore) Count(query *core.StorageQuery) (int, error) {
+func (s *memStore) Count(query *core.StorageQuery) (int64, error) {
 	var list []*model.DownloadObject
 	for _, o := range s.m {
 		list = append(list, o)
@@ -49,12 +51,18 @@ func (s *memStore) Exists(ids []string) (map[string]bool, error) {
 	return result, nil
 }
 
+var (
+	_ core.Task = &fakeTktTask{}
+)
+
 type fakeTktTask struct {
-	id   string
-	typ  string
-	objs []*model.DownloadObject
-	dl   core.Downloader
-	st   core.Storage
+	id              string
+	typ             string
+	concurrency     int
+	refreshInterval int
+	objs            []*model.DownloadObject
+	dl              core.Downloader
+	st              core.Storage
 }
 
 func (f *fakeTktTask) ID() string                            { return f.id }
@@ -71,11 +79,20 @@ func (f *fakeTktTask) Type() string {
 	if f.typ != "" {
 		return f.typ
 	}
-	return task.TypeTktube
+	return tktube.TaskType
 }
-func (f *fakeTktTask) Close() error                           { return nil }
-func (f *fakeTktTask) GetAllObjects() []*model.DownloadObject { return f.objs }
-func (f *fakeTktTask) GetStorage() core.Storage               { return f.st }
+func (f *fakeTktTask) Close() error                                    { return nil }
+func (f *fakeTktTask) GetAllObjects(lock bool) []*model.DownloadObject { return f.objs }
+func (f *fakeTktTask) Storage() core.Storage                           { return f.st }
+func (f *fakeTktTask) Logger() *slog.Logger                            { return slog.Default() }
+func (f *fakeTktTask) Start() error                                    { return nil }
+func (f *fakeTktTask) Concurrency() int                                { return f.concurrency }
+func (f *fakeTktTask) SetConcurrency(concurrency int) error            { f.concurrency = concurrency; return nil }
+func (f *fakeTktTask) RefreshInterval() int                            { return f.refreshInterval }
+func (f *fakeTktTask) SetRefreshInterval(refreshInterval int) error {
+	f.refreshInterval = refreshInterval
+	return nil
+}
 
 func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 	m := &Manager{}
@@ -86,7 +103,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 		URL:    "u1",
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -98,7 +115,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 		URL:    "u2",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -127,7 +144,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 		URL:    "u1",
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -138,7 +155,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 		URL:    "u2",
 		Metadata: map[string]string{
 			"title":         "PLAIN-ONE",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -149,7 +166,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 		URL:    "u3",
 		Metadata: map[string]string{
 			"title":         "PLAIN-TWO",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -176,7 +193,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 		URL:    "u1",
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -187,7 +204,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 		URL:    "u2",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -213,7 +230,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 		URL:    "u1",
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -224,7 +241,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 		URL:    "u2",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -235,7 +252,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 		URL:    "u3",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -246,7 +263,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 		URL:    "u4",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -290,7 +307,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 		URL:    "u1",
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100",
-			"task_type":     task.TypeTktube,
+			"task_type":     tktube.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -301,7 +318,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 		URL:    "u2",
 		Metadata: map[string]string{
 			"title":         "CLUB-100C",
-			"task_type":     task.TypeHanime,
+			"task_type":     hanime.TaskType,
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
@@ -312,7 +329,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 
 	task1 := &fakeTktTask{
 		id:   "shared-task",
-		typ:  task.TypeTktube,
+		typ:  tktube.TaskType,
 		st:   store,
 		objs: []*model.DownloadObject{canonical, sameTaskIDWrongType},
 	}

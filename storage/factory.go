@@ -21,11 +21,8 @@ func Register(typ string, f Factory) {
 	factories[typ] = f
 }
 
-// NewStorage creates a new storage instance based on type and config
+// NewStorage creates a new storage instance based on type and config.
 func NewStorage(typ string, config map[string]string) (core.Storage, error) {
-	if typ == "" {
-		return NewMemoryStorage(nil)
-	}
 	f, ok := factories[typ]
 	if !ok {
 		return nil, fmt.Errorf("unknown storage type: %s", typ)
@@ -78,7 +75,7 @@ func (s *MemoryStorage) Search(query *core.StorageQuery) ([]*model.DownloadObjec
 	return ApplyQueryToObjects(list, query), nil
 }
 
-func (s *MemoryStorage) Count(query *core.StorageQuery) (int, error) {
+func (s *MemoryStorage) Count(query *core.StorageQuery) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

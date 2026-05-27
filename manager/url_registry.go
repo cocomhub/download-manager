@@ -74,7 +74,9 @@ func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 		if err != nil || obj == nil {
 			continue
 		}
-		owners[ownerID(entry.taskID, obj)] = struct{}{}
+		if obj.Status != dlcore.StatusPending {
+			owners[ownerID(entry.taskID, obj)] = struct{}{}
+		}
 		if betterSharedObject(obj, best) {
 			best = obj
 		}
@@ -107,7 +109,9 @@ func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.objects[obj.URL] = cloneObject(obj)
-	r.addOwnerLocked(obj.URL, stringsTrim(obj.TaskID))
+	if obj.Status != dlcore.StatusPending {
+		r.addOwnerLocked(obj.URL, stringsTrim(obj.TaskID))
+	}
 	for _, ch := range r.subs {
 		select {
 		case ch <- r.objects[obj.URL]:

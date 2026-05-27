@@ -30,8 +30,8 @@ func ApplyQueryToObjects(objects []*model.DownloadObject, query *core.StorageQue
 }
 
 // CountObjects returns the count of objects that match the query filters.
-func CountObjects(objects []*model.DownloadObject, query *core.StorageQuery) int {
-	count := 0
+func CountObjects(objects []*model.DownloadObject, query *core.StorageQuery) int64 {
+	var count int64
 	for _, obj := range objects {
 		if matchesQuery(obj, query) {
 			count++
@@ -176,13 +176,13 @@ func applyPagination(objects []*model.DownloadObject, query *core.StorageQuery) 
 	}
 
 	offset := max(query.Offset, 0)
-	if offset >= len(objects) {
+	if offset >= int64(len(objects)) {
 		return []*model.DownloadObject{}
 	}
 	if query.Limit <= 0 {
 		return objects[offset:]
 	}
-	end := min(offset+query.Limit, len(objects))
+	end := min(offset+query.Limit, int64(len(objects)))
 	return objects[offset:end]
 }
 

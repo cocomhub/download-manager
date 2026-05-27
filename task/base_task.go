@@ -10,46 +10,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/storage"
 )
-
-// PagingCap is implemented by tasks that support CommonPager.
-type PagingCap interface {
-	SetPager(*CommonPager)
-}
-
-// RefreshingCap is implemented by tasks that support CommonRefresher.
-type RefreshingCap interface {
-	SetRefresher(*CommonRefresher)
-}
-
-// PathStrategyCap is implemented by tasks that use PathStrategy.
-type PathStrategyCap interface {
-	SetPathStrategy(core.PathStrategy)
-}
 
 // HeadersCap is implemented by tasks that support custom download headers.
 type HeadersCap interface {
 	SetHeaders(map[string]string)
-}
-
-// ConcurrencyCap is implemented by tasks that have configurable concurrency.
-type ConcurrencyCap interface {
-	GetConcurrency() int
-	SetConcurrency(n int) error
-}
-
-// RefreshIntervalCap is implemented by tasks that have configurable refresh interval.
-type RefreshIntervalCap interface {
-	GetRefreshInterval() int
-	SetRefreshInterval(sec int) error
-}
-
-// AllObjectsCap is implemented by tasks that can list all their runtime objects.
-type AllObjectsCap interface {
-	GetAllObjects() []*model.DownloadObject
 }
 
 // BaseTask provides a shared base for Task implementations, embedding common
@@ -58,12 +29,13 @@ type AllObjectsCap interface {
 //
 // Tasks should embed this struct and override Type() and GetDownloadObjects().
 type BaseTask struct {
-	id           string
-	saveDir      string
+	config.Task
+	Options
+	logger       *slog.Logger
 	dl           core.Downloader
-	store        core.Storage
 	shared       core.SharedRegistry
 	mu           sync.Mutex
+	refresherFn  func()
 	refresher    *CommonRefresher
 	pager        *CommonPager
 	pathStrategy core.PathStrategy
@@ -74,28 +46,42 @@ type BaseTask struct {
 	knownURLs    map[string]bool
 	initialized  atomic.Int32
 	markAsFailed sync.Map
-	concurrency  int
-	refreshInt   int
+	concurrency  atomic.Int64
+	refreshInt   atomic.Int64
 }
 
-func NewBaseTask(id, saveDir string, store core.Storage) BaseTask {
-	return BaseTask{
-		id:        id,
-		saveDir:   saveDir,
-		store:     store,
+func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {
+	if opts.store == nil {
+		store, err := storage.NewStorage(cfg.Storage.Type, cfg.Storage.Config)
+		if err != nil {
+			return nil, fmt.Errorf("task: new storage: %w", err)
+		}
+		opts.store = store
+	}
+
+	t := &BaseTask{
+		Task:      *cfg,
+		Options:   opts,
+		logger:    slog.With("task_id", cfg.ID),
 		objects:   make([]*model.DownloadObject, 0),
 		knownURLs: map[string]bool{},
 	}
+	t.concurrency.Store(configutil.GetInt64(cfg.Extra, "max_concurrent", 2))
+	t.refreshInt.Store(configutil.GetInt64(cfg.Extra, "refresh_interval", 3600))
+
+	psMode := configutil.GetString(cfg.Extra, "path_strategy", "first_fixed")
+	t.pathStrategy = NewPathStrategy(psMode, cfg.SaveDir)
+	return t, nil
 }
 
 // ID returns the task unique identifier.
 func (b *BaseTask) ID() string {
-	return b.id
+	return b.Task.ID
 }
 
 // SaveDir returns the task save directory.
 func (b *BaseTask) SaveDir() string {
-	return b.saveDir
+	return b.Task.SaveDir
 }
 
 // GetDownloadHeaders returns the custom HTTP headers for downloads.
@@ -111,6 +97,15 @@ func (b *BaseTask) Type() string {
 	return "base"
 }
 
+// Start 开始任务
+func (b *BaseTask) Start() error {
+	if b.refresher == nil && b.refresherFn != nil {
+		b.refresher = NewCommonRefresher(b.RefreshInterval())
+		b.refresher.Start(b.refresherFn)
+	}
+	return nil
+}
+
 // Close flushes the storage (if supported) and stops the refresher (if running).
 func (b *BaseTask) Close() error {
 	b.mu.Lock()
@@ -118,7 +113,7 @@ func (b *BaseTask) Close() error {
 	if b.store != nil {
 		if flusher, ok := b.store.(interface{ ForceFlush() error }); ok {
 			if err := flusher.ForceFlush(); err != nil {
-				slog.Error("force flush store failed", "task_id", b.id, "error", err)
+				b.logger.Error("force flush store failed", "error", err)
 				return err
 			}
 		}
@@ -137,16 +132,16 @@ func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err er
 	obj.Status = status
 
 	if err != nil {
-		slog.Error("Object failed", "task_id", b.id, "url", obj.URL, "error", err)
+		b.logger.Error("Object failed", "url", obj.URL, "error", err)
 	} else {
-		slog.Info("Object status updated", "task_id", b.id, "url", obj.URL, "status", status)
+		b.logger.Info("Object status updated", "url", obj.URL, "status", status)
 	}
 
 	var storeErr error
 	if b.store != nil {
 		storeErr = b.store.Update(obj)
 		if storeErr != nil {
-			slog.Error("Failed to update storage", "task_id", b.id, "error", storeErr)
+			b.logger.Error("Failed to update storage", "error", storeErr)
 		}
 	}
 	if b.shared != nil {
@@ -181,11 +176,9 @@ func (b *BaseTask) SetPager(p *CommonPager) {
 	}
 }
 
-// SetRefresher sets the common refresher. Only takes effect if not already set.
-func (b *BaseTask) SetRefresher(r *CommonRefresher) {
-	if b.refresher == nil && r != nil {
-		b.refresher = r
-	}
+// SetRefreshFunc sets the refresh func.
+func (b *BaseTask) SetRefreshFunc(fn func()) {
+	b.refresherFn = fn
 }
 
 // SetHeaders sets the custom download headers.
@@ -196,20 +189,32 @@ func (b *BaseTask) SetHeaders(h map[string]string) {
 // --- Common runtime object management ---
 
 // GetAllObjects returns a copy of all runtime objects (under lock).
-func (b *BaseTask) GetAllObjects() []*model.DownloadObject {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *BaseTask) GetAllObjects(lock bool) []*model.DownloadObject {
+	if lock {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+	}
+	if b.shared != nil {
+		for _, obj := range b.objects {
+			b.syncSharedToObjectLocked(obj)
+		}
+	}
 	return b.objects
 }
 
-// GetStorage returns the task's storage backend.
-func (b *BaseTask) GetStorage() core.Storage {
+// Storage returns the task's storage backend.
+func (b *BaseTask) Storage() core.Storage {
 	return b.store
 }
 
-// GetConcurrency returns the configured concurrency limit.
-func (b *BaseTask) GetConcurrency() int {
-	return b.concurrency
+// Logger returns the task logger.
+func (b *BaseTask) Logger() *slog.Logger {
+	return b.logger
+}
+
+// Concurrency returns the configured concurrency limit.
+func (b *BaseTask) Concurrency() int {
+	return int(b.concurrency.Load())
 }
 
 // SetConcurrency updates the concurrency limit (0..100).
@@ -217,15 +222,13 @@ func (b *BaseTask) SetConcurrency(n int) error {
 	if n < 0 || n > 100 {
 		return fmt.Errorf("concurrency must be >= 0 and <= 100")
 	}
-	b.mu.Lock()
-	b.concurrency = n
-	b.mu.Unlock()
+	b.concurrency.Store(int64(n))
 	return nil
 }
 
 // GetRefreshInterval returns the configured refresh interval in seconds.
-func (b *BaseTask) GetRefreshInterval() int {
-	return b.refreshInt
+func (b *BaseTask) RefreshInterval() int {
+	return int(b.refreshInt.Load())
 }
 
 // SetRefreshInterval updates the refresh interval (10..86400) and syncs to refresher.
@@ -233,11 +236,9 @@ func (b *BaseTask) SetRefreshInterval(sec int) error {
 	if sec < 10 || sec > 86400 {
 		return fmt.Errorf("refresh interval must be >= 10 and <= 86400")
 	}
-	b.mu.Lock()
-	b.refreshInt = sec
-	b.mu.Unlock()
+	b.refreshInt.Store(int64(sec))
 	if b.refresher != nil {
-		b.refresher.UpdateInterval(sec)
+		b.refresher.UpdateInterval(int64(sec))
 	}
 	return nil
 }
@@ -259,13 +260,13 @@ func (b *BaseTask) IsMarkedFailed(url string) bool {
 func (b *BaseTask) CheckAndRestoreStatus(obj *model.DownloadObject) {
 	if b.shared != nil {
 		if so, err := b.shared.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
+			applySharedState(obj, so)
 			return
 		}
 	}
 	if b.store != nil {
 		if so, err := b.store.Get(obj.URL); err == nil && so != nil {
-			*obj = *so
+			applySharedState(obj, so)
 		}
 	}
 }
@@ -286,36 +287,25 @@ func (b *BaseTask) GetCachedObject(url string) *model.DownloadObject {
 }
 
 // RememberRuntimeObject upserts an object into the runtime list and updates knownURLs.
-// Caller must NOT hold b.mu; this method acquires the lock internally.
-func (b *BaseTask) RememberRuntimeObject(obj *model.DownloadObject) {
+func (b *BaseTask) RememberRuntimeObject(obj *model.DownloadObject, lock bool) {
 	if obj == nil {
 		return
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	if lock {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+	}
 	b.objects = upsertRuntimeObject(b.objects, obj)
 	b.knownURLs = rememberRuntimeURLs(b.objects)
 }
 
 // SnapshotRuntimeObjects returns a copy of all runtime objects.
-// Caller must NOT hold b.mu; this method acquires the lock internally.
-func (b *BaseTask) SnapshotRuntimeObjects() []*model.DownloadObject {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *BaseTask) SnapshotRuntimeObjects(lock bool) []*model.DownloadObject {
+	if lock {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+	}
 	return append([]*model.DownloadObject(nil), b.objects...)
-}
-
-// SnapshotRuntimeObjectsLocked returns a copy of all runtime objects.
-// Caller MUST hold b.mu; this method does NOT acquire the lock.
-func (b *BaseTask) SnapshotRuntimeObjectsLocked() []*model.DownloadObject {
-	return append([]*model.DownloadObject(nil), b.objects...)
-}
-
-// UpsertRuntimeObjectLocked upserts an object into the runtime list and updates knownURLs.
-// Caller MUST hold b.mu.
-func (b *BaseTask) UpsertRuntimeObjectLocked(obj *model.DownloadObject) {
-	b.objects = upsertRuntimeObject(b.objects, obj)
-	b.knownURLs = rememberRuntimeURLs(b.objects)
 }
 
 // KnownURLs returns the set of known URLs (under lock).
@@ -329,15 +319,8 @@ func (b *BaseTask) KnownURLs() map[string]bool {
 
 // StorageExistenceMap checks which of the given URLs already exist in storage or runtime.
 // Returns a map[url]true for URLs that already exist.
-func (b *BaseTask) StorageExistenceMap(urls []string) map[string]bool {
-	runtimeObjects := b.SnapshotRuntimeObjects()
-	return storageExistenceMap(b.store, runtimeObjects, urls)
-}
-
-// StorageExistenceMapLocked checks which of the given URLs already exist in storage or runtime.
-// Caller MUST hold b.mu; this method does NOT acquire the lock.
-func (b *BaseTask) StorageExistenceMapLocked(urls []string) map[string]bool {
-	runtimeObjects := b.SnapshotRuntimeObjectsLocked()
+func (b *BaseTask) StorageExistenceMap(urls []string, lock bool) map[string]bool {
+	runtimeObjects := b.SnapshotRuntimeObjects(lock)
 	return storageExistenceMap(b.store, runtimeObjects, urls)
 }
 
@@ -350,12 +333,194 @@ func (b *BaseTask) PersistTaskObject(obj *model.DownloadObject) {
 // and resets them to pending if found.
 func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
 	if obj.Status == dlcore.StatusDownloading {
-		slog.Warn("Found zombie downloading state, resetting to pending", "task_id", b.id, "url", obj.URL)
+		b.logger.Warn("Found zombie downloading state, resetting to pending", "url", obj.URL)
 		obj.Status = dlcore.StatusPending
 		if b.store != nil {
 			if err := b.store.Update(obj); err != nil {
-				slog.Error("Failed to reset zombie state", "task_id", b.id, "error", err)
+				b.logger.Error("Failed to reset zombie state", "error", err)
 			}
 		}
 	}
+}
+
+// --- Initialization lifecycle ---
+
+// TryBeginInit attempts to enter the initialization state.
+// Returns true if the current goroutine is the first to trigger initialization.
+// Equivalent to initialized.CompareAndSwap(0, -1).
+func (b *BaseTask) TryBeginInit() bool {
+	return b.initialized.CompareAndSwap(0, -1)
+}
+
+// IsInitialized returns whether initialization has completed.
+func (b *BaseTask) IsInitialized() bool {
+	return b.initialized.Load() == 1
+}
+
+// MarkInitialized marks initialization as complete.
+// Typically called via defer in the scrapeAllPages function.
+func (b *BaseTask) MarkInitialized() {
+	b.initialized.Store(1)
+}
+
+// --- Path resolution ---
+
+// ResolvePath resolves save paths using the configured path strategy.
+// Encapsulates pathStrategy.Resolve(b.SaveDir(), b.ID(), title, fileType).
+func (b *BaseTask) ResolvePath(title, fileType string) (videoPath, imagePath string) {
+	return b.pathStrategy.Resolve(b.SaveDir(), b.ID(), title, fileType)
+}
+
+// --- Object persistence update ---
+
+// FlushObject persists an updated object to both store and shared registry.
+// Use this for updating existing objects (e.g. after resolve), as opposed to
+// PersistTaskObject which is for newly created objects.
+func (b *BaseTask) FlushObject(obj *model.DownloadObject) {
+	if b.store != nil {
+		_ = b.store.Update(obj)
+	}
+	if b.shared != nil {
+		_ = b.shared.Update(obj)
+	}
+}
+
+// --- Pager refresh ---
+
+// RefreshPager delegates to the pager's RefreshLatest method.
+// Returns new items discovered during the refresh.
+// If no pager is configured, returns nil, nil.
+func (b *BaseTask) RefreshPager() ([]any, error) {
+	if b.pager == nil {
+		return nil, nil
+	}
+	return b.pager.RefreshLatest()
+}
+
+// --- Lock delegation ---
+
+// WithLock executes fn while holding the mutex.
+// Provides safe lock proxy for sub-packages that cannot access mu directly.
+func (b *BaseTask) WithLock(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	fn()
+}
+
+// WithObjectsLock executes fn while holding the mutex, passing the runtime objects list.
+// Replaces the pattern of manually locking mu and iterating t.objects.
+func (b *BaseTask) WithObjectsLock(fn func([]*model.DownloadObject)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	fn(b.objects)
+}
+
+// RuntimeObjectCount returns the number of runtime objects.
+// Not thread-safe; intended for logging and diagnostics.
+func (b *BaseTask) RuntimeObjectCount() int {
+	return len(b.objects)
+}
+
+// --- Convenience methods for sub-package migration ---
+
+// --- Convenience methods for sub-package migration ---
+// Used by tasks that need direct download access (e.g. tktube prefetch).
+func (b *BaseTask) Downloader() core.Downloader {
+	return b.dl
+}
+
+// GetSharedObject retrieves an object from the shared registry by URL.
+// Returns nil if the object is not found or the registry is not set.
+func (b *BaseTask) GetSharedObject(url string) *model.DownloadObject {
+	if b.shared == nil {
+		return nil
+	}
+	if so, err := b.shared.Get(url); err == nil && so != nil {
+		return so
+	}
+	return nil
+}
+
+// SyncSharedToObject copies the shared registry state into obj.
+// Used by tasks that need to refresh an object from the shared registry.
+func (b *BaseTask) SyncSharedToObject(obj *model.DownloadObject) {
+	if b.shared == nil || obj == nil {
+		return
+	}
+	if so, err := b.shared.Get(obj.URL); err == nil && so != nil {
+		applySharedState(obj, so)
+	}
+}
+
+func (b *BaseTask) syncSharedToObjectLocked(obj *model.DownloadObject) {
+	if b.shared == nil || obj == nil {
+		return
+	}
+	if so, err := b.shared.Get(obj.URL); err == nil && so != nil {
+		applySharedState(obj, so)
+	}
+}
+
+func applySharedState(dst, src *model.DownloadObject) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Status = src.Status
+	dst.Progress = src.Progress
+	if src.Metadata != nil {
+		if dst.Metadata == nil {
+			dst.Metadata = make(map[string]string, len(src.Metadata))
+		}
+		maps.Copy(dst.Metadata, src.Metadata)
+	}
+	if src.Extra != nil {
+		if dst.Extra == nil {
+			dst.Extra = make(map[string]any, len(src.Extra))
+		}
+		maps.Copy(dst.Extra, src.Extra)
+	}
+}
+
+// CountObjects returns the count of objects matching the given statuses from storage.
+func (b *BaseTask) CountObjects(statuses []string) (int64, error) {
+	if b.store == nil {
+		return 0, nil
+	}
+	return b.store.Count(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs:  []string{b.ID()},
+			Statuses: statuses,
+		},
+	})
+}
+
+// MoveObject moves an object identified by url to a new index in the runtime list.
+func (b *BaseTask) MoveObject(url string, newIndex int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	currentIndex := -1
+	for i, obj := range b.objects {
+		if obj.URL == url {
+			currentIndex = i
+			break
+		}
+	}
+	if currentIndex == -1 {
+		return fmt.Errorf("object not found")
+	}
+	if newIndex < 0 {
+		newIndex = 0
+	}
+	if newIndex >= len(b.objects) {
+		newIndex = len(b.objects) - 1
+	}
+	if currentIndex == newIndex {
+		return nil
+	}
+
+	obj := b.objects[currentIndex]
+	b.objects = append(b.objects[:currentIndex], b.objects[currentIndex+1:]...)
+	b.objects = append(b.objects[:newIndex], append([]*model.DownloadObject{obj}, b.objects[newIndex:]...)...)
+	return nil
 }

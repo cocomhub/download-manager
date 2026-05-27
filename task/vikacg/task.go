@@ -1,13 +1,12 @@
 // Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package task
+package vikacg
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -20,22 +19,31 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/task"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-type VikacgTask struct {
-	BaseTask
-	userID    int
-	pageCount int
+const TaskType = "vikacg"
+
+func init() {
+	task.Register(TaskType, func(cfg *config.Task, opts task.Options) (core.Task, error) {
+		return NewTask(cfg, opts)
+	})
+}
+
+type Task struct {
+	*task.BaseTask
+	userID    int64
+	pageCount int64
 	authToken string
 	cookie    string
 	userAgent string
 }
 
-var _ core.Task = &VikacgTask{}
+var _ core.Task = &Task{}
 
-func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
+func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	extra := cfg.Extra
 	var urls []string
 	if extra != nil {
@@ -53,67 +61,68 @@ func NewVikacgTask(cfg config.Task, store core.Storage) (*VikacgTask, error) {
 		}
 	}
 
-	t := &VikacgTask{
-		BaseTask:  NewBaseTask(cfg.ID, cfg.SaveDir, store),
-		userID:    configutil.GetInt(extra, "user_id", 0),
-		pageCount: configutil.GetInt(extra, "page_count", 24),
+	bt, err := task.NewBaseTask(cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	t := &Task{
+		BaseTask:  bt,
+		userID:    configutil.GetInt64(extra, "user_id", 0),
+		pageCount: configutil.GetInt64(extra, "page_count", 24),
 		authToken: configutil.GetString(extra, "auth_token", ""),
 		cookie:    configutil.GetString(extra, "cookie", ""),
 		userAgent: configutil.GetString(extra, "user_agent", downloader.DefaultUserAgent),
 	}
-	t.concurrency = configutil.GetInt(extra, "max_concurrent", 2)
-	t.refreshInt = configutil.GetInt(extra, "refresh_interval", 3600)
 
 	for _, u := range urls {
 		cached := t.GetCachedObject(u)
 		if cached != nil {
-			cached.TaskID = t.id
+			cached.TaskID = t.ID()
 			t.sanitizeCachedContentHTML(cached)
-			t.RememberRuntimeObject(cached)
+			t.RememberRuntimeObject(cached, true)
 			continue
 		}
 		obj, err := t.scrapeAndBuild(u)
 		if err != nil {
-			slog.Warn("vikacg parse failed", "task_id", cfg.ID, "url", u, "error", err)
+			t.Logger().Warn("vikacg parse failed", "url", u, "error", err)
 			continue
 		}
 		t.PersistTaskObject(obj)
-		t.RememberRuntimeObject(obj)
+		t.RememberRuntimeObject(obj, true)
 	}
 
 	if t.userID > 0 {
-		t.refresher = NewCommonRefresher(t.refreshInt)
-		t.refresher.Start(t.refreshLatestUserPosts)
+		t.SetRefreshFunc(t.refreshLatestUserPosts)
 	}
 	return t, nil
 }
 
-func (t *VikacgTask) Type() string {
-	return TypeVikacg
+func (t *Task) Type() string {
+	return TaskType
 }
 
-func (t *VikacgTask) GetDownloadHeaders() map[string]string {
+func (t *Task) GetDownloadHeaders() map[string]string {
 	return map[string]string{
 		"Cookie":     t.cookie,
 		"User-Agent": t.userAgent,
 	}
 }
 
-func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
+func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	if t.userID > 0 {
-		if t.initialized.CompareAndSwap(0, -1) {
+		if t.TryBeginInit() {
 			go t.scrapeUserAllPages()
 			return []*model.DownloadObject{}, nil
 		}
-		if t.initialized.Load() != 1 {
+		if !t.IsInitialized() {
 			return []*model.DownloadObject{}, nil
 		}
 	}
-	objects := t.SnapshotRuntimeObjects()
-	if t.store != nil {
-		if stored, err := t.store.Search(&core.StorageQuery{
+	objects := t.SnapshotRuntimeObjects(true)
+	if t.Storage() != nil {
+		if stored, err := t.Storage().Search(&core.StorageQuery{
 			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.id},
+				TaskIDs:  []string{t.ID()},
 				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
 			},
 			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
@@ -121,17 +130,13 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		}); err == nil {
 			objects = stored
 			for _, obj := range stored {
-				t.RememberRuntimeObject(obj)
+				t.RememberRuntimeObject(obj, true)
 			}
 		}
 	}
 	pending := make([]*model.DownloadObject, 0)
 	for _, o := range objects {
-		if t.shared != nil {
-			if so, err := t.shared.Get(o.URL); err == nil && so != nil {
-				*o = *so
-			}
-		}
+		t.SyncSharedToObject(o)
 		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
@@ -142,7 +147,7 @@ func (t *VikacgTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return pending, nil
 }
 
-func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
+func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 	html, err := downloader.ScraperNative(pageURL, t.cookie)
 	if err != nil {
 		return nil, err
@@ -227,7 +232,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 	if contentText == "" {
 		contentText = desc
 	}
-	savePath := filepath.Join(t.saveDir, sanitize(title))
+	savePath := filepath.Join(t.SaveDir(), sanitize(title))
 	files := make([]map[string]string, 0, len(images))
 	for i, img := range images {
 		ext := path.Ext(img)
@@ -247,7 +252,7 @@ func (t *VikacgTask) scrapeAndBuild(pageURL string) (*model.DownloadObject, erro
 		tagAny[i] = tags[i]
 	}
 	obj := &model.DownloadObject{
-		TaskID:   t.id,
+		TaskID:   t.ID(),
 		URL:      pageURL,
 		SavePath: savePath,
 		Metadata: map[string]string{
@@ -278,7 +283,7 @@ func sanitize(s string) string {
 	return s
 }
 
-func (t *VikacgTask) sanitizeCachedContentHTML(obj *model.DownloadObject) {
+func (t *Task) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 	if obj == nil || obj.Extra == nil {
 		return
 	}
@@ -345,7 +350,7 @@ func (t *VikacgTask) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 	}
 }
 
-// 去除常见站点后缀，保留纯标题
+// stripSiteSuffix 去除常见站点后缀，保留纯标题
 func stripSiteSuffix(title string) string {
 	t := strings.TrimSpace(title)
 	suffixes := []string{
@@ -365,7 +370,7 @@ func stripSiteSuffix(title string) string {
 	return t
 }
 
-// 简单去重，保持顺序
+// dedupe 简单去重，保持顺序
 func dedupe(items []string) []string {
 	seen := make(map[string]struct{}, len(items))
 	out := make([]string, 0, len(items))
@@ -398,7 +403,7 @@ type getPostsResp struct {
 	} `json:"data"`
 }
 
-func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
+func (t *Task) getPostsPage(page int) ([]vikPost, error) {
 	body := map[string]any{
 		"order":      "updated_at",
 		"sort":       "desc",
@@ -433,7 +438,7 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 		req.Header.Set("User-Agent", t.userAgent)
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	slog.Debug("vikacg getPosts request", "task_id", t.id, "page", page, "url", url)
+	t.Logger().Debug("vikacg getPosts request", "page", page, "url", url)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -446,54 +451,54 @@ func (t *VikacgTask) getPostsPage(page int) ([]vikPost, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	slog.Info("vikacg getPosts response", "task_id", t.id, "page", page, "url", url, "posts", len(out.Data.List))
+	t.Logger().Info("vikacg getPosts response", "page", page, "url", url, "posts", len(out.Data.List))
 	return out.Data.List, nil
 }
 
-func (t *VikacgTask) scrapeUserAllPages() {
-	defer t.initialized.Store(1)
+func (t *Task) scrapeUserAllPages() {
+	defer t.MarkInitialized()
 	page := 1
 	for {
 		posts, err := t.getPostsPage(page)
 		if err != nil {
-			slog.Error("vikacg getPosts failed", "task_id", t.id, "page", page, "error", err)
+			t.Logger().Error("vikacg getPosts failed", "page", page, "error", err)
 			break
 		}
 		if len(posts) == 0 {
 			break
 		}
 		newObjs := make([]*model.DownloadObject, 0, len(posts))
-		existing := t.StorageExistenceMap(vikPostURLs(posts))
+		existing := t.StorageExistenceMap(vikPostURLs(posts), true)
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
 			if existing[u] {
 				continue
 			}
 			if cached := t.GetCachedObject(u); cached != nil {
-				cached.TaskID = t.id
+				cached.TaskID = t.ID()
 				t.sanitizeCachedContentHTML(cached)
 				newObjs = append(newObjs, cached)
 			} else {
 				obj, err := t.scrapeAndBuild(u)
 				if err != nil {
-					slog.Warn("vikacg page parse failed", "task_id", t.id, "url", u, "error", err)
+					t.Logger().Warn("vikacg page parse failed", "url", u, "error", err)
 					continue
 				}
 				newObjs = append(newObjs, obj)
 			}
 			t.PersistTaskObject(newObjs[len(newObjs)-1])
-			t.RememberRuntimeObject(newObjs[len(newObjs)-1])
+			t.RememberRuntimeObject(newObjs[len(newObjs)-1], true)
 		}
 		page++
 	}
-	slog.Info("vikacg init done", "task_id", t.id, "total_objects", len(t.GetAllObjects()))
+	t.Logger().Info("vikacg init done", "total_objects", len(t.GetAllObjects(true)))
 }
 
-func (t *VikacgTask) refreshLatestUserPosts() {
+func (t *Task) refreshLatestUserPosts() {
 	if t.userID <= 0 {
 		return
 	}
-	if t.initialized.Load() != 1 {
+	if !t.IsInitialized() {
 		return
 	}
 	page := 1
@@ -502,13 +507,13 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 	for !known {
 		posts, err := t.getPostsPage(page)
 		if err != nil {
-			slog.Error("vikacg refresh failed", "task_id", t.id, "page", page, "error", err)
+			t.Logger().Error("vikacg refresh failed", "page", page, "error", err)
 			break
 		}
 		if len(posts) == 0 {
 			break
 		}
-		existing := t.StorageExistenceMap(vikPostURLs(posts))
+		existing := t.StorageExistenceMap(vikPostURLs(posts), true)
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
 			if existing[u] {
@@ -516,26 +521,26 @@ func (t *VikacgTask) refreshLatestUserPosts() {
 				continue
 			}
 			if cached := t.GetCachedObject(u); cached != nil {
-				cached.TaskID = t.id
+				cached.TaskID = t.ID()
 				t.sanitizeCachedContentHTML(cached)
 				pageObjs = append(pageObjs, cached)
 			} else {
 				obj, err := t.scrapeAndBuild(u)
 				if err != nil {
-					slog.Warn("vikacg page parse failed", "task_id", t.id, "url", u, "error", err)
+					t.Logger().Warn("vikacg page parse failed", "url", u, "error", err)
 					continue
 				}
 				pageObjs = append(pageObjs, obj)
 			}
 			t.PersistTaskObject(pageObjs[len(pageObjs)-1])
-			t.RememberRuntimeObject(pageObjs[len(pageObjs)-1])
+			t.RememberRuntimeObject(pageObjs[len(pageObjs)-1], true)
 		}
 		page++
 	}
 	if len(pageObjs) > 0 {
-		slog.Info("vikacg refresh finished", "task_id", t.id, "new_items", len(pageObjs))
+		t.Logger().Info("vikacg refresh finished", "new_items", len(pageObjs))
 	} else {
-		slog.Info("vikacg refresh no new", "task_id", t.id)
+		t.Logger().Info("vikacg refresh no new")
 	}
 }
 
