@@ -25,7 +25,13 @@ func cloneDownloadObject(obj *model.DownloadObject) *model.DownloadObject {
 	if obj == nil {
 		return nil
 	}
-	cp := *obj
+	cp := &model.DownloadObject{
+		TaskID:   obj.TaskID,
+		URL:      obj.URL,
+		SavePath: obj.SavePath,
+		Status:   obj.GetStatus(),
+		Progress: obj.GetProgress(),
+	}
 	if obj.Metadata != nil {
 		cp.Metadata = make(map[string]string, len(obj.Metadata))
 		maps.Copy(cp.Metadata, obj.Metadata)
@@ -34,7 +40,7 @@ func cloneDownloadObject(obj *model.DownloadObject) *model.DownloadObject {
 		cp.Extra = make(map[string]any, len(obj.Extra))
 		maps.Copy(cp.Extra, obj.Extra)
 	}
-	return &cp
+	return cp
 }
 
 func (s *snapshotStore) Get(id string) (*model.DownloadObject, error) {

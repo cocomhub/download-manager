@@ -119,7 +119,7 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]
 				}
 			}
 			// Ensure 100% at the end
-			obj.Progress = 100
+			obj.SetProgress(100)
 			return nil
 		}
 	}
@@ -231,7 +231,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 			matches := reProgress.FindStringSubmatch(line)
 			if len(matches) > 1 {
 				if p, err := strconv.Atoi(matches[1]); err == nil {
-					progressObj.Progress = p
+					progressObj.SetProgress(p)
 				}
 			}
 		}

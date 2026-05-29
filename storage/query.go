@@ -55,7 +55,7 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if len(filter.URLs) > 0 && !containsString(filter.URLs, obj.URL) {
 		return false
 	}
-	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.Status) {
+	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
 	if len(filter.Metadata) > 0 {
@@ -204,5 +204,5 @@ func objectStatus(obj *model.DownloadObject) string {
 	if obj == nil {
 		return ""
 	}
-	return obj.Status
+	return obj.GetStatus()
 }

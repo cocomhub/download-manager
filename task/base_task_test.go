@@ -43,15 +43,14 @@ func TestBaseTask_ResetZombieState_OnlyResetsDownloading(t *testing.T) {
 			Extra:  map[string]any{},
 		}
 
-		seed := *obj
-		if err := bt.Storage().Update(&seed); err != nil {
+		if err := bt.Storage().Update(obj); err != nil {
 			t.Fatalf("seed storage err: %v", err)
 		}
 
 		bt.ResetZombieState(obj)
 
-		if obj.Status != tc.want {
-			t.Fatalf("status=%s: expected obj status %s, got %s", tc.status, tc.want, obj.Status)
+		if obj.GetStatus() != tc.want {
+			t.Fatalf("status=%s: expected obj status %s, got %s", tc.status, tc.want, obj.GetStatus())
 		}
 
 		stored, err := bt.Storage().Get(url)
@@ -61,7 +60,7 @@ func TestBaseTask_ResetZombieState_OnlyResetsDownloading(t *testing.T) {
 		if stored == nil {
 			t.Fatalf("expected stored obj")
 		}
-		if stored.Status != tc.want {
+		if stored.GetStatus() != tc.want {
 			t.Fatalf("status=%s: expected stored status %s, got %s", tc.status, tc.want, stored.Status)
 		}
 	}

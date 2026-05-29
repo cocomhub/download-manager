@@ -18,7 +18,7 @@ func (m *Manager) loadTasks() {
 		if tCfg.Extra == nil {
 			tCfg.Extra = make(map[string]any)
 		}
-		t, err := task.NewTask(&tCfg)
+		t, err := task.NewTask(&tCfg, task.WithDriver(m.scrapeDriver))
 		if err != nil {
 			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue

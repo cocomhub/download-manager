@@ -16,6 +16,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/storage"
 )
 
@@ -36,19 +37,16 @@ type BaseTask struct {
 	dl           core.Downloader
 	shared       core.SharedRegistry
 	mu           sync.Mutex
-	refresherFn  func()
-	refresher    *CommonRefresher
-	pager        *CommonPager
 	pathStrategy core.PathStrategy
 	headers      map[string]string
+	scrapeDriver *scrape.Driver
 
 	// Common runtime state
-	objects        []*model.DownloadObject
-	knownURLs      map[string]bool
-	markAsFailed   sync.Map
-	concurrency    atomic.Int64
-	refreshInt     atomic.Int64
-	scrapeMaxPages int // 0 means unlimited
+	objects      []*model.DownloadObject
+	knownURLs    map[string]bool
+	markAsFailed sync.Map
+	concurrency  atomic.Int64
+	refreshInt   atomic.Int64
 }
 
 func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {
@@ -72,6 +70,7 @@ func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {
 
 	psMode := configutil.GetString(cfg.Extra, "path_strategy", "first_fixed")
 	t.pathStrategy = NewPathStrategy(psMode, cfg.SaveDir)
+	t.scrapeDriver = opts.driver
 	return t, nil
 }
 
@@ -98,16 +97,12 @@ func (b *BaseTask) Type() string {
 	return "base"
 }
 
-// Start 开始任务
+// Start starts the task. No-op for BaseTask since scrape is driven by Manager.
 func (b *BaseTask) Start() error {
-	if b.refresher == nil && b.refresherFn != nil {
-		b.refresher = NewCommonRefresher(b.RefreshInterval())
-		b.refresher.Start(b.refresherFn)
-	}
 	return nil
 }
 
-// Close flushes the storage (if supported) and stops the refresher (if running).
+// Close flushes the storage (if supported).
 func (b *BaseTask) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -119,9 +114,6 @@ func (b *BaseTask) Close() error {
 			}
 		}
 	}
-	if b.refresher != nil {
-		b.refresher.Stop()
-	}
 	return nil
 }
 
@@ -130,7 +122,7 @@ func (b *BaseTask) Close() error {
 func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	obj.Status = status
+	obj.SetStatus(status)
 
 	if err != nil {
 		b.logger.Error("Object failed", "url", obj.URL, "error", err)
@@ -168,18 +160,6 @@ func (b *BaseTask) SetPathStrategy(ps core.PathStrategy) {
 	if b.pathStrategy == nil && ps != nil {
 		b.pathStrategy = ps
 	}
-}
-
-// SetPager sets the common pager. Only takes effect if not already set.
-func (b *BaseTask) SetPager(p *CommonPager) {
-	if b.pager == nil && p != nil {
-		b.pager = p
-	}
-}
-
-// SetRefreshFunc sets the refresh func.
-func (b *BaseTask) SetRefreshFunc(fn func()) {
-	b.refresherFn = fn
 }
 
 // SetHeaders sets the custom download headers.
@@ -232,27 +212,31 @@ func (b *BaseTask) RefreshInterval() int {
 	return int(b.refreshInt.Load())
 }
 
-// SetRefreshInterval updates the refresh interval (10..86400) and syncs to refresher.
+// SetRefreshInterval updates the refresh interval (10..86400).
 func (b *BaseTask) SetRefreshInterval(sec int) error {
 	if sec < 10 || sec > 86400 {
 		return fmt.Errorf("refresh interval must be >= 10 and <= 86400")
 	}
 	b.refreshInt.Store(int64(sec))
-	if b.refresher != nil {
-		b.refresher.UpdateInterval(int64(sec))
-	}
 	return nil
 }
 
-// MarkAsFailed records an object as permanently failed for this task.
+// MarkAsFailed records an object as permanently failed by updating its status
+// to failed_permanent in storage and shared registry.
 func (b *BaseTask) MarkAsFailed(obj *model.DownloadObject, err error) {
-	b.markAsFailed.Store(obj.URL, err)
+	b.UpdateStatus(obj, dlcore.StatusFailedPermanent, err)
 }
 
-// IsMarkedFailed checks if an object has been marked as failed.
+// IsMarkedFailed checks if an object has been marked as permanently failed
+// by querying storage. Returns true if status is failed_permanent.
 func (b *BaseTask) IsMarkedFailed(url string) bool {
-	_, ok := b.markAsFailed.Load(url)
-	return ok
+	if b.store != nil {
+		obj, err := b.store.Get(url)
+		if err == nil && obj != nil && obj.GetStatus() == dlcore.StatusFailedPermanent {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckAndRestoreStatus tries to restore an object's state from shared registry
@@ -376,9 +360,9 @@ func (b *BaseTask) PersistTaskObject(obj *model.DownloadObject) {
 // ResetZombieState checks for zombie downloading states in the given object
 // and resets them to pending if found.
 func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
-	if obj.Status == dlcore.StatusDownloading {
+	if obj.GetStatus() == dlcore.StatusDownloading {
 		b.logger.Warn("Found zombie downloading state, resetting to pending", "url", obj.URL)
-		obj.Status = dlcore.StatusPending
+		obj.SetStatus(dlcore.StatusPending)
 		if b.store != nil {
 			if err := b.store.Update(obj); err != nil {
 				b.logger.Error("Failed to reset zombie state", "error", err)
@@ -387,45 +371,33 @@ func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
 	}
 }
 
-// Scrape implements core.ScrapeCap by delegating to CommonPager.ScrapeAllPages.
-// If maxPages > 0, stops after that many pages; otherwise unlimited.
-// Honors ctx for cancellation.
+// Scrape implements core.ScrapeCap by delegating to scrape.Driver.
 func (b *BaseTask) Scrape(ctx context.Context) error {
-	if b.pager == nil {
+	if b.scrapeDriver == nil {
 		return nil
 	}
-	b.pager.ScrapeAllPages(ctx, b.scrapeMaxPages)
+	hooks := b.buildScrapeHooks()
+	opts := scrape.Options{
+		MaxRetries:     3,
+		MaxEmptyPages:  3,
+		MaxTailRefresh: 5,
+	}
+	result := b.scrapeDriver.Scrape(ctx, b.ID(), hooks, opts)
+	if !result.AllSucceeded && result.LastFailedPage > 0 {
+		b.logger.Warn("Scrape incomplete", "failed_page", result.LastFailedPage, "total_pages", result.DetectedPages)
+	}
+	for _, item := range result.Items {
+		if obj, ok := item.(*model.DownloadObject); ok {
+			b.RememberRuntimeObject(obj, true)
+		}
+	}
 	return nil
 }
 
-// SetScrapeMaxPages sets a page limit for Scrape(). 0 means unlimited.
-func (b *BaseTask) SetScrapeMaxPages(n int) {
-	b.scrapeMaxPages = n
-}
-
-// DefaultRefreshLatest is the default refresh function for tasks with a pager.
-// It calls RefreshPager and remembers new objects.
-func (b *BaseTask) DefaultRefreshLatest() {
-	if !b.HasPager() {
-		return
-	}
-	newAny, err := b.RefreshPager()
-	if err != nil {
-		b.logger.Error("Refresh failed", "error", err)
-		return
-	}
-	if len(newAny) == 0 {
-		return
-	}
-	for i := range newAny {
-		b.RememberRuntimeObject(newAny[i].(*model.DownloadObject), true)
-	}
-	b.logger.Info("Refresh finished", "new_items", len(newAny))
-}
-
-// HasPager returns whether a CommonPager is configured.
-func (b *BaseTask) HasPager() bool {
-	return b.pager != nil
+// buildScrapeHooks returns scrape.PageHooks from the embedding task.
+// Override in embedding task; default returns empty hooks.
+func (b *BaseTask) buildScrapeHooks() scrape.PageHooks {
+	return scrape.PageHooks{}
 }
 
 // LoadPendingFromStorage queries storage for pending and failed objects,
@@ -471,18 +443,6 @@ func (b *BaseTask) FlushObject(obj *model.DownloadObject) {
 	if b.shared != nil {
 		_ = b.shared.Update(obj)
 	}
-}
-
-// --- Pager refresh ---
-
-// RefreshPager delegates to the pager's RefreshLatest method.
-// Returns new items discovered during the refresh.
-// If no pager is configured, returns nil, nil.
-func (b *BaseTask) RefreshPager() ([]any, error) {
-	if b.pager == nil {
-		return nil, nil
-	}
-	return b.pager.RefreshLatest()
 }
 
 // --- Lock delegation ---
@@ -553,8 +513,8 @@ func applySharedState(dst, src *model.DownloadObject) {
 	if dst == nil || src == nil {
 		return
 	}
-	dst.Status = src.Status
-	dst.Progress = src.Progress
+	dst.SetStatus(src.GetStatus())
+	dst.SetProgress(src.GetProgress())
 	if src.Metadata != nil {
 		if dst.Metadata == nil {
 			dst.Metadata = make(map[string]string, len(src.Metadata))

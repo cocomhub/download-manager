@@ -22,6 +22,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
 	"github.com/cocomhub/download-manager/task/tktube"
@@ -40,7 +41,6 @@ type Manager struct {
 	stopChan       chan struct{}
 	workerStop     chan struct{}
 	workerCount    int
-	taskLocks      sync.Map
 	lastBackupName string
 	taskQueues     sync.Map
 	schedulerStop  chan struct{}
@@ -68,15 +68,18 @@ type Manager struct {
 	// Global shared URL state registry
 	urlRegistry *URLStateRegistry
 
-	schedulerEnabled bool
-	workersEnabled   bool
+	// Scrape driver for full/incremental scan management
+	scrapeDriver *scrape.Driver
+
+	schedulerEnabled atomic.Bool
+	workersEnabled   atomic.Bool
 	scanRunning      atomic.Bool
 }
 
 type taskMetrics struct {
-	avgLatencyMs float64
-	failures     int
-	completed    int
+	avgLatencyMs atomic.Int64
+	failures     atomic.Int64
+	completed    atomic.Int64
 }
 
 type RuntimeFeatures struct {
@@ -105,13 +108,15 @@ func NewManager(cfg *config.Config) *Manager {
 		cfg:             cfg,
 		downloader:      downloader.New(cfg.Downloader),
 		stopChan:        make(chan struct{}),
-		workerStop:      make(chan struct{}),
+		workerStop:      make(chan struct{}, 256),
 		activeDownloads: make(map[string]int),
 		downloadQueue:   make(chan *downloadRequest, max(globalLimit*2, 10)), // Buffer size
 		subscribers:     make(map[<-chan core.Event]chan core.Event),
 		urlRegistry:     NewURLStateRegistry(),
 	}
 	mgr.cfgVal.Store(cfg)
+	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
+	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())
 	if nd, ok := mgr.downloader.(*downloader.NativeHTTPDownloader); ok {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
@@ -119,7 +124,7 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 func (m *Manager) FeaturesStatus() RuntimeFeatures {
-	return RuntimeFeatures{Scheduler: m.schedulerEnabled, Workers: m.workersEnabled}
+	return RuntimeFeatures{Scheduler: m.schedulerEnabled.Load(), Workers: m.workersEnabled.Load()}
 }
 
 func (m *Manager) GetDownloadRootDir() string {
@@ -275,11 +280,11 @@ func (m *Manager) Start() {
 	slog.Info("Manager started")
 	cfg := m.currentCfg()
 	slog.Info("runtime mode", "mode", cfg.Runtime.Mode, "download", cfg.Runtime.Download.Enabled, "scheduler", cfg.Runtime.Scheduler.Enabled)
-	m.workersEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled
-	m.schedulerEnabled = cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
-	slog.Info("disabled components", "scheduler", !m.schedulerEnabled, "workers", !m.workersEnabled)
+	m.workersEnabled.Store(cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled)
+	m.schedulerEnabled.Store(cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled)
+	slog.Info("disabled components", "scheduler", !m.schedulerEnabled.Load(), "workers", !m.workersEnabled.Load())
 	m.loadTasks()
-	if m.workersEnabled {
+	if m.workersEnabled.Load() {
 		limit := m.cfg.Downloader.GlobalConcurrent
 		if limit <= 0 {
 			limit = 5
@@ -291,7 +296,7 @@ func (m *Manager) Start() {
 		}
 		m.workerCount = limit
 	}
-	if m.schedulerEnabled {
+	if m.schedulerEnabled.Load() {
 		m.schedulerStop = make(chan struct{})
 		go m.scheduler()
 	}
@@ -335,7 +340,7 @@ func (m *Manager) Stop() {
 
 func (m *Manager) scan() {
 	// slog.Debug("Scanning tasks")
-	if !m.workersEnabled {
+	if !m.workersEnabled.Load() {
 		return
 	}
 
@@ -501,11 +506,11 @@ func (m *Manager) scheduler() {
 					w += max(0, len(m.getTaskQueue(id))/8)
 					if v, ok := m.metrics.Load(id); ok {
 						mt := v.(*taskMetrics)
-						if mt.avgLatencyMs > 5000 {
+						if mt.avgLatencyMs.Load() > 5000 {
 							w -= 1
 						}
-						if mt.failures > 0 {
-							w -= min(mt.failures, 2)
+						if mt.failures.Load() > 0 {
+							w -= int(min(mt.failures.Load(), int64(2)))
 						}
 						if w < 1 {
 							w = 1
@@ -532,6 +537,7 @@ func (m *Manager) scheduler() {
 					expanded = append(expanded, id)
 				}
 			}
+		outerLoop:
 			for _, id := range expanded {
 				q := m.getTaskQueue(id)
 				select {
@@ -540,14 +546,12 @@ func (m *Manager) scheduler() {
 					case m.downloadQueue <- req:
 					default:
 						// global queue full, put back
-						go func(r *downloadRequest, tq chan *downloadRequest) {
-							select {
-							case tq <- r:
-							default:
-							}
-						}(req, q)
-						// break early to avoid tight loop
-						break
+						select {
+						case q <- req:
+						default:
+							// task queue also full, drop -- next scan() will re-enqueue
+						}
+						break outerLoop
 					}
 				default:
 				}
@@ -562,10 +566,10 @@ func (m *Manager) broadcastProgress() {
 
 		// Check if progress has changed
 		last, loaded := m.lastProgress.LoadOrStore(obj.URL, -1)
-		if !loaded || last.(int) != obj.Progress {
+		if !loaded || last.(int) != obj.GetProgress() {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-			m.lastProgress.Store(obj.URL, obj.Progress)
+			m.lastProgress.Store(obj.URL, obj.GetProgress())
 		}
 		return true
 	})
@@ -602,8 +606,8 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 	summary["backlog"] = len(q)
 	if v, ok := m.metrics.Load(taskID); ok {
 		mt := v.(*taskMetrics)
-		summary["avg_latency_ms"] = mt.avgLatencyMs
-		summary["failures"] = mt.failures
+		summary["avg_latency_ms"] = mt.avgLatencyMs.Load()
+		summary["failures"] = mt.failures.Load()
 	}
 
 	m.publish(core.Event{Type: core.EventTaskUpdate, Payload: summary})
@@ -641,7 +645,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
-		if obj.Status == dlcore.StatusCancelled {
+		if obj.GetStatus() == dlcore.StatusCancelled {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			return
@@ -660,13 +664,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 
 		// Increment failed count
-		if count, ok := m.failedCount.LoadOrStore(obj.URL, 0); ok {
-			m.failedCount.Store(obj.URL, count.(int)+1)
-			// Check if max retries reached
-			if count.(int)+1 >= 5 {
-				if ft, ok := t.(core.FailedTask); ok {
-					ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
-				}
+		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
+		c := v.(*atomic.Int64).Add(1)
+		// Check if max retries reached
+		if c >= 5 {
+			if ft, ok := t.(core.FailedTask); ok {
+				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
 		}
 	} else {
@@ -675,12 +678,18 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		m.applyGroupPriorityPolicies(t, obj)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
 			mt := v.(*taskMetrics)
-			mt.completed++
+			mt.completed.Add(1)
 			elapsed := time.Since(start).Seconds() * 1000
-			if mt.avgLatencyMs == 0 {
-				mt.avgLatencyMs = elapsed
+			if mt.avgLatencyMs.Load() == 0 {
+				mt.avgLatencyMs.Store(int64(elapsed))
 			} else {
-				mt.avgLatencyMs = (mt.avgLatencyMs*0.7 + elapsed*0.3)
+				for {
+					old := mt.avgLatencyMs.Load()
+					newVal := int64(float64(old)*0.7 + elapsed*0.3)
+					if mt.avgLatencyMs.CompareAndSwap(old, newVal) {
+						break
+					}
+				}
 			}
 		}
 	}
@@ -713,8 +722,8 @@ func (m *Manager) GetActiveDownloads() []map[string]any {
 			"task_id":  obj.TaskID,
 			"url":      obj.URL,
 			"title":    obj.Metadata["title"],
-			"progress": obj.Progress,
-			"status":   obj.Status, // Should be 'downloading'
+			"progress": obj.GetProgress(),
+			"status":   obj.GetStatus(), // Should be 'downloading'
 			"owners":   m.urlRegistry.Owners(obj.URL),
 		})
 		return true
@@ -971,18 +980,24 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 			}
 		}
 		if rep != nil {
-			// shallow copy to add group_size without mutating original
-			copyObj := *rep
-			if copyObj.Extra == nil {
-				copyObj.Extra = make(map[string]any)
-			} else {
-				// shallow copy map to avoid side effects
-				newExtra := make(map[string]any, len(copyObj.Extra)+1)
-				maps.Copy(newExtra, copyObj.Extra)
-				copyObj.Extra = newExtra
+			// shallow copy Extra/Metadata without copying mu
+			copyObj := &model.DownloadObject{
+				TaskID:   rep.TaskID,
+				URL:      rep.URL,
+				SavePath: rep.SavePath,
+				Status:   rep.GetStatus(),
+				Progress: rep.GetProgress(),
+			}
+			if rep.Metadata != nil {
+				copyObj.Metadata = make(map[string]string, len(rep.Metadata))
+				maps.Copy(copyObj.Metadata, rep.Metadata)
+			}
+			copyObj.Extra = make(map[string]any, len(rep.Extra)+1)
+			if rep.Extra != nil {
+				maps.Copy(copyObj.Extra, rep.Extra)
 			}
 			copyObj.Extra["group_size"] = len(entries)
-			reps = append(reps, &copyObj)
+			reps = append(reps, copyObj)
 		}
 	}
 	total := int64(len(reps))
@@ -1105,7 +1120,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	if t.Type() != tktube.TaskType {
 		return
 	}
-	if obj == nil || obj.Status != dlcore.StatusCompleted {
+	if obj == nil || obj.GetStatus() != dlcore.StatusCompleted {
 		return
 	}
 	taskType := strings.TrimSpace(t.Type())
@@ -1156,7 +1171,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 		score := variantPriorityScore(t, o)
 		cands = append(cands, candidate{o: o, score: score})
 		priorityCounts[score]++
-		if o.Status == dlcore.StatusCompleted {
+		if o.GetStatus() == dlcore.StatusCompleted {
 			if canonical == nil || score > bestScore {
 				canonical = o
 				bestScore = score
@@ -1178,7 +1193,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 			continue
 		}
 		// Auto-cancel only lower-priority pending objects.
-		if cnd.score < bestScore && o.Status == dlcore.StatusPending {
+		if cnd.score < bestScore && o.GetStatus() == dlcore.StatusPending {
 			if o.Extra == nil {
 				o.Extra = make(map[string]any)
 			}
@@ -1238,12 +1253,12 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		return err
 	}
 	if obj != nil {
-		if obj.Status == dlcore.StatusCompleted {
+		if obj.GetStatus() == dlcore.StatusCompleted {
 			return fmt.Errorf("object already completed")
 		}
 		// Reset status
 		t.UpdateStatus(obj, dlcore.StatusPending, nil)
-		obj.Progress = 0
+		obj.SetProgress(0)
 
 		// Resolve details if needed (JIT for forced retry?)
 		if resolver, ok := t.(interface {
@@ -1288,7 +1303,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 
 	objs, err := m.collectTaskObjects(t, &core.StorageQuery{
 		Filter: core.StorageFilter{
-			Statuses: []string{dlcore.StatusFailed},
+			Statuses: []string{dlcore.StatusFailed, dlcore.StatusFailedPermanent},
 		},
 	}, 200)
 	if err != nil {
@@ -1297,7 +1312,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	count := 0
 	for _, obj := range objs {
 		t.UpdateStatus(obj, dlcore.StatusPending, nil)
-		obj.Progress = 0
+		obj.SetProgress(0)
 		count++
 	}
 	if count > 0 {
@@ -1316,7 +1331,7 @@ func (m *Manager) CancelTask(taskID string) error {
 		return err
 	}
 	for _, obj := range objs {
-		if obj.Status == dlcore.StatusCompleted {
+		if obj.GetStatus() == dlcore.StatusCompleted {
 			continue
 		}
 		t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
@@ -1365,7 +1380,7 @@ func (m *Manager) CancelObject(taskID, url string) error {
 	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	if obj.Status == dlcore.StatusCompleted {
+	if obj.GetStatus() == dlcore.StatusCompleted {
 		return fmt.Errorf("object already completed")
 	}
 	t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
@@ -1401,11 +1416,11 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	if obj.Status != dlcore.StatusCancelled {
+	if obj.GetStatus() != dlcore.StatusCancelled {
 		return fmt.Errorf("object status is not cancelled")
 	}
 	t.UpdateStatus(obj, dlcore.StatusPending, nil)
-	obj.Progress = 0
+	obj.SetProgress(0)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 	go m.processTask(t)

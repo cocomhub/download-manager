@@ -57,35 +57,6 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		genre:    genre,
 		cookie:   configutil.GetString(extra, "cookie", ""),
 	}
-	t.SetScrapeMaxPages(int(configutil.GetInt64(extra, "max_init_page", 0)))
-	t.SetPager(task.NewCommonPager(task.PageFuncs{
-		BuildPageURL:    t.buildPageURL,
-		RunScraper:      t.runScraper,
-		ParseHomePage:   func(html string) (any, error) { return t.parseHomePage(html) },
-		ParseTotalPages: t.parseTotalPages,
-		ProcessItems: func(items any) ([]any, bool) {
-			vs, _ := items.([]hanimeItem)
-			existing := t.StorageExistenceMap(hanimeItemURLs(vs), true)
-			var pageNew []*model.DownloadObject
-			allKnown := true
-			for _, v := range vs {
-				if existing[v.href] {
-					t.Logger().Info("hanime item already known", "url", v.href)
-					continue
-				}
-				allKnown = false
-				obj := t.createObjectFromItem(v)
-				t.PersistTaskObject(obj)
-				t.RememberRuntimeObject(obj, true)
-				pageNew = append(pageNew, obj)
-			}
-			out := make([]any, len(pageNew))
-			for i := range pageNew {
-				out[i] = pageNew[i]
-			}
-			return out, allKnown
-		},
-	}))
 	return t, nil
 }
 
@@ -108,7 +79,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
 	for _, obj := range objects {
-		if obj.Status == dlcore.StatusDownloading {
+		if obj.GetStatus() == dlcore.StatusDownloading {
 			activeCount++
 		}
 	}
@@ -116,7 +87,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		if t.IsMarkedFailed(obj.URL) {
 			continue
 		}
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
 			if _, hasFiles := obj.Extra["files"]; hasFiles {
 				candidates = append(candidates, obj)
 			} else {

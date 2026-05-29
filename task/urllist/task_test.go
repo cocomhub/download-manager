@@ -40,7 +40,7 @@ func (r *fakeRegistry) Update(obj *model.DownloadObject) error {
 		SavePath: obj.SavePath,
 		Metadata: obj.Metadata,
 		Extra:    obj.Extra,
-		Status:   obj.Status,
+		Status:   obj.GetStatus(),
 		Progress: obj.Progress,
 	}
 	return nil
@@ -85,16 +85,16 @@ func TestTask_UpdateStatusAndClose(t *testing.T) {
 	if gotS == nil {
 		t.Fatalf("fakeStorage missing object")
 	}
-	if gotS.Status != dlcore.StatusPending {
-		t.Fatalf("fakeStorage status = %s, want %s", gotS.Status, dlcore.StatusPending)
+	if gotS.GetStatus() != dlcore.StatusPending {
+		t.Fatalf("fakeStorage status = %s, want %s", gotS.GetStatus(), dlcore.StatusPending)
 	}
 
 	gotR, _ := fr.Get(obj.URL)
 	if gotR == nil {
 		t.Fatalf("fakeRegistry missing object")
 	}
-	if gotR.Status != dlcore.StatusPending {
-		t.Fatalf("fakeRegistry status = %s, want %s", gotR.Status, dlcore.StatusPending)
+	if gotR.GetStatus() != dlcore.StatusPending {
+		t.Fatalf("fakeRegistry status = %s, want %s", gotR.GetStatus(), dlcore.StatusPending)
 	}
 
 	_ = task.Close()

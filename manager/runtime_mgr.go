@@ -46,11 +46,7 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 		remove := m.workerCount - newLimit
 		slog.Info("Decreasing global workers", "from", m.workerCount, "to", newLimit)
 		for range remove {
-			select {
-			case m.workerStop <- struct{}{}:
-			default:
-				m.workerStop <- struct{}{}
-			}
+			m.workerStop <- struct{}{}
 		}
 		m.workerCount = newLimit
 	}

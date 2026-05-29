@@ -3,10 +3,14 @@
 
 package task
 
-import "github.com/cocomhub/download-manager/core"
+import (
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/pkg/scrape"
+)
 
 type Options struct {
-	store core.Storage
+	store  core.Storage
+	driver *scrape.Driver
 }
 
 type Option func(*Options)
@@ -14,5 +18,11 @@ type Option func(*Options)
 func WithStore(store core.Storage) Option {
 	return func(o *Options) {
 		o.store = store
+	}
+}
+
+func WithDriver(driver *scrape.Driver) Option {
+	return func(o *Options) {
+		o.driver = driver
 	}
 }

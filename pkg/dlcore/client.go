@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	StatusPending     = "pending"
-	StatusDownloading = "downloading"
-	StatusCompleted   = "completed"
-	StatusFailed      = "failed"
-	StatusCancelled   = "cancelled"
+	StatusFailedPermanent = "failed_permanent"
+	StatusPending         = "pending"
+	StatusDownloading     = "downloading"
+	StatusCompleted       = "completed"
+	StatusFailed          = "failed"
+	StatusCancelled       = "cancelled"
 )
 
 var (

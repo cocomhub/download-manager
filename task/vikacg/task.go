@@ -128,7 +128,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			if _, loaded := t.resolved2URLs.LoadOrStore(o.URL, struct{}{}); !loaded {
 				if newObj, err := t.scrapeAndBuild(o.URL); err == nil {
 					newObj.TaskID = t.ID()
-					newObj.Status = dlcore.StatusPending
+					newObj.SetStatus(dlcore.StatusPending)
 					t.PersistTaskObject(newObj)
 					t.RememberRuntimeObject(newObj, true)
 					pending = append(pending, newObj)

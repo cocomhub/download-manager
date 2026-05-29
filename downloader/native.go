@@ -189,7 +189,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 				Headers:       headers,
 				TrackProgress: trackProgress,
 				OnProgress: func(p float64, downloaded, total int64) {
-					obj.Progress = int(p)
+					obj.SetProgress(int(p))
 				},
 				Metadata: fileMap,
 			}
@@ -197,7 +197,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 				return err
 			}
 		}
-		obj.Progress = 100
+		obj.SetProgress(100)
 		return nil
 	}
 
@@ -208,7 +208,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		Headers:       headers,
 		TrackProgress: true,
 		OnProgress: func(p float64, downloaded, total int64) {
-			obj.Progress = int(p)
+			obj.SetProgress(int(p))
 		},
 		Metadata: obj.Metadata,
 	}

@@ -93,13 +93,13 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 
 		// Check storage for this object
 		if storedObj := t.GetCachedObject(u); storedObj != nil {
-			obj.Status = storedObj.Status
+			obj.SetStatus(storedObj.GetStatus())
 			obj.Metadata = storedObj.Metadata
 			obj.Extra = storedObj.Extra
 			t.ResetZombieState(obj)
 		}
 
-		err = t.UpdateStatus(obj, obj.Status, nil)
+		err = t.UpdateStatus(obj, obj.GetStatus(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func (t *Task) Scrape(ctx context.Context) error {
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	var pending []*model.DownloadObject
 	for _, obj := range t.GetAllObjects(true) {
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
 			pending = append(pending, obj)
 		}
 	}

@@ -76,36 +76,6 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
 		prefetchRate:  configutil.GetInt64(extra, "prefetch_rate", 10),
 	}
-	// Common pager setup
-	t.SetPager(task.NewCommonPager(task.PageFuncs{
-		BuildPageURL:    t.buildPageURL,
-		RunScraper:      t.runScraper,
-		ParseHomePage:   func(html string) (any, error) { return t.parseHomePage(html) },
-		ParseTotalPages: t.parseTotalPages,
-		ProcessItems: func(items any) ([]any, bool) {
-			vs, _ := items.([]videoItem)
-			existing := t.StorageExistenceMap(videoItemURLs(vs), true)
-			var pageNew []*model.DownloadObject
-			allKnown := true
-			for _, v := range vs {
-				if existing[v.href] {
-					continue
-				}
-				allKnown = false
-				obj := t.createObjectFromVideoItem(v)
-				t.PersistTaskObject(obj)
-				t.RememberRuntimeObject(obj, true)
-				pageNew = append(pageNew, obj)
-				t.queuePrefetch(obj)
-			}
-			out := make([]any, len(pageNew))
-			for i := range pageNew {
-				out[i] = pageNew[i]
-			}
-			return out, allKnown
-		},
-	}))
-
 	// Start prefetch workers
 	go t.startPrefetchWorkers(3) // 3 parallel prefetchers
 
@@ -120,7 +90,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// Enqueue prefetch for pending objects
 	t.WithObjectsLock(func(objs []*model.DownloadObject) {
 		for _, obj := range objs {
-			if obj.Status == dlcore.StatusPending {
+			if obj.GetStatus() == dlcore.StatusPending {
 				_, hasLocalPreview := obj.Extra["local_preview"]
 				if !hasLocalPreview {
 					t.queuePrefetch(obj)
@@ -146,7 +116,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	if activeCount == 0 {
 		for _, obj := range runtimeObjects {
-			if obj.Status == dlcore.StatusDownloading {
+			if obj.GetStatus() == dlcore.StatusDownloading {
 				activeCount++
 			}
 		}
@@ -163,7 +133,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	// Collect candidates
 	for _, obj := range objects {
-		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
+		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
 			if t.IsMarkedFailed(obj.URL) {
 				continue
 			}
@@ -301,7 +271,7 @@ func (t *Task) startPrefetchWorkers(count int) {
 
 func (t *Task) prefetchAssets(obj *model.DownloadObject) {
 	// Don't prefetch if already completed or downloading main
-	if obj.Status == dlcore.StatusCompleted || obj.Status == dlcore.StatusDownloading || obj.Status == dlcore.StatusCancelled {
+	if obj.GetStatus() == dlcore.StatusCompleted || obj.GetStatus() == dlcore.StatusDownloading || obj.GetStatus() == dlcore.StatusCancelled {
 		return
 	}
 

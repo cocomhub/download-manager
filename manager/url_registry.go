@@ -41,8 +41,8 @@ func cloneObject(src *model.DownloadObject) *model.DownloadObject {
 		TaskID:   src.TaskID,
 		URL:      src.URL,
 		SavePath: src.SavePath,
-		Status:   src.Status,
-		Progress: src.Progress,
+		Status:   src.GetStatus(),
+		Progress: src.GetProgress(),
 	}
 	if src.Metadata != nil {
 		dst.Metadata = make(map[string]string, len(src.Metadata))
@@ -74,7 +74,7 @@ func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 		if err != nil || obj == nil {
 			continue
 		}
-		if obj.Status != dlcore.StatusPending {
+		if obj.GetStatus() != dlcore.StatusPending {
 			owners[ownerID(entry.taskID, obj)] = struct{}{}
 		}
 		if betterSharedObject(obj, best) {
@@ -109,7 +109,7 @@ func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.objects[obj.URL] = cloneObject(obj)
-	if obj.Status != dlcore.StatusPending {
+	if obj.GetStatus() != dlcore.StatusPending {
 		r.addOwnerLocked(obj.URL, stringsTrim(obj.TaskID))
 	}
 	for _, ch := range r.subs {
@@ -228,7 +228,7 @@ func sharedObjectScore(obj *model.DownloadObject) int {
 		return -1
 	}
 	score := 0
-	switch obj.Status {
+	switch obj.GetStatus() {
 	case dlcore.StatusCompleted:
 		score += 40
 	case dlcore.StatusDownloading:

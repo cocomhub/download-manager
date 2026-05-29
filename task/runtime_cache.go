@@ -95,7 +95,7 @@ func pruneRuntimeObjects(objects []*model.DownloadObject) []*model.DownloadObjec
 		if obj == nil {
 			continue
 		}
-		terminal := obj.Status == dlcore.StatusCompleted || obj.Status == dlcore.StatusCancelled
+		terminal := obj.GetStatus() == dlcore.StatusCompleted || obj.GetStatus() == dlcore.StatusCancelled
 		if terminal {
 			if terminalCount >= runtimeTerminalObjectLimit {
 				continue

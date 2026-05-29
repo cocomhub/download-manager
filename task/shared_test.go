@@ -60,7 +60,7 @@ func TestSharedURLStateAcrossTasks(t *testing.T) {
 	if len(all2) != 1 {
 		t.Fatalf("expected 1 object for task2, got %d", len(all2))
 	}
-	if all2[0].Status != dlcore.StatusCompleted {
+	if all2[0].GetStatus() != dlcore.StatusCompleted {
 		t.Fatalf("expected status completed via shared registry, got %s", all2[0].Status)
 	}
 }
@@ -100,7 +100,7 @@ func TestSharedURLStateLazyHydratesFromStorageOnMiss(t *testing.T) {
 	if len(all2) != 1 {
 		t.Fatalf("expected 1 object for task2, got %d", len(all2))
 	}
-	if all2[0].Status != dlcore.StatusCompleted {
+	if all2[0].GetStatus() != dlcore.StatusCompleted {
 		t.Fatalf("expected lazy hydrated completed status, got %s", all2[0].Status)
 	}
 	if owners := reg.Owners(urls[0]); owners != 1 {
