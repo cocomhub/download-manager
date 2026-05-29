@@ -50,6 +50,7 @@ type Manager struct {
 	mu              sync.Mutex
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
 	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
+	scrapingTask    sync.Map // TaskID -> bool (To dedupe concurrent Scrape per task)
 	failedCount     sync.Map // URL -> int (Failed download attempts)
 	metrics         sync.Map // TaskID -> *taskMetrics
 
@@ -69,6 +70,7 @@ type Manager struct {
 
 	schedulerEnabled bool
 	workersEnabled   bool
+	scanRunning      atomic.Bool
 }
 
 type taskMetrics struct {
@@ -341,6 +343,50 @@ func (m *Manager) scan() {
 		return
 	}
 
+	if !m.scanRunning.CompareAndSwap(false, true) {
+		slog.Debug("scan: already running, skipping")
+		return
+	}
+	defer m.scanRunning.Store(false)
+
+	// Phase 1: Scrape — discover new objects from tasks that support it.
+	// Run scrapes in detached goroutines with per-task ctx timeout and per-task
+	// dedup guard (scrapingTask) so a slow Scrape never overlaps itself.
+	// Do NOT wait — Phase 2 runs in parallel; scraped objects are persisted
+	// to storage and picked up by the next scan cycle's Phase 2.
+	m.tasks.Range(func(key, value any) bool {
+		if sc, ok := value.(core.ScrapeCap); ok {
+			taskID := key.(string)
+			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
+				slog.Debug("Scrape: previous run still in progress, skipping", "task_id", taskID)
+				return true
+			}
+			go func(taskID string, sc core.ScrapeCap) {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				done := make(chan error, 1)
+				go func() {
+					done <- sc.Scrape(ctx)
+				}()
+				select {
+				case err := <-done:
+					if err != nil {
+						slog.Error("Scrape failed", "task_id", taskID, "error", err)
+					}
+				case <-ctx.Done():
+					slog.Error("Scrape timed out", "task_id", taskID)
+					// ctx is canceled; wait for inner goroutine to actually return
+					// before releasing the dedup guard, so the next scan cycle
+					// does not start a second concurrent Scrape for this task.
+					<-done
+				}
+				m.scrapingTask.Delete(taskID)
+			}(taskID, sc)
+		}
+		return true
+	})
+
+	// Phase 2: Download — process tasks for pending objects
 	tasks := make([]core.Task, 0, 64)
 	m.tasks.Range(func(key, value any) bool {
 		tasks = append(tasks, value.(core.Task))

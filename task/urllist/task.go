@@ -4,6 +4,7 @@
 package urllist
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -109,6 +110,12 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+// Scrape implements core.ScrapeCap as a no-op — urllist's URL set is fixed at
+// construction time and does not need page scraping.
+func (t *Task) Scrape(ctx context.Context) error {
+	return nil
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {

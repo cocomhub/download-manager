@@ -4,6 +4,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -42,12 +43,12 @@ type BaseTask struct {
 	headers      map[string]string
 
 	// Common runtime state
-	objects      []*model.DownloadObject
-	knownURLs    map[string]bool
-	initialized  atomic.Int32
-	markAsFailed sync.Map
-	concurrency  atomic.Int64
-	refreshInt   atomic.Int64
+	objects        []*model.DownloadObject
+	knownURLs      map[string]bool
+	markAsFailed   sync.Map
+	concurrency    atomic.Int64
+	refreshInt     atomic.Int64
+	scrapeMaxPages int // 0 means unlimited
 }
 
 func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {
@@ -341,6 +342,32 @@ func (b *BaseTask) StorageExistenceMap(urls []string, lock bool) map[string]bool
 	return storageExistenceMap(b.store, runtimeObjects, urls)
 }
 
+// ProcessNewURLs is the unified dedup entry point for task scrape pipelines.
+// Given a list of URLs (typically from one page of a paged scrape), it returns
+// the URLs that are NOT yet known (neither in runtime nor in storage), along
+// with allKnown — true iff every non-empty URL is already known.
+//
+// Semantics: allKnown is strictly based on storage/runtime presence; it is
+// independent of whether the caller can later successfully construct objects
+// for the unknown URLs. Callers that need a circuit breaker against repeated
+// downstream failures (e.g. scrapeAndBuild always failing) must add their own
+// safeguard on top of this.
+func (b *BaseTask) ProcessNewURLs(urls []string) (unknownURLs []string, allKnown bool) {
+	existing := b.StorageExistenceMap(urls, true)
+	allKnown = true
+	for _, u := range urls {
+		if u == "" {
+			continue
+		}
+		if existing[u] {
+			continue
+		}
+		allKnown = false
+		unknownURLs = append(unknownURLs, u)
+	}
+	return unknownURLs, allKnown
+}
+
 // PersistTaskObject saves an object to both store and shared registry.
 func (b *BaseTask) PersistTaskObject(obj *model.DownloadObject) {
 	persistTaskObject(b.store, b.shared, obj)
@@ -360,24 +387,68 @@ func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
 	}
 }
 
-// --- Initialization lifecycle ---
-
-// TryBeginInit attempts to enter the initialization state.
-// Returns true if the current goroutine is the first to trigger initialization.
-// Equivalent to initialized.CompareAndSwap(0, -1).
-func (b *BaseTask) TryBeginInit() bool {
-	return b.initialized.CompareAndSwap(0, -1)
+// Scrape implements core.ScrapeCap by delegating to CommonPager.ScrapeAllPages.
+// If maxPages > 0, stops after that many pages; otherwise unlimited.
+// Honors ctx for cancellation.
+func (b *BaseTask) Scrape(ctx context.Context) error {
+	if b.pager == nil {
+		return nil
+	}
+	b.pager.ScrapeAllPages(ctx, b.scrapeMaxPages)
+	return nil
 }
 
-// IsInitialized returns whether initialization has completed.
-func (b *BaseTask) IsInitialized() bool {
-	return b.initialized.Load() == 1
+// SetScrapeMaxPages sets a page limit for Scrape(). 0 means unlimited.
+func (b *BaseTask) SetScrapeMaxPages(n int) {
+	b.scrapeMaxPages = n
 }
 
-// MarkInitialized marks initialization as complete.
-// Typically called via defer in the scrapeAllPages function.
-func (b *BaseTask) MarkInitialized() {
-	b.initialized.Store(1)
+// DefaultRefreshLatest is the default refresh function for tasks with a pager.
+// It calls RefreshPager and remembers new objects.
+func (b *BaseTask) DefaultRefreshLatest() {
+	if !b.HasPager() {
+		return
+	}
+	newAny, err := b.RefreshPager()
+	if err != nil {
+		b.logger.Error("Refresh failed", "error", err)
+		return
+	}
+	if len(newAny) == 0 {
+		return
+	}
+	for i := range newAny {
+		b.RememberRuntimeObject(newAny[i].(*model.DownloadObject), true)
+	}
+	b.logger.Info("Refresh finished", "new_items", len(newAny))
+}
+
+// HasPager returns whether a CommonPager is configured.
+func (b *BaseTask) HasPager() bool {
+	return b.pager != nil
+}
+
+// LoadPendingFromStorage queries storage for pending and failed objects,
+// merges them into the runtime list, and returns the list.
+func (b *BaseTask) LoadPendingFromStorage(limit int64) []*model.DownloadObject {
+	if b.store == nil {
+		return nil
+	}
+	stored, err := b.store.Search(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs:  []string{b.ID()},
+			Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
+		},
+		Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
+		Limit: limit,
+	})
+	if err != nil || len(stored) == 0 {
+		return nil
+	}
+	for _, obj := range stored {
+		b.RememberRuntimeObject(obj, true)
+	}
+	return stored
 }
 
 // --- Path resolution ---

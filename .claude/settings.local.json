@@ -34,7 +34,8 @@
       "Bash(go vet *)",
       "Bash(go fmt *)",
       "Bash(go list *)",
-      "Bash(go build *)"
+      "Bash(go build *)",
+      "Bash(Get-ChildItem *)"
     ],
     "deny": []
   }

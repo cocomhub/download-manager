@@ -6,12 +6,10 @@ package hanime
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
@@ -36,10 +34,8 @@ func init() {
 
 type Task struct {
 	*task.BaseTask
-	genre       string
-	cookie      string
-	onceInit    sync.Once
-	maxInitPage int
+	genre  string
+	cookie string
 }
 
 // Ensure Task implements core.Task
@@ -61,7 +57,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		genre:    genre,
 		cookie:   configutil.GetString(extra, "cookie", ""),
 	}
-	t.maxInitPage = int(configutil.GetInt64(extra, "max_init_page", 0))
+	t.SetScrapeMaxPages(int(configutil.GetInt64(extra, "max_init_page", 0)))
 	t.SetPager(task.NewCommonPager(task.PageFuncs{
 		BuildPageURL:    t.buildPageURL,
 		RunScraper:      t.runScraper,
@@ -90,7 +86,6 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 			return out, allKnown
 		},
 	}))
-	t.SetRefreshFunc(t.refreshLatest)
 	return t, nil
 }
 
@@ -105,73 +100,13 @@ func (t *Task) GetDownloadHeaders() map[string]string {
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	if t.TryBeginInit() {
-		go t.scrapeAllPages()
-		return []*model.DownloadObject{}, nil
+	objects := t.LoadPendingFromStorage(64)
+	if objects == nil {
+		objects = t.SnapshotRuntimeObjects(true)
 	}
-	if !t.IsInitialized() {
-		return []*model.DownloadObject{}, nil
-	}
-
-	t.onceInit.Do(func() {
-		// Batch resolve objects that lack metadata (e.g. date).
-		// Uses WithObjectsLock for safe access to the runtime objects list.
-		t.WithObjectsLock(func(objs []*model.DownloadObject) {
-			var toResolve []*model.DownloadObject
-			for _, obj := range objs {
-				if _, ok := obj.Metadata["date"]; !ok {
-					toResolve = append(toResolve, obj)
-				}
-			}
-			if len(toResolve) == 0 {
-				return
-			}
-			sem := make(chan struct{}, 10)
-			var wg sync.WaitGroup
-			for _, obj := range toResolve {
-				wg.Add(1)
-				go func(o *model.DownloadObject) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					tmpObj := &model.DownloadObject{
-						URL:      o.URL,
-						Metadata: map[string]string{},
-						Extra:    map[string]any{},
-					}
-					if err := t.resolveObject(tmpObj, false); err != nil {
-						t.Logger().Error("[GG]hanime resolve object failed", "url", o.URL, "error", err)
-						return
-					}
-					t.WithLock(func() {
-						o.Metadata = tmpObj.Metadata
-					})
-					t.FlushObject(o)
-				}(obj)
-			}
-			wg.Wait()
-		})
-	})
-
-	objects := t.SnapshotRuntimeObjects(true)
 	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
-	if t.Storage() != nil {
-		if stored, err := t.Storage().Search(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
-			},
-			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
-			Limit: 64,
-		}); err == nil {
-			objects = stored
-			for _, obj := range stored {
-				t.RememberRuntimeObject(obj, true)
-			}
-		}
-	}
 	for _, obj := range objects {
 		if obj.Status == dlcore.StatusDownloading {
 			activeCount++
@@ -586,83 +521,6 @@ func extractVideoIDFromURL(u string) string {
 		return m[1]
 	}
 	return ""
-}
-
-func (t *Task) scrapeAllPages() {
-	defer t.MarkInitialized()
-parsePage1:
-	page1 := t.buildPageURL(1)
-	html, err := t.runScraper(page1)
-	if err != nil {
-		t.Logger().Error("hanime scrape page 1 failed", "url", page1, "error", err)
-		goto parsePage1
-	}
-	os.WriteFile(t.genre+"_debug_hanime.html", []byte(html), 0644)
-	total := t.parseTotalPages(html)
-	if total == 0 {
-		goto parsePage1
-	}
-	if t.maxInitPage > 0 && total > t.maxInitPage {
-		total = t.maxInitPage
-	}
-	t.Logger().Info("hanime total pages", "url", page1, "total", total)
-	items1, err := t.parseHomePage(html)
-	if err == nil {
-		existing := t.StorageExistenceMap(hanimeItemURLs(items1), true)
-		for _, it := range items1 {
-			if existing[it.href] {
-				t.Logger().Info("hanime item already known", "url", it.href)
-				continue
-			}
-			obj := t.createObjectFromItem(it)
-			t.PersistTaskObject(obj)
-			t.RememberRuntimeObject(obj, true)
-		}
-	}
-	for i := 2; i <= total; i++ {
-		u := t.buildPageURL(i)
-		h, err := t.runScraper(u)
-		if err != nil {
-			t.Logger().Error("hanime scrape page failed", "url", u, "page", i, "error", err)
-			i--
-			continue
-		}
-		items, err := t.parseHomePage(h)
-		if err != nil {
-			t.Logger().Error("hanime parse home page failed", "url", u, "page", i, "error", err)
-			i--
-			continue
-		}
-		existing := t.StorageExistenceMap(hanimeItemURLs(items), true)
-		for _, it := range items {
-			if existing[it.href] {
-				t.Logger().Info("hanime item already known", "url", it.href)
-				continue
-			}
-			obj := t.createObjectFromItem(it)
-			t.PersistTaskObject(obj)
-			t.RememberRuntimeObject(obj, true)
-		}
-		t.Logger().Info("hanime parsed page", "url", u, "page", i, "items", len(items), "objects", t.RuntimeObjectCount())
-	}
-	t.Logger().Info("hanime scrape all pages done", "objects", t.RuntimeObjectCount())
-}
-
-func (t *Task) refreshLatest() {
-	if !t.IsInitialized() {
-		return
-	}
-	newAny, err := t.RefreshPager()
-	if err != nil {
-		t.Logger().Error("hanime refresh failed", "error", err)
-		return
-	}
-	if len(newAny) == 0 {
-		return
-	}
-	for i := range newAny {
-		t.RememberRuntimeObject(newAny[i].(*model.DownloadObject), true)
-	}
 }
 
 func hanimeItemURLs(items []hanimeItem) []string {

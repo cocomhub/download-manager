@@ -6,7 +6,6 @@ package tktube
 import (
 	"bytes"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -109,7 +108,6 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 
 	// Start prefetch workers
 	go t.startPrefetchWorkers(3) // 3 parallel prefetchers
-	t.SetRefreshFunc(t.refreshLatest)
 
 	return t, nil
 }
@@ -119,18 +117,7 @@ func (t *Task) Type() string {
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	// 1. Initialize (Scrape all pages) if not done
-	if t.TryBeginInit() {
-		// Start initialization in background to avoid blocking
-		go t.scrapeAllPages()
-		// Return empty list while initializing
-		return []*model.DownloadObject{}, nil
-	}
-
-	if !t.IsInitialized() {
-		return []*model.DownloadObject{}, nil
-	}
-
+	// Enqueue prefetch for pending objects
 	t.WithObjectsLock(func(objs []*model.DownloadObject) {
 		for _, obj := range objs {
 			if obj.Status == dlcore.StatusPending {
@@ -141,9 +128,10 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			}
 		}
 	})
+
 	runtimeObjects := t.SnapshotRuntimeObjects(true)
 
-	// 2. Return pending objects that are ready for download
+	// Return pending objects that are ready for download
 	var activeCount int64
 	if t.Storage() != nil {
 		count, err := t.Storage().Count(&core.StorageQuery{
@@ -169,32 +157,17 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	queryLimit := int64(max(t.Concurrency()*3+8, 16))
 	objects := runtimeObjects
-	if t.Storage() != nil {
-		if stored, err := t.Storage().Search(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
-			},
-			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
-			Limit: queryLimit,
-		}); err == nil {
-			objects = stored
-			for _, obj := range stored {
-				t.RememberRuntimeObject(obj, true)
-			}
-		}
+	if stored := t.LoadPendingFromStorage(queryLimit); stored != nil {
+		objects = stored
 	}
 
 	// Collect candidates
 	for _, obj := range objects {
 		if obj.Status != dlcore.StatusCompleted && obj.Status != dlcore.StatusCancelled {
-			// Check if failed
 			if t.IsMarkedFailed(obj.URL) {
 				continue
 			}
-			// We look ahead a bit more to ensure we have enough resolved objects
 			if int64(len(candidates)+len(toResolve))+activeCount < int64(t.Concurrency()*2+2) {
-				// Check if resolved
 				_, ok := t.resolvedURLs.Load(obj.URL)
 				if _, hasFiles := obj.Extra["files"]; hasFiles && ok {
 					candidates = append(candidates, obj)
@@ -202,7 +175,6 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 					toResolve = append(toResolve, obj)
 				}
 			} else {
-				// Stop if we have enough candidates
 				break
 			}
 		}
@@ -211,17 +183,15 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// Resolve in parallel
 	if len(toResolve) > 0 {
 		var wg sync.WaitGroup
-		var mu sync.Mutex // To protect append to candidates
-
-		// Limit resolution concurrency to avoid flooding
+		var mu sync.Mutex
 		sem := make(chan struct{}, 5)
 
 		for _, obj := range toResolve {
 			wg.Add(1)
 			go func(o *model.DownloadObject) {
 				defer wg.Done()
-				sem <- struct{}{}        // Acquire
-				defer func() { <-sem }() // Release
+				sem <- struct{}{}
+				defer func() { <-sem }()
 
 				if err := t.resolveVideoDetails(o); err != nil {
 					t.Logger().Error("Failed to resolve video details", "url", o.URL, "error", err)
@@ -259,94 +229,6 @@ func (t *Task) ResolveObject(obj *model.DownloadObject) error {
 }
 
 // --- Scraping Logic ---
-
-func (t *Task) scrapeAllPages() {
-	defer t.MarkInitialized()
-
-tryAgain:
-	// First scrape page 1 to get total pages and initial items
-	page1URL := t.buildPageURL(t.pageStart)
-	t.Logger().Info("Scraping first page to detect total pages", "url", page1URL)
-
-	html, err := t.runScraper(page1URL)
-	if err != nil {
-		t.Logger().Error("Failed to scrape first page", "error", err)
-		goto tryAgain
-	}
-
-	// Parse total pages
-	totalPages := t.parseTotalPages(html)
-	if totalPages > t.pageEnd {
-		t.Logger().Info("Detected more pages", "old_end", t.pageEnd, "new_end", totalPages)
-		t.pageEnd = totalPages
-	}
-
-tryAgain2:
-	// Parse items from page 1
-	items1, err := t.parseHomePage(html)
-	if err == nil {
-		slog.Info("First page parsed", "task_id", t.ID(), "items", len(items1))
-		t.addVideoItems(items1)
-	} else {
-		t.Logger().Error("Failed to parse first page", "error", err)
-		goto tryAgain2
-	}
-
-	// Scrape remaining pages
-	for i := t.pageStart + 1; i <= t.pageEnd; i++ {
-	tryAgain3:
-		url := t.buildPageURL(i)
-		t.Logger().Info("Scraping All pages", "page", i, "url", url)
-
-		html, err := t.runScraper(url)
-		if err != nil {
-			t.Logger().Error("Failed to scrape page", "page", i, "error", err)
-			goto tryAgain3
-		}
-
-		items, err := t.parseHomePage(html)
-		if err != nil {
-			t.Logger().Error("Failed to parse page", "page", i, "error", err)
-			goto tryAgain3
-		}
-
-		t.addVideoItems(items)
-	}
-
-	t.Logger().Info("Initialization done", "total_objects", t.RuntimeObjectCount())
-}
-
-func (t *Task) refreshLatest() {
-	t.Logger().Info("Refreshing task", "keyword", t.keyword)
-	newAny, err := t.RefreshPager()
-	if err != nil {
-		t.Logger().Error("Refresh failed", "error", err)
-		return
-	}
-	if len(newAny) > 0 {
-		for i := range newAny {
-			t.RememberRuntimeObject(newAny[i].(*model.DownloadObject), true)
-		}
-
-		t.Logger().Info("Refresh finished", "new_items", len(newAny))
-	} else {
-		t.Logger().Info("No new items found")
-	}
-}
-
-func (t *Task) addVideoItems(items []videoItem) {
-	existing := t.StorageExistenceMap(videoItemURLs(items), true)
-	for _, v := range items {
-		if existing[v.href] {
-			continue
-		}
-
-		obj := t.createObjectFromVideoItem(v)
-		t.PersistTaskObject(obj)
-		t.RememberRuntimeObject(obj, true)
-		t.queuePrefetch(obj)
-	}
-}
 
 func (t *Task) parseTotalPages(html string) int {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))

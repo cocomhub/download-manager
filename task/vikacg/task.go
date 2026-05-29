@@ -5,6 +5,7 @@ package vikacg
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -95,7 +96,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	}
 
 	if t.userID > 0 {
-		t.SetRefreshFunc(t.refreshLatestUserPosts)
+		// Scrape is driven by Manager scan loop, no separate refresher needed
 	}
 	return t, nil
 }
@@ -112,30 +113,9 @@ func (t *Task) GetDownloadHeaders() map[string]string {
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	if t.userID > 0 {
-		if t.TryBeginInit() {
-			go t.scrapeUserAllPages()
-			return []*model.DownloadObject{}, nil
-		}
-		if !t.IsInitialized() {
-			return []*model.DownloadObject{}, nil
-		}
-	}
-	objects := t.SnapshotRuntimeObjects(true)
-	if t.Storage() != nil {
-		if stored, err := t.Storage().Search(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
-			},
-			Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
-			Limit: 64,
-		}); err == nil {
-			objects = stored
-			for _, obj := range stored {
-				t.RememberRuntimeObject(obj, true)
-			}
-		}
+	objects := t.LoadPendingFromStorage(64)
+	if objects == nil {
+		objects = t.SnapshotRuntimeObjects(true)
 	}
 	pending := make([]*model.DownloadObject, 0)
 	for _, o := range objects {
@@ -383,7 +363,7 @@ func stripSiteSuffix(title string) string {
 			return strings.TrimSpace(before)
 		}
 	}
-	// 兜底：出现“ - 维咔”时按首次出现截断
+	// 兜底：出现 " - 维咔" 时按首次出现截断
 	if idx := strings.Index(t, " - 维咔"); idx > 0 {
 		return strings.TrimSpace(t[:idx])
 	}
@@ -423,7 +403,7 @@ type getPostsResp struct {
 	} `json:"data"`
 }
 
-func (t *Task) getPostsPage(page int) ([]vikPost, error) {
+func (t *Task) getPostsPage(ctx context.Context, page int) ([]vikPost, error) {
 	body := map[string]any{
 		"order":      "updated_at",
 		"sort":       "desc",
@@ -439,7 +419,7 @@ func (t *Task) getPostsPage(page int) ([]vikPost, error) {
 	}
 	data, _ := json.Marshal(body)
 	url := "http://129.226.212.209:18082/www.vikacg.com/api/vikacg/v1/getPosts"
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -475,23 +455,41 @@ func (t *Task) getPostsPage(page int) ([]vikPost, error) {
 	return out.Data.List, nil
 }
 
-func (t *Task) scrapeUserAllPages() {
-	defer t.MarkInitialized()
+func (t *Task) Scrape(ctx context.Context) error {
+	if t.userID <= 0 {
+		return nil
+	}
 	page := 1
+	const maxRetries = 3
+	const maxEmptyPages = 3
+	emptyPages := 0
 	for {
-		posts, err := t.getPostsPage(page)
+		if err := ctx.Err(); err != nil {
+			t.Logger().Info("vikacg scrape: context canceled", "page", page, "error", err)
+			return nil
+		}
+		posts, err := t.getPostsPageWithRetry(ctx, page, maxRetries)
 		if err != nil {
-			t.Logger().Error("vikacg getPosts failed", "page", page, "error", err)
+			t.Logger().Error("vikacg getPosts failed after retries", "page", page, "error", err)
 			break
 		}
 		if len(posts) == 0 {
+			t.Logger().Debug("vikacg scrape: empty page response, stopping", "page", page)
 			break
 		}
+
+		// Unified allKnown semantics via BaseTask.ProcessNewURLs.
+		urls := vikPostURLs(posts)
+		unknownURLs, allKnown := t.ProcessNewURLs(urls)
+		unknownSet := make(map[string]bool, len(unknownURLs))
+		for _, u := range unknownURLs {
+			unknownSet[u] = true
+		}
+
 		newObjs := make([]*model.DownloadObject, 0, len(posts))
-		existing := t.StorageExistenceMap(vikPostURLs(posts), true)
 		for _, p := range posts {
 			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
-			if existing[u] {
+			if !unknownSet[u] {
 				continue
 			}
 			if cached := t.GetCachedObject(u); cached != nil {
@@ -509,60 +507,56 @@ func (t *Task) scrapeUserAllPages() {
 			t.PersistTaskObject(newObjs[len(newObjs)-1])
 			t.RememberRuntimeObject(newObjs[len(newObjs)-1], true)
 		}
+		if allKnown {
+			t.Logger().Debug("vikacg scrape: all known, stopping early", "page", page)
+			break
+		}
+		// Circuit breaker: if scrapeAndBuild keeps failing so no new objects land,
+		// allKnown stays false forever — stop after maxEmptyPages consecutive empty pages.
+		if len(newObjs) == 0 {
+			emptyPages++
+			if emptyPages >= maxEmptyPages {
+				t.Logger().Warn("vikacg scrape: too many consecutive empty pages, stopping", "page", page, "empty_pages", emptyPages)
+				break
+			}
+		} else {
+			emptyPages = 0
+		}
 		page++
 	}
-	t.Logger().Info("vikacg init done", "total_objects", len(t.GetAllObjects(true)))
+	t.Logger().Info("vikacg scrape done", "total_objects", len(t.GetAllObjects(true)))
+	return nil
 }
 
-func (t *Task) refreshLatestUserPosts() {
-	if t.userID <= 0 {
-		return
-	}
-	if !t.IsInitialized() {
-		return
-	}
-	page := 1
-	var known bool
-	pageObjs := make([]*model.DownloadObject, 0, t.pageCount)
-	for !known {
-		posts, err := t.getPostsPage(page)
-		if err != nil {
-			t.Logger().Error("vikacg refresh failed", "page", page, "error", err)
-			break
+// getPostsPageWithRetry wraps getPostsPage with retry and backoff. Honors ctx.
+func (t *Task) getPostsPageWithRetry(ctx context.Context, page int, maxRetries int) ([]vikPost, error) {
+	var posts []vikPost
+	var err error
+	for attempt := range maxRetries {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
 		}
-		if len(posts) == 0 {
-			break
+		posts, err = t.getPostsPage(ctx, page)
+		if err == nil {
+			return posts, nil
 		}
-		existing := t.StorageExistenceMap(vikPostURLs(posts), true)
-		for _, p := range posts {
-			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
-			if existing[u] {
-				known = true
-				continue
+		if attempt < maxRetries-1 {
+			t.Logger().Warn("vikacg getPostsPage retry", "page", page, "attempt", attempt+1, "error", err)
+			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
 			}
-			if cached := t.GetCachedObject(u); cached != nil {
-				cached.TaskID = t.ID()
-				t.sanitizeCachedContentHTML(cached)
-				pageObjs = append(pageObjs, cached)
-			} else {
-				obj, err := t.scrapeAndBuild(u)
-				if err != nil {
-					t.Logger().Warn("vikacg page parse failed", "url", u, "error", err)
-					continue
-				}
-				pageObjs = append(pageObjs, obj)
-			}
-			t.PersistTaskObject(pageObjs[len(pageObjs)-1])
-			t.RememberRuntimeObject(pageObjs[len(pageObjs)-1], true)
 		}
-		page++
 	}
-	if len(pageObjs) > 0 {
-		t.Logger().Info("vikacg refresh finished", "new_items", len(pageObjs))
-	} else {
-		t.Logger().Info("vikacg refresh no new")
-	}
+	return nil, err
 }
+
+// refreshLatestUserPosts is no longer used — Scrape() handles all discovery.
+// Kept as a no-op for backward compatibility if referenced externally.
+func (t *Task) refreshLatestUserPosts() {}
 
 func vikPostURLs(posts []vikPost) []string {
 	urls := make([]string, 0, len(posts))
