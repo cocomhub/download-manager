@@ -36,6 +36,7 @@ type downloadRequest struct {
 type Manager struct {
 	cfg            *config.Config
 	cfgVal         atomic.Value
+	configSvc      *ConfigService
 	tasks          sync.Map
 	downloader     core.Downloader
 	stopChan       chan struct{}
@@ -109,6 +110,7 @@ func NewManager(cfg *config.Config) *Manager {
 
 	mgr := &Manager{
 		cfg:             cfg,
+		configSvc:       NewConfigService(cfg),
 		downloader:      downloader.New(cfg.Downloader),
 		stopChan:        make(chan struct{}),
 		workerStop:      make(chan struct{}, 256),
@@ -149,10 +151,7 @@ func (m *Manager) Subscribe() <-chan core.Event {
 }
 
 func (m *Manager) currentCfg() *config.Config {
-	if v := m.cfgVal.Load(); v != nil {
-		return v.(*config.Config)
-	}
-	return m.cfg
+	return m.configSvc.GetConfig()
 }
 
 func cloneStorageQuery(query *core.StorageQuery) *core.StorageQuery {
@@ -294,7 +293,7 @@ func (m *Manager) Start() {
 	slog.Info("disabled components", "scheduler", !m.schedulerEnabled.Load(), "workers", !m.workersEnabled.Load())
 	m.loadTasks()
 	if m.workersEnabled.Load() {
-		limit := m.cfg.Downloader.GlobalConcurrent
+		limit := m.currentCfg().Downloader.GlobalConcurrent
 		if limit <= 0 {
 			limit = 5
 		}
@@ -1579,30 +1578,29 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Validate before IO
 	newCfg.ValidateAndClamp()
-	// Save to file
-	if err := m.writeConfigWithComments(newCfg); err != nil {
+	// Save to file with comment preservation
+	if err := m.configSvc.WriteConfigWithComments(newCfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	// Write backup and audit
-	if name, err := m.writeConfigBackup(); err != nil {
+	if name, err := m.configSvc.writeConfigBackup(); err != nil {
 		slog.Warn("Failed to write config backup", "error", err)
 	} else if audit != nil {
 		msg := audit.Message
 		if msg == "" {
 			msg = "config update"
 		}
-		if err := m.AddConfigNote(name, msg, audit.Author); err != nil {
+		if err := m.configSvc.AddConfigNote(name, msg, audit.Author); err != nil {
 			slog.Warn("Failed to add config note", "error", err, "filename", name, "message", msg)
 		}
 		if audit.Source != "" {
-			if err := m.AddConfigTag(name, audit.Source); err != nil {
+			if err := m.configSvc.AddConfigTag(name, audit.Source); err != nil {
 				slog.Warn("Failed to add config tag", "error", err, "filename", name, "tag", audit.Source)
 			}
 		}
 	}
 	// Apply in-memory config
-	m.cfg = newCfg
-	m.cfgVal.Store(newCfg)
+	m.configSvc.StoreConfig(newCfg)
 	// Reload components
 	m.downloader = downloader.New(newCfg.Downloader)
 	logutil.InitLogger(newCfg.Log)
@@ -1627,7 +1625,6 @@ func (m *Manager) UpdateLogConfig(newLog logutil.LogConfig) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	logutil.InitLogger(newLog)
-	m.cfg = &cfgCopy
-	m.cfgVal.Store(&cfgCopy)
+	m.configSvc.StoreConfig(&cfgCopy)
 	return nil
 }
