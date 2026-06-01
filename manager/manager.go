@@ -1371,20 +1371,6 @@ func (m *Manager) GetObjectsByScopedGroup(taskID, taskType, group string) []*mod
 	return list
 }
 
-func hasMethod(i any, name string) bool {
-	// lightweight capability hint via type assertion
-	switch name {
-	case "SetConcurrency":
-		_, ok := i.(interface{ SetConcurrency(int) error })
-		return ok
-	case "SetRefreshInterval":
-		_, ok := i.(interface{ SetRefreshInterval(int) error })
-		return ok
-	default:
-		return false
-	}
-}
-
 // RetryObject resets the status of an object to pending and forces download
 func (m *Manager) RetryObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
