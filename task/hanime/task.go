@@ -57,6 +57,12 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		genre:    genre,
 		cookie:   configutil.GetString(extra, "cookie", ""),
 	}
+
+	// Create PagingScanner for unified scrape pipeline
+	adapter := &hanimeAdapter{t: t}
+	scanner := task.NewPagingScanner(bt, adapter)
+	bt.SetScanner(scanner)
+
 	return t, nil
 }
 

@@ -40,6 +40,7 @@ type BaseTask struct {
 	pathStrategy core.PathStrategy
 	headers      map[string]string
 	scrapeDriver *scrape.Driver
+	scanner      *PagingScanner // optional PagingScanner, replaces buildScrapeHooks
 
 	// Common runtime state
 	objects      []*model.DownloadObject
@@ -371,8 +372,21 @@ func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
 	}
 }
 
-// Scrape implements core.ScrapeCap by delegating to scrape.Driver.
+// SetScanner sets the optional PagingScanner. When set, BaseTask.Scrape delegates
+// to the scanner instead of using buildScrapeHooks.
+func (b *BaseTask) SetScanner(s *PagingScanner) {
+	b.scanner = s
+}
+
+// Scrape implements core.ScrapeCap by delegating to PagingScanner (if set)
+// or to scrape.Driver via buildScrapeHooks (legacy path).
 func (b *BaseTask) Scrape(ctx context.Context) error {
+	// New path: PagingScanner
+	if b.scanner != nil {
+		b.scanner.SetDriver(b.scrapeDriver)
+		return b.scanner.Run(ctx)
+	}
+	// Legacy path: buildScrapeHooks
 	if b.scrapeDriver == nil {
 		return nil
 	}

@@ -96,8 +96,14 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	}
 
 	if t.userID > 0 {
-		// Scrape is driven by Manager scan loop, no separate refresher needed
+		// Scrape is driven by Manager scan loop via PagingScanner
 	}
+
+	// Create PagingScanner for unified scrape pipeline
+	adapter := &vikacgAdapter{t: t}
+	scanner := task.NewPagingScanner(bt, adapter)
+	bt.SetScanner(scanner)
+
 	return t, nil
 }
 
@@ -459,73 +465,8 @@ func (t *Task) Scrape(ctx context.Context) error {
 	if t.userID <= 0 {
 		return nil
 	}
-	page := 1
-	const maxRetries = 3
-	const maxEmptyPages = 3
-	emptyPages := 0
-	for {
-		if err := ctx.Err(); err != nil {
-			t.Logger().Info("vikacg scrape: context canceled", "page", page, "error", err)
-			return nil
-		}
-		posts, err := t.getPostsPageWithRetry(ctx, page, maxRetries)
-		if err != nil {
-			t.Logger().Error("vikacg getPosts failed after retries", "page", page, "error", err)
-			break
-		}
-		if len(posts) == 0 {
-			t.Logger().Debug("vikacg scrape: empty page response, stopping", "page", page)
-			break
-		}
-
-		// Unified allKnown semantics via BaseTask.ProcessNewURLs.
-		urls := vikPostURLs(posts)
-		unknownURLs, allKnown := t.ProcessNewURLs(urls)
-		unknownSet := make(map[string]bool, len(unknownURLs))
-		for _, u := range unknownURLs {
-			unknownSet[u] = true
-		}
-
-		newObjs := make([]*model.DownloadObject, 0, len(posts))
-		for _, p := range posts {
-			u := fmt.Sprintf("https://www.vikacg.com/p/%d", p.ID)
-			if !unknownSet[u] {
-				continue
-			}
-			if cached := t.GetCachedObject(u); cached != nil {
-				cached.TaskID = t.ID()
-				t.sanitizeCachedContentHTML(cached)
-				newObjs = append(newObjs, cached)
-			} else {
-				obj, err := t.scrapeAndBuild(u)
-				if err != nil {
-					t.Logger().Warn("vikacg page parse failed", "url", u, "error", err)
-					continue
-				}
-				newObjs = append(newObjs, obj)
-			}
-			t.PersistTaskObject(newObjs[len(newObjs)-1])
-			t.RememberRuntimeObject(newObjs[len(newObjs)-1], true)
-		}
-		if allKnown {
-			t.Logger().Debug("vikacg scrape: all known, stopping early", "page", page)
-			break
-		}
-		// Circuit breaker: if scrapeAndBuild keeps failing so no new objects land,
-		// allKnown stays false forever — stop after maxEmptyPages consecutive empty pages.
-		if len(newObjs) == 0 {
-			emptyPages++
-			if emptyPages >= maxEmptyPages {
-				t.Logger().Warn("vikacg scrape: too many consecutive empty pages, stopping", "page", page, "empty_pages", emptyPages)
-				break
-			}
-		} else {
-			emptyPages = 0
-		}
-		page++
-	}
-	t.Logger().Info("vikacg scrape done", "total_objects", len(t.GetAllObjects(true)))
-	return nil
+	// Delegate to BaseTask.Scrape which uses PagingScanner (set in NewTask).
+	return t.BaseTask.Scrape(ctx)
 }
 
 // getPostsPageWithRetry wraps getPostsPage with retry and backoff. Honors ctx.

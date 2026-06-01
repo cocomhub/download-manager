@@ -79,6 +79,11 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	// Start prefetch workers
 	go t.startPrefetchWorkers(3) // 3 parallel prefetchers
 
+	// Create PagingScanner for unified scrape pipeline
+	adapter := &tktubeAdapter{t: t}
+	scanner := task.NewPagingScanner(bt, adapter)
+	bt.SetScanner(scanner)
+
 	return t, nil
 }
 
