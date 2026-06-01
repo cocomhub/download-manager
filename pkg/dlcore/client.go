@@ -492,15 +492,18 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 
 type DomainLimiter struct {
 	mu    sync.Mutex
+	cond  *sync.Cond
 	limit map[string]int
 	cur   map[string]int
 }
 
 func NewDomainLimiter() *DomainLimiter {
-	return &DomainLimiter{
+	d := &DomainLimiter{
 		limit: make(map[string]int),
 		cur:   make(map[string]int),
 	}
+	d.cond = sync.NewCond(&d.mu)
+	return d
 }
 
 func (d *DomainLimiter) Set(host string, max int) {
@@ -510,6 +513,7 @@ func (d *DomainLimiter) Set(host string, max int) {
 		max = 1
 	}
 	d.limit[host] = max
+	d.cond.Broadcast()
 }
 
 func (d *DomainLimiter) Acquire(raw string) {
@@ -519,11 +523,8 @@ func (d *DomainLimiter) Acquire(raw string) {
 	}
 	host := u.Host
 	d.mu.Lock()
-	max := d.limit[host]
-	for max != 0 && d.cur[host] >= max {
-		d.mu.Unlock()
-		d.mu.Lock()
-		max = d.limit[host]
+	for max := d.limit[host]; max != 0 && d.cur[host] >= max; max = d.limit[host] {
+		d.cond.Wait()
 	}
 	d.cur[host]++
 	d.mu.Unlock()
@@ -539,6 +540,7 @@ func (d *DomainLimiter) Release(raw string) {
 	if d.cur[host] > 0 {
 		d.cur[host]--
 	}
+	d.cond.Broadcast()
 	d.mu.Unlock()
 }
 

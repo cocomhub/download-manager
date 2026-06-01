@@ -902,7 +902,6 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 }
 
 func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	all := make([]*model.DownloadObject, 0, 1024)
 	cfg := m.currentCfg()
 	typeMatches := func(t core.Task) bool {
 		if len(types) == 0 {
@@ -917,6 +916,14 @@ func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status str
 		}
 		return false
 	}
+
+	// Phase 1: collect matching tasks and count totals
+	type taskInfo struct {
+		t     core.Task
+		count int64
+	}
+	var tasks []taskInfo
+	var total int64
 	for _, tCfg := range cfg.Tasks {
 		id := tCfg.ID
 		t, ok := m.getTask(id)
@@ -926,38 +933,108 @@ func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status str
 		if !typeMatches(t) {
 			continue
 		}
-		query := &core.StorageQuery{
+		countQuery := &core.StorageQuery{
 			Filter: core.StorageFilter{
 				Search: search,
 			},
 		}
 		if status != "" && status != "all" {
-			query.Filter.Statuses = []string{status}
+			countQuery.Filter.Statuses = []string{status}
 		}
-		objs, err := m.collectTaskObjects(t, query, 200)
+		cnt, err := m.countTaskObjects(t, countQuery)
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, objs...)
+		if cnt > 0 {
+			tasks = append(tasks, taskInfo{t: t, count: cnt})
+			total += cnt
+		}
 	}
-	total := int64(len(all))
+
 	if page < 1 {
 		page = 1
 	}
-	var offset int64
 	if limit <= 0 {
-		page = 1
 		limit = total
-	} else {
-		offset = (page - 1) * limit
 	}
-	paged := storage.ApplyQueryToObjects(all, &core.StorageQuery{
-		Sort:   sortRules(sortBy),
-		Offset: offset,
-		Limit:  limit,
-	})
+
+	// Phase 2: if limit is small and we have multiple tasks, allocate proportionally
+	// to avoid pulling all objects into memory.
+	var all []*model.DownloadObject
+	if limit > 0 && limit < total && len(tasks) > 1 {
+		// Allocate limit per task proportionally with a fudge factor for merge-sort accuracy
+		allocated := int64(0)
+		for i, ti := range tasks {
+			share := max(int64(1), limit*ti.count/total)
+			// Last task gets whatever remains
+			if i == len(tasks)-1 {
+				share = max(0, limit-allocated)
+			}
+			if share <= 0 {
+				continue
+			}
+			// Over-allocate by 2x for merge-sort safety (some objects may not match sort order)
+			perTaskLimit := share * 3
+
+			dataQuery := &core.StorageQuery{
+				Filter: core.StorageFilter{
+					Search: search,
+				},
+				Sort:  sortRules(sortBy),
+				Limit: perTaskLimit,
+			}
+			if status != "" && status != "all" {
+				dataQuery.Filter.Statuses = []string{status}
+			}
+			objs, err := m.searchTaskObjects(ti.t, dataQuery)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, objs...)
+			allocated += share
+		}
+		// Merge-sort all collected, then paginate
+		if len(all) > 1 {
+			storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
+		}
+		offset := (page - 1) * limit
+		if offset >= int64(len(all)) {
+			all = []*model.DownloadObject{}
+		} else {
+			end := min(offset+limit, int64(len(all)))
+			all = all[offset:end]
+		}
+	} else {
+		// Fallback: collect all matching objects (current behavior)
+		for _, ti := range tasks {
+			query := &core.StorageQuery{
+				Filter: core.StorageFilter{
+					Search: search,
+				},
+			}
+			if status != "" && status != "all" {
+				query.Filter.Statuses = []string{status}
+			}
+			objs, err := m.collectTaskObjects(ti.t, query, 200)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, objs...)
+		}
+		offset := (page - 1) * limit
+		paged := storage.ApplyQueryToObjects(all, &core.StorageQuery{
+			Sort:   sortRules(sortBy),
+			Offset: offset,
+			Limit:  limit,
+		})
+		all = paged
+	}
+
+	if all == nil {
+		all = make([]*model.DownloadObject, 0)
+	}
 	return map[string]any{
-		"objects": paged,
+		"objects": all,
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
@@ -966,7 +1043,6 @@ func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status str
 
 // AggregateByContent groups objects by scoped content group and returns representatives.
 func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	// Collect all objects similar to AggregateObjects
 	cfg := m.currentCfg()
 	typeMatches := func(t core.Task) bool {
 		if len(types) == 0 {
@@ -985,7 +1061,9 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		t   core.Task
 		obj *model.DownloadObject
 	}
-	all := make([]taskObj, 0, 1024)
+
+	// Collect matching tasks
+	var matchingTasks []core.Task
 	for _, tCfg := range cfg.Tasks {
 		id := tCfg.ID
 		tk, ok := m.getTask(id)
@@ -995,6 +1073,20 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		if !typeMatches(tk) {
 			continue
 		}
+		matchingTasks = append(matchingTasks, tk)
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// For content grouping we need ALL matching objects to build groups properly,
+	// but we collect each task via Search with search/status filter to reduce data.
+	all := make([]taskObj, 0, 1024)
+	for _, tk := range matchingTasks {
 		query := &core.StorageQuery{
 			Filter: core.StorageFilter{
 				Search: search,

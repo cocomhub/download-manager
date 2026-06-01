@@ -594,18 +594,8 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.mgr.GetConfig()
 	resp := map[string]any{
-		"task_scan": map[string]any{
-			"disable":  cfg.TaskScan.Disable,
-			"interval": cfg.TaskScan.Interval,
-		},
-		"downloader": map[string]any{
-			"proxies":           cfg.Downloader.Proxies,
-			"global_concurrent": cfg.Downloader.GlobalConcurrent,
-			"force_proxy":       cfg.Downloader.ForceProxy,
-			"max_retries":       cfg.Downloader.MaxRetries,
-			"type":              cfg.Downloader.Type,
-			"domain_limits":     cfg.Downloader.DomainLimits,
-		},
+		"task_scan":  cfg.TaskScan,
+		"downloader": cfg.Downloader,
 		"ui_defaults": map[string]any{
 			"default_save_dir":    cfg.Server.UIDefaults.DefaultSaveDir,
 			"window_width":        cfg.Server.UIDefaults.WindowWidth,
@@ -613,6 +603,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"diff_side_by_side":   cfg.Server.UIDefaults.DiffSideBySide,
 			"diff_ignore_ws":      cfg.Server.UIDefaults.DiffIgnoreWS,
 			"diff_ignore_comment": cfg.Server.UIDefaults.DiffIgnoreComment,
+			"status_style":        cfg.Server.UIDefaults.StatusStyle,
 		},
 	}
 	json.NewEncoder(w).Encode(resp)
@@ -629,22 +620,26 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := s.mgr.GetConfig()
-	cur.TaskScan.Disable = req.TaskScan.Disable
-	cur.TaskScan.Interval = req.TaskScan.Interval
-	cur.Downloader.Proxies = req.Downloader.Proxies
+	cur.TaskScan = req.TaskScan
+	// Override whole Downloader (new sub-structures included)
+	cur.Downloader.Type = req.Downloader.Type
 	if req.Downloader.GlobalConcurrent > 0 {
 		cur.Downloader.GlobalConcurrent = req.Downloader.GlobalConcurrent
 	}
-	cur.Downloader.ForceProxy = req.Downloader.ForceProxy
 	if req.Downloader.MaxRetries > 0 {
 		cur.Downloader.MaxRetries = req.Downloader.MaxRetries
 	}
-	if req.Downloader.Type != "" {
-		cur.Downloader.Type = req.Downloader.Type
+	cur.Downloader.ForceProxy = req.Downloader.ForceProxy
+	cur.Downloader.Proxies = req.Downloader.Proxies
+	cur.Downloader.DomainLimits = req.Downloader.DomainLimits
+	// New sub-structures
+	cur.Downloader.Filesystem = req.Downloader.Filesystem
+	if req.Downloader.HTTP.TimeoutSeconds > 0 {
+		cur.Downloader.HTTP = req.Downloader.HTTP
 	}
-	if req.Downloader.DomainLimits != nil {
-		cur.Downloader.DomainLimits = req.Downloader.DomainLimits
-	}
+	cur.Downloader.Proxy = req.Downloader.Proxy
+	cur.Downloader.Progress = req.Downloader.Progress
+	cur.Downloader.FFmpeg = req.Downloader.FFmpeg
 	cur.Server.UIDefaults = req.UIDefaults
 	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
 		Author:  "ui",
