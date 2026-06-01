@@ -42,43 +42,100 @@ func doJSONPost(router http.Handler, url string, body any) *httptest.ResponseRec
 	return rr
 }
 
+func doJSONPut(router http.Handler, url string, body any) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	if body != nil {
+		_ = json.NewEncoder(&buf).Encode(body)
+	}
+	req := httptest.NewRequest("PUT", url, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	return rr
+}
+
 func TestWriteGuardUIMode(t *testing.T) {
 	mgr := newMgrWithMode(config.RunModeUI, false, false)
 	srv := NewServer(mgr)
 	r := srv.Router()
 
 	targets := []string{
+		// Task lifecycle
+		"/api/tasks",
 		"/api/tasks/t1/retry",
 		"/api/tasks/t1/cancel",
 		"/api/tasks/cancel_batch",
+
+		// Object operations
 		"/api/tasks/t1/object/cancel",
 		"/api/tasks/t1/object/undo_cancel",
+		"/api/tasks/t1/object/cancel_batch",
+		"/api/tasks/t1/object/undo_cancel_batch",
+
+		// Task reorder & config
+		"/api/tasks/t1/reorder",
+		"/api/tasks/t1/config",
+		"/api/tasks/t1/runtime",
+
+		// Server config
+		"/api/config/server",
+		"/api/config/log",
+		"/api/config/rollback",
+		"/api/config/tag",
+		"/api/config/note",
+		"/api/config/delete",
+		"/api/config/apply",
 	}
 	for _, url := range targets {
-		rr := doJSONPost(r, url, map[string]any{"ids": []string{"t1"}, "url": "http://a"})
-		if rr.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 for %s, got %d", url, rr.Code)
+		body := map[string]any{"ids": []string{"t1"}, "url": "http://a"}
+		rr := doJSONPost(r, url, body)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for POST %s, got %d", url, rr.Code)
 		}
 		var resp map[string]any
 		_ = json.Unmarshal(rr.Body.Bytes(), &resp)
-		if resp["error"] != "write operations disabled in ui-only mode" {
-			t.Fatalf("unexpected error payload for %s: %v", url, resp)
+		if resp["error"] != "write_disabled" {
+			t.Fatalf("unexpected error code for POST %s: %v", url, resp)
+		}
+	}
+
+	// PUT routes also covered
+	rr := doJSONPut(r, "/api/tasks/t1", map[string]any{"id": "t1", "type": "test"})
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for PUT /api/tasks/t1, got %d", rr.Code)
+	}
+}
+
+func TestWriteGuardFullMode_BlocksWhenBothDisabled(t *testing.T) {
+	mgr := newMgrWithMode(config.RunModeFull, false, false)
+	srv := NewServer(mgr)
+	r := srv.Router()
+
+	targets := []string{
+		"/api/tasks",
+		"/api/tasks/t1/retry",
+		"/api/tasks/t1/cancel",
+		"/api/tasks/t1/object/cancel",
+		"/api/config/server",
+		"/api/config/apply",
+	}
+	for _, url := range targets {
+		rr := doJSONPost(r, url, map[string]any{"ids": []string{"t1"}, "url": "http://a"})
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for %s in full mode with both disabled, got %d", url, rr.Code)
 		}
 	}
 }
 
-func TestWriteGuardFullMode_Allows(t *testing.T) {
-	mgr := newMgrWithMode(config.RunModeFull, true, true)
+func TestWriteGuardFullMode_AllowsWhenOneEnabled(t *testing.T) {
+	mgr := newMgrWithMode(config.RunModeFull, true, false)
 	srv := NewServer(mgr)
 	r := srv.Router()
 
-	// cancel_batch should not be blocked by guard and returns 200 with result map
-	rr := doJSONPost(r, "/api/tasks/cancel_batch", map[string]any{"ids": []string{"t1"}})
-	if rr.Code < 200 || rr.Code >= 300 {
-		t.Fatalf("expected 2xx for cancel_batch in full mode, got %d", rr.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response json: %v", err)
+	// With download enabled, writes should pass the guard
+	// (they may still fail at the manager level due to missing state)
+	rr := doJSONPost(r, "/api/tasks/t1/retry", map[string]any{"url": "http://a"})
+	if rr.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("expected writes to pass guard when download enabled, got 405")
 	}
 }

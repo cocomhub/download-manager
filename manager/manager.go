@@ -74,6 +74,9 @@ type Manager struct {
 	schedulerEnabled atomic.Bool
 	workersEnabled   atomic.Bool
 	scanRunning      atomic.Bool
+
+	// Shutdown tracking for force-download goroutines
+	forceWg sync.WaitGroup
 }
 
 type taskMetrics struct {
@@ -128,7 +131,13 @@ func (m *Manager) FeaturesStatus() RuntimeFeatures {
 }
 
 func (m *Manager) GetDownloadRootDir() string {
-	return filepath.Join(config.GetWorkDir(), "downloads")
+	cfg := m.currentCfg()
+	if cfg != nil && cfg.Server.DownloadRootDir != "" {
+		return cfg.Server.DownloadRootDir
+	}
+	// Fallback for test / nil config
+	wd := config.GetWorkDir()
+	return filepath.Join(wd, "downloads")
 }
 
 func (m *Manager) Subscribe() <-chan core.Event {
@@ -333,9 +342,52 @@ func (m *Manager) Start() {
 	}
 }
 
-func (m *Manager) Stop() {
-	// Ideally close mongo clients here too, but they are global in storage pkg currently
+func (m *Manager) Stop(ctx context.Context) {
+	slog.Info("Manager stopping")
+
+	// Mark all in-flight downloading objects as failed
+	m.downloadingObj.Range(func(key, value any) bool {
+		obj := value.(*model.DownloadObject)
+		if t, ok := m.getTask(obj.TaskID); ok {
+			t.UpdateStatus(obj, dlcore.StatusFailed, errors.New("shutdown"))
+			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+		}
+		return true
+	})
+
 	close(m.stopChan)
+}
+
+// WaitForShutdown waits for workers and force-downloads to finish, then flushes storages.
+// It respects the provided context deadline.
+func (m *Manager) WaitForShutdown(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		m.workerWg.Wait()
+		m.forceWg.Wait()
+		m.flushAllStorages()
+		close(done)
+	}()
+	select {
+	case <-done:
+		slog.Info("All workers stopped and storages flushed")
+	case <-ctx.Done():
+		slog.Warn("Shutdown timed out, some workers may still be running")
+	}
+}
+
+func (m *Manager) flushAllStorages() {
+	m.tasks.Range(func(key, value any) bool {
+		t := value.(core.Task)
+		if flusher, ok := t.Storage().(interface{ ForceFlush() error }); ok {
+			if err := flusher.ForceFlush(); err != nil {
+				slog.Error("Failed to flush storage", "task_id", t.ID(), "error", err)
+			}
+		}
+		return true
+	})
+	slog.Info("All storages flushed")
 }
 
 func (m *Manager) scan() {
@@ -710,7 +762,9 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 	m.mu.Unlock()
 
 	// Run in separate goroutine, bypassing worker pool limits
-	go m.download(t, obj)
+	m.forceWg.Go(func() {
+		m.download(t, obj)
+	})
 }
 
 // New API methods

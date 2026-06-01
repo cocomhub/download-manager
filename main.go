@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -12,11 +13,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cocomhub/download-manager/api"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/cocomhub/download-manager/storage"
 	"github.com/gofrs/flock"
 )
 
@@ -184,30 +187,60 @@ func main() {
 	// Start Manager
 	go mgr.Start()
 
+	// Start HTTP Server
+	server := api.NewServer(mgr)
+	router := server.Router()
+
+	port := cfg.Server.HTTPPort
+	if cfg.Runtime.Mode == config.RunModeUI {
+		port = cfg.Server.UIOnlyPort
+	}
+	if port == 0 {
+		port = 8080 // Default port
+	}
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: router,
+	}
+
 	go func() {
-		// Start HTTP Server
-		server := api.NewServer(mgr)
-		router := server.Router()
-
-		port := cfg.Server.HTTPPort
-		if cfg.Runtime.Mode == config.RunModeUI {
-			port = cfg.Server.UIOnlyPort
-		}
-		if port == 0 {
-			port = 8080 // Default port
-		}
-
 		slog.Info("Starting HTTP server", "port", port, "version", Version, "build_at", BuildAt)
 		slog.Info("Web UI available", "url", fmt.Sprintf("http://localhost:%d", port))
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), router); err != nil {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("HTTP server failed", "error", err)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	sig := <-quit
+	slog.Info("Received shutdown signal", "signal", sig)
 
-	mgr.Stop()
-	slog.Info("Server exited", "version", Version, "build_at", BuildAt)
+	// Create shutdown context with 30s timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Second signal: force exit
+	go func() {
+		sig2 := <-quit
+		slog.Warn("Second signal received, force exiting", "signal", sig2)
+		os.Exit(1)
+	}()
+
+	// Step 1: Mark in-flight objects and stop manager
+	mgr.Stop(shutdownCtx)
+
+	// Step 2: Graceful HTTP shutdown
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("HTTP server shutdown error", "error", err)
+	}
+
+	// Step 3: Wait for workers and flush storages
+	mgr.WaitForShutdown(shutdownCtx)
+
+	// Step 4: Close Mongo clients
+	storage.CloseAllMongoClients()
+
+	slog.Info("Server exited gracefully", "version", Version, "build_at", BuildAt)
 }

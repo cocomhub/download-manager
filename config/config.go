@@ -40,13 +40,14 @@ type Runtime struct {
 }
 
 type Server struct {
-	HTTPPort       int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
-	UIOnlyPort     int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
-	WorkDir        string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
-	LockFile       string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
-	UIOnlyLockFile string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
-	ScraperPath    string     `yaml:"scraper_path" json:"scraper_path"`
-	UIDefaults     UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
+	HTTPPort        int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
+	UIOnlyPort      int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
+	WorkDir         string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
+	LockFile        string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
+	UIOnlyLockFile  string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
+	ScraperPath     string     `yaml:"scraper_path" json:"scraper_path"`
+	DownloadRootDir string     `yaml:"download_root_dir" json:"download_root_dir"` // Root directory for downloads
+	UIDefaults      UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
 }
 
 type MongoSource struct {
@@ -226,6 +227,10 @@ func (c *Config) ValidateAndClamp() {
 			}
 		}
 	}
+	// Server defaults
+	if c.Server.DownloadRootDir == "" {
+		c.Server.DownloadRootDir = filepath.Join(c.Server.WorkDir, "downloads")
+	}
 	// UI defaults clamp
 	if c.Server.UIDefaults.WindowWidth < 480 {
 		c.Server.UIDefaults.WindowWidth = 480
@@ -352,6 +357,9 @@ func (a Config) Diff(b Config) []Change {
 	}
 	if a.Server.ScraperPath != b.Server.ScraperPath {
 		changes = append(changes, Change{Path: "server.scraper_path", A: a.Server.ScraperPath, B: b.Server.ScraperPath})
+	}
+	if a.Server.DownloadRootDir != b.Server.DownloadRootDir {
+		changes = append(changes, Change{Path: "server.download_root_dir", A: a.Server.DownloadRootDir, B: b.Server.DownloadRootDir})
 	}
 	if a.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
 		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: a.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})

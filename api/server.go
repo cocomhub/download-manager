@@ -36,36 +36,36 @@ func (s *Server) writeDisabled() bool {
 		if cfg.Runtime.Mode == config.RunModeUI {
 			return true
 		}
-		if cfg.Runtime.Mode == config.RunModeFull {
-			if cfg.Runtime.Download.Enabled || cfg.Runtime.Scheduler.Enabled {
-				return false
-			}
-			return true
-		}
+		// RunModeFull: blocked only when both features are disabled
+		return !cfg.Runtime.Download.Enabled && !cfg.Runtime.Scheduler.Enabled
 	}
 	st := s.mgr.FeaturesStatus()
-	if !st.Scheduler && !st.Workers {
-		return true
-	}
-	return false
+	return !st.Scheduler && !st.Workers
 }
 
-func (s *Server) wrapWrite(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if s.writeDisabled() {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error": "write operations disabled in ui-only mode",
-			})
+// writeMiddleware is a global middleware that blocks non-GET/HEAD requests
+// when write operations are disabled (UI-only mode or both features disabled).
+func (s *Server) writeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			next.ServeHTTP(w, r)
 			return
 		}
-		h(w, r)
-	}
+		if s.writeDisabled() {
+			writeJSONError(w, http.StatusMethodNotAllowed, "write_disabled",
+				"write operations are disabled in the current mode")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Router() *mux.Router {
 	r := mux.NewRouter()
+
+	// Global write middleware: blocks non-GET/HEAD requests when writes are disabled.
+	// Individual route .Methods() still restrict to specific HTTP methods on top of this.
+	r.Use(s.writeMiddleware)
 
 	// API Routes
 	r.HandleFunc("/api/runtime", s.getRuntime).Methods("GET")
@@ -74,11 +74,11 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
 	r.HandleFunc("/api/groups/{group}/objects", s.getGroupObjects).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", s.updateTaskPersistent).Methods("PUT")
-	r.HandleFunc("/api/tasks/{id}/retry", s.wrapWrite(s.retryTask)).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/cancel", s.wrapWrite(s.cancelTask)).Methods("POST")
-	r.HandleFunc("/api/tasks/cancel_batch", s.wrapWrite(s.cancelTasksBatch)).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/object/cancel", s.wrapWrite(s.cancelObject)).Methods("POST")
-	r.HandleFunc("/api/tasks/{id}/object/undo_cancel", s.wrapWrite(s.undoCancelObject)).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/cancel", s.cancelTask).Methods("POST")
+	r.HandleFunc("/api/tasks/cancel_batch", s.cancelTasksBatch).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/cancel", s.cancelObject).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/undo_cancel", s.undoCancelObject).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/cancel_batch", s.cancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/undo_cancel_batch", s.undoCancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")

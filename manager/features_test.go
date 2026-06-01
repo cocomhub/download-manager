@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestFeaturesStatus_UIOnly(t *testing.T) {
 	if fs.Scheduler || fs.Workers {
 		t.Fatalf("expected scheduler=false, workers=false in ui mode, got scheduler=%v workers=%v", fs.Scheduler, fs.Workers)
 	}
-	m.Stop()
+	m.Stop(context.Background())
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -50,7 +51,7 @@ func TestFeaturesStatus_Full(t *testing.T) {
 	if !fs.Scheduler || !fs.Workers {
 		t.Fatalf("expected scheduler=true, workers=true in full mode, got scheduler=%v workers=%v", fs.Scheduler, fs.Workers)
 	}
-	m.Stop()
+	m.Stop(context.Background())
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

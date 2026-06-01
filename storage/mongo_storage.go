@@ -46,6 +46,19 @@ func InitMongoClients(configs []struct{ Name, URI string }) error {
 	return nil
 }
 
+// CloseAllMongoClients disconnects all mongo clients gracefully.
+func CloseAllMongoClients() {
+	for name, client := range mongoClients {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := client.Disconnect(ctx); err != nil {
+			slog.Warn("Failed to disconnect mongo client", "source", name, "error", err)
+		} else {
+			slog.Info("Disconnected mongo client", "source", name)
+		}
+		cancel()
+	}
+}
+
 type MongoStorage struct {
 	client     *mongo.Client
 	dbName     string
