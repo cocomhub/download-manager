@@ -45,7 +45,6 @@ type BaseTask struct {
 	// Common runtime state
 	objects      []*model.DownloadObject
 	knownURLs    map[string]bool
-	markAsFailed sync.Map
 	concurrency  atomic.Int64
 	refreshInt   atomic.Int64
 }

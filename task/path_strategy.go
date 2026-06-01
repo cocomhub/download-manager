@@ -23,7 +23,7 @@ func NewPathStrategy(mode, baseDir string) core.PathStrategy {
 }
 
 func (s *simplePathStrategy) Resolve(baseDir string, taskID string, title string, fileType string) (string, string) {
-	dir := s.baseDir
+	var dir string
 	switch s.mode {
 	case "per_task_dir":
 		dir = filepath.Join(s.baseDir, taskID)

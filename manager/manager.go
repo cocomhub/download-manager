@@ -42,7 +42,6 @@ type Manager struct {
 	stopChan       chan struct{}
 	workerStop     chan struct{}
 	workerCount    int
-	lastBackupName string
 	taskQueues     sync.Map
 	schedulerStop  chan struct{}
 
@@ -1110,7 +1109,7 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 	groups := make(map[string][]groupEntry)
 	for _, to := range all {
 		key := scopedContentGroupKey(to.t.ID(), to.t.Type(), metadataContentGroup(to.obj))
-		groups[key] = append(groups[key], groupEntry{t: to.t, obj: to.obj})
+		groups[key] = append(groups[key], groupEntry(to))
 	}
 	// Pick representative by priority, tie -> first.
 	reps := make([]*model.DownloadObject, 0, len(groups))

@@ -223,7 +223,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 
 		// Write to log file
 		if f != nil {
-			f.WriteString(line + "\n")
+			_, _ = f.WriteString(line + "\n")
 		}
 
 		if trackProgress && progressObj != nil {

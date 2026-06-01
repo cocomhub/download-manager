@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -34,7 +33,6 @@ type NativeHTTPDownloader struct {
 	maxRetries        int
 	client            *http.Client
 	dLimiter          *DomainLimiter
-	active            sync.Map
 	ffmpegPath        string
 	hlsAutoMarkAsFail bool
 	coreClient        *dlcore.Client

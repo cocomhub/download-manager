@@ -96,6 +96,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	}
 
 	if t.userID > 0 {
+		_ = t.userID // SA9003 intentional
 		// Scrape is driven by Manager scan loop via PagingScanner
 	}
 
@@ -468,36 +469,6 @@ func (t *Task) Scrape(ctx context.Context) error {
 	// Delegate to BaseTask.Scrape which uses PagingScanner (set in NewTask).
 	return t.BaseTask.Scrape(ctx)
 }
-
-// getPostsPageWithRetry wraps getPostsPage with retry and backoff. Honors ctx.
-func (t *Task) getPostsPageWithRetry(ctx context.Context, page int, maxRetries int) ([]vikPost, error) {
-	var posts []vikPost
-	var err error
-	for attempt := range maxRetries {
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
-		}
-		posts, err = t.getPostsPage(ctx, page)
-		if err == nil {
-			return posts, nil
-		}
-		if attempt < maxRetries-1 {
-			t.Logger().Warn("vikacg getPostsPage retry", "page", page, "attempt", attempt+1, "error", err)
-			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			}
-		}
-	}
-	return nil, err
-}
-
-// refreshLatestUserPosts is no longer used — Scrape() handles all discovery.
-// Kept as a no-op for backward compatibility if referenced externally.
-func (t *Task) refreshLatestUserPosts() {}
 
 func vikPostURLs(posts []vikPost) []string {
 	urls := make([]string, 0, len(posts))

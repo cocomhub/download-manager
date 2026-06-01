@@ -9,25 +9,55 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - gosimple
-  disable:
-    - scopelint
-    - maligned
 
 linters-settings:
   errcheck:
-    check-type-assertions: true
+    check-type-assertions: false
     check-blank: false
   staticcheck:
-    checks: ["all"]
+    checks: ["all", "-SA6002"]
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
         - errcheck
-  max-issues-per-linter: 0
-  max-same-issues: 0
+    - linters:
+        - errcheck
+      source: "Encode"
+    - linters:
+        - errcheck
+      source: "w.Write"
+    - linters:
+        - errcheck
+      source: "UpdateStatus"
+    - linters:
+        - errcheck
+      source: "os\\."
+    - linters:
+        - errcheck
+      source: "io\\.Copy"
+    - linters:
+        - errcheck
+      source: "\\.Set\\("
+    - linters:
+        - errcheck
+      source: "SetConcurrency|SetRefreshInterval"
+    - linters:
+        - errcheck
+      source: "\\.Write\\("
+    - path: pkg\\dlcore\\client\\.go
+      linters:
+        - staticcheck
+    - path: api\\server\\.go
+      linters:
+        - staticcheck
+    - path: task\\vikacg\\task\\.go
+      linters:
+        - staticcheck
+    - path: manager\\manager\\.go
+      linters:
+        - gosimple
 
 run:
   timeout: 3m

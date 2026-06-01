@@ -20,7 +20,6 @@ var (
 	downloadURL = flag.String("url", "", "URL to download")
 	tunnelURL   = flag.String("tunnel", "http://129.226.212.209:18082", "Tunnel URL")
 	proxyURL    = flag.String("proxy", "http://129.226.212.209:18081", "Proxy URL")
-	outputFile  = flag.String("output", "out.data", "Output file name")
 	cookie      = flag.String("cookie", "", "Cookie string")
 )
 
@@ -90,7 +89,7 @@ func httpGet(url string) error {
 			return err
 		}
 		_, err = io.Copy(os.Stdout, strings.NewReader(body))
-		return nil
+		return err
 	}
 
 	resp, err := client.Do(req)
