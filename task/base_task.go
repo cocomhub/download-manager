@@ -43,10 +43,10 @@ type BaseTask struct {
 	scanner      *PagingScanner // optional PagingScanner, replaces buildScrapeHooks
 
 	// Common runtime state
-	objects      []*model.DownloadObject
-	knownURLs    map[string]bool
-	concurrency  atomic.Int64
-	refreshInt   atomic.Int64
+	objects     []*model.DownloadObject
+	knownURLs   map[string]bool
+	concurrency atomic.Int64
+	refreshInt  atomic.Int64
 }
 
 func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {

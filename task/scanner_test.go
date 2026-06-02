@@ -24,14 +24,16 @@ type mockAdapter struct {
 	getHeadersFn      func() map[string]string
 }
 
-func (m *mockAdapter) BuildPageURL(page int) string                              { return m.buildPageURLFn(page) }
-func (m *mockAdapter) RunScraper(url string) (string, error)                     { return m.runScraperFn(url) }
-func (m *mockAdapter) ParseTotalPages(html string) int                           { return m.parseTotalPagesFn(html) }
-func (m *mockAdapter) ParsePage(html string) (any, error)                        { return m.parsePageFn(html) }
-func (m *mockAdapter) ItemsToURLs(items any) []string                            { return m.itemsToURLsFn(items) }
-func (m *mockAdapter) BuildObject(items any, i int) (*model.DownloadObject, error) { return m.buildObjectFn(items, i) }
-func (m *mockAdapter) ResolveDetail(obj *model.DownloadObject) error             { return m.resolveDetailFn(obj) }
-func (m *mockAdapter) GetDownloadHeaders() map[string]string                     { return m.getHeadersFn() }
+func (m *mockAdapter) BuildPageURL(page int) string          { return m.buildPageURLFn(page) }
+func (m *mockAdapter) RunScraper(url string) (string, error) { return m.runScraperFn(url) }
+func (m *mockAdapter) ParseTotalPages(html string) int       { return m.parseTotalPagesFn(html) }
+func (m *mockAdapter) ParsePage(html string) (any, error)    { return m.parsePageFn(html) }
+func (m *mockAdapter) ItemsToURLs(items any) []string        { return m.itemsToURLsFn(items) }
+func (m *mockAdapter) BuildObject(items any, i int) (*model.DownloadObject, error) {
+	return m.buildObjectFn(items, i)
+}
+func (m *mockAdapter) ResolveDetail(obj *model.DownloadObject) error { return m.resolveDetailFn(obj) }
+func (m *mockAdapter) GetDownloadHeaders() map[string]string         { return m.getHeadersFn() }
 
 func newTestBaseTask(t *testing.T) *BaseTask {
 	t.Helper()

@@ -281,7 +281,7 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 	var req RetryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Allow empty body (err) for "retry all failed"
-			_ = err
+		_ = err
 	}
 
 	if req.URL != "" {
