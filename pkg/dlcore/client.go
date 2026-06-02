@@ -228,16 +228,23 @@ startDownload:
 
 	fmt.Fprintf(f, "Requesting URL: %s (Attempt %d)\n\n", urlStr, cnt)
 	c.dLimiter.Acquire(req.URL)
-	defer c.dLimiter.Release(req.URL)
 	slog.Info("Starting download", "downloader", "dlcore",
 		"url", urlStr, "path", req.SavePath, "log", logFile, "attempt", cnt)
 
 	dctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	c.active.Store(req.URL, cancel)
+
+	// cleanupDL must be called explicitly before each goto/return to avoid
+	// accumulating defers per retry iteration.
+	cleanupDL := func() {
+		c.active.Delete(req.URL)
+		cancel()
+		c.dLimiter.Release(req.URL)
+	}
 
 	hreq, err := http.NewRequestWithContext(dctx, "GET", urlStr, nil)
 	if err != nil {
+		cleanupDL()
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -251,9 +258,11 @@ startDownload:
 		printRequestHeaders(f, nreq)
 		resp, err = client.Do(nreq)
 		if resp != nil && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) {
+			cleanupDL()
 			return fmt.Errorf("%w: HTTP %d", ErrNoTry, resp.StatusCode)
 		}
 		if err != nil {
+			cleanupDL()
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
@@ -264,10 +273,12 @@ startDownload:
 			wantMd5 := TryGetMd5(resp)
 			if wantMd5 == "" {
 				fmt.Fprintf(f, "The file is already fully retrieved; nothing to do.")
+				cleanupDL()
 				return nil
 			}
 			base64MD5, hexMD5, err := computeFileMD5(rPath)
 			if err != nil {
+				cleanupDL()
 				return fmt.Errorf("failed to compute file MD5: %w", err)
 			}
 			if base64MD5 == wantMd5 || hexMD5 == wantMd5 {
@@ -284,6 +295,7 @@ startDownload:
 				}
 				req.Metadata["total_size"] = strconv.FormatInt(contentLength, 10)
 				req.Metadata["status"] = StatusCompleted
+				cleanupDL()
 				return nil
 			}
 			fmt.Fprintf(f, "MD5 check failed: want %s, got %s\n"+
@@ -305,9 +317,11 @@ startDownload:
 		printRequestHeaders(f, hreq)
 		resp, err = client.Do(hreq)
 		if resp != nil && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound) {
+			cleanupDL()
 			return fmt.Errorf("%w: HTTP %d", ErrNoTry, resp.StatusCode)
 		}
 		if err != nil {
+			cleanupDL()
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 		defer resp.Body.Close()
@@ -316,6 +330,7 @@ startDownload:
 
 	wantMd5 := TryGetMd5(resp)
 	if strings.Contains(urlStr, "tk") && wantMd5 == "" && (resp.ContentLength == 146 || resp.ContentLength == -1) {
+		cleanupDL()
 		return fmt.Errorf("%w: invalid content length: %d url:%s", ErrNoTry, resp.ContentLength, urlStr)
 	}
 
@@ -324,14 +339,17 @@ startDownload:
 			"\tTruncating existing file.\n")
 		startOffset = 0
 		resp.Body.Close()
+		cleanupDL()
 		goto startDownload
 	}
 
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
+		cleanupDL()
 		return fmt.Errorf("HTTP error: %s", resp.Status)
 	}
 	if strings.Contains(resp.Header.Get("Content-Type"), "text") &&
 		(strings.Contains(urlStr, "mp4") || strings.Contains(urlStr, "jpg")) {
+		cleanupDL()
 		return fmt.Errorf("%w: invalid content type: %s", ErrNoTry, resp.Header.Get("Content-Type"))
 	}
 
@@ -341,6 +359,7 @@ startDownload:
 		slog.Info("Server doesn't support resume, restarting download")
 		startOffset = 0 // 服务器不支持断点续传，重新开始下载
 		resp.Body.Close()
+		cleanupDL()
 		goto startDownload
 	}
 
@@ -368,12 +387,15 @@ startDownload:
 	}
 	file, err := os.OpenFile(rPath, fileFlags, 0644)
 	if err != nil {
+		cleanupDL()
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 	// 如果续传，定位到文件末尾
 	if startOffset > 0 {
 		if _, err = file.Seek(0, io.SeekEnd); err != nil {
+			file.Close()
+			cleanupDL()
 			return fmt.Errorf("failed to seek file: %w", err)
 		}
 	}
@@ -419,13 +441,14 @@ startDownload:
 
 	written, err := io.Copy(file, reader)
 	if err != nil {
-		c.active.Delete(req.URL)
+		cleanupDL()
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
 	if wantMd5 != "" {
 		base64MD5, hexMD5, err := computeFileMD5(rPath)
 		if err != nil {
+			cleanupDL()
 			return fmt.Errorf("failed to compute file MD5: %w", err)
 		}
 		if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
@@ -434,6 +457,7 @@ startDownload:
 				wantMd5, base64MD5, hexMD5)
 			startOffset = 0
 			resp.Body.Close()
+			cleanupDL()
 			goto startDownload
 		}
 		fmt.Fprintf(f, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
@@ -466,7 +490,7 @@ startDownload:
 	// 记录下载完成信息
 	fmt.Fprintf(f, "Download completed, total size: %d bytes\n", totalSize)
 	slog.Info("Download completed", "file", req.SavePath, "size", totalSize)
-	c.active.Delete(req.URL)
+	cleanupDL()
 	return nil
 }
 

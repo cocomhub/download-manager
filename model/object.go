@@ -61,6 +61,11 @@ func (o *DownloadObject) SetStatus(s string) {
 // Custom marshal is not strictly needed since json encoder reads the struct fields,
 // but we keep it explicit to ensure safety.
 func (o *DownloadObject) MarshalJSON() ([]byte, error) {
+	if o == nil {
+		return json.Marshal(nil)
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
 	// Use type alias to avoid infinite recursion
 	type Alias DownloadObject
 	return json.Marshal((*Alias)(o))

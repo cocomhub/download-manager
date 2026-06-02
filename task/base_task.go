@@ -180,7 +180,9 @@ func (b *BaseTask) GetAllObjects(lock bool) []*model.DownloadObject {
 			b.syncSharedToObjectLocked(obj)
 		}
 	}
-	return b.objects
+	result := make([]*model.DownloadObject, len(b.objects))
+	copy(result, b.objects)
+	return result
 }
 
 // Storage returns the task's storage backend.

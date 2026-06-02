@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -44,6 +45,9 @@ type Task struct {
 	pageEnd       int
 	prefetchQueue chan *model.DownloadObject
 	prefetchRate  int64
+	prefetchStop  chan struct{}
+	prefetchWg    sync.WaitGroup
+	prefetchRetry sync.Map // URL -> *int32
 
 	resolvedURLs sync.Map
 }
@@ -75,9 +79,13 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		pageEnd:       1,
 		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
 		prefetchRate:  configutil.GetInt64(extra, "prefetch_rate", 10),
+		prefetchStop:  make(chan struct{}),
 	}
 	// Start prefetch workers
-	go t.startPrefetchWorkers(3) // 3 parallel prefetchers
+	t.prefetchWg.Add(3)
+	for i := range 3 {
+		go t.prefetchWorker(i)
+	}
 
 	// Create PagingScanner for unified scrape pipeline
 	adapter := &tktubeAdapter{t: t}
@@ -89,6 +97,21 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+func (t *Task) Close() error {
+	close(t.prefetchStop)
+	t.prefetchWg.Wait()
+	// Drain any remaining items in the queue
+	for {
+		select {
+		case <-t.prefetchQueue:
+		default:
+			goto drained
+		}
+	}
+drained:
+	return t.BaseTask.Close()
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
@@ -251,8 +274,17 @@ func (t *Task) parseTotalPages(html string) int {
 	return lastPage
 }
 
+const maxPrefetchRetries = 3
+
+func (t *Task) incrementPrefetchRetry(key string) int {
+	v, _ := t.prefetchRetry.LoadOrStore(key, new(int32))
+	return int(atomic.AddInt32(v.(*int32), 1))
+}
+
 func (t *Task) queuePrefetch(obj *model.DownloadObject) {
 	select {
+	case <-t.prefetchStop:
+		return
 	case t.prefetchQueue <- obj:
 	default:
 		// Queue full, ignore
@@ -261,16 +293,21 @@ func (t *Task) queuePrefetch(obj *model.DownloadObject) {
 
 // --- Prefetch Logic ---
 
-func (t *Task) startPrefetchWorkers(count int) {
-	for i := range count {
-		go func(workerID int) {
-			for obj := range t.prefetchQueue {
-				if t.prefetchRate > 0 {
-					time.Sleep(time.Duration(1000/t.prefetchRate) * time.Millisecond)
-				}
-				t.prefetchAssets(obj)
+func (t *Task) prefetchWorker(workerID int) {
+	defer t.prefetchWg.Done()
+	for {
+		select {
+		case <-t.prefetchStop:
+			return
+		case obj, ok := <-t.prefetchQueue:
+			if !ok {
+				return
 			}
-		}(i)
+			if t.prefetchRate > 0 {
+				time.Sleep(time.Duration(1000/t.prefetchRate) * time.Millisecond)
+			}
+			t.prefetchAssets(obj)
+		}
 	}
 }
 
@@ -305,10 +342,16 @@ func (t *Task) prefetchAssets(obj *model.DownloadObject) {
 			t.Logger().Debug("Prefetched preview", "title", obj.Metadata["title"])
 		} else {
 			t.Logger().Warn("Failed to prefetch preview, retrying later", "url", previewURL, "error", err)
-			go func() {
-				time.Sleep(10 * time.Second)
-				t.queuePrefetch(obj)
-			}()
+			retries := t.incrementPrefetchRetry(obj.URL + ":preview")
+			if retries < maxPrefetchRetries {
+				go func() {
+					select {
+					case <-t.prefetchStop:
+					case <-time.After(10 * time.Second):
+						t.queuePrefetch(obj)
+					}
+				}()
+			}
 			return
 		}
 	}
@@ -326,10 +369,16 @@ func (t *Task) prefetchAssets(obj *model.DownloadObject) {
 			t.FlushObject(obj)
 			t.Logger().Debug("Prefetched cover", "title", obj.Metadata["title"])
 		} else {
-			go func() {
-				time.Sleep(10 * time.Second)
-				t.queuePrefetch(obj)
-			}()
+			retries := t.incrementPrefetchRetry(obj.URL + ":cover")
+			if retries < maxPrefetchRetries {
+				go func() {
+					select {
+					case <-t.prefetchStop:
+					case <-time.After(10 * time.Second):
+						t.queuePrefetch(obj)
+					}
+				}()
+			}
 		}
 	}
 }

@@ -90,7 +90,7 @@ func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval
 	if result["concurrency"] || result["refresh_interval"] {
 		// Persist to config file
 		m.mu.Lock()
-		cfgCopy := *m.cfg
+		cfgCopy := *m.currentCfg()
 		for i := range cfgCopy.Tasks {
 			if cfgCopy.Tasks[i].ID == taskID {
 				if cfgCopy.Tasks[i].Extra == nil {

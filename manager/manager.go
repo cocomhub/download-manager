@@ -362,7 +362,24 @@ func (m *Manager) Start() {
 func (m *Manager) Stop(ctx context.Context) {
 	slog.Info("Manager stopping")
 
-	// Mark all in-flight downloading objects as failed
+	// 1. Signal workers to stop first — no new downloads
+	close(m.stopChan)
+
+	// 2. Wait for workers and force-downloads with context deadline
+	done := make(chan struct{})
+	go func() {
+		m.workerWg.Wait()
+		m.forceWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		slog.Info("All workers stopped")
+	case <-ctx.Done():
+		slog.Warn("Shutdown timed out, some workers may still be running")
+	}
+
+	// 3. Mark survivors (e.g. force-download goroutines that didn't finish) as failed
 	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
 		if t, ok := m.getTask(obj.TaskID); ok {
@@ -372,8 +389,6 @@ func (m *Manager) Stop(ctx context.Context) {
 		}
 		return true
 	})
-
-	close(m.stopChan)
 }
 
 // WaitForShutdown waits for workers and force-downloads to finish, then flushes storages.
@@ -535,7 +550,6 @@ func (m *Manager) processTask(t core.Task) {
 			active++
 			m.mu.Unlock()
 			count++
-			slotsAvailable--
 		default:
 			// Queue full, abort scheduling for now
 			// Remove from downloadingObj map since we didn't schedule it
@@ -703,6 +717,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		// Broadcast task update on finish
 		m.BroadcastTaskUpdate(t.ID())
 	}()
+
+	// Check if manager is stopping — avoids overwriting status set by Stop()
+	select {
+	case <-m.stopChan:
+		slog.Info("Download skipped — manager stopping", "url", obj.URL)
+		return
+	default:
+	}
 
 	t.UpdateStatus(obj, dlcore.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -1475,6 +1497,37 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Runtime adjustments
 	m.adjustGlobalWorkers(newCfg.Downloader.GlobalConcurrent)
 	m.applyTaskRuntime(newCfg)
+
+	// Reconcile scheduler runtime state
+	cfg := m.currentCfg()
+	schedulerWanted := cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
+	if schedulerWanted && !m.schedulerEnabled.Load() {
+		m.schedulerEnabled.Store(true)
+		m.schedulerStop = make(chan struct{})
+		go m.scheduler()
+		slog.Info("Scheduler started via config update")
+	} else if !schedulerWanted && m.schedulerEnabled.Load() {
+		if m.schedulerStop != nil {
+			close(m.schedulerStop)
+		}
+		m.schedulerEnabled.Store(false)
+		slog.Info("Scheduler stopped via config update")
+	}
+
+	// Reconcile worker runtime state
+	workersWanted := cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled
+	if workersWanted && !m.workersEnabled.Load() {
+		m.workersEnabled.Store(true)
+		m.adjustGlobalWorkers(cfg.Downloader.GlobalConcurrent)
+		slog.Info("Workers enabled via config update")
+	} else if !workersWanted && m.workersEnabled.Load() {
+		m.workersEnabled.Store(false)
+		for i := 0; i < m.workerCount; i++ {
+			m.workerStop <- struct{}{}
+		}
+		slog.Info("Workers disabled via config update")
+	}
+
 	// Load missing tasks
 	m.loadTasks()
 	// Notify
