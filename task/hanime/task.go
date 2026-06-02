@@ -391,7 +391,7 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 			}
 		}
 	})
-	if vurl == "" && info.date == "" {
+	if vurl == "" {
 		return nil, fmt.Errorf("video url not found")
 	}
 	info.videoURL = vurl

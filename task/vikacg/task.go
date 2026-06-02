@@ -141,7 +141,8 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 					pending = append(pending, newObj)
 					continue
 				} else {
-					t.Logger().Warn("vikacg re-scrape failed", "url", o.URL, "error", err)
+					t.Logger().Warn("vikacg re-scrape failed, will retry next cycle", "url", o.URL, "error", err)
+					t.resolved2URLs.Delete(o.URL)
 				}
 			}
 			pending = append(pending, o)

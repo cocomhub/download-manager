@@ -765,6 +765,8 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	} else {
 		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
+		// Reset failed count on success
+		m.failedCount.Delete(obj.URL)
 		// Apply group priority policies for content groups
 		m.applyGroupPriorityPolicies(t, obj)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {

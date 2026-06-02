@@ -5,6 +5,7 @@ package tktube
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -193,7 +194,11 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 				if err := t.resolveVideoDetails(o); err != nil {
 					t.Logger().Error("Failed to resolve video details", "url", o.URL, "error", err)
-					t.UpdateStatus(o, dlcore.StatusFailed, err)
+					// resolveVideoDetails already calls MarkAsFailed for ErrNoFlashvars
+					// (which sets failed_permanent). Don't overwrite with generic StatusFailed.
+					if !errors.Is(err, ErrNoFlashvars) {
+						t.UpdateStatus(o, dlcore.StatusFailed, err)
+					}
 				} else {
 					mu.Lock()
 					t.resolvedURLs.Store(o.URL, true)
