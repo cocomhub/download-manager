@@ -678,51 +678,13 @@ func (c *Client) checkDirect(req *Request) bool {
 		return false
 	}
 	timeoutSecs := c.directProbeTimeoutSecs
-	if timeoutSecs <= 0 {
-		timeoutSecs = 3
-	}
-	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	hreq, err := http.NewRequest("HEAD", req.URL, nil)
-	if err != nil {
-		return false
-	}
-	c.addBrowserLikeHeaders(req, hreq)
-	resp, err := client.Do(hreq)
-	if err != nil || resp.StatusCode != 200 {
-		return false
-	}
-	defer resp.Body.Close()
-	return true
+	return CheckDirect(req.URL, c.forceProxy, timeoutSecs)
 }
 
 func (c *Client) getProxyBandwidth(proxyURL string) float64 {
 	suffix := c.bandwidthPathSuffix
-	if strings.TrimSpace(suffix) == "" {
-		suffix = "/bandwidth"
-	}
-	if !strings.HasPrefix(suffix, "/") {
-		suffix = "/" + suffix
-	}
-	target := fmt.Sprintf("%s%s", strings.TrimRight(proxyURL, "/"), suffix)
 	timeoutSecs := c.directProbeTimeoutSecs
-	if timeoutSecs <= 0 {
-		timeoutSecs = 3
-	}
-	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	resp, err := client.Get(target)
-	if err != nil {
-		return 999999
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 999999
-	}
-	val, err := strconv.ParseFloat(strings.TrimSpace(string(body)), 64)
-	if err != nil {
-		return 999999
-	}
-	return val
+	return GetProxyBandwidth(proxyURL, suffix, timeoutSecs)
 }
 
 func printRequestHeaders(f io.Writer, req *http.Request) {

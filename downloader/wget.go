@@ -6,9 +6,7 @@ package downloader
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -22,12 +20,13 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 type WgetDownloader struct {
 	logDir     string
 	proxies    []string
-	cacheFile  string
+	cacheDir   string
 	forceProxy bool
 	active     sync.Map
 }
@@ -47,7 +46,7 @@ func NewWgetDownloader(cfg config.Downloader) *WgetDownloader {
 	return &WgetDownloader{
 		logDir:     logDir,
 		proxies:    cfg.Proxies,
-		cacheFile:  filepath.Join(home, ".config/download-manager/proxy_cache"),
+		cacheDir:   filepath.Join(home, ".config/download-manager/proxy_cache"),
 		forceProxy: cfg.ForceProxy,
 	}
 }
@@ -270,7 +269,7 @@ func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
 	domain := u.Host
 
 	// Check cache
-	cachePath := filepath.Join(filepath.Dir(d.cacheFile), domain)
+	cachePath := filepath.Join(d.cacheDir, domain)
 	if info, err := os.Stat(cachePath); err == nil {
 		if time.Since(info.ModTime()) < 1*time.Second { // 1s TTL
 			content, _ := os.ReadFile(cachePath)
@@ -283,7 +282,7 @@ func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
 	}
 
 	// Check Direct
-	if d.checkDirect(targetURL) {
+	if dlcore.CheckDirect(targetURL, d.forceProxy, 3) {
 		d.writeCache(domain, "direct")
 		return "", nil
 	}
@@ -293,7 +292,7 @@ func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
 	minBandwidth := 999999.0
 
 	for _, p := range d.proxies {
-		bw := d.getProxyBandwidth(p)
+		bw := dlcore.GetProxyBandwidth(p, "/bandwidth", 3)
 		if bw < minBandwidth {
 			minBandwidth = bw
 			bestProxy = p
@@ -309,49 +308,15 @@ func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
 }
 
 func (d *WgetDownloader) checkDirect(url string) bool {
-	if d.forceProxy {
-		return false
-	}
-
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-	}
-	// Use Head to check connectivity quickly
-	resp, err := client.Head(url)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return true
+	return dlcore.CheckDirect(url, d.forceProxy, 3)
 }
 
 func (d *WgetDownloader) getProxyBandwidth(proxyURL string) float64 {
-	// Proxy bandwidth endpoint: proxy_url + "/bandwidth"
-	target := fmt.Sprintf("%s/bandwidth", strings.TrimRight(proxyURL, "/"))
-
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-	}
-	resp, err := client.Get(target)
-	if err != nil {
-		return 999999
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 999999
-	}
-
-	val, err := strconv.ParseFloat(strings.TrimSpace(string(body)), 64)
-	if err != nil {
-		return 999999
-	}
-	return val
+	return dlcore.GetProxyBandwidth(proxyURL, "/bandwidth", 3)
 }
 
 func (d *WgetDownloader) writeCache(domain, status string) {
-	cachePath := filepath.Join(filepath.Dir(d.cacheFile), domain)
+	cachePath := filepath.Join(d.cacheDir, domain)
 	os.MkdirAll(filepath.Dir(cachePath), 0755)
 	os.WriteFile(cachePath, []byte(status), 0644)
 }

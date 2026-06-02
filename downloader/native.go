@@ -26,13 +26,13 @@ var (
 )
 
 type NativeHTTPDownloader struct {
+	ctx               context.Context
 	logDir            string
 	proxies           []string
 	cacheFile         string
 	forceProxy        bool
 	maxRetries        int
 	client            *http.Client
-	dLimiter          *DomainLimiter
 	ffmpegPath        string
 	hlsAutoMarkAsFail bool
 	coreClient        *dlcore.Client
@@ -111,17 +111,17 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 		forceProxy:        cfg.ForceProxy,
 		maxRetries:        cfg.MaxRetries,
 		client:            client,
-		dLimiter:          NewDomainLimiter(),
 		ffmpegPath:        cfg.FfmpegPath,
 		hlsAutoMarkAsFail: cfg.HlsAutoMarkAsFail,
 		coreClient:        coreClient,
 	}
 }
 
+func (d *NativeHTTPDownloader) SetContext(ctx context.Context) {
+	d.ctx = ctx
+}
+
 func (d *NativeHTTPDownloader) ApplyDomainLimits(limits map[string]int) {
-	for host, max := range limits {
-		d.dLimiter.Set(host, max)
-	}
 	if d.coreClient != nil {
 		d.coreClient.ApplyDomainLimits(limits)
 	}
@@ -132,7 +132,7 @@ func (d *NativeHTTPDownloader) Name() string {
 }
 
 func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	// 复合下载逻辑保持不变
+	// 复合下载逻辑
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
 
@@ -191,7 +191,11 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 				},
 				Metadata: fileMap,
 			}
-			if err := d.coreClient.Download(context.Background(), req); err != nil {
+			dlCtx := d.ctx
+			if dlCtx == nil {
+				dlCtx = context.Background()
+			}
+			if err := d.coreClient.Download(dlCtx, req); err != nil {
 				return err
 			}
 		}
@@ -210,7 +214,11 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		},
 		Metadata: obj.Metadata,
 	}
-	if err := d.coreClient.Download(context.Background(), req); err != nil {
+	dlCtx := d.ctx
+	if dlCtx == nil {
+		dlCtx = context.Background()
+	}
+	if err := d.coreClient.Download(dlCtx, req); err != nil {
 		return err
 	}
 	return nil

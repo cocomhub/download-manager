@@ -8,7 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/m3u8d"
@@ -88,9 +90,9 @@ func main() {
 	defer cancel()
 
 	// 捕获中断信号
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sig := make(chan os.Signal, 1)
-		// signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
 		cancel()
 		fmt.Println("\n正在退出...")

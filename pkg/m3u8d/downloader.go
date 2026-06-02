@@ -201,8 +201,12 @@ retry:
 			completed++
 
 			if resp != nil && resp.Err() != nil {
-				fmt.Printf("下载失败: %s - %v - %v\n", filepath.Base(resp.Filename), resp.HTTPResponse.Status, resp.Err())
-				if resp.HTTPResponse.StatusCode == 472 {
+				status := "unknown"
+				if resp.HTTPResponse != nil {
+					status = resp.HTTPResponse.Status
+				}
+				fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
+				if resp.HTTPResponse != nil && resp.HTTPResponse.StatusCode == 472 {
 					d.Config.Concurrency = 1
 				}
 				req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
@@ -272,7 +276,11 @@ func (d *M3U8Downloader) parseM3U8(ctx context.Context, m3u8URL, localPath strin
 		return nil, err
 	}
 
-	os.Rename(localPath, localPath+".bak")
+	if err := os.Rename(localPath, localPath+".bak"); err != nil {
+		if d.Config.Verbose {
+			fmt.Printf("Warning: failed to backup m3u8 file: %v\n", err)
+		}
+	}
 
 	// 计算基础URL
 	base, err := url.Parse(m3u8URL)
@@ -391,11 +399,22 @@ func (d *M3U8Downloader) DownloadAll(ctx context.Context) (string, error) {
 		return mainM3U8Path, ErrNotEnoughFiles
 	}
 
-	// 并发下载
-	if err := d.downloadFilesConcurrently(ctx, tasks); err != nil {
-		if err := d.downloadFilesConcurrently(ctx, tasks); err != nil {
-			return "", fmt.Errorf("下载失败: %v", err)
+	// 并发下载（最多重试一次）
+	const maxAttempts = 2
+	var lastErr error
+	for attempt := range maxAttempts {
+		if attempt > 0 {
+			fmt.Printf("重试 %d/%d 下载文件...\n", attempt+1, maxAttempts)
 		}
+		if err := d.downloadFilesConcurrently(ctx, tasks); err != nil {
+			lastErr = err
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("下载失败: %v", lastErr)
 	}
 
 	return mainM3U8Path, nil

@@ -734,6 +734,22 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	dl := m.downloader
 	m.mu.Unlock()
 
+	// Create per-download context tied to manager lifecycle for cancellation
+	dlCtx, dlCancel := context.WithCancel(context.Background())
+	defer dlCancel()
+	go func() {
+		select {
+		case <-m.stopChan:
+			dlCancel()
+		case <-dlCtx.Done():
+		}
+	}()
+
+	// Propagate context to NativeHTTPDownloader if supported
+	if nd, ok := dl.(*downloader.NativeHTTPDownloader); ok {
+		nd.SetContext(dlCtx)
+	}
+
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
 		if obj.GetStatus() == dlcore.StatusCancelled {
