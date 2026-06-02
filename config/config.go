@@ -13,13 +13,14 @@ import (
 )
 
 type Config struct {
-	Server     Server            `yaml:"server" json:"server"`
-	Log        logutil.LogConfig `yaml:"log" json:"log"`
-	Mongo      []MongoSource     `yaml:"mongo" json:"mongo"`
-	Downloader Downloader        `yaml:"downloader" json:"downloader"`
-	TaskScan   TaskScan          `yaml:"task_scan" json:"task_scan"`
-	Runtime    Runtime           `yaml:"runtime" json:"runtime"`
-	Tasks      []Task            `yaml:"tasks" json:"tasks"`
+	Server     Server             `yaml:"server" json:"server"`
+	Log        logutil.LogConfig  `yaml:"log" json:"log"`
+	Mongo      []MongoSource      `yaml:"mongo" json:"mongo"`
+	Downloader Downloader         `yaml:"downloader" json:"downloader"`
+	TaskScan   TaskScan           `yaml:"task_scan" json:"task_scan"`
+	Runtime    Runtime            `yaml:"runtime" json:"runtime"`
+	Contexts   map[string]Context `yaml:"contexts" json:"contexts"`
+	Tasks      []Task             `yaml:"tasks" json:"tasks"`
 }
 
 type RunMode string
@@ -134,16 +135,24 @@ type UIDefaults struct {
 }
 
 type Task struct {
-	ID      string         `yaml:"id" json:"id"`
-	Type    string         `yaml:"type" json:"type"`
-	SaveDir string         `yaml:"save_dir" json:"save_dir"`
-	Storage StorageConfig  `yaml:"storage" json:"storage"`
-	Extra   map[string]any `yaml:"extra" json:"extra"`
+	ID             string         `yaml:"id" json:"id"`
+	Type           string         `yaml:"type" json:"type"`
+	SaveDir        string         `yaml:"save_dir" json:"save_dir"`
+	Storage        StorageConfig  `yaml:"storage" json:"storage"`
+	StorageContext string         `yaml:"storage_context" json:"storage_context"`
+	Extra          map[string]any `yaml:"extra" json:"extra"`
 }
 
 type StorageConfig struct {
 	Type   string            `yaml:"type" json:"type"`
 	Config map[string]string `yaml:"config" json:"config"`
+}
+
+// Context defines a named set of common task settings that tasks can reference
+// by name via Task.StorageContext. Designed to be extensible for future settings
+// (e.g., proxy, downloader overrides) beyond storage.
+type Context struct {
+	Storage StorageConfig `yaml:"storage" json:"storage"`
 }
 
 func clampInt(v, min, max int) int {
@@ -326,6 +335,32 @@ func (c *Config) ValidateAndClamp() {
 	if c.Downloader.FFmpeg.Path == "" {
 		c.Downloader.FFmpeg.Path = "ffmpeg"
 	}
+
+	// Context resolution: substitute named context references for inline storage.
+	// Precedence: explicit inline storage (Storage.Type != "") > storage_context
+	// reference > zero value. A task with both keeps inline storage; the context
+	// name is preserved in the struct for round-trip fidelity.
+	for i := range c.Tasks {
+		t := &c.Tasks[i]
+		if t.StorageContext == "" {
+			continue
+		}
+		if t.Storage.Type != "" {
+			continue // explicit inline takes precedence
+		}
+		if len(c.Contexts) == 0 {
+			slog.Warn("task references context but no contexts defined",
+				"task_id", t.ID, "context", t.StorageContext)
+			continue
+		}
+		ctx, ok := c.Contexts[t.StorageContext]
+		if !ok {
+			slog.Warn("task references unknown context",
+				"task_id", t.ID, "context", t.StorageContext)
+			continue
+		}
+		t.Storage = ctx.Storage
+	}
 }
 
 type Change struct {
@@ -495,6 +530,10 @@ func (a Config) Diff(b Config) []Change {
 	if a.TaskScan.Interval != b.TaskScan.Interval {
 		changes = append(changes, Change{Path: "task_scan.interval", A: a.TaskScan.Interval, B: b.TaskScan.Interval})
 	}
+	// Contexts
+	if !reflect.DeepEqual(a.Contexts, b.Contexts) {
+		changes = append(changes, Change{Path: "contexts", A: a.Contexts, B: b.Contexts})
+	}
 	// Tasks
 	for _, ta := range a.Tasks {
 		j := taskIndex(b.Tasks, ta.ID)
@@ -511,6 +550,9 @@ func (a Config) Diff(b Config) []Change {
 		}
 		if ta.Storage.Type != tb.Storage.Type || !reflect.DeepEqual(ta.Storage.Config, tb.Storage.Config) {
 			changes = append(changes, Change{Path: "tasks." + ta.ID + ".storage", A: ta.Storage, B: tb.Storage})
+		}
+		if ta.StorageContext != tb.StorageContext {
+			changes = append(changes, Change{Path: "tasks." + ta.ID + ".storage_context", A: ta.StorageContext, B: tb.StorageContext})
 		}
 		if !reflect.DeepEqual(ta.Extra, tb.Extra) {
 			changes = append(changes, Change{Path: "tasks." + ta.ID + ".extra", A: ta.Extra, B: tb.Extra})

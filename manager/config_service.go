@@ -285,7 +285,7 @@ func (cs *ConfigService) WriteConfigWithComments(cfg *config.Config) error {
 	}
 	dst := origRoot.Content[0]
 	src := newRoot.Content[0]
-	for _, key := range []string{"server", "log", "mongo", "downloader", "task_scan"} {
+	for _, key := range []string{"server", "log", "mongo", "downloader", "task_scan", "contexts"} {
 		_, val, _ := mapGet(src, key)
 		if val != nil {
 			mapSet(dst, key, val)
@@ -316,7 +316,7 @@ func (cs *ConfigService) WriteConfigWithComments(cfg *config.Config) error {
 				continue
 			}
 			if dItem, ok := dstMap[sId.Value]; ok {
-				for _, k := range []string{"type", "save_dir", "storage", "extra"} {
+				for _, k := range []string{"type", "save_dir", "storage", "storage_context", "extra"} {
 					_, sVal, _ := mapGet(sItem, k)
 					if sVal != nil {
 						mapSet(dItem, k, sVal)
