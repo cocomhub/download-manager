@@ -111,6 +111,7 @@ const (
 	EventTaskListChange     EventType = "task_list_change"     // 任务列表变动 (添加/删除任务)
 	EventObjectUpdate       EventType = "object_update"        // 对象状态/进度更新
 	EventSharedObjectUpdate EventType = "shared_object_update" // 共享对象状态更新
+	EventProgressBatch      EventType = "progress_batch"       // 批量进度广播
 )
 
 // Event 系统事件

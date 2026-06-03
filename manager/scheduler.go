@@ -250,6 +250,12 @@ func (m *Manager) processTask(t core.Task) {
 			active++
 			m.mu.Unlock()
 			count++
+
+			// 通知调度器：有新的待处理对象
+			select {
+			case m.schedulerSignal <- struct{}{}:
+			default:
+			}
 		default:
 			// Queue full, abort scheduling for now
 			// Remove from downloadingObj map since we didn't schedule it
@@ -263,8 +269,16 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 	if v, ok := m.taskQueues.Load(taskID); ok {
 		return v.(chan *downloadRequest)
 	}
-	// size 32 per task queue
-	q := make(chan *downloadRequest, 32)
+	// 动态容量：根据任务并发度计算，保证充分缓冲
+	cap := 64 // default
+	if t, ok := m.getTask(taskID); ok {
+		concurrency := t.Concurrency()
+		if concurrency > 0 {
+			cap = max(concurrency*8, 32)
+		}
+	}
+	cap = min(cap, 256)
+	q := make(chan *downloadRequest, cap)
 	if v, loaded := m.taskQueues.LoadOrStore(taskID, q); loaded {
 		return v.(chan *downloadRequest)
 	}
@@ -273,15 +287,53 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 
 func (m *Manager) scheduler() {
 	const maxSchedulerWeight = 8
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+	fallbackTicker := time.NewTicker(500 * time.Millisecond)
+	defer fallbackTicker.Stop()
 	weights := make(map[string]int)
 	lastUpdate := time.Now()
+
+	drainOnce := func() {
+		ids := make([]string, 0, 64)
+		m.tasks.Range(func(key, value any) bool {
+			ids = append(ids, key.(string))
+			return true
+		})
+		expanded := make([]string, 0, len(ids)*maxSchedulerWeight)
+		for _, id := range ids {
+			w := weights[id]
+			if w <= 0 {
+				w = 1
+			}
+			for i := 0; i < w; i++ {
+				expanded = append(expanded, id)
+			}
+		}
+	outerLoop:
+		for _, id := range expanded {
+			q := m.getTaskQueue(id)
+			select {
+			case req := <-q:
+				select {
+				case m.downloadQueue <- req:
+				default:
+					// global queue full, put back
+					select {
+					case q <- req:
+					default:
+						// task queue also full, drop -- next scan() will re-enqueue
+					}
+					break outerLoop
+				}
+			default:
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-m.schedulerStop:
 			return
-		case <-ticker.C:
+		case <-fallbackTicker.C:
 			if time.Since(lastUpdate) > 2*time.Second {
 				weights = make(map[string]int)
 				m.tasks.Range(func(key, value any) bool {
@@ -306,40 +358,9 @@ func (m *Manager) scheduler() {
 				})
 				lastUpdate = time.Now()
 			}
-			ids := make([]string, 0, 64)
-			m.tasks.Range(func(key, value any) bool {
-				ids = append(ids, key.(string))
-				return true
-			})
-			expanded := make([]string, 0, len(ids)*maxSchedulerWeight)
-			for _, id := range ids {
-				w := weights[id]
-				if w <= 0 {
-					w = 1
-				}
-				for i := 0; i < w; i++ {
-					expanded = append(expanded, id)
-				}
-			}
-		outerLoop:
-			for _, id := range expanded {
-				q := m.getTaskQueue(id)
-				select {
-				case req := <-q:
-					select {
-					case m.downloadQueue <- req:
-					default:
-						// global queue full, put back
-						select {
-						case q <- req:
-						default:
-							// task queue also full, drop -- next scan() will re-enqueue
-						}
-						break outerLoop
-					}
-				default:
-				}
-			}
+			drainOnce()
+		case <-m.schedulerSignal:
+			drainOnce()
 		}
 	}
 }

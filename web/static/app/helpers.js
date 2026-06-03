@@ -392,6 +392,25 @@
             if (ti >= 0) { this.tasks[ti] = Object.assign({}, this.tasks[ti], summary) }
           } else if (event.type === 'task_list_change') {
             this.fetchTasks()
+          } else if (event.type === 'progress_batch') {
+            var updates = event.payload.updates
+            if (updates && updates.length > 0) {
+              for (var pi = 0; pi < updates.length; pi++) {
+                var item = updates[pi]
+                var aidx = this.activeDownloads.findIndex(function (d) { return d.url === item.url })
+                if (aidx >= 0) {
+                  this.activeDownloads[aidx].progress = item.progress
+                }
+                if (this.selectedTask && this.selectedTask.objects) {
+                  var currentObj = this.selectedTask.objects.find(function (o) { return o.url === item.url })
+                  if (currentObj) { currentObj.progress = item.progress }
+                }
+                if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
+                  var idxAgg = this.tktubeObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
+                  if (idxAgg >= 0) { this.tktubeObjects[idxAgg].progress = item.progress }
+                }
+              }
+            }
           }
         },
 

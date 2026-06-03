@@ -29,17 +29,18 @@ type downloadRequest struct {
 }
 
 type Manager struct {
-	cfg           *config.Config
-	cfgVal        atomic.Value
-	configSvc     *ConfigService
-	aggSvc        *AggregationService
-	tasks         sync.Map
-	downloader    core.Downloader
-	stopChan      chan struct{}
-	workerStop    chan struct{}
-	workerCount   int
-	taskQueues    sync.Map
-	schedulerStop chan struct{}
+	cfg             *config.Config
+	cfgVal          atomic.Value
+	configSvc       *ConfigService
+	aggSvc          *AggregationService
+	tasks           sync.Map
+	downloader      core.Downloader
+	stopChan        chan struct{}
+	workerStop      chan struct{}
+	workerCount     int
+	taskQueues      sync.Map
+	schedulerStop   chan struct{}
+	schedulerSignal chan struct{} // buffered(1): enqueue -> wake scheduler. Fixed channel, initialized once in NewManager, not rebuilt on restart.
 
 	// Concurrency control
 	activeDownloads map[string]int // TaskID -> Active Count (Just for stats/per-task limit if needed)
@@ -110,8 +111,9 @@ func NewManager(cfg *config.Config) *Manager {
 		downloader:      downloader.New(cfg.Downloader),
 		stopChan:        make(chan struct{}),
 		workerStop:      make(chan struct{}, 256),
+		schedulerSignal: make(chan struct{}, 1),
 		activeDownloads: make(map[string]int),
-		downloadQueue:   make(chan *downloadRequest, max(globalLimit*2, 10)), // Buffer size
+		downloadQueue:   make(chan *downloadRequest, max(globalLimit*8, 64)), // Buffer size
 		subscribers:     make(map[<-chan core.Event]chan core.Event),
 		urlRegistry:     NewURLStateRegistry(),
 	}

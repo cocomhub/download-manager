@@ -11,6 +11,19 @@ import (
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
+// ProgressBatch 包含一次广播周期内所有对象的进度变更
+type ProgressBatch struct {
+	Updates []ProgressItem `json:"updates"`
+}
+
+type ProgressItem struct {
+	TaskID   string `json:"task_id"`
+	URL      string `json:"url"`
+	Progress int    `json:"progress"`
+	Status   string `json:"status"`
+	Title    string `json:"title,omitempty"`
+}
+
 func (m *Manager) Subscribe() <-chan core.Event {
 	m.eventMu.Lock()
 	defer m.eventMu.Unlock()
@@ -42,18 +55,32 @@ func (m *Manager) publish(e core.Event) {
 }
 
 func (m *Manager) broadcastProgress() {
+	batch := &ProgressBatch{
+		Updates: make([]ProgressItem, 0, 64),
+	}
 	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
 
 		// Check if progress has changed
 		last, loaded := m.lastProgress.LoadOrStore(obj.URL, -1)
 		if !loaded || last.(int) != obj.GetProgress() {
-			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+			item := ProgressItem{
+				TaskID:   obj.TaskID,
+				URL:      obj.URL,
+				Progress: obj.GetProgress(),
+				Status:   obj.GetStatus(),
+			}
+			if obj.Metadata != nil {
+				item.Title = obj.Metadata["title"]
+			}
+			batch.Updates = append(batch.Updates, item)
 			m.lastProgress.Store(obj.URL, obj.GetProgress())
 		}
 		return true
 	})
+	if len(batch.Updates) > 0 {
+		m.publish(core.Event{Type: core.EventProgressBatch, Payload: batch})
+	}
 }
 
 func (m *Manager) BroadcastTaskUpdate(taskID string) {

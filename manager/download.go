@@ -32,6 +32,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 		// Broadcast task update on finish
 		m.BroadcastTaskUpdate(t.ID())
+
+		// 通知调度器：可能有新槽位可用
+		select {
+		case m.schedulerSignal <- struct{}{}:
+		default:
+		}
 	}()
 
 	// Check if manager is stopping — avoids overwriting status set by Stop()
@@ -297,6 +303,11 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	}
 	if count > 0 {
 		go m.processTask(t)
+		// 通知调度器：有新的待处理对象
+		select {
+		case m.schedulerSignal <- struct{}{}:
+		default:
+		}
 	}
 	return nil
 }

@@ -62,6 +62,10 @@ func (m *Manager) CancelTask(taskID string) error {
 				m.activeDownloads[taskID]--
 			}
 			m.mu.Unlock()
+			select {
+			case m.schedulerSignal <- struct{}{}:
+			default:
+			}
 		}
 	}
 	m.BroadcastTaskUpdate(taskID)
@@ -111,6 +115,10 @@ func (m *Manager) CancelObject(taskID, url string) error {
 			m.activeDownloads[taskID]--
 		}
 		m.mu.Unlock()
+		select {
+		case m.schedulerSignal <- struct{}{}:
+		default:
+		}
 	}
 	m.BroadcastTaskUpdate(taskID)
 	return nil
@@ -137,6 +145,11 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 	go m.processTask(t)
+	// 通知调度器：有新的待处理对象
+	select {
+	case m.schedulerSignal <- struct{}{}:
+	default:
+	}
 	m.BroadcastTaskUpdate(taskID)
 	return nil
 }
