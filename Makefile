@@ -47,7 +47,7 @@ fmt: addlicense fix
 # 添加许可证
 .PHONY: addlicense
 addlicense:
-	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only .
+	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" .
 
 # 修复目标
 .PHONY: fix

@@ -35,7 +35,9 @@
       "Bash(go fmt *)",
       "Bash(go list *)",
       "Bash(go build *)",
-      "Bash(Get-ChildItem *)"
+      "Bash(Get-ChildItem *)",
+      "Bash(dir *)",
+      "Bash(gofmt -s -w manager/)"
     ],
     "deny": []
   }
