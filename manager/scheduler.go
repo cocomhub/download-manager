@@ -212,7 +212,7 @@ func (m *Manager) processTask(t core.Task) {
 	m.mu.Unlock()
 
 	// Calculate remaining slots
-	slotsAvailable := limit - active
+	slotsAvailable := max(0, limit-active)
 
 	// Only fetch objects if we have capacity
 	objs, err := t.GetDownloadObjects()
@@ -272,6 +272,7 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 }
 
 func (m *Manager) scheduler() {
+	const maxSchedulerWeight = 8
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	weights := make(map[string]int)
@@ -299,7 +300,7 @@ func (m *Manager) scheduler() {
 							w = 1
 						}
 					}
-					w = min(w, 8)
+					w = min(w, maxSchedulerWeight)
 					weights[id] = w
 					return true
 				})
@@ -310,7 +311,7 @@ func (m *Manager) scheduler() {
 				ids = append(ids, key.(string))
 				return true
 			})
-			expanded := make([]string, 0, 64)
+			expanded := make([]string, 0, len(ids)*maxSchedulerWeight)
 			for _, id := range ids {
 				w := weights[id]
 				if w <= 0 {
