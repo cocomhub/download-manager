@@ -269,8 +269,16 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 	if v, ok := m.taskQueues.Load(taskID); ok {
 		return v.(chan *downloadRequest)
 	}
-	// size 32 per task queue
-	q := make(chan *downloadRequest, 32)
+	// 动态容量：根据任务并发度计算，保证充分缓冲
+	cap := 64 // default
+	if t, ok := m.getTask(taskID); ok {
+		concurrency := t.Concurrency()
+		if concurrency > 0 {
+			cap = max(concurrency*8, 32)
+		}
+	}
+	cap = min(cap, 256)
+	q := make(chan *downloadRequest, cap)
 	if v, loaded := m.taskQueues.LoadOrStore(taskID, q); loaded {
 		return v.(chan *downloadRequest)
 	}
