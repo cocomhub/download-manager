@@ -113,7 +113,7 @@ func NewManager(cfg *config.Config) *Manager {
 		workerStop:      make(chan struct{}, 256),
 		schedulerSignal: make(chan struct{}, 1),
 		activeDownloads: make(map[string]int),
-		downloadQueue:   make(chan *downloadRequest, max(globalLimit*2, 10)), // Buffer size
+		downloadQueue:   make(chan *downloadRequest, max(globalLimit*8, 64)), // Buffer size
 		subscribers:     make(map[<-chan core.Event]chan core.Event),
 		urlRegistry:     NewURLStateRegistry(),
 	}
