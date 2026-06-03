@@ -30,6 +30,12 @@ type Handler interface {
 	Name() string
 }
 
+// HandlerWithClient 表示 Handler 需要在初始化后注入 Client 引用。
+// 当 Handler 需要访问 Client 配置时（代理、日志路径等）应实现此接口。
+type HandlerWithClient interface {
+	SetClient(*Client)
+}
+
 // registeredHandler 已注册的 handler 条目
 type registeredHandler struct {
 	name    string
@@ -71,6 +77,7 @@ type httpHandler struct {
 
 func (h *httpHandler) Match(url string) bool { return false }
 func (h *httpHandler) Name() string          { return "http" }
+func (h *httpHandler) SetClient(c *Client)   { h.client = c }
 
 func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 	c := h.client
@@ -115,7 +122,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 
 	// 确定代理设置
 	proxyURL := ""
-	if len(c.proxies) > 0 {
+	if c.proxySelector != nil {
 		proxyURL, err = c.determineProxy(req)
 		if err != nil {
 			slog.Warn("Proxy selection failed, falling back to direct",
@@ -427,6 +434,8 @@ func (h *ffmpegHandler) Match(url string) bool {
 func (h *ffmpegHandler) Name() string {
 	return "ffmpeg"
 }
+
+func (h *ffmpegHandler) SetClient(c *Client) { h.client = c }
 
 func (h *ffmpegHandler) Download(ctx context.Context, req *Request) error {
 	return h.client.downloadHLSWithFFmpeg(ctx, req)

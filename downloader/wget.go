@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,11 +23,12 @@ import (
 )
 
 type WgetDownloader struct {
-	logDir     string
-	proxies    []string
-	cacheDir   string
-	forceProxy bool
-	active     sync.Map
+	logDir        string
+	proxies       []string
+	cacheDir      string
+	forceProxy    bool
+	active        sync.Map
+	proxySelector dlcore.ProxySelector
 }
 
 // Ensure WgetDownloader implements core.Downloader
@@ -42,12 +42,18 @@ func NewWgetDownloader(cfg config.Downloader) *WgetDownloader {
 	}
 
 	home, _ := os.UserHomeDir()
+	cacheDir := filepath.Join(home, ".config/download-manager/proxy_cache")
 
 	return &WgetDownloader{
 		logDir:     logDir,
 		proxies:    cfg.Proxies,
-		cacheDir:   filepath.Join(home, ".config/download-manager/proxy_cache"),
+		cacheDir:   cacheDir,
 		forceProxy: cfg.ForceProxy,
+		proxySelector: dlcore.NewProxySelector(cfg.Proxies).
+			WithForceProxy(cfg.ForceProxy).
+			WithCache(cacheDir, 1).
+			WithProbe(3).
+			WithBandwidthSuffix("/bandwidth"),
 	}
 }
 
@@ -154,7 +160,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 
 	// Determine connection mode (direct or proxy)
 	proxyURL := ""
-	if len(d.proxies) > 0 {
+	if d.proxySelector != nil {
 		var err error
 		proxyURL, err = d.determineProxy(subObj.URL)
 		if err != nil {
@@ -262,61 +268,5 @@ func (d *WgetDownloader) Cancel(url string) error {
 // --- Proxy Logic ---
 
 func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		return "", err
-	}
-	domain := u.Host
-
-	// Check cache
-	cachePath := filepath.Join(d.cacheDir, domain)
-	if info, err := os.Stat(cachePath); err == nil {
-		if time.Since(info.ModTime()) < 1*time.Second { // 1s TTL
-			content, _ := os.ReadFile(cachePath)
-			s := strings.TrimSpace(string(content))
-			if s == "direct" {
-				return "", nil
-			}
-			// If cached as proxy, we re-evaluate to find best bandwidth
-		}
-	}
-
-	// Check Direct
-	if dlcore.CheckDirect(targetURL, d.forceProxy, 3) {
-		d.writeCache(domain, "direct")
-		return "", nil
-	}
-
-	// Select Best Proxy
-	bestProxy := ""
-	minBandwidth := 999999.0
-
-	for _, p := range d.proxies {
-		bw := dlcore.GetProxyBandwidth(p, "/bandwidth", 3)
-		if bw < minBandwidth {
-			minBandwidth = bw
-			bestProxy = p
-		}
-	}
-
-	if bestProxy != "" {
-		d.writeCache(domain, "proxy")
-		return bestProxy, nil
-	}
-
-	return "", fmt.Errorf("no suitable proxy found")
-}
-
-func (d *WgetDownloader) checkDirect(url string) bool {
-	return dlcore.CheckDirect(url, d.forceProxy, 3)
-}
-
-func (d *WgetDownloader) getProxyBandwidth(proxyURL string) float64 {
-	return dlcore.GetProxyBandwidth(proxyURL, "/bandwidth", 3)
-}
-
-func (d *WgetDownloader) writeCache(domain, status string) {
-	cachePath := filepath.Join(d.cacheDir, domain)
-	os.MkdirAll(filepath.Dir(cachePath), 0755)
-	os.WriteFile(cachePath, []byte(status), 0644)
+	return d.proxySelector.Select(targetURL)
 }

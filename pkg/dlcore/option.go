@@ -85,3 +85,26 @@ func WithExternalHLSLog(enabled bool, path string) Option {
 		cl.externalHLSLogPath = path
 	}
 }
+
+// WithProxySelector 注入自定义 ProxySelector 实现。
+// 若不调用此选项，NewClient 将从旧代理配置字段自动构造 DefaultProxySelector。
+func WithProxySelector(ps ProxySelector) Option {
+	return func(cl *Client) { cl.proxySelector = ps }
+}
+
+// WithFilesystem 同时设置 rootDir、logDir、cacheDir。
+func WithFilesystem(rootDir, logDir, cacheDir string) Option {
+	return func(cl *Client) {
+		cl.rootDir = rootDir
+		cl.logDir = logDir
+		cl.cacheDir = cacheDir
+	}
+}
+
+// WithProxy 同时设置代理列表和强制代理标志。
+func WithProxy(proxies []string, force bool) Option {
+	return func(cl *Client) {
+		cl.proxies = proxies
+		cl.forceProxy = force
+	}
+}

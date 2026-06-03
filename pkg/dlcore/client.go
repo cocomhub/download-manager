@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +57,7 @@ type Client struct {
 	dLimiter          *DomainLimiter
 	active            sync.Map
 	defaultHandler    Handler
+	proxySelector     ProxySelector
 	ffmpegPath        string
 	hlsAutoMarkAsFail bool
 	// new externalized parameters
@@ -92,13 +91,21 @@ func NewClient(opts ...Option) *Client {
 	for _, o := range opts {
 		o(cl)
 	}
-	if h, ok := cl.defaultHandler.(*httpHandler); ok {
-		h.client = cl
+	// 向后兼容：如果未注入 ProxySelector，从旧字段构造默认实现
+	if cl.proxySelector == nil {
+		ps := NewProxySelector(cl.proxies).
+			WithForceProxy(cl.forceProxy).
+			WithCache(cl.cacheDir, cl.proxyDecisionTTLSecs).
+			WithProbe(cl.directProbeTimeoutSecs).
+			WithBandwidthSuffix(cl.bandwidthPathSuffix)
+		cl.proxySelector = ps
 	}
-	// 将 Client 引用注入已注册的 handler（如 ffmpegHandler 需要访问 Client 配置）
+	if hwc, ok := cl.defaultHandler.(HandlerWithClient); ok {
+		hwc.SetClient(cl)
+	}
 	for _, rh := range handlers {
-		if fh, ok := rh.handler.(*ffmpegHandler); ok {
-			fh.client = cl
+		if hwc, ok := rh.handler.(HandlerWithClient); ok {
+			hwc.SetClient(cl)
 		}
 	}
 	return cl
@@ -284,72 +291,7 @@ func TryGetMd5(resp *http.Response) string {
 }
 
 func (c *Client) determineProxy(req *Request) (string, error) {
-	targetURL := req.URL
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		return "", err
-	}
-	domain := u.Host
-	cacheBase := c.cacheDir
-	if cacheBase == "" {
-		cacheBase = filepath.Join(os.TempDir(), "dlcore_proxy_cache")
-	}
-	if c.rootDir != "" {
-		if rp, e := ResolvePath(c.rootDir, cacheBase); e == nil {
-			cacheBase = rp
-		}
-	}
-	cachePath := filepath.Join(cacheBase, domain)
-	if info, err := os.Stat(cachePath); err == nil {
-		slog.Info("cache file exists", "path", cachePath, "mod", info.ModTime())
-		ttl := c.proxyDecisionTTLSecs
-		if ttl <= 0 {
-			ttl = 1
-		}
-		if time.Since(info.ModTime()) < time.Duration(ttl)*time.Second {
-			content, _ := os.ReadFile(cachePath)
-			s := strings.TrimSpace(string(content))
-			if s == "direct" {
-				return "", nil
-			}
-		}
-	}
-	if c.checkDirect(req) {
-		slog.Info("direct access is available", "url", targetURL)
-		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-		_ = os.WriteFile(cachePath, []byte("direct"), 0644)
-		return "", nil
-	}
-	bestProxy := ""
-	minBandwidth := 999999.0
-	for _, p := range c.proxies {
-		bw := c.getProxyBandwidth(p)
-		if bw < minBandwidth {
-			minBandwidth = bw
-			bestProxy = p
-		}
-	}
-	if bestProxy != "" {
-		slog.Info("best proxy found", "proxy", bestProxy, "bandwidth", minBandwidth)
-		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-		_ = os.WriteFile(cachePath, []byte("proxy"), 0644)
-		return bestProxy, nil
-	}
-	return "", fmt.Errorf("no suitable proxy found")
-}
-
-func (c *Client) checkDirect(req *Request) bool {
-	if c.forceProxy {
-		return false
-	}
-	timeoutSecs := c.directProbeTimeoutSecs
-	return CheckDirect(req.URL, c.forceProxy, timeoutSecs)
-}
-
-func (c *Client) getProxyBandwidth(proxyURL string) float64 {
-	suffix := c.bandwidthPathSuffix
-	timeoutSecs := c.directProbeTimeoutSecs
-	return GetProxyBandwidth(proxyURL, suffix, timeoutSecs)
+	return c.proxySelector.Select(req.URL)
 }
 
 func printRequestHeaders(f io.Writer, req *http.Request) {
