@@ -19,22 +19,25 @@ func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status str
 	return m.aggSvc.AggregateObjects(page, limit, search, sortBy, status, types)
 }
 
+// typeMatchesTask checks if the given task type matches any of the given type prefixes.
+// It is a package-level helper shared by Manager.AggregateByContent and AggregationService.AggregateObjects.
+func typeMatchesTask(t core.Task, types []string) bool {
+	if len(types) == 0 {
+		return true
+	}
+	tt := strings.ToLower(t.Type())
+	for _, pref := range types {
+		p := strings.ToLower(pref)
+		if strings.HasPrefix(tt, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // AggregateByContent groups objects by scoped content group and returns representatives.
 func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
 	cfg := m.currentCfg()
-	typeMatches := func(t core.Task) bool {
-		if len(types) == 0 {
-			return true
-		}
-		tt := strings.ToLower(t.Type())
-		for _, pref := range types {
-			p := strings.ToLower(pref)
-			if strings.HasPrefix(tt, p) {
-				return true
-			}
-		}
-		return false
-	}
 	type taskObj struct {
 		t   core.Task
 		obj *model.DownloadObject
@@ -48,7 +51,7 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		if !ok {
 			continue
 		}
-		if !typeMatches(tk) {
+		if !typeMatchesTask(tk, types) {
 			continue
 		}
 		matchingTasks = append(matchingTasks, tk)

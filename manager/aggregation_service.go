@@ -4,8 +4,6 @@
 package manager
 
 import (
-	"strings"
-
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/storage"
@@ -34,20 +32,6 @@ func NewAggregationService(
 }
 
 func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	typeMatches := func(t core.Task) bool {
-		if len(types) == 0 {
-			return true
-		}
-		tt := strings.ToLower(t.Type())
-		for _, pref := range types {
-			p := strings.ToLower(pref)
-			if strings.HasPrefix(tt, p) {
-				return true
-			}
-		}
-		return false
-	}
-
 	type taskInfo struct {
 		t     core.Task
 		count int64
@@ -55,7 +39,7 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 	var matchingTasks []taskInfo
 	var total int64
 	for _, t := range svc.tasks() {
-		if !typeMatches(t) {
+		if !typeMatchesTask(t, types) {
 			continue
 		}
 		countQuery := &core.StorageQuery{
