@@ -95,6 +95,12 @@ func NewClient(opts ...Option) *Client {
 	if h, ok := cl.defaultHandler.(*httpHandler); ok {
 		h.client = cl
 	}
+	// 将 Client 引用注入已注册的 handler（如 ffmpegHandler 需要访问 Client 配置）
+	for _, rh := range handlers {
+		if fh, ok := rh.handler.(*ffmpegHandler); ok {
+			fh.client = cl
+		}
+	}
 	return cl
 }
 
