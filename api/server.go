@@ -99,6 +99,8 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/downloads", s.getActiveDownloads).Methods("GET")
 	r.HandleFunc("/api/aggregate", s.aggregateObjects).Methods("GET")
 	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
+	r.HandleFunc("/api/metrics", s.metricsHandler).Methods("GET")
+	r.HandleFunc("/api/metrics/failures", s.failuresHandler).Methods("GET")
 
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
@@ -144,6 +146,24 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	json.NewEncoder(w).Encode(status)
+}
+
+func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	metrics := s.mgr.CollectMetrics()
+	json.NewEncoder(w).Encode(metrics)
+}
+
+func (s *Server) failuresHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	taskID := r.URL.Query().Get("task_id")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+	result := s.mgr.GetFailures(taskID, limit)
+	json.NewEncoder(w).Encode(result)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

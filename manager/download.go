@@ -108,6 +108,10 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
 		}
+
+		// Record failure detail
+		isPermanent := dlcore.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
+		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
 	} else {
 		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
 		// Reset failed count on success
