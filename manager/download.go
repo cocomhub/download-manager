@@ -82,6 +82,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, dlcore.StatusFailed, err)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).failures.Add(1)
 			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
 		}
 
@@ -98,6 +99,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		// Increment failed count
 		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
 		c := v.(*atomic.Int64).Add(1)
+		// Track retries (c > 1 means this is a retry)
+		if c > 1 {
+			if vr, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+				vr.(*taskMetrics).retried.Add(1)
+			}
+		}
 		// Check if max retries reached
 		maxRetries := m.currentCfg().Downloader.MaxRetries
 		if maxRetries <= 0 {
