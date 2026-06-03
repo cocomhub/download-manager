@@ -40,7 +40,7 @@ type Manager struct {
 	workerCount     int
 	taskQueues      sync.Map
 	schedulerStop   chan struct{}
-	schedulerSignal chan struct{} // non-buffered signal: enqueue -> wake scheduler
+	schedulerSignal chan struct{} // buffered(1): enqueue -> wake scheduler. Fixed channel, initialized once in NewManager, not rebuilt on restart.
 
 	// Concurrency control
 	activeDownloads map[string]int // TaskID -> Active Count (Just for stats/per-task limit if needed)
