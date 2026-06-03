@@ -67,6 +67,24 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	}()
 
+	// Periodic worker heartbeat during long downloads
+	heartbeatStop := make(chan struct{})
+	defer close(heartbeatStop)
+	go func() {
+		hbTick := time.NewTicker(5 * time.Second)
+		defer hbTick.Stop()
+		for {
+			select {
+			case <-hbTick.C:
+				m.workerHeartbeat.Store(time.Now())
+			case <-heartbeatStop:
+				return
+			case <-dlCtx.Done():
+				return
+			}
+		}
+	}()
+
 	// Propagate context to NativeHTTPDownloader if supported
 	if nd, ok := dl.(*downloader.NativeHTTPDownloader); ok {
 		nd.SetContext(dlCtx)
@@ -141,9 +159,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 					}
 				}
 			}
-		}
-		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
+			mt.lastActive.Store(time.Now().Unix())
 		}
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
