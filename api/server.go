@@ -69,6 +69,7 @@ func (s *Server) Router() *mux.Router {
 
 	// API Routes
 	r.HandleFunc("/api/runtime", s.getRuntime).Methods("GET")
+	r.HandleFunc("/api/healthz", s.healthHandler).Methods("GET")
 	r.HandleFunc("/api/tasks", s.listTasks).Methods("GET")
 	r.HandleFunc("/api/tasks", s.createTaskPersistent).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
@@ -134,6 +135,15 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 			"scheduler": cfg.Runtime.Scheduler.Enabled,
 		},
 	})
+}
+
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	status := s.mgr.GetHealthStatus()
+	if status.Status == "error" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	json.NewEncoder(w).Encode(status)
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
