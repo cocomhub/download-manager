@@ -90,7 +90,11 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
 		c := v.(*atomic.Int64).Add(1)
 		// Check if max retries reached
-		if c >= 5 {
+		maxRetries := m.currentCfg().Downloader.MaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 5
+		}
+		if c >= int64(maxRetries) {
 			if ft, ok := t.(core.FailedTask); ok {
 				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
