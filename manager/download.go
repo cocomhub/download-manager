@@ -81,6 +81,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, dlcore.StatusFailed, err)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
+		}
 
 		if dlcore.IsNoTry(err) {
 			if ft, ok := t.(core.FailedTask); ok {
@@ -109,6 +112,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
 		// Reset failed count on success
 		m.failedCount.Delete(obj.URL)
+		m.totalDownloads.Add(1)
 		// Apply group priority policies for content groups
 		m.applyGroupPriorityPolicies(t, obj)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
@@ -126,6 +130,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 					}
 				}
 			}
+		}
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
 		}
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -274,6 +281,9 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		}
 
 		m.forceDownload(t, obj)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).retried.Add(1)
+		}
 		return nil
 	}
 	return fmt.Errorf("object not found")
@@ -299,6 +309,9 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	for _, obj := range objs {
 		t.UpdateStatus(obj, dlcore.StatusPending, nil)
 		obj.SetProgress(0)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).retried.Add(1)
+		}
 		count++
 	}
 	if count > 0 {
