@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
@@ -22,6 +23,16 @@ import (
 	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/storage"
 )
+
+// FailureRecord 描述单次下载失败记录，存储在环形缓冲区中供查询
+type FailureRecord struct {
+	TaskID    string `json:"task_id"`
+	URL       string `json:"url"`
+	Error     string `json:"error"`
+	Attempt   int    `json:"attempt"`
+	Timestamp int64  `json:"timestamp"`
+	Permanent bool   `json:"permanent"`
+}
 
 type downloadRequest struct {
 	task core.Task
@@ -74,12 +85,27 @@ type Manager struct {
 
 	// Shutdown tracking for force-download goroutines
 	forceWg sync.WaitGroup
+
+	// Heartbeat / uptime
+	startedAt         time.Time     // 进程启动时间, set in NewManager
+	totalDownloads    atomic.Int64  // 历史总下载次数
+	schedulerHeartbeat atomic.Value // time.Time — 调度器最后心跳
+	workerHeartbeat   atomic.Value  // time.Time — worker 最后心跳
+
+	// Failure records (ring buffer)
+	failureRecords  []FailureRecord
+	failureMu       sync.Mutex
+	failureWriteIdx int    // 环形缓冲区写入索引
+	maxFailures     int    // 环形容量（默认 1000）
 }
 
 type taskMetrics struct {
 	avgLatencyMs atomic.Int64
 	failures     atomic.Int64
 	completed    atomic.Int64
+	// 新增
+	retried    atomic.Int64 // 重试次数
+	lastActive atomic.Int64 // 最近活跃 unix 秒
 }
 
 type RuntimeFeatures struct {
@@ -130,6 +156,9 @@ func NewManager(cfg *config.Config) *Manager {
 		mgr.countTaskObjects,
 		mgr.collectTaskObjects,
 	)
+	mgr.startedAt = time.Now()
+	mgr.maxFailures = 1000
+	mgr.failureRecords = make([]FailureRecord, mgr.maxFailures)
 	return mgr
 }
 

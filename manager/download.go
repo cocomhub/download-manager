@@ -67,6 +67,24 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	}()
 
+	// Periodic worker heartbeat during long downloads
+	heartbeatStop := make(chan struct{})
+	defer close(heartbeatStop)
+	go func() {
+		hbTick := time.NewTicker(5 * time.Second)
+		defer hbTick.Stop()
+		for {
+			select {
+			case <-hbTick.C:
+				m.workerHeartbeat.Store(time.Now())
+			case <-heartbeatStop:
+				return
+			case <-dlCtx.Done():
+				return
+			}
+		}
+	}()
+
 	// Propagate context to NativeHTTPDownloader if supported
 	if nd, ok := dl.(*downloader.NativeHTTPDownloader); ok {
 		nd.SetContext(dlCtx)
@@ -81,6 +99,10 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, dlcore.StatusFailed, err)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).failures.Add(1)
+			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
+		}
 
 		if dlcore.IsNoTry(err) {
 			if ft, ok := t.(core.FailedTask); ok {
@@ -95,6 +117,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		// Increment failed count
 		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
 		c := v.(*atomic.Int64).Add(1)
+		// Track retries (c > 1 means this is a retry)
+		if c > 1 {
+			if vr, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+				vr.(*taskMetrics).retried.Add(1)
+			}
+		}
 		// Check if max retries reached
 		maxRetries := m.currentCfg().Downloader.MaxRetries
 		if maxRetries <= 0 {
@@ -105,10 +133,15 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
 		}
+
+		// Record failure detail
+		isPermanent := dlcore.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
+		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
 	} else {
 		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
 		// Reset failed count on success
 		m.failedCount.Delete(obj.URL)
+		m.totalDownloads.Add(1)
 		// Apply group priority policies for content groups
 		m.applyGroupPriorityPolicies(t, obj)
 		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
@@ -126,6 +159,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 					}
 				}
 			}
+			mt.lastActive.Store(time.Now().Unix())
 		}
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -274,6 +308,9 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		}
 
 		m.forceDownload(t, obj)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).retried.Add(1)
+		}
 		return nil
 	}
 	return fmt.Errorf("object not found")
@@ -299,6 +336,9 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	for _, obj := range objs {
 		t.UpdateStatus(obj, dlcore.StatusPending, nil)
 		obj.SetProgress(0)
+		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
+			v.(*taskMetrics).retried.Add(1)
+		}
 		count++
 	}
 	if count > 0 {

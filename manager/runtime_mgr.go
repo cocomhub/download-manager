@@ -6,6 +6,7 @@ package manager
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/configutil"
@@ -20,6 +21,7 @@ func (m *Manager) worker() {
 				return
 			}
 			if req != nil {
+				m.workerHeartbeat.Store(time.Now())
 				m.download(req.task, req.obj)
 			}
 		case <-m.stopChan:

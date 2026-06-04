@@ -334,6 +334,7 @@ func (m *Manager) scheduler() {
 		case <-m.schedulerStop:
 			return
 		case <-fallbackTicker.C:
+			m.schedulerHeartbeat.Store(time.Now())
 			if time.Since(lastUpdate) > 2*time.Second {
 				weights = make(map[string]int)
 				m.tasks.Range(func(key, value any) bool {
@@ -360,6 +361,7 @@ func (m *Manager) scheduler() {
 			}
 			drainOnce()
 		case <-m.schedulerSignal:
+			m.schedulerHeartbeat.Store(time.Now())
 			drainOnce()
 		}
 	}
