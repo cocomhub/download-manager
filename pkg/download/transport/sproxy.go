@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -73,6 +75,32 @@ func WithSproxyHTTPClient(c *http.Client) SproxyOption {
 
 func (t *SproxyTunnelTransport) Name() string { return "sproxy" }
 
+// isSafeTargetURL 验证目标 URL 是否安全（防止 SSRF）。
+// 拒绝私有 IP、回环地址、link-local 地址和非 http/https scheme。
+func isSafeTargetURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
+	}
+	addrs, err := net.LookupHost(parsed.Hostname())
+	if err != nil {
+		return fmt.Errorf("failed to resolve target host: %w", err)
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("target resolves to protected address %s", addr)
+		}
+	}
+	return nil
+}
+
 // RoundTrip 实现 download.Transport 接口。
 func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
 	if t.useTunnel && t.tunnelCl != nil {
@@ -83,6 +111,10 @@ func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.Tr
 
 // roundTripViaProxy 通过 sproxy HTTP 代理转发（非加密）。
 func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+	if err := isSafeTargetURL(treq.URL); err != nil {
+		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
+	}
+
 	targetURL := treq.URL
 	targetURL = strings.TrimPrefix(targetURL, "http://")
 	targetURL = strings.TrimPrefix(targetURL, "https://")
@@ -119,6 +151,10 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 
 // roundTripViaTunnel 通过 sproxy 加密隧道转发请求。
 func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+	if err := isSafeTargetURL(treq.URL); err != nil {
+		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
+	}
+
 	hreq, err := http.NewRequestWithContext(ctx, treq.Method, treq.URL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("sproxy: tunnel create request: %w", err)
