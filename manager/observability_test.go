@@ -13,11 +13,11 @@ import (
 
 func TestGetHealthStatus_AllStopped(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		schedulerEnabled:  atomic.Bool{},
-		workersEnabled:    atomic.Bool{},
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:        time.Now(),
+		schedulerEnabled: atomic.Bool{},
+		workersEnabled:   atomic.Bool{},
+		maxFailures:      1000,
+		failureRecords:   make([]FailureRecord, 1000),
 	}
 	// Both disabled by default
 	hs := m.GetHealthStatus()
@@ -44,11 +44,11 @@ func TestGetHealthStatus_AllStopped(t *testing.T) {
 
 func TestGetHealthStatus_SchedulerEnabledFresh(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		schedulerEnabled:  atomic.Bool{},
-		workersEnabled:    atomic.Bool{},
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:        time.Now(),
+		schedulerEnabled: atomic.Bool{},
+		workersEnabled:   atomic.Bool{},
+		maxFailures:      1000,
+		failureRecords:   make([]FailureRecord, 1000),
 	}
 	m.schedulerEnabled.Store(true)
 
@@ -60,11 +60,11 @@ func TestGetHealthStatus_SchedulerEnabledFresh(t *testing.T) {
 
 func TestGetHealthStatus_SchedulerHeartbeatRecent(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		schedulerEnabled:  atomic.Bool{},
-		workersEnabled:    atomic.Bool{},
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:        time.Now(),
+		schedulerEnabled: atomic.Bool{},
+		workersEnabled:   atomic.Bool{},
+		maxFailures:      1000,
+		failureRecords:   make([]FailureRecord, 1000),
 	}
 	m.schedulerEnabled.Store(true)
 	m.schedulerHeartbeat.Store(time.Now())
@@ -78,11 +78,11 @@ func TestGetHealthStatus_SchedulerHeartbeatRecent(t *testing.T) {
 
 func TestGetHealthStatus_SchedulerHeartbeatStale(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		schedulerEnabled:  atomic.Bool{},
-		workersEnabled:    atomic.Bool{},
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:        time.Now(),
+		schedulerEnabled: atomic.Bool{},
+		workersEnabled:   atomic.Bool{},
+		maxFailures:      1000,
+		failureRecords:   make([]FailureRecord, 1000),
 	}
 	m.schedulerEnabled.Store(true)
 	m.schedulerHeartbeat.Store(time.Now().Add(-10 * time.Second)) // stale
@@ -95,11 +95,11 @@ func TestGetHealthStatus_SchedulerHeartbeatStale(t *testing.T) {
 
 func TestGetHealthStatus_OverallDegraded(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		schedulerEnabled:  atomic.Bool{},
-		workersEnabled:    atomic.Bool{},
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:        time.Now(),
+		schedulerEnabled: atomic.Bool{},
+		workersEnabled:   atomic.Bool{},
+		maxFailures:      1000,
+		failureRecords:   make([]FailureRecord, 1000),
 	}
 	m.schedulerEnabled.Store(true)
 	m.schedulerHeartbeat.Store(time.Now())
@@ -197,7 +197,7 @@ func TestGetFailures_Limit(t *testing.T) {
 		failureRecords: make([]FailureRecord, 100),
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		m.recordFailure("t1", "url", "error", i+1, false)
 	}
 
@@ -215,7 +215,7 @@ func TestGetFailures_MaxLimit(t *testing.T) {
 		failureRecords: make([]FailureRecord, 100),
 	}
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m.recordFailure("t1", "url", "error", i+1, false)
 	}
 
@@ -232,9 +232,9 @@ func TestGetFailures_MaxLimit(t *testing.T) {
 
 func TestCollectMetrics_Empty(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:      time.Now(),
+		maxFailures:    1000,
+		failureRecords: make([]FailureRecord, 1000),
 	}
 
 	metrics := m.CollectMetrics()
@@ -266,10 +266,10 @@ func TestCollectMetrics_Empty(t *testing.T) {
 
 func TestCollectMetrics_WithTaskMetrics(t *testing.T) {
 	m := &Manager{
-		startedAt:         time.Now(),
-		activeDownloads:   make(map[string]int),
-		maxFailures:       1000,
-		failureRecords:    make([]FailureRecord, 1000),
+		startedAt:       time.Now(),
+		activeDownloads: make(map[string]int),
+		maxFailures:     1000,
+		failureRecords:  make([]FailureRecord, 1000),
 	}
 
 	mt := &taskMetrics{}

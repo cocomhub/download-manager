@@ -98,12 +98,9 @@ func (m *Manager) GetFailures(taskID string, limit int) map[string]any {
 
 	m.failureMu.Lock()
 	total := m.failureWriteIdx
-	count := m.failureWriteIdx
-	if count > m.maxFailures {
-		count = m.maxFailures
-	}
+	count := min(m.failureWriteIdx, m.maxFailures)
 	records := make([]FailureRecord, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		idx := (m.failureWriteIdx - 1 - i + m.maxFailures) % m.maxFailures
 		r := m.failureRecords[idx]
 		if r.TaskID == "" {

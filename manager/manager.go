@@ -87,16 +87,16 @@ type Manager struct {
 	forceWg sync.WaitGroup
 
 	// Heartbeat / uptime
-	startedAt         time.Time     // 进程启动时间, set in NewManager
-	totalDownloads    atomic.Int64  // 历史总下载次数
+	startedAt          time.Time    // 进程启动时间, set in NewManager
+	totalDownloads     atomic.Int64 // 历史总下载次数
 	schedulerHeartbeat atomic.Value // time.Time — 调度器最后心跳
-	workerHeartbeat   atomic.Value  // time.Time — worker 最后心跳
+	workerHeartbeat    atomic.Value // time.Time — worker 最后心跳
 
 	// Failure records (ring buffer)
 	failureRecords  []FailureRecord
 	failureMu       sync.Mutex
-	failureWriteIdx int    // 环形缓冲区写入索引
-	maxFailures     int    // 环形容量（默认 1000）
+	failureWriteIdx int // 环形缓冲区写入索引
+	maxFailures     int // 环形容量（默认 1000）
 }
 
 type taskMetrics struct {

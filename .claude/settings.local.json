@@ -37,7 +37,12 @@
       "Bash(go build *)",
       "Bash(Get-ChildItem *)",
       "Bash(dir *)",
-      "Bash(gofmt -s -w manager/)"
+      "Bash(gofmt -s -w manager/)",
+      "Bash(xxd)",
+      "Bash(gofmt -s -w manager/manager.go manager/scheduler.go manager/download.go manager/tasks.go)",
+      "Bash(findstr phase2 *)",
+      "Bash(gofmt *)",
+      "Bash(cd *)"
     ],
     "deny": []
   }
