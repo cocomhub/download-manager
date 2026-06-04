@@ -66,6 +66,30 @@
       return fetch('/api/config/log').then(function (r) { return r.json() })
     },
 
+    healthz: function () {
+      return fetch('/api/healthz').then(function (r) {
+        if (!r.ok) throw new Error('Health check failed')
+        return r.json()
+      })
+    },
+
+    metrics: function () {
+      return fetch('/api/metrics').then(function (r) {
+        if (!r.ok) throw new Error('Metrics fetch failed')
+        return r.json()
+      })
+    },
+
+    failures: function (params) {
+      var q = new URLSearchParams()
+      if (params && params.limit) q.set('limit', params.limit)
+      if (params && params.task_id) q.set('task_id', params.task_id)
+      return fetch('/api/metrics/failures?' + q.toString()).then(function (r) {
+        if (!r.ok) throw new Error('Failures fetch failed')
+        return r.json()
+      })
+    },
+
     post: function (url, body) {
       return fetch(url, {
         method: 'POST',
