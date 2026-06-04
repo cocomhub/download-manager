@@ -23,6 +23,7 @@ var _ download.Extractor = (*CompositeExtractor)(nil)
 type CompositeExtractor struct {
 	selector   download.Selector
 	transport  download.Transport
+	extractors []download.Extractor
 	downloader *download.Downloader
 }
 
@@ -37,6 +38,11 @@ func (e *CompositeExtractor) Match(ctx context.Context, url string) bool { retur
 
 func (e *CompositeExtractor) SetSelector(s download.Selector)   { e.selector = s }
 func (e *CompositeExtractor) SetTransport(t download.Transport) { e.transport = t }
+
+// AddExtractor 向 CompositeExtractor 注册一个 Extractor（用于子下载）。
+func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
+	e.extractors = append(e.extractors, ex)
+}
 
 // parseFiles 从 req.Metadata["files"] 解析文件列表。
 // 支持 JSON 字符串 ("[{\"url\":\"...\",\"path\":\"...\",\"type\":\"video\"}]")
@@ -67,13 +73,20 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 
 	slog.Info("Starting composite download", "count", len(fileList), "url", req.URL)
 
-	// 每个子文件使用自己的 Downloader（如果已有则复用）
+	// 构建子 Downloader，注入 Selector、Transport 和 Extractor
 	dl := e.downloader
 	if dl == nil {
-		dl = download.New()
+		var opts []download.Option
 		if e.transport != nil {
-			dl = download.New(download.WithTransport(e.transport))
+			opts = append(opts, download.WithTransport(e.transport))
 		}
+		if e.selector != nil {
+			opts = append(opts, download.WithSelector(e.selector))
+		}
+		for _, ex := range e.extractors {
+			opts = append(opts, download.WithExtractor(ex))
+		}
+		dl = download.New(opts...)
 	}
 
 	for _, fileMap := range fileList {

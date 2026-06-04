@@ -309,17 +309,19 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 			modifiedLines = append(modifiedLines, filepath.Base(subM3U8Path))
 
 		case strings.Contains(line, ".ts"):
+			tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
 			tasks = append(tasks, DownloadTask{
 				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, fileHash+".ts"),
+				LocalPath: tsLocalPath,
 				Type:      "ts",
 			})
-			modifiedLines = append(modifiedLines, filepath.Base(line))
+			modifiedLines = append(modifiedLines, filepath.Base(tsLocalPath))
 
 		case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
+			keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
 			tasks = append(tasks, DownloadTask{
 				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, fileHash),
+				LocalPath: keyLocalPath,
 				Type:      "key",
 			})
 			modifiedLines = append(modifiedLines, filepath.Base(line))
