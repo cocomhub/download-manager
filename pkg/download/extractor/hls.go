@@ -91,6 +91,23 @@ func (e *HLSExtractor) Extract(ctx context.Context, req *download.Request) error
 func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Request) error {
 	rPath := req.SavePath
 	dir := filepath.Dir(rPath)
+
+	// Validate args to prevent argv injection
+	if strings.HasPrefix(rPath, "-") {
+		return fmt.Errorf("hls: invalid save path (starts with '-')")
+	}
+	if strings.HasPrefix(req.URL, "-") {
+		return fmt.Errorf("hls: invalid URL (starts with '-')")
+	}
+	if !strings.HasPrefix(strings.ToLower(req.URL), "http://") && !strings.HasPrefix(strings.ToLower(req.URL), "https://") {
+		return fmt.Errorf("hls: invalid URL scheme")
+	}
+	for _, v := range []string{req.Headers["Referer"], req.Headers["Cookie"]} {
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("hls: invalid header value contains CR/LF")
+		}
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("hls: failed to create directory: %w", err)
 	}

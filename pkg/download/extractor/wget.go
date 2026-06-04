@@ -84,6 +84,21 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		return fmt.Errorf("wget: failed to create directory: %w", err)
 	}
 
+	// Validate arguments to prevent argv injection
+	if strings.HasPrefix(req.SavePath, "-") {
+		return fmt.Errorf("wget: invalid save path (starts with '-')")
+	}
+	for k, v := range req.Headers {
+		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("wget: invalid header contains CR/LF")
+		}
+	}
+	if !strings.HasPrefix(strings.ToLower(req.URL), "http://") &&
+		!strings.HasPrefix(strings.ToLower(req.URL), "https://") &&
+		!strings.HasPrefix(strings.ToLower(req.URL), "ftp://") {
+		return fmt.Errorf("wget: invalid URL scheme: %s", req.URL)
+	}
+
 	var f *os.File
 	if e.logDir != "" {
 		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format("20060102150405")+".wget.log")
@@ -112,15 +127,15 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		args = append(args, "--header", fmt.Sprintf("%s: %s", k, v))
 	}
 
-	url := req.URL
+	targetURL := req.URL
 	if proxyURL != "" {
-		url = strings.TrimPrefix(url, "http://")
-		url = strings.TrimPrefix(url, "https://")
-		url = proxyURL + "/" + url
-		slog.Info("Using proxy", "url", url, "proxy", proxyURL)
+		targetURL = strings.TrimPrefix(targetURL, "http://")
+		targetURL = strings.TrimPrefix(targetURL, "https://")
+		targetURL = proxyURL + "/" + targetURL
+		slog.Info("Using proxy", "url", targetURL, "proxy", proxyURL)
 	}
 
-	args = append(args, "-O", req.SavePath, url)
+	args = append(args, "-O", req.SavePath, targetURL)
 
 	cmd := exec.CommandContext(ctx, "wget", args...)
 	e.active.Store(req.URL, cmd)
