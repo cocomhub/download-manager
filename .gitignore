@@ -3,3 +3,5 @@ local
 bin
 download-manager
 .workbuddy/
+.claude/worktrees/
+.superpowers/

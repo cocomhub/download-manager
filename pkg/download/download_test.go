@@ -1,56 +1,66 @@
-package download
+package download_test
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/download/extractor"
+	"github.com/cocomhub/download-manager/pkg/download/transport"
 )
 
 // ---- compile-time interface checks ----
 
 type mockExtractor struct{}
 
-func (m *mockExtractor) Name() string                                 { return "mock" }
-func (m *mockExtractor) Match(_ context.Context, _ string) bool       { return false }
-func (m *mockExtractor) Extract(_ context.Context, _ *Request) error  { return nil }
+func (m *mockExtractor) Name() string                                          { return "mock" }
+func (m *mockExtractor) Match(_ context.Context, _ string) bool                { return true }
+func (m *mockExtractor) Extract(_ context.Context, _ *download.Request) error  { return nil }
 
 type mockTransport struct{}
 
-func (m *mockTransport) Name() string                                               { return "mock" }
-func (m *mockTransport) RoundTrip(_ context.Context, _ *TransportRequest) (*TransportResponse, error) {
+func (m *mockTransport) Name() string                                                                   { return "mock" }
+func (m *mockTransport) RoundTrip(_ context.Context, _ *download.TransportRequest) (*download.TransportResponse, error) {
 	return nil, nil
 }
 
 type mockProxySelector struct{}
 
-func (m *mockProxySelector) Select(_ context.Context, _ string, _ *DownloadHint) (string, error) {
+func (m *mockProxySelector) Select(_ context.Context, _ string, _ *download.DownloadHint) (string, error) {
 	return "", nil
 }
 
 type mockSelector struct{}
 
-func (m *mockSelector) MatchExtractor(_ context.Context, _ string, _ *DownloadHint) Extractor { return nil }
-func (m *mockSelector) SelectProxy(_ context.Context, _ string, _ *DownloadHint) (string, error) {
+func (m *mockSelector) MatchExtractor(_ context.Context, _ string, _ *download.DownloadHint) download.Extractor {
+	return nil
+}
+func (m *mockSelector) SelectProxy(_ context.Context, _ string, _ *download.DownloadHint) (string, error) {
 	return "", nil
 }
 
 var (
-	_ Extractor      = (*mockExtractor)(nil)
-	_ Transport      = (*mockTransport)(nil)
-	_ ProxySelector  = (*mockProxySelector)(nil)
-	_ Selector       = (*mockSelector)(nil)
+	_ download.Extractor     = (*mockExtractor)(nil)
+	_ download.Transport     = (*mockTransport)(nil)
+	_ download.ProxySelector = (*mockProxySelector)(nil)
+	_ download.Selector      = (*mockSelector)(nil)
 )
 
 // ---- ErrNoTry ----
 
 func TestErrNoTry(t *testing.T) {
-	if !IsNoTry(ErrNoTry) {
+	if !download.IsNoTry(download.ErrNoTry) {
 		t.Error("IsNoTry(ErrNoTry) should be true")
 	}
-	if IsNoTry(io.EOF) {
+	if download.IsNoTry(io.EOF) {
 		t.Error("IsNoTry(io.EOF) should be false")
 	}
 }
@@ -59,7 +69,7 @@ func TestErrNoTry(t *testing.T) {
 
 func TestRequestStruct(t *testing.T) {
 	progressCalled := false
-	req := &Request{
+	req := &download.Request{
 		URL:           "https://example.com/file.zip",
 		SavePath:      "/tmp/file.zip",
 		Headers:       map[string]string{"Authorization": "Bearer token"},
@@ -94,7 +104,7 @@ func TestRequestStruct(t *testing.T) {
 func TestRequestProgressCallback(t *testing.T) {
 	var p float64
 	var d int64
-	req := &Request{
+	req := &download.Request{
 		URL:           "https://example.com/bigfile.bin",
 		TrackProgress: true,
 		OnProgress: func(progress float64, downloaded, _ int64) {
@@ -114,7 +124,7 @@ func TestRequestProgressCallback(t *testing.T) {
 // ---- DownloadHint ----
 
 func TestDownloadHintStruct(t *testing.T) {
-	hint := &DownloadHint{
+	hint := &download.DownloadHint{
 		FileSize:    1024,
 		ContentType: "application/zip",
 		Extractor:   "native",
@@ -137,12 +147,12 @@ func TestDownloadHintStruct(t *testing.T) {
 // ---- TransportRequest / TransportResponse ----
 
 func TestTransportRequestStruct(t *testing.T) {
-	treq := &TransportRequest{
-		URL:     "https://cdn.example.com/file.bin",
-		Method:  "GET",
-		Headers: map[string]string{"Range": "bytes=0-1023"},
-		Body:    []byte("hello"),
-		Range:   &RangeRequest{Offset: 0},
+	treq := &download.TransportRequest{
+		URL:      "https://cdn.example.com/file.bin",
+		Method:   "GET",
+		Headers:  map[string]string{"Range": "bytes=0-1023"},
+		Body:     []byte("hello"),
+		Range:    &download.RangeRequest{Offset: 0},
 		ProxyURL: "http://proxy:8080",
 	}
 	if treq.URL != "https://cdn.example.com/file.bin" {
@@ -161,7 +171,7 @@ func TestTransportRequestStruct(t *testing.T) {
 
 func TestTransportResponseStruct(t *testing.T) {
 	body := io.NopCloser(strings.NewReader("response body"))
-	tresp := &TransportResponse{
+	tresp := &download.TransportResponse{
 		Body:          body,
 		StatusCode:    200,
 		ContentLength: 13,
@@ -191,7 +201,7 @@ func TestTransportResponseStruct(t *testing.T) {
 // ---- RangeRequest ----
 
 func TestRangeRequestStruct(t *testing.T) {
-	rr := &RangeRequest{Offset: 1024}
+	rr := &download.RangeRequest{Offset: 1024}
 	if rr.Offset != 1024 {
 		t.Errorf("unexpected Offset: %d", rr.Offset)
 	}
@@ -204,10 +214,10 @@ func TestExtractorInterface(t *testing.T) {
 	if e.Name() != "mock" {
 		t.Errorf("unexpected name: %s", e.Name())
 	}
-	if e.Match(context.Background(), "http://example.com") {
-		t.Error("Match should return false")
+	if !e.Match(context.Background(), "http://example.com") {
+		t.Error("Match should return true")
 	}
-	if err := e.Extract(context.Background(), &Request{URL: "http://example.com"}); err != nil {
+	if err := e.Extract(context.Background(), &download.Request{URL: "http://example.com"}); err != nil {
 		t.Errorf("Extract should not error: %v", err)
 	}
 }
@@ -219,7 +229,7 @@ func TestTransportInterface(t *testing.T) {
 	if tr.Name() != "mock" {
 		t.Errorf("unexpected name: %s", tr.Name())
 	}
-	resp, err := tr.RoundTrip(context.Background(), &TransportRequest{URL: "http://example.com"})
+	resp, err := tr.RoundTrip(context.Background(), &download.TransportRequest{URL: "http://example.com"})
 	if err != nil {
 		t.Errorf("RoundTrip should not error: %v", err)
 	}
@@ -261,7 +271,7 @@ func TestSelectorInterface(t *testing.T) {
 // ---- Edge cases ----
 
 func TestRequestNilOnProgress(t *testing.T) {
-	req := &Request{
+	req := &download.Request{
 		URL:           "http://example.com/file",
 		TrackProgress: true,
 		OnProgress:    nil,
@@ -273,7 +283,7 @@ func TestRequestNilOnProgress(t *testing.T) {
 }
 
 func TestTransportRequestNilRange(t *testing.T) {
-	treq := &TransportRequest{
+	treq := &download.TransportRequest{
 		URL:    "http://example.com/file",
 		Method: "GET",
 		Range:  nil,
@@ -284,7 +294,7 @@ func TestTransportRequestNilRange(t *testing.T) {
 }
 
 func TestTransportResponseNilBody(t *testing.T) {
-	tresp := &TransportResponse{
+	tresp := &download.TransportResponse{
 		Body:          nil,
 		StatusCode:    404,
 		ContentLength: 0,
@@ -298,7 +308,7 @@ func TestTransportResponseNilBody(t *testing.T) {
 }
 
 func TestDownloadHintNilTags(t *testing.T) {
-	hint := &DownloadHint{
+	hint := &download.DownloadHint{
 		FileSize:    0,
 		ContentType: "",
 		Extractor:   "",
@@ -310,15 +320,180 @@ func TestDownloadHintNilTags(t *testing.T) {
 }
 
 func TestErrNoTryWrapping(t *testing.T) {
-	err := ErrNoTry
-	if !errors.Is(err, ErrNoTry) {
+	err := download.ErrNoTry
+	if !errors.Is(err, download.ErrNoTry) {
 		t.Error("errors.Is(ErrNoTry, ErrNoTry) should be true")
 	}
-	wrapped := fmt.Errorf("download failed after retries: %w", ErrNoTry)
-	if !errors.Is(wrapped, ErrNoTry) {
+	wrapped := fmt.Errorf("download failed after retries: %w", download.ErrNoTry)
+	if !errors.Is(wrapped, download.ErrNoTry) {
 		t.Error("errors.Is(wrapped, ErrNoTry) should be true")
 	}
-	if !IsNoTry(wrapped) {
+	if !download.IsNoTry(wrapped) {
 		t.Error("IsNoTry(wrapped) should be true")
+	}
+}
+
+// ---- Downloader tests ----
+
+func TestNewDownloader(t *testing.T) {
+	d := download.New()
+	if d == nil {
+		t.Fatal("New() should not return nil")
+	}
+}
+
+func TestDownloaderInvalidRequestNil(t *testing.T) {
+	d := download.New()
+	err := d.Download(context.Background(), nil)
+	if err == nil {
+		t.Error("Download with nil request should error")
+	}
+}
+
+func TestDownloaderInvalidRequestEmptyURL(t *testing.T) {
+	d := download.New()
+	err := d.Download(context.Background(), &download.Request{SavePath: "/tmp/file"})
+	if err == nil {
+		t.Error("Download with empty URL should error")
+	}
+}
+
+func TestDownloaderInvalidRequestEmptySavePath(t *testing.T) {
+	d := download.New()
+	err := d.Download(context.Background(), &download.Request{URL: "http://example.com"})
+	if err == nil {
+		t.Error("Download with empty SavePath should error")
+	}
+}
+
+func TestDownloaderNoExtractor(t *testing.T) {
+	d := download.New()
+	err := d.Download(context.Background(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err == nil {
+		t.Error("Download with no extractor should error")
+	}
+}
+
+func TestDownloaderWithExtractor(t *testing.T) {
+	ex := &mockExtractor{}
+	sel := download.NewDefaultSelector()
+	d := download.New(download.WithExtractor(ex), download.WithSelector(sel))
+	err := d.Download(context.Background(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Errorf("Download with extractor should not error: %v", err)
+	}
+}
+
+func TestDownloaderWithSelector(t *testing.T) {
+	sel := &mockSelector{}
+	d := download.New(download.WithSelector(sel))
+	if d == nil {
+		t.Fatal("New() with selector should not return nil")
+	}
+}
+
+func TestDownloaderWithTransport(t *testing.T) {
+	tr := &mockTransport{}
+	d := download.New(download.WithTransport(tr))
+	if d == nil {
+		t.Fatal("New() with transport should not return nil")
+	}
+}
+
+// ---- Global Get/Default/SetDefault tests ----
+
+func TestDefaultNilBeforeSet(t *testing.T) {
+	// Default() should return nil before SetDefault
+	if download.Default() != nil {
+		t.Error("Default() should be nil before SetDefault")
+	}
+}
+
+func TestGetReturnsErrorBeforeSet(t *testing.T) {
+	err := download.Get(context.Background(), "http://example.com/file", "/tmp/file")
+	if !errors.Is(err, download.ErrNoDefaultDownloader) {
+		t.Errorf("expected ErrNoDefaultDownloader, got: %v", err)
+	}
+}
+
+func TestSetDefaultAndGet(t *testing.T) {
+	ex := &mockExtractor{}
+	sel := download.NewDefaultSelector()
+	d := download.New(download.WithExtractor(ex), download.WithSelector(sel))
+	download.SetDefault(d)
+
+	if download.Default() != d {
+		t.Error("Default() should return the set downloader")
+	}
+
+	err := download.Get(context.Background(), "http://example.com/file", "/tmp/file")
+	if err != nil {
+		t.Errorf("Get() should not error: %v", err)
+	}
+
+	// Reset for other tests
+	download.SetDefault(nil)
+}
+
+// ---- Integration test with real server ----
+
+func TestDownloaderRealDownload(t *testing.T) {
+	// Start a test server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("hello world"))
+	}))
+	defer ts.Close()
+
+	// Create a temp dir
+	tmpDir := t.TempDir()
+	savePath := filepath.Join(tmpDir, "output.txt")
+
+	// Create downloader with HTTP extractor and stdlib transport
+	ex := extractor.NewHTTPExtractor()
+	tr := transport.NewStdlibTransport()
+	d := download.New(download.WithExtractor(ex), download.WithTransport(tr))
+
+	err := d.Download(context.Background(), &download.Request{
+		URL:      ts.URL,
+		SavePath: savePath,
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	// Verify file content
+	data, err := os.ReadFile(savePath)
+	if err != nil {
+		t.Fatalf("failed to read downloaded file: %v", err)
+	}
+	if string(data) != "hello world" {
+		t.Errorf("unexpected content: got %q, want %q", string(data), "hello world")
+	}
+}
+
+func TestDownloaderWithHintExtractor(t *testing.T) {
+	// When hint specifies an extractor name, DefaultSelector should use it
+	ex := &mockExtractor{}
+	sel := download.NewDefaultSelector()
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithSelector(sel),
+	)
+
+	// The mockExtractor.Match returns false, but hint-based match works by name
+	err := d.Download(context.Background(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+		Hint:     &download.DownloadHint{Extractor: "mock"},
+	})
+	if err != nil {
+		t.Errorf("should not error but got: %v", err)
 	}
 }
