@@ -5,6 +5,7 @@ package m3u8d
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -113,11 +114,23 @@ func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) er
 		fmt.Printf("开始转码: %s -> %s\n", localM3U8Path, d.Config.OutputFile)
 	}
 
+	// Sanitize headers to prevent argv injection
+	for k, v := range d.Config.Headers {
+		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("invalid header value contains CR/LF")
+		}
+	}
+	// Sanitize output file to prevent argv injection
+	if strings.HasPrefix(d.Config.OutputFile, "-") {
+		return fmt.Errorf("invalid output file (starts with '-')")
+	}
+
 	args := []string{"-y", "-allowed_extensions", "ALL"}
-	args = append(args, "-protocol_whitelist", "file,http,https,tcp,tls,crypto")
+	// Remove "file" from protocol whitelist to prevent arbitrary file read via ffmpeg
+	args = append(args, "-protocol_whitelist", "http,https,tcp,tls,crypto")
 	args = append(args, "-i", localM3U8Path)
 	args = append(args, d.Config.FFmpegArgs...)
-	args = append(args, d.Config.OutputFile)
+	args = append(args, "--", d.Config.OutputFile)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stdout = os.Stdout
@@ -248,19 +261,32 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 			continue
 		}
 
+		// Sanitize: reject lines with directory traversal or null bytes
+		if strings.Contains(line, "..") || strings.Contains(line, "\x00") {
+			return nil, fmt.Errorf("invalid resource path in m3u8: %s", line)
+		}
+
 		if strings.HasPrefix(line, "#") {
 			if strings.Contains(line, "#EXT-X-KEY") {
 				if keyURL, ok := extractKeyURL(line); ok {
+					// Validate key URL scheme
+					keyParsed, err := url.Parse(keyURL)
+					if err != nil || (keyParsed.Scheme != "http" && keyParsed.Scheme != "https") {
+						return nil, fmt.Errorf("invalid key URL scheme in m3u8: %s", keyURL)
+					}
+
 					absKeyURL := resolveURL(base, keyURL)
-					keyFilename := filepath.Base(keyURL)
+					// Use hash-based filename to prevent path traversal
+					keyHash := fmt.Sprintf("key_%x", sha256.Sum256([]byte(keyURL)))[:20]
+					keyLocalPath := filepath.Join(d.Config.WorkDir, keyHash)
 
 					tasks = append(tasks, DownloadTask{
 						URL:       absKeyURL,
-						LocalPath: filepath.Join(d.Config.WorkDir, keyFilename),
+						LocalPath: keyLocalPath,
 						Type:      "key",
 					})
 
-					localKeyPath := fmt.Sprintf("file://%s", filepath.Join(d.Config.WorkDir, keyFilename))
+					localKeyPath := fmt.Sprintf("file://%s", keyLocalPath)
 					line = strings.Replace(line, keyURL, localKeyPath, 1)
 				}
 			}
@@ -269,33 +295,34 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 		}
 
 		absURL := resolveURL(base, line)
-		filename := filepath.Base(line)
+		// Use hash-based filename for all resources to prevent path traversal
+		fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
 
 		switch {
 		case strings.Contains(line, ".m3u8"):
-			subM3U8Path := filepath.Join(d.Config.WorkDir, filename)
+			subM3U8Path := filepath.Join(d.Config.WorkDir, fileHash+".m3u8")
 			subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
 			if err != nil {
 				return nil, err
 			}
 			tasks = append(tasks, subTasks...)
-			modifiedLines = append(modifiedLines, filename)
+			modifiedLines = append(modifiedLines, filepath.Base(subM3U8Path))
 
 		case strings.Contains(line, ".ts"):
 			tasks = append(tasks, DownloadTask{
 				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, filename),
+				LocalPath: filepath.Join(d.Config.WorkDir, fileHash+".ts"),
 				Type:      "ts",
 			})
-			modifiedLines = append(modifiedLines, filename)
+			modifiedLines = append(modifiedLines, filepath.Base(line))
 
 		case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
 			tasks = append(tasks, DownloadTask{
 				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, filename),
+				LocalPath: filepath.Join(d.Config.WorkDir, fileHash),
 				Type:      "key",
 			})
-			modifiedLines = append(modifiedLines, filename)
+			modifiedLines = append(modifiedLines, filepath.Base(line))
 
 		default:
 			modifiedLines = append(modifiedLines, line)
