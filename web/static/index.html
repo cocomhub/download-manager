@@ -651,10 +651,19 @@
                                     <i class="fas fa-sliders-h mr-1"></i> 任务配置
                                 </button>
                                 <div class="flex items-center gap-2">
-                                    <button @click="toggleSelectAllObjects" class="text-xs bg-white text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">全选当前页对象</button>
-                                    <button @click="cancelSelectedObjects" :disabled="isWriteDisabled || selectedObjectCount===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectCount>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">取消选中对象</button>
-                                    <button @click="undoCancelSelectedObjects" :disabled="isWriteDisabled || selectedObjectCount===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectCount>0 ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">撤销选中</button>
-                                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" v-if="selectedObjectCount>0">已选 {{ selectedObjectCount }}</span>
+                                    <button @click="toggleSelectAllObjects" class="text-xs bg-white text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
+                                      {{ selectAllScope === 'all' ? '取消全选' : '全选当前页' }}
+                                    </button>
+                                    <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer" v-if="selectedObjectUrls.length > 0">
+                                      <input type="radio" v-model="selectAllScope" value="page" class="accent-blue-500"> 仅当前页
+                                    </label>
+                                    <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer" v-if="selectedObjectUrls.length > 0">
+                                      <input type="radio" v-model="selectAllScope" value="all" class="accent-blue-500"> 全选所有页
+                                    </label>
+                                    <button @click="cancelSelectAllObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">取消选中</button>
+                                    <button @click="retrySelectedObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">批量重试</button>
+                                    <button @click="undoCancelSelectAllObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">撤销取消</button>
+                                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" v-if="selectedObjectUrls.length>0">已选 {{ selectedObjectUrls.length }} 个对象<span v-if="selectAllScope === 'all'">（跨页全选）</span></span>
                                 </div>
                             </div>
                         </div>

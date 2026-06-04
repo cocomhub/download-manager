@@ -24,6 +24,7 @@
           this.selectedTaskId = id
           this.selectedTaskIds = this.selectedTaskIds.filter(function (x) { return x !== id })
           this.selectedObjectUrls = []
+          this.selectAllScope = 'page'
           this.searchQuery = ''
           this.pagination.page = 1
           this.viewMode = 'grid'
@@ -40,14 +41,29 @@
 
         toggleSelectAllObjects: function () {
           var urls = (this.filteredObjects || []).map(function (o) { return o.url })
-          var allSelected = urls.length > 0 && urls.every(function (u) { return this.selectedObjectUrls.indexOf(u) >= 0 }.bind(this))
-          if (allSelected) {
-            this.selectedObjectUrls = this.selectedObjectUrls.filter(function (u) { return urls.indexOf(u) < 0 })
+          // Toggle between page-only and all-pages mode
+          if (this.selectAllScope === 'all') {
+            // Currently in 'all' mode — switch to 'page' mode
+            this.selectAllScope = 'page'
+            // Select only current page objects
+            this.selectedObjectUrls = [].concat(urls)
           } else {
-            var set = {}
-            this.selectedObjectUrls.forEach(function (u) { set[u] = true })
-            urls.forEach(function (u) { set[u] = true })
-            this.selectedObjectUrls = Object.keys(set)
+            // Check if all current page objects are already selected
+            var allSelected = urls.length > 0 && urls.every(function (u) { return this.selectedObjectUrls.indexOf(u) >= 0 }.bind(this))
+            if (allSelected) {
+              // Deselect current page objects
+              this.selectedObjectUrls = this.selectedObjectUrls.filter(function (u) { return urls.indexOf(u) < 0 })
+            } else {
+              // Select current page objects (union)
+              var set = {}
+              this.selectedObjectUrls.forEach(function (u) { set[u] = true })
+              urls.forEach(function (u) { set[u] = true })
+              this.selectedObjectUrls = Object.keys(set)
+              // Enter 'all' mode if selections span beyond current page
+              if (urls.length === this.filteredObjects.length && this.selectedObjectUrls.length > urls.length) {
+                this.selectAllScope = 'all'
+              }
+            }
           }
         },
 
@@ -157,6 +173,125 @@
           if (!this.selectedTaskId || this.selectedObjectUrls.length === 0) return
           var self = this
           AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/undo_cancel_batch', { urls: this.selectedObjectUrls })
+            .then(function (res) { if (!res.ok) throw new Error('批量撤销失败'); return res.json() })
+            .then(function (result) {
+              var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })
+              if (self.selectedTask && self.selectedTask.objects && okList.length > 0) {
+                self.selectedTask.objects.forEach(function (o) {
+                  if (okList.indexOf(o.url) >= 0) { o.status = 'pending'; o.progress = 0 }
+                })
+              }
+              var failed = Object.entries(result).filter(function (kv) { return kv[1] !== 'ok' })
+              if (failed.length === 0) self.showToast('已撤销选中对象', 'success')
+              else self.showToast('部分对象撤销失败', 'error')
+              self.selectedObjectUrls = []
+            }).catch(function (e) { self.showToast('批量撤销失败: ' + e.message, 'error') })
+        },
+
+        retrySelectedObjects: function () {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (this.selectedObjectUrls.length === 0) return
+
+          var self = this
+          var isAllMode = this.selectAllScope === 'all'
+
+          if (isAllMode) {
+            // Cross-page mode: retry all failed for this task
+            if (!this.selectedTaskId) return
+            AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/retry', {})
+              .then(function (res) {
+                if (!res.ok) throw new Error('批量重试失败')
+                self.showToast('已重试所有失败对象', 'success')
+                self.selectedObjectUrls = []
+                self.selectAllScope = 'page'
+                self.fetchTaskDetails(self.selectedTaskId, true)
+              }).catch(function (e) { self.showToast('批量重试失败: ' + e.message, 'error') })
+            return
+          }
+
+          // Page mode: only retry selected failed objects individually
+          var objs = (self.selectedTask && self.selectedTask.objects) || []
+          var failedUrls = []
+          objs.forEach(function (o) {
+            if (self.selectedObjectUrls.indexOf(o.url) >= 0 && o.status === 'failed') {
+              failedUrls.push(o.url)
+            }
+          })
+
+          if (failedUrls.length === 0) {
+            self.showToast('选中的对象中没有可重试的失败项', 'info')
+            return
+          }
+
+          var completed = 0
+          failedUrls.forEach(function (url) {
+            AppAPI.post('/api/tasks/' + encodeURIComponent(self.selectedTaskId) + '/retry', { url: url })
+              .then(function (res) {
+                if (res.ok) {
+                  completed++
+                  var obj = (self.selectedTask && self.selectedTask.objects || []).find(function (o) { return o.url === url })
+                  if (obj) { obj.status = 'pending'; obj.progress = 0 }
+                }
+              }).catch(function () {})
+              .finally(function () {
+                if (completed === failedUrls.length) {
+                  self.showToast('已重试 ' + completed + ' 个失败对象', 'success')
+                  self.selectedObjectUrls = []
+                  self.fetchTaskDetails(self.selectedTaskId, true)
+                }
+              })
+          })
+        },
+
+        cancelSelectAllObjects: function () {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (this.selectedObjectUrls.length === 0) return
+
+          var self = this
+          if (this.selectAllScope === 'all') {
+            // Cross-page mode: cancel the entire task
+            if (!this.selectedTaskId) return
+            AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/cancel', {})
+              .then(function (res) {
+                if (!res.ok) throw new Error('取消失败')
+                self.showToast('任务已取消', 'success')
+                self.selectedObjectUrls = []
+                self.selectAllScope = 'page'
+                self.fetchTasks()
+                self.fetchTaskDetails(self.selectedTaskId, true)
+              }).catch(function (e) { self.showToast('取消失败: ' + e.message, 'error') })
+            return
+          }
+
+          // Page mode: batch cancel selected objects
+          AppAPI.post('/api/tasks/' + encodeURIComponent(self.selectedTaskId) + '/object/cancel_batch', { urls: self.selectedObjectUrls })
+            .then(function (res) { if (!res.ok) throw new Error('批量取消失败'); return res.json() })
+            .then(function (result) {
+              var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })
+              if (self.selectedTask && self.selectedTask.objects && okList.length > 0) {
+                self.selectedTask.objects.forEach(function (o) {
+                  if (okList.indexOf(o.url) >= 0) { o.status = 'cancelled'; o.progress = 0 }
+                })
+              }
+              var failed = Object.entries(result).filter(function (kv) { return kv[1] !== 'ok' })
+              if (failed.length === 0) self.showToast('已取消选中对象', 'success')
+              else self.showToast('部分对象取消失败', 'error')
+              self.selectedObjectUrls = []
+            }).catch(function (e) { self.showToast('批量取消失败: ' + e.message, 'error') })
+        },
+
+        undoCancelSelectAllObjects: function () {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (this.selectedObjectUrls.length === 0) return
+
+          var self = this
+          if (this.selectAllScope === 'all') {
+            self.showToast('跨页全选模式不支持批量撤销取消，请切换为单页模式', 'info')
+            return
+          }
+
+          // Page mode: batch undo cancel selected objects
+          AppAPI.post('/api/tasks/' + encodeURIComponent(self.selectedTaskId) + '/object/undo_cancel_batch', { urls: self.selectedObjectUrls })
             .then(function (res) { if (!res.ok) throw new Error('批量撤销失败'); return res.json() })
             .then(function (result) {
               var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })

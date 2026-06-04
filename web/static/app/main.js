@@ -21,6 +21,7 @@
         selectedTask: null,
         selectedTaskIds: [],
         selectedObjectUrls: [],
+        selectAllScope: 'page',
         viewMode: 'grid',
         searchQuery: '',
         sortBy: 'default',
