@@ -98,7 +98,17 @@
         hoverObj: null,
         hoverTimer: null,
         enablePreview: true,
-        previewTimer: null
+        previewTimer: null,
+
+        // Dashboard
+        dashboardHealth: null,
+        dashboardMetrics: null,
+        dashboardFailures: null,
+        dashboardFailuresLimit: 20,
+        dashboardFailuresTaskId: '',
+        dashboardHealthzTimer: null,
+        dashboardMetricsTimer: null,
+        dashboardFailuresTimer: null
       }
     },
 
@@ -182,6 +192,14 @@
       selectedType: function () {
         if (typeof window.__dm_updateURLWithType === 'function') window.__dm_updateURLWithType(this.selectedType)
         if (this.viewMode === 'tktube') { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) }
+      },
+      viewMode: function (val) {
+        if (val === 'dashboard') {
+          this.fetchDashboardData()
+          this.startDashboardPolling()
+        } else {
+          this.stopDashboardPolling()
+        }
       }
     },
 
@@ -199,6 +217,7 @@
       if (this.timer) clearInterval(this.timer)
       if (this.eventSource) this.eventSource.close()
       if (this.abortController) this.abortController.abort()
+      this.stopDashboardPolling()
     }
   })
 
@@ -210,6 +229,7 @@
   if (typeof AppAggregateView !== 'undefined') AppAggregateView.register(app)
   if (typeof AppConfigPanel !== 'undefined') AppConfigPanel.register(app)
   if (typeof AppDownloadView !== 'undefined') AppDownloadView.register(app)
+  if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
 
   app.mount('#app')
 })()
