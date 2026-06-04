@@ -139,53 +139,15 @@
           if (this.pagination.limit !== 'all' && p > Math.ceil(this.pagination.total / this.pagination.limit)) return
           this.pagination.page = p
           this.selectedObjectUrls = []
+          this.selectAllScope = 'page'
           this.fetchTaskDetails(this.selectedTaskId)
         },
 
         changeLimit: function () {
           this.pagination.page = 1
           this.selectedObjectUrls = []
+          this.selectAllScope = 'page'
           this.fetchTaskDetails(this.selectedTaskId)
-        },
-
-        cancelSelectedObjects: function () {
-          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
-          if (!this.selectedTaskId || this.selectedObjectUrls.length === 0) return
-          var self = this
-          AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/cancel_batch', { urls: this.selectedObjectUrls })
-            .then(function (res) { if (!res.ok) throw new Error('批量取消失败'); return res.json() })
-            .then(function (result) {
-              var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })
-              if (self.selectedTask && self.selectedTask.objects && okList.length > 0) {
-                self.selectedTask.objects.forEach(function (o) {
-                  if (okList.indexOf(o.url) >= 0) { o.status = 'cancelled'; o.progress = 0 }
-                })
-              }
-              var failed = Object.entries(result).filter(function (kv) { return kv[1] !== 'ok' })
-              if (failed.length === 0) self.showToast('已取消选中对象', 'success')
-              else self.showToast('部分对象取消失败', 'error')
-              self.selectedObjectUrls = []
-            }).catch(function (e) { self.showToast('批量取消失败: ' + e.message, 'error') })
-        },
-
-        undoCancelSelectedObjects: function () {
-          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
-          if (!this.selectedTaskId || this.selectedObjectUrls.length === 0) return
-          var self = this
-          AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/undo_cancel_batch', { urls: this.selectedObjectUrls })
-            .then(function (res) { if (!res.ok) throw new Error('批量撤销失败'); return res.json() })
-            .then(function (result) {
-              var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })
-              if (self.selectedTask && self.selectedTask.objects && okList.length > 0) {
-                self.selectedTask.objects.forEach(function (o) {
-                  if (okList.indexOf(o.url) >= 0) { o.status = 'pending'; o.progress = 0 }
-                })
-              }
-              var failed = Object.entries(result).filter(function (kv) { return kv[1] !== 'ok' })
-              if (failed.length === 0) self.showToast('已撤销选中对象', 'success')
-              else self.showToast('部分对象撤销失败', 'error')
-              self.selectedObjectUrls = []
-            }).catch(function (e) { self.showToast('批量撤销失败: ' + e.message, 'error') })
         },
 
         retrySelectedObjects: function () {
@@ -224,6 +186,7 @@
           }
 
           var completed = 0
+          var totalFailed = 0
           failedUrls.forEach(function (url) {
             AppAPI.post('/api/tasks/' + encodeURIComponent(self.selectedTaskId) + '/retry', { url: url })
               .then(function (res) {
@@ -231,11 +194,17 @@
                   completed++
                   var obj = (self.selectedTask && self.selectedTask.objects || []).find(function (o) { return o.url === url })
                   if (obj) { obj.status = 'pending'; obj.progress = 0 }
+                } else {
+                  totalFailed++
                 }
-              }).catch(function () {})
+              }).catch(function () { totalFailed++ })
               .finally(function () {
-                if (completed === failedUrls.length) {
-                  self.showToast('已重试 ' + completed + ' 个失败对象', 'success')
+                if (completed + totalFailed === failedUrls.length) {
+                  if (totalFailed > 0) {
+                    self.showToast('已重试 ' + completed + ' 个，失败 ' + totalFailed + ' 个', 'error')
+                  } else {
+                    self.showToast('已重试 ' + completed + ' 个失败对象', 'success')
+                  }
                   self.selectedObjectUrls = []
                   self.fetchTaskDetails(self.selectedTaskId, true)
                 }

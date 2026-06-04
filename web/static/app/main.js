@@ -135,7 +135,6 @@
         if (this.statusFilter === 'all') return list
         return list.filter(function (o) { return o.status === this.statusFilter }.bind(this))
       },
-      selectedObjectCount: function () { return this.selectedObjectUrls.length },
       tktubeFilteredObjects: function () { return this.tktubeObjects || [] },
       tktubePagedObjects: function () { return this.tktubeFilteredObjects || [] },
       groupModalSafety: function () {
