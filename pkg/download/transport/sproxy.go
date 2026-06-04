@@ -29,6 +29,7 @@ type SproxyTunnelTransport struct {
 	client    *http.Client
 	tunnelCl  *tunnel.Client
 	useTunnel bool
+	logger    *slog.Logger
 }
 
 // NewSproxyTunnelTransport 创建 SproxyTunnelTransport。
@@ -47,6 +48,7 @@ func NewSproxyTunnelTransport(serverURL string, opts ...SproxyOption) *SproxyTun
 	t := &SproxyTunnelTransport{
 		serverURL: serverURL,
 		client:    baseClient,
+		logger:    slog.Default(),
 	}
 	for _, o := range opts {
 		o(t)
@@ -60,11 +62,13 @@ type SproxyOption func(*SproxyTunnelTransport)
 // WithSproxyTunnelKey 设置隧道密钥（AES-256-GCM，64 hex chars）。
 func WithSproxyTunnelKey(key string) SproxyOption {
 	return func(t *SproxyTunnelTransport) {
-		tc, err := tunnel.NewClient(key, t.serverURL+"/tunnel", 600*time.Second, slog.Default())
-		if err == nil {
-			t.tunnelCl = tc
-			t.useTunnel = true
+		tc, err := tunnel.NewClient(key, t.serverURL+"/tunnel", 600*time.Second, t.logger)
+		if err != nil {
+			t.logger.Warn("sproxy: tunnel client init failed, falling back to HTTP proxy", "error", err)
+			return
 		}
+		t.tunnelCl = tc
+		t.useTunnel = true
 	}
 }
 

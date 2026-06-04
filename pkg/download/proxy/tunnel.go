@@ -135,8 +135,8 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 			continue
 		}
 
-		// 带宽探测（可选，失败时仍返回该实例作为备选）
-		bw, err := download.CheckBandwidth(ctx, inst.ServerURL, s.probeBytes, s.probeTimeout)
+		// 带宽探测（使用 /bandwidth 端点获取足够大的响应）
+		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+"/bandwidth", s.probeBytes, s.probeTimeout)
 		if err != nil {
 			slog.Debug("sproxy bandwidth probe failed", "url", inst.ServerURL, "error", err)
 			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})
