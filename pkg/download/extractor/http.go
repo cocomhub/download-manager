@@ -118,8 +118,6 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
 func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *download.Request) (bool, error) {
-	// 更新状态以供调试
-	_ = startOffset
 
 	treq := &download.TransportRequest{
 		URL:      rawURL,

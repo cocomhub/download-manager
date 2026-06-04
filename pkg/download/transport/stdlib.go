@@ -82,3 +82,10 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *download.Transpor
 		ProxyURL:      treq.ProxyURL,
 	}, nil
 }
+
+// SetDomainLimits 设置域名并发限制。
+func (t *StdlibTransport) SetDomainLimits(limits map[string]int) {
+	for domain, limit := range limits {
+		t.dLimiter.Set(domain, limit)
+	}
+}

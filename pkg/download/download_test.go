@@ -427,6 +427,7 @@ func TestSetDefaultAndGet(t *testing.T) {
 	sel := download.NewDefaultSelector()
 	d := download.New(download.WithExtractor(ex), download.WithSelector(sel))
 	download.SetDefault(d)
+	t.Cleanup(func() { download.SetDefault(nil) })
 
 	if download.Default() != d {
 		t.Error("Default() should return the set downloader")
@@ -436,9 +437,6 @@ func TestSetDefaultAndGet(t *testing.T) {
 	if err != nil {
 		t.Errorf("Get() should not error: %v", err)
 	}
-
-	// Reset for other tests
-	download.SetDefault(nil)
 }
 
 // ---- Integration test with real server ----

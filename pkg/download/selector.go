@@ -31,6 +31,13 @@ type DefaultSelector struct {
 	proxySelector ProxySelector
 }
 
+// AddExtractor 向 DefaultSelector 注册一个 Extractor。
+func (s *DefaultSelector) AddExtractor(ex Extractor) *DefaultSelector {
+	s.extractors = append(s.extractors, ex)
+	return s
+}
+
+// WithProxySelector 设置代理选择器。
 func (s *DefaultSelector) WithProxySelector(ps ProxySelector) *DefaultSelector {
 	s.proxySelector = ps
 	return s
