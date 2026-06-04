@@ -347,6 +347,10 @@
             console.error('SSE Error')
             self.showToast('Connection lost. Reconnecting...', 'error')
           }
+          this.eventSource.onopen = function () {
+            // SSE 重连成功后刷新任务列表，解决断连后数据陈旧的问题
+            self.fetchTasks()
+          }
         },
         handleEvent: function (event) {
           var self = this

@@ -174,7 +174,7 @@
                             <option :value="100">100</option>
                             <option value="all">All</option>
                         </select>
-                        <div class="flex items-center space-x-1" v-if="pagination.limit !== 'all'">
+                        <div class="flex items-center space-x-1" v-if="pagination.limit !== 'all' && pagination.total > 0">
                             <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
                                 <i class="fas fa-chevron-left"></i>
                              </button>
@@ -341,7 +341,7 @@
                                     <option :value="100">100</option>
                                     <option value="all">All</option>
                                 </select>
-                                <div class="flex items-center space-x-1" v-if="tktubePagination.limit !== 'all'">
+                                <div class="flex items-center space-x-1" v-if="tktubePagination.limit !== 'all' && tktubePagination.total > 0">
                                     <button @click="changeTktubePage(tktubePagination.page - 1)" :disabled="tktubePagination.page <= 1" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
                                         <i class="fas fa-chevron-left"></i>
                                     </button>
@@ -389,14 +389,14 @@
                                     </div>
                                     <div class="flex justify-between items-center text-xs text-gray-500 mb-2">
                                         <span>{{ getDate(obj) }}</span>
-                                        <span class="font-mono">{{ obj.progress ? (obj.progress + '%') : '' }}</span>
+                                        <span class="font-mono" v-if="obj.status === 'downloading' || (obj.progress > 0 && obj.progress < 100)">{{ obj.progress + '%' }}</span>
                                         <span class="font-mono" v-if="getDuration(obj)">{{ getDuration(obj) }}</span>
                                     </div>
                                     <div class="flex flex-wrap gap-1 mb-3 max-h-16 overflow-hidden">
                                         <span v-for="tag in getTags(obj).slice(0, 5)" :key="tag" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ tag }}</span>
                                     </div>
                                     <div class="mt-auto">
-                                        <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
+                                        <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.status !== 'cancelled' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
                                             <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: (obj.progress || 0) + '%' }"></div>
                                         </div>
                                     </div>
@@ -608,14 +608,14 @@
                                 <div v-if="isVikacg(obj)" class="text-xs text-gray-500 line-clamp-3 mb-2">{{ getVikacgExcerpt(obj) }}</div>
                                 <div class="flex justify-between items-center text-xs text-gray-500 mb-2">
                                     <span @click.stop="copyText(getTitle(obj))" class="cursor-copy" :title="'点击复制标题：' + getTitle(obj)">{{ getDate(obj) }}</span>
-                                    <span class="font-mono">{{ obj.progress ? (obj.progress + '%') : '' }}</span>
+                                    <span class="font-mono" v-if="obj.status === 'downloading' || (obj.progress > 0 && obj.progress < 100)">{{ obj.progress + '%' }}</span>
                                     <span class="font-mono" v-if="getDuration(obj)">{{ getDuration(obj) }}</span>
                                 </div>
                                 <div class="flex flex-wrap gap-1 mb-3 max-h-16 overflow-hidden">
                                     <span v-for="tag in getTags(obj).slice(0, 5)" :key="tag" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded hover:bg-gray-200 cursor-pointer" @click.stop="searchQuery = tag">#{{ tag }}</span>
                                 </div>
                                 <div class="mt-auto">
-                                    <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
+                                    <div v-if="obj.status === 'downloading' || (obj.status !== 'completed' && obj.status !== 'cancelled' && obj.progress > 0)" class="w-full bg-gray-100 rounded-full h-2 mb-1">
                                         <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="{ width: (obj.progress || 0) + '%' }"></div>
                                     </div>
                                 </div>
