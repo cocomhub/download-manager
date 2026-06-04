@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -221,9 +222,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 func (e *HTTPExtractor) buildHeaders(req *download.Request) map[string]string {
 	h := make(map[string]string)
 	if req.Headers != nil {
-		for k, v := range req.Headers {
-			h[k] = v
-		}
+		maps.Copy(h, req.Headers)
 	}
 	if _, ok := h["User-Agent"]; !ok && e.ua != "" {
 		h["User-Agent"] = e.ua

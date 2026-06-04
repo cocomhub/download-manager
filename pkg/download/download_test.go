@@ -1,3 +1,6 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package download_test
 
 import (
@@ -21,13 +24,13 @@ import (
 
 type mockExtractor struct{}
 
-func (m *mockExtractor) Name() string                                          { return "mock" }
-func (m *mockExtractor) Match(_ context.Context, _ string) bool                { return true }
-func (m *mockExtractor) Extract(_ context.Context, _ *download.Request) error  { return nil }
+func (m *mockExtractor) Name() string                                         { return "mock" }
+func (m *mockExtractor) Match(_ context.Context, _ string) bool               { return true }
+func (m *mockExtractor) Extract(_ context.Context, _ *download.Request) error { return nil }
 
 type mockTransport struct{}
 
-func (m *mockTransport) Name() string                                                                   { return "mock" }
+func (m *mockTransport) Name() string { return "mock" }
 func (m *mockTransport) RoundTrip(_ context.Context, _ *download.TransportRequest) (*download.TransportResponse, error) {
 	return nil, nil
 }
