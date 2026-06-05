@@ -6,7 +6,8 @@ package downloader
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/cocomhub/download-manager/core"
@@ -17,9 +18,9 @@ import (
 
 // compile-time interface checks
 var (
-	_ core.Downloader                     = (*DownloaderAdapter)(nil)
-	_ core.DownloaderWithContext          = (*DownloaderAdapter)(nil)
-	_ core.DownloaderWithDomainLimits     = (*DownloaderAdapter)(nil)
+	_ core.Downloader                 = (*DownloaderAdapter)(nil)
+	_ core.DownloaderWithContext      = (*DownloaderAdapter)(nil)
+	_ core.DownloaderWithDomainLimits = (*DownloaderAdapter)(nil)
 )
 
 // DownloaderAdapter 将 pkg/download.Downloader 包装为 core.Downloader。
@@ -29,25 +30,24 @@ type DownloaderAdapter struct {
 	dl        *download.Downloader
 	dlCtx     context.Context
 	transport download.Transport
-	logger    *slog.Logger
+	cancels   sync.Map // map[string]context.CancelFunc
 }
 
 // NewDownloaderAdapter 创建适配器。
 func NewDownloaderAdapter(dl *download.Downloader) *DownloaderAdapter {
 	return &DownloaderAdapter{
-		dl:     dl,
-		logger: slog.Default(),
+		dl: dl,
 	}
 }
 
-// Name 返回适配器名称。
-func (a *DownloaderAdapter) Name() string { return "adapter" }
+// Name 返回适配器名称（保持与旧 NativeHTTPDownloader 兼容）。
+func (a *DownloaderAdapter) Name() string { return "native_http" }
 
 // SetContext 设置下载上下文（替代旧的 NativeHTTPDownloader.SetContext）。
 func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.dlCtx = ctx
-	a.mu.Unlock()
 }
 
 // ApplyDomainLimits 设置域名并发限制（通过 StdlibTransport）。
@@ -57,15 +57,30 @@ func (a *DownloaderAdapter) ApplyDomainLimits(limits map[string]int) {
 	}
 }
 
+// Cancel 尝试取消正在进行的下载。使用 per-URL cancel func 实现。
+func (a *DownloaderAdapter) Cancel(url string) error {
+	if v, ok := a.cancels.LoadAndDelete(url); ok {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+	}
+	return nil
+}
+
+// getCtx 返回当前上下文（线程安全）。
+func (a *DownloaderAdapter) getCtx() context.Context {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.dlCtx != nil {
+		return a.dlCtx
+	}
+	return context.Background()
+}
+
 // Download 实现 core.Downloader 接口。
 // 将 model.DownloadObject + headers 映射为 download.Request 并执行下载。
 func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[string]string) error {
-	a.mu.Lock()
-	ctx := a.dlCtx
-	a.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := a.getCtx()
 
 	if headers == nil {
 		headers = make(map[string]string)
@@ -78,17 +93,22 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 
 	// 标准单文件下载
 	req := &download.Request{
-		URL:      obj.URL,
-		SavePath: obj.SavePath,
-		Headers:  headers,
-		Metadata: obj.Metadata,
+		URL:           obj.URL,
+		SavePath:      obj.SavePath,
+		Headers:       headers,
+		Metadata:      obj.Metadata,
 		TrackProgress: true,
 		OnProgress: func(progress float64, downloaded, total int64) {
 			obj.SetProgress(int(progress))
 		},
 	}
 
-	err := a.dl.Download(ctx, req)
+	// 创建 per-URL 可取消的 context
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer a.cancels.Delete(obj.URL)
+	a.cancels.Store(obj.URL, dlCancel)
+
+	err := a.dl.Download(dlCtx, req)
 	if err != nil {
 		return fmt.Errorf("adapter: download failed: %w", err)
 	}
@@ -106,8 +126,6 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		return fmt.Errorf("adapter: composite download with empty file list")
 	}
 
-	slog.Info("Starting composite download via adapter", "count", len(fileList), "task_id", obj.TaskID)
-
 	for _, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]
@@ -115,6 +133,12 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 
 		if subURL == "" || subPath == "" {
 			continue
+		}
+
+		// 确保子文件目录存在（保持与旧行为一致）
+		dir := filepath.Dir(subPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("adapter: failed to create directory for composite file: %w", err)
 		}
 
 		// 跟踪进度：仅 video 类型或只有一个文件时

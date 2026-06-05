@@ -32,9 +32,19 @@ type HTTPExtractor struct {
 
 // NewHTTPExtractor 创建并返回 HTTPExtractor 实例。
 func NewHTTPExtractor() *HTTPExtractor {
+	return NewHTTPExtractorWithConfig(5, "", "", "")
+}
+
+// NewHTTPExtractorWithConfig 根据配置创建 HTTPExtractor 实例。
+func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir string) *HTTPExtractor {
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+	}
 	return &HTTPExtractor{
-		maxRetries: 5,
-		ua:         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+		maxRetries: maxRetries,
+		rootDir:    rootDir,
+		logDir:     logDir,
+		ua:         userAgent,
 	}
 }
 

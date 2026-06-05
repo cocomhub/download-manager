@@ -29,7 +29,7 @@ func New(cfg config.Downloader) core.Downloader {
 
 // newDownloaderFromConfig 从配置构建新的 pkg/download 下载器。
 func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
-	// 创建 StdlibTransport
+	// 创建 StdlibTransport（带配置的超时和连接池参数）
 	tr := transport.NewStdlibTransport()
 	if len(cfg.DomainLimits) > 0 {
 		tr.SetDomainLimits(cfg.DomainLimits)
@@ -42,9 +42,18 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 		sel = download.NewDefaultSelector().WithProxySelector(ps)
 	}
 
-	// 注册 Extractor
-	httpEx := extractor.NewHTTPExtractor()
-	hlsEx := extractor.NewHLSExtractor()
+	// 创建 Extractor 实例（传递配置参数）
+	userAgent := cfg.HTTP.DefaultUserAgent
+	if userAgent == "" {
+		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+	}
+
+	httpEx := extractor.NewHTTPExtractorWithConfig(cfg.MaxRetries, userAgent, cfg.Filesystem.RootDir, cfg.Filesystem.LogDir)
+	hlsEx := extractor.NewHLSExtractor(
+		extractor.WithFFmpegPath(cfg.FFmpeg.Path),
+		extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
+		extractor.WithHLSUserAgent(userAgent),
+	)
 
 	// 创建下载器
 	opts := []download.Option{
