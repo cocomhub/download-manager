@@ -11,11 +11,13 @@ import (
 )
 
 // Downloader 是用户使用的主要入口。
-// 持有 Selector、Extractor 注册表和 Transport 引用，编排一次完整下载。
+// 持有 Selector、Extractor 注册表、Transport 引用、Middleware 链和 Metrics，编排一次完整下载。
 type Downloader struct {
 	selector   Selector
 	extractors []Extractor
 	transport  Transport
+	middleware Middleware
+	metrics    *MetricRegistry
 }
 
 // ErrNoDefaultDownloader 表示未配置默认 Downloader。
@@ -98,6 +100,15 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 		hw.SetSelector(d.selector)
 	}
 
-	// 3. 执行下载
-	return ex.Extract(ctx, req)
+	// 3. 中间件链包装 Extractor
+	executor := ex
+	if d.middleware != nil {
+		executor = &middlewareExtractor{
+			base: ex,
+			mw:   d.middleware,
+		}
+	}
+
+	// 4. 执行下载
+	return executor.Extract(ctx, req)
 }
