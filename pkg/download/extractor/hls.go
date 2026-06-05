@@ -33,7 +33,6 @@ type HLSExtractor struct {
 	ffmpegPath string
 	ffmpegArgs []string
 	userAgent  string
-	transport  download.Transport
 }
 
 // NewHLSExtractor 创建 HLSExtractor。
@@ -67,7 +66,8 @@ func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.
 // WithHLSUserAgent 设置自定义 User-Agent。
 func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.userAgent = ua } }
 
-func (e *HLSExtractor) SetTransport(t download.Transport) { e.transport = t }
+// SetTransport 是空操作，HLSExtractor 通过 ffmpeg exec 或 m3u8d 下载，不依赖 Transport。
+func (e *HLSExtractor) SetTransport(_ download.Transport) {}
 
 func (e *HLSExtractor) Name() string { return "hls" }
 
