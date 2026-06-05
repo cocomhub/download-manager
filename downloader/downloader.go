@@ -56,10 +56,12 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	)
 
 	// 创建下载器
+	reg := download.NewMetricRegistry()
 	opts := []download.Option{
 		download.WithTransport(tr),
 		download.WithExtractor(httpEx),
 		download.WithExtractor(hlsEx),
+		download.WithMetricRegistry(reg),
 	}
 	if sel != nil {
 		opts = append(opts, download.WithSelector(sel))
@@ -68,8 +70,9 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	dl := download.New(opts...)
 	adapter := NewDownloaderAdapter(dl)
 
-	// 注入传输层引用（用于 ApplyDomainLimits）
+	// 注入传输层引用和 metrics
 	adapter.transport = tr
+	adapter.metrics = reg
 
 	return adapter
 }

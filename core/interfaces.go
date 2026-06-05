@@ -102,6 +102,11 @@ type DownloaderWithDomainLimits interface {
 	ApplyDomainLimits(limits map[string]int)
 }
 
+// DownloaderWithMetrics 表示支持暴露下载指标的下载器。
+type DownloaderWithMetrics interface {
+	MetricsRegistry() any // returns *download.MetricRegistry or similar
+}
+
 // SharedRegistry 用于跨任务共享基于 URL 的对象状态
 type SharedRegistry interface {
 	Get(url string) (*model.DownloadObject, error)

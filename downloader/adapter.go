@@ -31,6 +31,7 @@ type DownloaderAdapter struct {
 	dlCtx     context.Context
 	transport download.Transport
 	cancels   sync.Map // map[string]context.CancelFunc
+	metrics   *download.MetricRegistry
 }
 
 // NewDownloaderAdapter 创建适配器。
@@ -65,6 +66,11 @@ func (a *DownloaderAdapter) Cancel(url string) error {
 		}
 	}
 	return nil
+}
+
+// MetricsRegistry returns the download MetricRegistry (implements core.DownloaderWithMetrics).
+func (a *DownloaderAdapter) MetricsRegistry() any {
+	return a.metrics
 }
 
 // getCtx 返回当前上下文（线程安全）。
