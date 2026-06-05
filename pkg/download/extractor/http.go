@@ -171,6 +171,12 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, fmt.Errorf("HTTP error: %d", tresp.StatusCode)
 	}
 
+	// 如果请求了 Range 但服务器返回 200（而非 206），说明不支持断点续传
+	// 返回 (false, nil) 让外层重置 startOffset=0 从头下载完整内容
+	if startOffset > 0 && tresp.StatusCode == http.StatusOK {
+		return false, nil
+	}
+
 	// 计算总大小
 	totalSize := tresp.ContentLength
 	if cr := tresp.Headers["Content-Range"]; cr != "" {

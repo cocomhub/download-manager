@@ -199,3 +199,52 @@ func TestHTTPExtractorName(t *testing.T) {
 		t.Errorf("expected name 'http', got: %q", ext.Name())
 	}
 }
+
+func TestHTTPExtractorResumeUnsupported(t *testing.T) {
+	// 验证服务器不支持断点续传（返回 200 而非 206）时，
+	// 文件最终内容完整不重复
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "resume_unsupported.txt")
+
+	// 先写入部分内容模拟已下载部分
+	if err := os.WriteFile(dest, []byte("part_"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var sawRange bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "" {
+			sawRange = true
+		}
+		// 始终返回 200 ，即使用户请求了 Range
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("full_content"))
+	}))
+	defer ts.Close()
+
+	ext := extractor.NewHTTPExtractor()
+	ext.SetTransport(transport.NewStdlibTransport())
+
+	err := ext.Extract(context.Background(), &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// 验证服务器确实接收到了 Range 请求（测试本身的有效性）
+	if !sawRange {
+		t.Error("expected server to receive Range header")
+	}
+
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 文件应为完整内容，而非 "part_full_content"（即非部分+完整内容拼接）
+	expected := "full_content"
+	if string(data) != expected {
+		t.Errorf("expected %q (complete content), got: %q", expected, string(data))
+	}
+}

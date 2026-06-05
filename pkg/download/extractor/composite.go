@@ -74,6 +74,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 	slog.Info("Starting composite download", "count", len(fileList), "url", req.URL)
 
 	// 构建子 Downloader，注入 Selector、Transport 和 Extractor
+	var totalDownloaded int64
 	dl := e.downloader
 	if dl == nil {
 		var opts []download.Option
@@ -89,7 +90,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 		dl = download.New(opts...)
 	}
 
-	for _, fileMap := range fileList {
+	for i, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]
 		fType := fileMap["type"]
@@ -117,10 +118,19 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 		if err := dl.Download(ctx, subReq); err != nil {
 			return fmt.Errorf("composite: sub-download failed (%s): %w", subURL, err)
 		}
+
+		// 累计已下载字节数
+		if info, statErr := os.Stat(subPath); statErr == nil {
+			totalDownloaded += info.Size()
+		}
+		if req.OnProgress != nil && len(fileList) > 1 {
+			pct := float64(i+1) / float64(len(fileList)) * 100
+			req.OnProgress(pct, totalDownloaded, 0)
+		}
 	}
 
 	if req.OnProgress != nil {
-		req.OnProgress(100, 100, 100)
+		req.OnProgress(100, totalDownloaded, totalDownloaded)
 	}
 	return nil
 }

@@ -73,29 +73,29 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 				return "", nil
 			}
 			if contentStr == "proxy" {
-				return s.selectBestProxy(cachePath)
+				return s.selectBestProxy(ctx, cachePath)
 			}
 		}
 	}
 
 	// 直连探测
 	if !s.forceProxy {
-		if checkDirect(targetURL, s.probeTimeout) {
+		if checkDirect(ctx, targetURL, s.probeTimeout) {
 			_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
 			_ = os.WriteFile(cachePath, []byte("direct"), 0644)
 			return "", nil
 		}
 	}
 
-	return s.selectBestProxy(cachePath)
+	return s.selectBestProxy(ctx, cachePath)
 }
 
 // selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
-func (s *StaticProxySelector) selectBestProxy(cachePath string) (string, error) {
+func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
 	bestProxy := ""
 	minBandwidth := 999999.0
 	for _, p := range s.proxies {
-		bw := getProxyBandwidth(p, s.bandwidthSuffix, s.probeTimeout)
+		bw := getProxyBandwidth(ctx, p, s.bandwidthSuffix, s.probeTimeout)
 		if bw < minBandwidth {
 			minBandwidth = bw
 			bestProxy = p
@@ -110,12 +110,12 @@ func (s *StaticProxySelector) selectBestProxy(cachePath string) (string, error) 
 }
 
 // checkDirect 检测是否可直接访问目标 URL。返回 true 表示可直连。
-func checkDirect(targetURL string, timeoutSecs int) bool {
+func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	if timeoutSecs <= 0 {
 		timeoutSecs = 3
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	hreq, err := http.NewRequest("HEAD", targetURL, nil)
+	hreq, err := http.NewRequestWithContext(ctx, "HEAD", targetURL, nil)
 	if err != nil {
 		return false
 	}
@@ -128,7 +128,7 @@ func checkDirect(targetURL string, timeoutSecs int) bool {
 }
 
 // getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
-func getProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
+func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
 		suffix = "/bandwidth"
 	}
@@ -140,7 +140,11 @@ func getProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
 		timeoutSecs = 3
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	resp, err := client.Get(target)
+	hreq, err := http.NewRequestWithContext(ctx, "GET", target, nil)
+	if err != nil {
+		return 999999
+	}
+	resp, err := client.Do(hreq)
 	if err != nil {
 		return 999999
 	}

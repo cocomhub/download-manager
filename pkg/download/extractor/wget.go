@@ -165,7 +165,12 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		if req.TrackProgress && req.OnProgress != nil {
 			if matches := reWgetProgress.FindStringSubmatch(line); len(matches) > 1 {
 				if p, err := strconv.Atoi(matches[1]); err == nil {
-					req.OnProgress(float64(p), 0, 0)
+					// 用 os.Stat 获取当前已下载字节数作为 downloaded
+					var downloaded int64
+					if info, statErr := os.Stat(req.SavePath); statErr == nil {
+						downloaded = info.Size()
+					}
+					req.OnProgress(float64(p), downloaded, 0)
 				}
 			}
 		}
