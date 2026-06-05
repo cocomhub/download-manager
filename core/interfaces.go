@@ -4,6 +4,7 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/model"
@@ -89,6 +90,16 @@ type Downloader interface {
 	Download(obj *model.DownloadObject, headers map[string]string) error
 	// Name 返回下载器名称
 	Name() string
+}
+
+// DownloaderWithContext 表示支持上下文注入的下载器。
+type DownloaderWithContext interface {
+	SetContext(ctx context.Context)
+}
+
+// DownloaderWithDomainLimits 表示支持域名并发限制的下载器。
+type DownloaderWithDomainLimits interface {
+	ApplyDomainLimits(limits map[string]int)
 }
 
 // SharedRegistry 用于跨任务共享基于 URL 的对象状态

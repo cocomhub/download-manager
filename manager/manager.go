@@ -146,7 +146,7 @@ func NewManager(cfg *config.Config) *Manager {
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
 	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())
-	if nd, ok := mgr.downloader.(*downloader.NativeHTTPDownloader); ok {
+	if nd, ok := mgr.downloader.(core.DownloaderWithDomainLimits); ok {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
 	// Wire up AggregationService with real callbacks

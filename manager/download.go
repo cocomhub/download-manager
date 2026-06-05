@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/core"
-	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task/tktube"
@@ -85,8 +84,8 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 	}()
 
-	// Propagate context to NativeHTTPDownloader if supported
-	if nd, ok := dl.(*downloader.NativeHTTPDownloader); ok {
+	// Propagate context to downloader if supported
+	if nd, ok := dl.(core.DownloaderWithContext); ok {
 		nd.SetContext(dlCtx)
 	}
 
