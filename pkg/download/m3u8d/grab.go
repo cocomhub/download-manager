@@ -20,6 +20,10 @@ type DownloadTask struct {
 	Type      string
 }
 
+// maxRetryRounds 是 downloadFilesConcurrently 内部 retry 循环的最大轮次，
+// 防止永久失败请求导致无界循环。
+const maxRetryRounds = 3
+
 // downloadFilesConcurrently 使用 grab 库并发下载 TS 分片等资源。
 // grab.NewClient() 会创建独立的 http.Client，不受注入 client 影响。
 func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []DownloadTask) error {
@@ -44,17 +48,22 @@ func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []Dow
 
 	responses := make([]*grab.Response, 0, len(reqs))
 
+	retryRound := 0
 retry:
-	respch := client.DoBatch(d.Config.Concurrency, reqs...)
+	// 读 Concurrency 时加锁，避免与 StatusCode==472 时的写操作产生 data race。
+	d.concurrencyMu.Lock()
+	concurrency := d.Config.Concurrency
+	d.concurrencyMu.Unlock()
+
+	respch := client.DoBatch(concurrency, reqs...)
 
 	completed := 0
-	inProgress := 0
 	errReqs := make([]*grab.Request, 0)
 	for completed < len(reqs) {
 		select {
 		case <-ticker.C:
-			if d.Config.Verbose && inProgress > 0 {
-				fmt.Printf("下载中: %d 个文件\n", inProgress)
+			if d.Config.Verbose {
+				fmt.Printf("下载中: 已完成 %d/%d\n", completed, len(reqs))
 			}
 
 		case resp := <-respch:
@@ -95,19 +104,17 @@ retry:
 	}
 
 	if len(errReqs) > 0 {
+		retryRound++
+		if retryRound >= maxRetryRounds {
+			var failedURLs []string
+			for _, r := range errReqs {
+				failedURLs = append(failedURLs, r.HTTPRequest.URL.String())
+			}
+			return fmt.Errorf("超过最大重试轮次 (%d)，%d 个文件下载失败: %s",
+				maxRetryRounds, len(errReqs), strings.Join(failedURLs, ", "))
+		}
 		reqs = errReqs
 		goto retry
-	}
-
-	var errs []string
-	for _, resp := range responses {
-		if resp.Err() != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", filepath.Base(resp.Filename), resp.Err()))
-		}
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("部分文件下载失败: %s", strings.Join(errs, ", "))
 	}
 
 	return nil

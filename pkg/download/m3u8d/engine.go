@@ -27,13 +27,13 @@ var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
 // 单文件下载（m3u8 解析、密钥下载等）使用注入的 client；
 // 并发 TS 分片下载仍使用 grab 的独立 client。
 type M3U8DEngine struct {
-	Config          *DownloadConfig
-	client          *http.Client
-	baseURL         *url.URL
-	downloaded      map[string]bool
-	mu              sync.RWMutex
-	concurrencyMu   sync.Mutex
-	totalFiles      int
+	Config        *DownloadConfig
+	client        *http.Client
+	baseURL       *url.URL
+	downloaded    map[string]bool
+	mu            sync.RWMutex
+	concurrencyMu sync.Mutex
+	totalFiles    int
 }
 
 // NewM3U8DEngine 创建 M3U8DEngine 实例。

@@ -26,6 +26,7 @@ var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
 
 // compile-time interface check
 var _ download.Extractor = (*WgetExtractor)(nil)
+var _ download.Canceller = (*WgetExtractor)(nil)
 
 // WgetExtractor 将 wget 命令行工具包装为 Extractor 接口。
 // 不依赖 Transport，自己管理 exec.Command 来执行 wget 进程。
@@ -177,7 +178,12 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	e.active.Delete(req.URL)
 
 	if req.OnProgress != nil {
-		req.OnProgress(100, 0, 0)
+		// wget 通过 exec 下载，完成后用文件实际大小填充 downloaded 与 total。
+		var size int64
+		if info, err := os.Stat(req.SavePath); err == nil {
+			size = info.Size()
+		}
+		req.OnProgress(100, size, size)
 	}
 	return nil
 }

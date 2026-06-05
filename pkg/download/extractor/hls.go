@@ -168,7 +168,12 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 	}
 
 	if req.OnProgress != nil {
-		req.OnProgress(100, 0, 0)
+		// 用实际文件大小填充 downloaded 与 total，避免传零值。
+		var size int64
+		if info, err := os.Stat(rPath); err == nil {
+			size = info.Size()
+		}
+		req.OnProgress(100, size, size)
 	}
 	if info, err := os.Stat(rPath); err == nil && req.Metadata != nil {
 		req.Metadata["total_size"] = strconv.FormatInt(info.Size(), 10)
