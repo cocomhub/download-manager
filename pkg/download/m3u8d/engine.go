@@ -32,8 +32,8 @@ type M3U8DEngine struct {
 	baseURL         *url.URL
 	downloaded      map[string]bool
 	mu              sync.RWMutex
+	concurrencyMu   sync.Mutex
 	totalFiles      int
-	downloadedCount int
 }
 
 // NewM3U8DEngine 创建 M3U8DEngine 实例。

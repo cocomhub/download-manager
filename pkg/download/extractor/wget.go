@@ -68,8 +68,10 @@ func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.ti
 
 func (e *WgetExtractor) Name() string { return "wget" }
 
-// Match 始终返回 true，wget 可以处理任何 URL。
-func (e *WgetExtractor) Match(ctx context.Context, url string) bool { return true }
+// Match 匹配非 m3u8 URL，与 HTTPExtractor 互补。
+func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
+	return !strings.Contains(strings.ToLower(url), ".m3u8")
+}
 
 // SetSelector 注入 Selector 实例用于代理选择。
 func (e *WgetExtractor) SetSelector(s download.Selector) { e.selector = s }

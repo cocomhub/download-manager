@@ -17,3 +17,9 @@ type Extractor interface {
 	// Extract 对请求进行提取处理，可能会修改 req 的字段（如 URL、Headers）。
 	Extract(ctx context.Context, req *Request) error
 }
+
+// Canceller 表示支持取消正在进行的下载的 Extractor。
+type Canceller interface {
+	// Cancel 取消指定 URL 的下载。
+	Cancel(url string) error
+}

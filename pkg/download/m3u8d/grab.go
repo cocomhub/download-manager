@@ -67,7 +67,9 @@ retry:
 				}
 				fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
 				if resp.HTTPResponse != nil && resp.HTTPResponse.StatusCode == 472 {
+					d.concurrencyMu.Lock()
 					d.Config.Concurrency = 1
+					d.concurrencyMu.Unlock()
 				}
 				req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
 				if err != nil {
@@ -84,16 +86,9 @@ retry:
 
 			if resp != nil && resp.HTTPResponse != nil && resp.HTTPResponse.Request != nil {
 				d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
-				d.downloadedCount++
 
 				if d.Config.Verbose {
-					if resp.Err() != nil {
-						fmt.Printf("下载失败: %s - %v\n", filepath.Base(resp.Filename), resp.Err())
-					} else {
-						fmt.Printf("下载完成: %s (%.2f%%)\n",
-							filepath.Base(resp.Filename),
-							100*float64(d.downloadedCount)/float64(d.totalFiles))
-					}
+					fmt.Printf("下载完成: %s\n", filepath.Base(resp.Filename))
 				}
 			}
 		}

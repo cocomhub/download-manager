@@ -64,6 +64,11 @@ func (e *HTTPExtractor) Match(ctx context.Context, url string) bool {
 
 // Extract 执行完整的 HTTP 文件下载编排。
 func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) error {
+	// 确保 Transport 已注入
+	if e.transport == nil {
+		return fmt.Errorf("http: transport not set, call SetTransport before Extract")
+	}
+
 	rPath := req.SavePath
 	var err error
 	if e.rootDir != "" {

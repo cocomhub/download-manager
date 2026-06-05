@@ -120,7 +120,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 	}
 
 	if req.OnProgress != nil {
-		req.OnProgress(100, 0, 0)
+		req.OnProgress(100, 100, 100)
 	}
 	return nil
 }
