@@ -196,7 +196,10 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 // Cancel 取消正在进行的 wget 下载。
 func (e *WgetExtractor) Cancel(url string) error {
 	if v, ok := e.active.Load(url); ok {
-		cmd := v.(*exec.Cmd)
+		cmd, ok := v.(*exec.Cmd)
+		if !ok {
+			return fmt.Errorf("wget: unexpected type %T in active map", v)
+		}
 		_ = cmd.Process.Kill()
 		e.active.Delete(url)
 		return nil

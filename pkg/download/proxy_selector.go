@@ -120,10 +120,13 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 		return false
 	}
 	resp, err := client.Do(hreq)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false
+	}
 	return true
 }
 

@@ -144,8 +144,7 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	obj.SetProgress(0)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-	go m.processTask(t)
-	// 通知调度器：有新的待处理对象
+	// 通知调度器：不要直接调用 processTask，会绕过 processingTask 守卫
 	select {
 	case m.schedulerSignal <- struct{}{}:
 	default:

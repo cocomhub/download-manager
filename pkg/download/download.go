@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 )
 
 // Downloader 是用户使用的主要入口。
@@ -24,16 +25,23 @@ type Downloader struct {
 var ErrNoDefaultDownloader = errors.New("default downloader not initialized; call download.SetDefault() or configure via download.New()")
 
 // defaultDl 是包级默认 Downloader 实例，通过 SetDefault 配置。
-var defaultDl *Downloader
+var (
+	defaultDl   *Downloader
+	defaultDlMu sync.RWMutex
+)
 
 // SetDefault 替换包级默认 Downloader 实例。
 // 调用后 Default() 和 Get() 将使用此实例。
 func SetDefault(d *Downloader) {
+	defaultDlMu.Lock()
 	defaultDl = d
+	defaultDlMu.Unlock()
 }
 
 // Default 返回包级默认 Downloader。若未初始化返回 nil。
 func Default() *Downloader {
+	defaultDlMu.RLock()
+	defer defaultDlMu.RUnlock()
 	return defaultDl
 }
 
@@ -41,10 +49,13 @@ func Default() *Downloader {
 // 等效于 Default().Download(ctx, &Request{URL: url, SavePath: savePath})。
 // 若未调用 SetDefault 初始化则返回 ErrNoDefaultDownloader。
 func Get(ctx context.Context, url, savePath string) error {
-	if defaultDl == nil {
+	defaultDlMu.RLock()
+	dl := defaultDl
+	defaultDlMu.RUnlock()
+	if dl == nil {
 		return ErrNoDefaultDownloader
 	}
-	return defaultDl.Download(ctx, &Request{
+	return dl.Download(ctx, &Request{
 		URL:      url,
 		SavePath: savePath,
 	})

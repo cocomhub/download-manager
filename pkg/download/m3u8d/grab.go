@@ -28,6 +28,9 @@ const maxRetryRounds = 3
 // grab.NewClient() 会创建独立的 http.Client，不受注入 client 影响。
 func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []DownloadTask) error {
 	client := grab.NewClient()
+	if d.client != nil {
+		client.HTTPClient = d.client
+	}
 
 	reqs := make([]*grab.Request, 0, len(files))
 	for _, file := range files {

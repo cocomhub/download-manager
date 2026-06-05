@@ -98,10 +98,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, dlcore.StatusFailed, err)
-		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-			v.(*taskMetrics).failures.Add(1)
-			v.(*taskMetrics).lastActive.Store(time.Now().Unix())
-		}
+		mt := m.getOrCreateMetrics(t.ID())
+		mt.failures.Add(1)
+		mt.lastActive.Store(time.Now().Unix())
 
 		if dlcore.IsNoTry(err) {
 			if ft, ok := t.(core.FailedTask); ok {
@@ -118,9 +117,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		c := v.(*atomic.Int64).Add(1)
 		// Track retries (c > 1 means this is a retry)
 		if c > 1 {
-			if vr, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-				vr.(*taskMetrics).retried.Add(1)
-			}
+			m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		}
 		// Check if max retries reached
 		maxRetries := m.currentCfg().Downloader.MaxRetries
@@ -143,23 +140,21 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		m.totalDownloads.Add(1)
 		// Apply group priority policies for content groups
 		m.applyGroupPriorityPolicies(t, obj)
-		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-			mt := v.(*taskMetrics)
-			mt.completed.Add(1)
-			elapsed := time.Since(start).Seconds() * 1000
-			if mt.avgLatencyMs.Load() == 0 {
-				mt.avgLatencyMs.Store(int64(elapsed))
-			} else {
-				for {
-					old := mt.avgLatencyMs.Load()
-					newVal := int64(float64(old)*0.7 + elapsed*0.3)
-					if mt.avgLatencyMs.CompareAndSwap(old, newVal) {
-						break
-					}
+		mt := m.getOrCreateMetrics(t.ID())
+		mt.completed.Add(1)
+		elapsed := time.Since(start).Seconds() * 1000
+		if mt.avgLatencyMs.Load() == 0 {
+			mt.avgLatencyMs.Store(int64(elapsed))
+		} else {
+			for {
+				old := mt.avgLatencyMs.Load()
+				newVal := int64(float64(old)*0.7 + elapsed*0.3)
+				if mt.avgLatencyMs.CompareAndSwap(old, newVal) {
+					break
 				}
 			}
-			mt.lastActive.Store(time.Now().Unix())
 		}
+		mt.lastActive.Store(time.Now().Unix())
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
@@ -275,6 +270,18 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	}
 }
 
+// getOrCreateMetrics 返回 taskID 对应的 taskMetrics，不存在时新建。
+func (m *Manager) getOrCreateMetrics(taskID string) *taskMetrics {
+	if v, ok := m.metrics.Load(taskID); ok {
+		return v.(*taskMetrics)
+	}
+	mt := &taskMetrics{}
+	if v, loaded := m.metrics.LoadOrStore(taskID, mt); loaded {
+		return v.(*taskMetrics)
+	}
+	return mt
+}
+
 // RetryObject resets the status of an object to pending and forces download
 func (m *Manager) RetryObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
@@ -307,9 +314,7 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		}
 
 		m.forceDownload(t, obj)
-		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-			v.(*taskMetrics).retried.Add(1)
-		}
+		m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		return nil
 	}
 	return fmt.Errorf("object not found")
@@ -335,14 +340,11 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	for _, obj := range objs {
 		t.UpdateStatus(obj, dlcore.StatusPending, nil)
 		obj.SetProgress(0)
-		if v, ok := m.metrics.LoadOrStore(t.ID(), &taskMetrics{}); ok {
-			v.(*taskMetrics).retried.Add(1)
-		}
+		m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		count++
 	}
 	if count > 0 {
-		go m.processTask(t)
-		// 通知调度器：有新的待处理对象
+		// 通知调度器：不要直接调用 processTask，会绕过 processingTask 守卫
 		select {
 		case m.schedulerSignal <- struct{}{}:
 		default:
