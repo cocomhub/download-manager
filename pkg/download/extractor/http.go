@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -144,7 +145,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		logFileName := filepath.Base(rPath)
 		logFile := filepath.Join(e.logDir, logFileName+"."+
 			time.Now().Format("20060102150405")+".progress.log")
-		f, fErr := os.Create(logFile)
+		f, fErr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if fErr != nil {
 			slog.Warn("Failed to create progress log file", "file", logFile, "error", fErr)
 		} else {
@@ -164,7 +165,13 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	if logWriter != nil {
 		fmt.Fprintf(logWriter, "Save file to %s\n", rPath)
 		if proxyURL != "" {
-			fmt.Fprintf(logWriter, "Using proxy: %s\n", proxyURL)
+			// 脱敏代理 URL：去除认证信息
+			safeProxy := proxyURL
+			if parsed, pErr := url.Parse(proxyURL); pErr == nil {
+				parsed.User = nil
+				safeProxy = parsed.String()
+			}
+			fmt.Fprintf(logWriter, "Using proxy: %s\n", safeProxy)
 		} else {
 			fmt.Fprintf(logWriter, "Direct connection\n")
 		}
@@ -191,13 +198,26 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	// ---- 日志：HTTP 请求头 + 响应头 ----
 	if logWriter != nil {
+		// 需要脱敏的敏感请求头列表
+		redactedHeaders := map[string]bool{
+			"authorization":       true,
+			"cookie":              true,
+			"proxy-authorization": true,
+			"x-api-key":           true,
+		}
+
 		fmt.Fprintf(logWriter, "[%s] Request:\n", treq.Method)
 		fmt.Fprintf(logWriter, "URL: %s\n", rawURL)
 		if treq.ProxyURL != "" {
 			fmt.Fprintf(logWriter, "Proxy: %s\n", treq.ProxyURL)
+		} else if proxyURL != "" {
+			fmt.Fprintf(logWriter, "Proxy: %s\n", proxyURL)
 		}
 		fmt.Fprintf(logWriter, "Headers:\n")
 		for k, v := range treq.Headers {
+			if redactedHeaders[strings.ToLower(k)] {
+				v = "[REDACTED]"
+			}
 			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
 		}
 		if treq.Range != nil && treq.Range.Offset > 0 {
@@ -212,6 +232,9 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		fmt.Fprintf(logWriter, "Content-Length: %d\n", tresp.ContentLength)
 		fmt.Fprintf(logWriter, "Headers:\n")
 		for k, v := range tresp.Headers {
+			if redactedHeaders[strings.ToLower(k)] {
+				v = "[REDACTED]"
+			}
 			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
 		}
 		fmt.Fprintf(logWriter, "\n")
