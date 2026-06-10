@@ -136,7 +136,40 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
-func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *download.Request) (bool, error) {
+func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *download.Request) (success bool, err error) {
+
+	// ---- 进度日志文件创建 ----
+	var logWriter io.Writer
+	if e.logDir != "" {
+		logFileName := filepath.Base(rPath)
+		logFile := filepath.Join(e.logDir, logFileName+"."+
+			time.Now().Format("20060102150405")+".progress.log")
+		f, fErr := os.Create(logFile)
+		if fErr != nil {
+			slog.Warn("Failed to create progress log file", "file", logFile, "error", fErr)
+		} else {
+			defer f.Close()
+			logWriter = f
+		}
+	}
+	started := time.Now()
+	defer func() {
+		if err != nil && logWriter != nil {
+			fmt.Fprintf(logWriter, "%s Download failed: %v\n",
+				time.Now().Format(time.RFC3339Nano), err)
+		}
+	}()
+
+	// ---- 日志：保存路径 + 代理 ----
+	if logWriter != nil {
+		fmt.Fprintf(logWriter, "Save file to %s\n", rPath)
+		if proxyURL != "" {
+			fmt.Fprintf(logWriter, "Using proxy: %s\n", proxyURL)
+		} else {
+			fmt.Fprintf(logWriter, "Direct connection\n")
+		}
+		fmt.Fprintf(logWriter, "Requesting URL: %s\n\n", rawURL)
+	}
 
 	treq := &download.TransportRequest{
 		URL:      rawURL,
@@ -156,6 +189,34 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 	defer tresp.Body.Close()
 
+	// ---- 日志：HTTP 请求头 + 响应头 ----
+	if logWriter != nil {
+		fmt.Fprintf(logWriter, "[%s] Request:\n", treq.Method)
+		fmt.Fprintf(logWriter, "URL: %s\n", rawURL)
+		if treq.ProxyURL != "" {
+			fmt.Fprintf(logWriter, "Proxy: %s\n", treq.ProxyURL)
+		}
+		fmt.Fprintf(logWriter, "Headers:\n")
+		for k, v := range treq.Headers {
+			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
+		}
+		if treq.Range != nil && treq.Range.Offset > 0 {
+			fmt.Fprintf(logWriter, "\tRange: bytes=%d-\n", treq.Range.Offset)
+		}
+		fmt.Fprintf(logWriter, "\n")
+
+		fmt.Fprintf(logWriter, "[%d] Response:\n", tresp.StatusCode)
+		if statusText := http.StatusText(tresp.StatusCode); statusText != "" {
+			fmt.Fprintf(logWriter, "Status: %d %s\n", tresp.StatusCode, statusText)
+		}
+		fmt.Fprintf(logWriter, "Content-Length: %d\n", tresp.ContentLength)
+		fmt.Fprintf(logWriter, "Headers:\n")
+		for k, v := range tresp.Headers {
+			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
+		}
+		fmt.Fprintf(logWriter, "\n")
+	}
+
 	// 检查 HTTP 状态码
 	if tresp.StatusCode == http.StatusForbidden || tresp.StatusCode == http.StatusNotFound {
 		return false, fmt.Errorf("%w: HTTP %d", download.ErrNoTry, tresp.StatusCode)
@@ -163,6 +224,9 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	if tresp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		// 416 Range Not Satisfiable → 文件可能已变，重新从 0 开始
+		if logWriter != nil {
+			fmt.Fprintf(logWriter, "Server responded with 416 Range Not Satisfiable, restarting download\n")
+		}
 		return false, nil
 	}
 
@@ -177,6 +241,9 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	// 如果请求了 Range 但服务器返回 200（而非 206），说明不支持断点续传
 	// 返回 (false, nil) 让外层重置 startOffset=0 从头下载完整内容
 	if startOffset > 0 && tresp.StatusCode == http.StatusOK {
+		if logWriter != nil {
+			fmt.Fprintf(logWriter, "Server doesn't support resume, restarting download\n")
+		}
 		return false, nil
 	}
 
@@ -208,9 +275,32 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 	defer file.Close()
 
+	// 日志：文件模式 + 预期大小
+	if logWriter != nil {
+		if startOffset > 0 {
+			fmt.Fprintf(logWriter, "File mode: append (resume from offset %d)\n", startOffset)
+		} else {
+			fmt.Fprintf(logWriter, "File mode: truncate (new download)\n")
+		}
+		fmt.Fprintf(logWriter, "Expected total: %d bytes\n\n", totalSize)
+	}
+
 	var reader io.Reader = tresp.Body
 	if req.TrackProgress && req.OnProgress != nil && totalSize > 0 {
-		reader = download.NewProgressReader(tresp.Body, totalSize, req.OnProgress)
+		// 在 ProgressReader 外层注入进度日志回调（与原有回调组合）。
+		// 注意：使用局部变量而非修改 req.OnProgress，避免重试时回调链累积。
+		onProgress := req.OnProgress
+		if logWriter != nil {
+			onProgress = download.ComposeProgress(
+				req.OnProgress,
+				download.NewProgressLogCallback(
+					download.WithLogWriter(logWriter),
+					download.WithMinPercentStep(0.5),
+					download.WithMaxInterval(10*time.Second),
+				),
+			)
+		}
+		reader = download.NewProgressReader(tresp.Body, totalSize, onProgress)
 	}
 
 	if _, cErr := io.Copy(file, reader); cErr != nil {
@@ -230,10 +320,17 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		}
 		if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
 			slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
+			if logWriter != nil {
+				fmt.Fprintf(logWriter, "MD5 check failed: want %s, got %s (hex: %s)\n",
+					wantMd5, base64MD5, hexMD5)
+			}
 			return false, nil // return false 触发重新下载
 		}
 		req.Result.MD5Base64 = base64MD5
 		req.Result.MD5Hex = hexMD5
+		if logWriter != nil {
+			fmt.Fprintf(logWriter, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
+		}
 	}
 
 	// 设置 Last-Modified 时间
@@ -242,6 +339,30 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			req.Result.ModTime = modTime.Format(time.RFC3339Nano)
 			_ = os.Chtimes(rPath, modTime, modTime)
 		}
+	}
+
+	// 日志：下载完成信息
+	if logWriter != nil {
+		elapsed := time.Since(started)
+		avgSpeed := float64(totalSize) / elapsed.Seconds()
+		var speedUnit string
+		speedVal := avgSpeed
+		switch {
+		case speedVal >= 1<<30:
+			speedVal /= 1 << 30
+			speedUnit = "GB/s"
+		case speedVal >= 1<<20:
+			speedVal /= 1 << 20
+			speedUnit = "MB/s"
+		case speedVal >= 1<<10:
+			speedVal /= 1 << 10
+			speedUnit = "KB/s"
+		default:
+			speedUnit = "B/s"
+		}
+		fmt.Fprintf(logWriter, "Download completed, total size: %d bytes\n", totalSize)
+		fmt.Fprintf(logWriter, "Elapsed: %.2f s, average speed: %.2f %s\n",
+			elapsed.Seconds(), speedVal, speedUnit)
 	}
 
 	return true, nil
