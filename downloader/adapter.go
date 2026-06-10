@@ -6,8 +6,10 @@ package downloader
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/cocomhub/download-manager/core"
@@ -102,7 +104,7 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		URL:           obj.URL,
 		SavePath:      obj.SavePath,
 		Headers:       headers,
-		Metadata:      obj.Metadata,
+		Metadata:      make(map[string]string),
 		TrackProgress: true,
 		OnProgress: func(progress float64, downloaded, total int64) {
 			obj.SetProgress(int(progress))
@@ -118,6 +120,30 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 	if err != nil {
 		return fmt.Errorf("adapter: download failed: %w", err)
 	}
+
+	// 将 DownloadResult 显式写入 obj.Metadata
+	if r := req.Result; r != nil {
+		if r.StatusCode > 0 {
+			obj.Metadata["status_code"] = strconv.Itoa(r.StatusCode)
+		}
+		if r.ContentLength > 0 {
+			obj.Metadata["content_length"] = strconv.FormatInt(r.ContentLength, 10)
+		}
+		if r.TotalSize > 0 {
+			obj.Metadata["total_size"] = strconv.FormatInt(r.TotalSize, 10)
+		}
+		if r.MD5Base64 != "" {
+			obj.Metadata["md5_base64"] = r.MD5Base64
+		}
+		if r.MD5Hex != "" {
+			obj.Metadata["md5_hex"] = r.MD5Hex
+		}
+		if r.ModTime != "" {
+			obj.Metadata["mod_time"] = r.ModTime
+		}
+	}
+
+	obj.SetProgress(100)
 	return nil
 }
 
@@ -132,6 +158,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		return fmt.Errorf("adapter: composite download with empty file list")
 	}
 
+	slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
 	for _, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]

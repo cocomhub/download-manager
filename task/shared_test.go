@@ -9,7 +9,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/manager"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/task"
 	"github.com/cocomhub/download-manager/task/urllist"
 )
@@ -49,7 +49,7 @@ func TestSharedURLStateAcrossTasks(t *testing.T) {
 	}
 
 	// Update status via task1
-	if err := t1.UpdateStatus(objs1[0], dlcore.StatusCompleted, nil); err != nil {
+	if err := t1.UpdateStatus(objs1[0], model.StatusCompleted, nil); err != nil {
 		t.Fatalf("update status failed: %v", err)
 	}
 
@@ -60,7 +60,7 @@ func TestSharedURLStateAcrossTasks(t *testing.T) {
 	if len(all2) != 1 {
 		t.Fatalf("expected 1 object for task2, got %d", len(all2))
 	}
-	if all2[0].GetStatus() != dlcore.StatusCompleted {
+	if all2[0].GetStatus() != model.StatusCompleted {
 		t.Fatalf("expected status completed via shared registry, got %s", all2[0].Status)
 	}
 }
@@ -84,7 +84,7 @@ func TestSharedURLStateLazyHydratesFromStorageOnMiss(t *testing.T) {
 	if err := t1.Storage().Update(objs1[0]); err != nil {
 		t.Fatalf("seed storage failed: %v", err)
 	}
-	if err := t1.UpdateStatus(objs1[0], dlcore.StatusCompleted, nil); err != nil {
+	if err := t1.UpdateStatus(objs1[0], model.StatusCompleted, nil); err != nil {
 		t.Fatalf("update status failed: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func TestSharedURLStateLazyHydratesFromStorageOnMiss(t *testing.T) {
 	if len(all2) != 1 {
 		t.Fatalf("expected 1 object for task2, got %d", len(all2))
 	}
-	if all2[0].GetStatus() != dlcore.StatusCompleted {
+	if all2[0].GetStatus() != model.StatusCompleted {
 		t.Fatalf("expected lazy hydrated completed status, got %s", all2[0].Status)
 	}
 	if owners := reg.Owners(urls[0]); owners != 1 {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -77,7 +76,7 @@ func TestTask_UpdateStatusAndClose(t *testing.T) {
 		Status:   "",
 	}
 
-	if err := task.UpdateStatus(obj, dlcore.StatusPending, nil); err != nil {
+	if err := task.UpdateStatus(obj, model.StatusPending, nil); err != nil {
 		t.Fatalf("UpdateStatus error: %v", err)
 	}
 
@@ -85,16 +84,16 @@ func TestTask_UpdateStatusAndClose(t *testing.T) {
 	if gotS == nil {
 		t.Fatalf("fakeStorage missing object")
 	}
-	if gotS.GetStatus() != dlcore.StatusPending {
-		t.Fatalf("fakeStorage status = %s, want %s", gotS.GetStatus(), dlcore.StatusPending)
+	if gotS.GetStatus() != model.StatusPending {
+		t.Fatalf("fakeStorage status = %s, want %s", gotS.GetStatus(), model.StatusPending)
 	}
 
 	gotR, _ := fr.Get(obj.URL)
 	if gotR == nil {
 		t.Fatalf("fakeRegistry missing object")
 	}
-	if gotR.GetStatus() != dlcore.StatusPending {
-		t.Fatalf("fakeRegistry status = %s, want %s", gotR.GetStatus(), dlcore.StatusPending)
+	if gotR.GetStatus() != model.StatusPending {
+		t.Fatalf("fakeRegistry status = %s, want %s", gotR.GetStatus(), model.StatusPending)
 	}
 
 	_ = task.Close()

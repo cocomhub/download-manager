@@ -6,7 +6,6 @@ package task
 import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 const (
@@ -95,7 +94,7 @@ func pruneRuntimeObjects(objects []*model.DownloadObject) []*model.DownloadObjec
 		if obj == nil {
 			continue
 		}
-		terminal := obj.GetStatus() == dlcore.StatusCompleted || obj.GetStatus() == dlcore.StatusCancelled
+		terminal := obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusCancelled
 		if terminal {
 			if terminalCount >= runtimeTerminalObjectLimit {
 				continue

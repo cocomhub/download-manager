@@ -83,6 +83,9 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 	if req.Metadata == nil {
 		req.Metadata = make(map[string]string)
 	}
+	if req.Result == nil {
+		req.Result = &DownloadResult{}
+	}
 
 	// 1. Selector 匹配 Extractor
 	var ex Extractor

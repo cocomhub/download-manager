@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -175,8 +174,11 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 		}
 		req.OnProgress(100, size, size)
 	}
-	if info, err := os.Stat(rPath); err == nil && req.Metadata != nil {
-		req.Metadata["total_size"] = strconv.FormatInt(info.Size(), 10)
+	if info, err := os.Stat(rPath); err == nil {
+		if req.Result == nil {
+			req.Result = &download.DownloadResult{}
+		}
+		req.Result.TotalSize = info.Size()
 	}
 	return nil
 }

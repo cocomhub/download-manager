@@ -13,7 +13,6 @@ import (
 )
 
 func (m *Manager) worker() {
-	defer m.workerWg.Done()
 	for {
 		select {
 		case req, ok := <-m.downloadQueue:
@@ -40,8 +39,7 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 		add := newLimit - m.workerCount
 		slog.Info("Increasing global workers", "from", m.workerCount, "to", newLimit)
 		for range add {
-			m.workerWg.Add(1)
-			go m.worker()
+			m.workerWg.Go(m.worker)
 		}
 		m.workerCount = newLimit
 	} else if newLimit < m.workerCount {

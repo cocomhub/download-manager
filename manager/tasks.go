@@ -8,7 +8,6 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 func (m *Manager) getTask(id string) (core.Task, bool) {
@@ -44,10 +43,10 @@ func (m *Manager) CancelTask(taskID string) error {
 		return err
 	}
 	for _, obj := range objs {
-		if obj.GetStatus() == dlcore.StatusCompleted {
+		if obj.GetStatus() == model.StatusCompleted {
 			continue
 		}
-		t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
+		t.UpdateStatus(obj, model.StatusCancelled, nil)
 		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		if _, active := m.downloadingObj.Load(obj.URL); active {
@@ -97,10 +96,10 @@ func (m *Manager) CancelObject(taskID, url string) error {
 	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	if obj.GetStatus() == dlcore.StatusCompleted {
+	if obj.GetStatus() == model.StatusCompleted {
 		return fmt.Errorf("object already completed")
 	}
-	t.UpdateStatus(obj, dlcore.StatusCancelled, nil)
+	t.UpdateStatus(obj, model.StatusCancelled, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 	if _, active := m.downloadingObj.Load(obj.URL); active {
@@ -137,10 +136,10 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	if obj == nil {
 		return fmt.Errorf("object not found")
 	}
-	if obj.GetStatus() != dlcore.StatusCancelled {
+	if obj.GetStatus() != model.StatusCancelled {
 		return fmt.Errorf("object status is not cancelled")
 	}
-	t.UpdateStatus(obj, dlcore.StatusPending, nil)
+	t.UpdateStatus(obj, model.StatusPending, nil)
 	obj.SetProgress(0)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})

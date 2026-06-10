@@ -9,7 +9,6 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/storage"
 	"github.com/cocomhub/download-manager/task/hanime"
 	"github.com/cocomhub/download-manager/task/tktube"
@@ -107,7 +106,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusCompleted,
+		Status: model.StatusCompleted,
 	}
 	// Lower priority: hasC only
 	o2 := &model.DownloadObject{
@@ -119,7 +118,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	_ = store.Update(o1)
 	_ = store.Update(o2)
@@ -127,7 +126,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 
 	m.applyGroupPriorityPolicies(task, o1)
 
-	if o2.Status != dlcore.StatusCancelled {
+	if o2.Status != model.StatusCancelled {
 		t.Fatalf("expect o2 cancelled, got %s", o2.Status)
 	}
 	if o2.Extra["redirect_url"] != o1.URL {
@@ -148,7 +147,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusCompleted,
+		Status: model.StatusCompleted,
 	}
 	p1 := &model.DownloadObject{
 		TaskID: "t1",
@@ -159,7 +158,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	p2 := &model.DownloadObject{
 		TaskID: "t1",
@@ -170,7 +169,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	_ = store.Update(canonical)
 	_ = store.Update(p1)
@@ -179,7 +178,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 
 	m.applyGroupPriorityPolicies(task, canonical)
 
-	if p1.Status != dlcore.StatusPending || p2.Status != dlcore.StatusPending {
+	if p1.Status != model.StatusPending || p2.Status != model.StatusPending {
 		t.Fatalf("expect conflict group to skip auto-cancel, got %s and %s", p1.Status, p2.Status)
 	}
 }
@@ -197,7 +196,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusCompleted,
+		Status: model.StatusCompleted,
 	}
 	downloading := &model.DownloadObject{
 		TaskID: "t1",
@@ -208,7 +207,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusDownloading,
+		Status: model.StatusDownloading,
 	}
 	_ = store.Update(canonical)
 	_ = store.Update(downloading)
@@ -216,7 +215,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 
 	m.applyGroupPriorityPolicies(task, canonical)
 
-	if downloading.Status != dlcore.StatusDownloading {
+	if downloading.Status != model.StatusDownloading {
 		t.Fatalf("expect downloading object unchanged, got %s", downloading.Status)
 	}
 }
@@ -234,7 +233,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusCompleted,
+		Status: model.StatusCompleted,
 	}
 	task1Pending := &model.DownloadObject{
 		TaskID: "t1",
@@ -245,7 +244,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	task2Pending := &model.DownloadObject{
 		TaskID: "t2",
@@ -256,7 +255,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	missingTaskID := &model.DownloadObject{
 		TaskID: "",
@@ -267,7 +266,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	_ = store.Update(task1Canonical)
 	_ = store.Update(task1Pending)
@@ -278,19 +277,19 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 
 	m.applyGroupPriorityPolicies(task1, task1Canonical)
 
-	if task1Pending.Status != dlcore.StatusCancelled {
+	if task1Pending.Status != model.StatusCancelled {
 		t.Fatalf("expect task1 pending object cancelled, got %s", task1Pending.Status)
 	}
 	if task1Pending.Extra["redirect_url"] != task1Canonical.URL {
 		t.Fatalf("expect task1 redirect_url=%s, got %v", task1Canonical.URL, task1Pending.Extra["redirect_url"])
 	}
-	if task2Pending.Status != dlcore.StatusPending {
+	if task2Pending.Status != model.StatusPending {
 		t.Fatalf("expect task2 pending object untouched, got %s", task2Pending.Status)
 	}
 	if _, ok := task2Pending.Extra["redirect_url"]; ok {
 		t.Fatalf("expect task2 redirect_url unset, got %v", task2Pending.Extra["redirect_url"])
 	}
-	if missingTaskID.Status != dlcore.StatusPending {
+	if missingTaskID.Status != model.StatusPending {
 		t.Fatalf("expect object with empty TaskID ignored, got %s", missingTaskID.Status)
 	}
 	if _, ok := missingTaskID.Extra["redirect_url"]; ok {
@@ -311,7 +310,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusCompleted,
+		Status: model.StatusCompleted,
 	}
 	sameTaskIDWrongType := &model.DownloadObject{
 		TaskID: "shared-task",
@@ -322,7 +321,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 			"content_group": "CLUB-100",
 		},
 		Extra:  map[string]any{},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	_ = store.Update(canonical)
 	_ = store.Update(sameTaskIDWrongType)
@@ -336,7 +335,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 
 	m.applyGroupPriorityPolicies(task1, canonical)
 
-	if sameTaskIDWrongType.Status != dlcore.StatusPending {
+	if sameTaskIDWrongType.Status != model.StatusPending {
 		t.Fatalf("expect different task_type object untouched, got %s", sameTaskIDWrongType.Status)
 	}
 	if _, ok := sameTaskIDWrongType.Extra["redirect_url"]; ok {

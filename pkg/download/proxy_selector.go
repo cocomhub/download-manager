@@ -41,6 +41,25 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 	}
 }
 
+// WithForceProxy 设置是否强制使用代理（跳过直连探测）。
+func (s *StaticProxySelector) WithForceProxy(v bool) *StaticProxySelector {
+	s.forceProxy = v
+	return s
+}
+
+// WithCache 设置代理决策缓存目录和 TTL（天数）。
+func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelector {
+	s.cacheDir = dir
+	s.decisionCacheTTL = ttl
+	return s
+}
+
+// WithProbe 设置直连探测超时（秒）。
+func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
+	s.probeTimeout = timeout
+	return s
+}
+
 // Select 实现 ProxySelector 接口。
 // 返回空字符串表示直连（不使用代理）。
 func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {

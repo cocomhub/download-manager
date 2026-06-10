@@ -8,7 +8,6 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 // ProgressBatch 包含一次广播周期内所有对象的进度变更
@@ -100,7 +99,7 @@ func (m *Manager) BroadcastTaskUpdate(taskID string) {
 	}
 	if completed, err := m.countTaskObjects(t, &core.StorageQuery{
 		Filter: core.StorageFilter{
-			Statuses: []string{dlcore.StatusCompleted},
+			Statuses: []string{model.StatusCompleted},
 		},
 	}); err == nil {
 		summary["completed"] = completed

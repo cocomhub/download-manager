@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
+
+const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
 type Config struct {
 	Server     Server             `yaml:"server" json:"server"`
@@ -295,7 +296,7 @@ func (c *Config) ValidateAndClamp() {
 		c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
 		c.Downloader.HTTP.MaxIdleConns = 100
 		c.Downloader.HTTP.MaxIdleConnsPerHost = 10
-		c.Downloader.HTTP.DefaultUserAgent = dlcore.DefaultUserAgent
+		c.Downloader.HTTP.DefaultUserAgent = defaultUserAgent
 	} else {
 		// Partial defaults if some fields were left zero
 		if c.Downloader.HTTP.TimeoutSeconds == 0 {
@@ -311,7 +312,7 @@ func (c *Config) ValidateAndClamp() {
 			c.Downloader.HTTP.MaxIdleConnsPerHost = 10
 		}
 		if c.Downloader.HTTP.DefaultUserAgent == "" {
-			c.Downloader.HTTP.DefaultUserAgent = dlcore.DefaultUserAgent
+			c.Downloader.HTTP.DefaultUserAgent = defaultUserAgent
 		}
 	}
 

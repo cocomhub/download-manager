@@ -9,7 +9,6 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 type registeredStorage struct {
@@ -74,7 +73,7 @@ func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 		if err != nil || obj == nil {
 			continue
 		}
-		if obj.GetStatus() != dlcore.StatusPending {
+		if obj.GetStatus() != model.StatusPending {
 			owners[ownerID(entry.taskID, obj)] = struct{}{}
 		}
 		if betterSharedObject(obj, best) {
@@ -109,7 +108,7 @@ func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.objects[obj.URL] = cloneObject(obj)
-	if obj.GetStatus() != dlcore.StatusPending {
+	if obj.GetStatus() != model.StatusPending {
 		r.addOwnerLocked(obj.URL, stringsTrim(obj.TaskID))
 	}
 	for _, ch := range r.subs {
@@ -128,7 +127,7 @@ func (r *URLStateRegistry) Delete(url string) error {
 	delete(r.owners, url)
 	for _, ch := range r.subs {
 		select {
-		case ch <- &model.DownloadObject{URL: url, Status: dlcore.StatusFailed}:
+		case ch <- &model.DownloadObject{URL: url, Status: model.StatusFailed}:
 		default:
 		}
 	}
@@ -229,15 +228,15 @@ func sharedObjectScore(obj *model.DownloadObject) int {
 	}
 	score := 0
 	switch obj.GetStatus() {
-	case dlcore.StatusCompleted:
+	case model.StatusCompleted:
 		score += 40
-	case dlcore.StatusDownloading:
+	case model.StatusDownloading:
 		score += 30
-	case dlcore.StatusFailed:
+	case model.StatusFailed:
 		score += 20
-	case dlcore.StatusPending:
+	case model.StatusPending:
 		score += 10
-	case dlcore.StatusCancelled:
+	case model.StatusCancelled:
 		score += 5
 	}
 	if _, ok := obj.Extra["files"]; ok {

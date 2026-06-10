@@ -14,7 +14,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/task/tktube"
 )
 
@@ -47,7 +47,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	default:
 	}
 
-	t.UpdateStatus(obj, dlcore.StatusDownloading, nil)
+	t.UpdateStatus(obj, model.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
@@ -91,18 +91,18 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
-		if obj.GetStatus() == dlcore.StatusCancelled {
+		if obj.GetStatus() == model.StatusCancelled {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			return
 		}
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
-		t.UpdateStatus(obj, dlcore.StatusFailed, err)
+		t.UpdateStatus(obj, model.StatusFailed, err)
 		mt := m.getOrCreateMetrics(t.ID())
 		mt.failures.Add(1)
 		mt.lastActive.Store(time.Now().Unix())
 
-		if dlcore.IsNoTry(err) {
+		if download.IsNoTry(err) {
 			if ft, ok := t.(core.FailedTask); ok {
 				ft.MarkAsFailed(obj, err)
 			}
@@ -131,10 +131,10 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		}
 
 		// Record failure detail
-		isPermanent := dlcore.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
+		isPermanent := download.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
 		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
 	} else {
-		t.UpdateStatus(obj, dlcore.StatusCompleted, nil)
+		t.UpdateStatus(obj, model.StatusCompleted, nil)
 		// Reset failed count on success
 		m.failedCount.Delete(obj.URL)
 		m.totalDownloads.Add(1)
@@ -185,7 +185,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	if t.Type() != tktube.TaskType {
 		return
 	}
-	if obj == nil || obj.GetStatus() != dlcore.StatusCompleted {
+	if obj == nil || obj.GetStatus() != model.StatusCompleted {
 		return
 	}
 	taskType := strings.TrimSpace(t.Type())
@@ -236,7 +236,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 		score := variantPriorityScore(t, o)
 		cands = append(cands, candidate{o: o, score: score})
 		priorityCounts[score]++
-		if o.GetStatus() == dlcore.StatusCompleted {
+		if o.GetStatus() == model.StatusCompleted {
 			if canonical == nil || score > bestScore {
 				canonical = o
 				bestScore = score
@@ -258,12 +258,12 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 			continue
 		}
 		// Auto-cancel only lower-priority pending objects.
-		if cnd.score < bestScore && o.GetStatus() == dlcore.StatusPending {
+		if cnd.score < bestScore && o.GetStatus() == model.StatusPending {
 			if o.Extra == nil {
 				o.Extra = make(map[string]any)
 			}
 			o.Extra["redirect_url"] = canonical.URL
-			if err := t.UpdateStatus(o, dlcore.StatusCancelled, nil); err != nil {
+			if err := t.UpdateStatus(o, model.StatusCancelled, nil); err != nil {
 				slog.Warn("Failed to auto-cancel lower-priority duplicate", "task_id", t.ID(), "url", o.URL, "error", err)
 			}
 		}
@@ -295,11 +295,11 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		return err
 	}
 	if obj != nil {
-		if obj.GetStatus() == dlcore.StatusCompleted {
+		if obj.GetStatus() == model.StatusCompleted {
 			return fmt.Errorf("object already completed")
 		}
 		// Reset status
-		t.UpdateStatus(obj, dlcore.StatusPending, nil)
+		t.UpdateStatus(obj, model.StatusPending, nil)
 		obj.SetProgress(0)
 
 		// Resolve details if needed (JIT for forced retry?)
@@ -330,7 +330,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 
 	objs, err := m.collectTaskObjects(t, &core.StorageQuery{
 		Filter: core.StorageFilter{
-			Statuses: []string{dlcore.StatusFailed, dlcore.StatusFailedPermanent},
+			Statuses: []string{model.StatusFailed, model.StatusFailedPermanent},
 		},
 	}, 200)
 	if err != nil {
@@ -338,7 +338,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	}
 	count := 0
 	for _, obj := range objs {
-		t.UpdateStatus(obj, dlcore.StatusPending, nil)
+		t.UpdateStatus(obj, model.StatusPending, nil)
 		obj.SetProgress(0)
 		m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		count++

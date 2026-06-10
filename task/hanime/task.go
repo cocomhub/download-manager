@@ -16,7 +16,6 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task"
 
 	"github.com/PuerkitoBio/goquery"
@@ -85,7 +84,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	toResolve := make([]*model.DownloadObject, 0)
 	activeCount := 0
 	for _, obj := range objects {
-		if obj.GetStatus() == dlcore.StatusDownloading {
+		if obj.GetStatus() == model.StatusDownloading {
 			activeCount++
 		}
 	}
@@ -93,7 +92,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		if t.IsMarkedFailed(obj.URL) {
 			continue
 		}
-		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
+		if obj.GetStatus() != model.StatusCompleted && obj.GetStatus() != model.StatusCancelled {
 			if _, hasFiles := obj.Extra["files"]; hasFiles {
 				candidates = append(candidates, obj)
 			} else {
@@ -109,7 +108,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				candidates = append(candidates, obj)
 			} else {
 				t.Logger().Error("hanime resolve object failed", "url", obj.URL, "error", err)
-				t.UpdateStatus(obj, dlcore.StatusFailed, err)
+				t.UpdateStatus(obj, model.StatusFailed, err)
 			}
 		}
 	}
@@ -237,7 +236,7 @@ func (t *Task) createObjectFromItem(v hanimeItem) *model.DownloadObject {
 		Extra: map[string]any{
 			"thumb_url": v.thumbURL,
 		},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	t.CheckAndRestoreStatus(obj)
 	return obj

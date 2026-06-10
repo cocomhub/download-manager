@@ -22,6 +22,18 @@ type Request struct {
 	OnProgress    func(progress float64, downloaded, total int64)
 	Metadata      map[string]string
 	Hint          *DownloadHint
+	Result        *DownloadResult // Extractor 填充此字段，调用方读取后显式应用到目标对象
+}
+
+// DownloadResult 包含下载完成后的元数据信息。
+// Extractor 在下载成功后填充此结构体，不再直接写入 Request.Metadata。
+type DownloadResult struct {
+	StatusCode    int
+	ContentLength int64
+	TotalSize     int64
+	MD5Base64     string
+	MD5Hex        string
+	ModTime       string // RFC3339Nano 格式
 }
 
 // RangeRequest 描述一个 HTTP Range 请求的偏移量。

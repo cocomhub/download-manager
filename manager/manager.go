@@ -18,7 +18,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/storage"
@@ -335,7 +334,7 @@ func (m *Manager) GetTaskSummaries() []map[string]any {
 		}
 		if completed, err := m.countTaskObjects(t, &core.StorageQuery{
 			Filter: core.StorageFilter{
-				Statuses: []string{dlcore.StatusCompleted},
+				Statuses: []string{model.StatusCompleted},
 			},
 		}); err == nil {
 			summary["completed"] = completed

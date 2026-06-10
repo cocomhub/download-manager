@@ -13,7 +13,6 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -88,7 +87,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 			TaskID:   t.ID(),
 			URL:      u,
 			SavePath: filepath.Join(t.SaveDir(), filename),
-			Status:   dlcore.StatusPending,
+			Status:   model.StatusPending,
 		}
 
 		// Check storage for this object
@@ -121,7 +120,7 @@ func (t *Task) Scrape(ctx context.Context) error {
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	var pending []*model.DownloadObject
 	for _, obj := range t.GetAllObjects(true) {
-		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
+		if obj.GetStatus() != model.StatusCompleted && obj.GetStatus() != model.StatusCancelled {
 			pending = append(pending, obj)
 		}
 	}

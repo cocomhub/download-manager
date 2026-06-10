@@ -21,7 +21,6 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task"
 
 	"github.com/PuerkitoBio/goquery"
@@ -130,12 +129,12 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
-		if o.Status == dlcore.StatusPending || o.Status == dlcore.StatusFailed {
+		if o.Status == model.StatusPending || o.Status == model.StatusFailed {
 			// Re-scrape pending/failed objects to get fresh content (images, title, etc.)
 			if _, loaded := t.resolved2URLs.LoadOrStore(o.URL, struct{}{}); !loaded {
 				if newObj, err := t.scrapeAndBuild(o.URL); err == nil {
 					newObj.TaskID = t.ID()
-					newObj.SetStatus(dlcore.StatusPending)
+					newObj.SetStatus(model.StatusPending)
 					t.PersistTaskObject(newObj)
 					t.RememberRuntimeObject(newObj, true)
 					pending = append(pending, newObj)
@@ -278,7 +277,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 			"files":        files,
 			"links":        links,
 		},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 	t.CheckRestoreCompleted(obj)
 	return obj, nil

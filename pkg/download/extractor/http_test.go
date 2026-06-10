@@ -28,13 +28,13 @@ func TestHTTPExtractorBasic(t *testing.T) {
 	ext := extractor.NewHTTPExtractor()
 	ext.SetTransport(transport.NewStdlibTransport())
 
-	meta := make(map[string]string)
-	err := ext.Extract(context.Background(), &download.Request{
+	req := &download.Request{
 		URL:           ts.URL,
 		SavePath:      dest,
 		TrackProgress: false,
-		Metadata:      meta,
-	})
+		Metadata:      make(map[string]string),
+	}
+	err := ext.Extract(context.Background(), req)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -48,12 +48,12 @@ func TestHTTPExtractorBasic(t *testing.T) {
 		t.Errorf("expected content 'hello world', got: %q", string(data))
 	}
 
-	// 验证 Metadata
-	if meta["status_code"] != "200" {
-		t.Errorf("expected metadata status_code=200, got: %q", meta["status_code"])
+	// 验证 DownloadResult
+	if req.Result.StatusCode != 200 {
+		t.Errorf("expected Result.StatusCode=200, got: %d", req.Result.StatusCode)
 	}
-	if meta["content_length"] == "" {
-		t.Errorf("expected metadata content_length to be set")
+	if req.Result.ContentLength <= 0 {
+		t.Errorf("expected Result.ContentLength to be set, got: %d", req.Result.ContentLength)
 	}
 }
 

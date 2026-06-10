@@ -12,7 +12,6 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 
 func (m *Manager) Start() {
@@ -30,8 +29,7 @@ func (m *Manager) Start() {
 		}
 		slog.Info("Starting global workers", "count", limit)
 		for i := 0; i < limit; i++ {
-			m.workerWg.Add(1)
-			go m.worker()
+			m.workerWg.Go(m.worker)
 		}
 		m.workerCount = limit
 	}
@@ -96,7 +94,7 @@ func (m *Manager) Stop(ctx context.Context) {
 	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
 		if t, ok := m.getTask(obj.TaskID); ok {
-			t.UpdateStatus(obj, dlcore.StatusFailed, errors.New("shutdown"))
+			t.UpdateStatus(obj, model.StatusFailed, errors.New("shutdown"))
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		}

@@ -14,15 +14,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cocomhub/download-manager/model"
 )
 
 const (
-	StatusFailedPermanent = "failed_permanent"
-	StatusPending         = "pending"
-	StatusDownloading     = "downloading"
-	StatusCompleted       = "completed"
-	StatusFailed          = "failed"
-	StatusCancelled       = "cancelled"
+	StatusFailedPermanent = model.StatusFailedPermanent
+	StatusPending         = model.StatusPending
+	StatusDownloading     = model.StatusDownloading
+	StatusCompleted       = model.StatusCompleted
+	StatusFailed          = model.StatusFailed
+	StatusCancelled       = model.StatusCancelled
 )
 
 var (

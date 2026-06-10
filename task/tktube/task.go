@@ -21,7 +21,6 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/task"
 
@@ -119,7 +118,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	// Enqueue prefetch for pending objects
 	t.WithObjectsLock(func(objs []*model.DownloadObject) {
 		for _, obj := range objs {
-			if obj.GetStatus() == dlcore.StatusPending {
+			if obj.GetStatus() == model.StatusPending {
 				_, hasLocalPreview := obj.Extra["local_preview"]
 				if !hasLocalPreview {
 					t.queuePrefetch(obj)
@@ -136,7 +135,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		count, err := t.Storage().Count(&core.StorageQuery{
 			Filter: core.StorageFilter{
 				TaskIDs:  []string{t.ID()},
-				Statuses: []string{dlcore.StatusDownloading},
+				Statuses: []string{model.StatusDownloading},
 			},
 		})
 		if err == nil {
@@ -145,7 +144,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	if activeCount == 0 {
 		for _, obj := range runtimeObjects {
-			if obj.GetStatus() == dlcore.StatusDownloading {
+			if obj.GetStatus() == model.StatusDownloading {
 				activeCount++
 			}
 		}
@@ -162,7 +161,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 
 	// Collect candidates
 	for _, obj := range objects {
-		if obj.GetStatus() != dlcore.StatusCompleted && obj.GetStatus() != dlcore.StatusCancelled {
+		if obj.GetStatus() != model.StatusCompleted && obj.GetStatus() != model.StatusCancelled {
 			if t.IsMarkedFailed(obj.URL) {
 				continue
 			}
@@ -197,7 +196,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 					// resolveVideoDetails already calls MarkAsFailed for ErrNoFlashvars
 					// (which sets failed_permanent). Don't overwrite with generic StatusFailed.
 					if !errors.Is(err, ErrNoFlashvars) {
-						t.UpdateStatus(o, dlcore.StatusFailed, err)
+						t.UpdateStatus(o, model.StatusFailed, err)
 					}
 				} else {
 					mu.Lock()
@@ -318,7 +317,7 @@ func (t *Task) prefetchWorker(workerID int) {
 
 func (t *Task) prefetchAssets(obj *model.DownloadObject) {
 	// Don't prefetch if already completed or downloading main
-	if obj.GetStatus() == dlcore.StatusCompleted || obj.GetStatus() == dlcore.StatusDownloading || obj.GetStatus() == dlcore.StatusCancelled {
+	if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusDownloading || obj.GetStatus() == model.StatusCancelled {
 		return
 	}
 
@@ -404,7 +403,7 @@ func (t *Task) downloadFile(url, path string) error {
 		SavePath: path,
 		Metadata: map[string]string{"type": "image"},
 		Extra:    map[string]any{},
-		Status:   dlcore.StatusPending,
+		Status:   model.StatusPending,
 	}
 	return t.Downloader().Download(obj, t.GetDownloadHeaders())
 }
@@ -469,7 +468,7 @@ func (t *Task) createObjectFromVideoItem(v videoItem) *model.DownloadObject {
 			"preview_url": v.previewURL,
 			"thumb_url":   v.thumbURL,
 		},
-		Status: dlcore.StatusPending,
+		Status: model.StatusPending,
 	}
 
 	// Deduplication / Restore Status from DB

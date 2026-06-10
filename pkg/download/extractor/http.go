@@ -102,6 +102,9 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 	if req.Metadata == nil {
 		req.Metadata = make(map[string]string)
 	}
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
 
 	// 重试循环
 	for attempt := 1; attempt <= e.maxRetries; attempt++ {
@@ -214,9 +217,10 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, fmt.Errorf("failed to write file: %w", cErr)
 	}
 
-	// 填写元数据
-	req.Metadata["status_code"] = strconv.Itoa(tresp.StatusCode)
-	req.Metadata["content_length"] = strconv.FormatInt(totalSize, 10)
+	// 填写结果
+	req.Result.StatusCode = tresp.StatusCode
+	req.Result.ContentLength = totalSize
+	req.Result.TotalSize = totalSize
 
 	// MD5 校验
 	if wantMd5 := download.TryGetMd5(tresp.Headers); wantMd5 != "" {
@@ -228,11 +232,14 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
 			return false, nil // return false 触发重新下载
 		}
+		req.Result.MD5Base64 = base64MD5
+		req.Result.MD5Hex = hexMD5
 	}
 
 	// 设置 Last-Modified 时间
 	if modTimeStr := tresp.Headers["Last-Modified"]; modTimeStr != "" {
 		if modTime, pErr := time.Parse(time.RFC1123, modTimeStr); pErr == nil {
+			req.Result.ModTime = modTime.Format(time.RFC3339Nano)
 			_ = os.Chtimes(rPath, modTime, modTime)
 		}
 	}

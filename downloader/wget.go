@@ -5,6 +5,7 @@ package downloader
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,7 +20,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
+	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 type WgetDownloader struct {
@@ -28,7 +29,7 @@ type WgetDownloader struct {
 	cacheDir      string
 	forceProxy    bool
 	active        sync.Map
-	proxySelector dlcore.ProxySelector
+	proxySelector *download.StaticProxySelector
 }
 
 // Ensure WgetDownloader implements core.Downloader
@@ -49,11 +50,10 @@ func NewWgetDownloader(cfg config.Downloader) *WgetDownloader {
 		proxies:    cfg.Proxies,
 		cacheDir:   cacheDir,
 		forceProxy: cfg.ForceProxy,
-		proxySelector: dlcore.NewProxySelector(cfg.Proxies).
+		proxySelector: download.NewStaticProxySelector(cfg.Proxies).
 			WithForceProxy(cfg.ForceProxy).
 			WithCache(cacheDir, 1).
-			WithProbe(3).
-			WithBandwidthSuffix("/bandwidth"),
+			WithProbe(3),
 	}
 }
 
@@ -268,5 +268,5 @@ func (d *WgetDownloader) Cancel(url string) error {
 // --- Proxy Logic ---
 
 func (d *WgetDownloader) determineProxy(targetURL string) (string, error) {
-	return d.proxySelector.Select(targetURL)
+	return d.proxySelector.Select(context.Background(), targetURL, nil)
 }

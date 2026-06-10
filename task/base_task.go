@@ -15,7 +15,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/storage"
 )
@@ -226,7 +225,7 @@ func (b *BaseTask) SetRefreshInterval(sec int) error {
 // MarkAsFailed records an object as permanently failed by updating its status
 // to failed_permanent in storage and shared registry.
 func (b *BaseTask) MarkAsFailed(obj *model.DownloadObject, err error) {
-	b.UpdateStatus(obj, dlcore.StatusFailedPermanent, err)
+	b.UpdateStatus(obj, model.StatusFailedPermanent, err)
 }
 
 // IsMarkedFailed checks if an object has been marked as permanently failed
@@ -234,7 +233,7 @@ func (b *BaseTask) MarkAsFailed(obj *model.DownloadObject, err error) {
 func (b *BaseTask) IsMarkedFailed(url string) bool {
 	if b.store != nil {
 		obj, err := b.store.Get(url)
-		if err == nil && obj != nil && obj.GetStatus() == dlcore.StatusFailedPermanent {
+		if err == nil && obj != nil && obj.GetStatus() == model.StatusFailedPermanent {
 			return true
 		}
 	}
@@ -263,13 +262,13 @@ func (b *BaseTask) CheckAndRestoreStatus(obj *model.DownloadObject) {
 // objects to avoid stale metadata from overwriting fresh content.
 func (b *BaseTask) CheckRestoreCompleted(obj *model.DownloadObject) {
 	if b.shared != nil {
-		if so, err := b.shared.Get(obj.URL); err == nil && so != nil && so.Status == dlcore.StatusCompleted {
+		if so, err := b.shared.Get(obj.URL); err == nil && so != nil && so.Status == model.StatusCompleted {
 			applySharedState(obj, so)
 			return
 		}
 	}
 	if b.store != nil {
-		if so, err := b.store.Get(obj.URL); err == nil && so != nil && so.Status == dlcore.StatusCompleted {
+		if so, err := b.store.Get(obj.URL); err == nil && so != nil && so.Status == model.StatusCompleted {
 			applySharedState(obj, so)
 		}
 	}
@@ -362,9 +361,9 @@ func (b *BaseTask) PersistTaskObject(obj *model.DownloadObject) {
 // ResetZombieState checks for zombie downloading states in the given object
 // and resets them to pending if found.
 func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
-	if obj.GetStatus() == dlcore.StatusDownloading {
+	if obj.GetStatus() == model.StatusDownloading {
 		b.logger.Warn("Found zombie downloading state, resetting to pending", "url", obj.URL)
-		obj.SetStatus(dlcore.StatusPending)
+		obj.SetStatus(model.StatusPending)
 		if b.store != nil {
 			if err := b.store.Update(obj); err != nil {
 				b.logger.Error("Failed to reset zombie state", "error", err)
@@ -424,7 +423,7 @@ func (b *BaseTask) LoadPendingFromStorage(limit int64) []*model.DownloadObject {
 	stored, err := b.store.Search(&core.StorageQuery{
 		Filter: core.StorageFilter{
 			TaskIDs:  []string{b.ID()},
-			Statuses: []string{dlcore.StatusPending, dlcore.StatusFailed},
+			Statuses: []string{model.StatusPending, model.StatusFailed},
 		},
 		Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
 		Limit: limit,

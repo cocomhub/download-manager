@@ -8,7 +8,6 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/dlcore"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -27,11 +26,11 @@ func TestBaseTask_ResetZombieState_OnlyResetsDownloading(t *testing.T) {
 		status string
 		want   string
 	}{
-		{status: dlcore.StatusDownloading, want: dlcore.StatusPending},
-		{status: dlcore.StatusPending, want: dlcore.StatusPending},
-		{status: dlcore.StatusFailed, want: dlcore.StatusFailed},
-		{status: dlcore.StatusCompleted, want: dlcore.StatusCompleted},
-		{status: dlcore.StatusCancelled, want: dlcore.StatusCancelled},
+		{status: model.StatusDownloading, want: model.StatusPending},
+		{status: model.StatusPending, want: model.StatusPending},
+		{status: model.StatusFailed, want: model.StatusFailed},
+		{status: model.StatusCompleted, want: model.StatusCompleted},
+		{status: model.StatusCancelled, want: model.StatusCancelled},
 	}
 
 	for _, tc := range cases {
