@@ -13,13 +13,6 @@
     <script src="libs/cdn.tailwindcss.com/3.4.17"></script>
     <script src="libs/cdn.staticfile.org/vue/3.3.4/vue.global.js"></script>
     <link href="https://cdn.staticfile.org/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="utils/taskTypes.js"></script>
-    <script src="app/api.js"></script>
-    <script src="app/videoPlayer.js"></script>
-    <script src="app/helpers.js"></script>
-    <script src="app/taskList.js"></script>
-    <script src="app/dashboard.js"></script>
-    <script src="app/main.js"></script>
     <style>
         [v-cloak] {
             display: none;
@@ -1676,94 +1669,14 @@
             }
             window.__dm_isHashRouting = isHashRouting
             window.__dm_readTypeFromURL = readTypeFromURL
-            const {
-            createApp
-        } = Vue
-
-        // Delegate to modular app/main.js
+        })();
     </script>
+    <script src="utils/taskTypes.js"></script>
+    <script src="app/api.js"></script>
+    <script src="app/videoPlayer.js"></script>
+    <script src="app/helpers.js"></script>
+    <script src="app/taskList.js"></script>
+    <script src="app/dashboard.js"></script>
     <script src="app/main.js"></script>
 </body>
-</html>
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                url: obj.url
-                            })
-                        });
-                        obj.status = 'pending';
-                        obj.progress = 0
-                    } catch (e) {
-                        console.error(e)
-                    }
-                },
-                async cancelObject(obj) {
-                    if (this.isWriteDisabled) {
-                        this.showToast('UI-Only 模式下已禁用', 'error')
-                        return
-                    }
-                    try {
-                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/cancel`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                url: obj.url
-                            })
-                        })
-                        if (!res.ok) throw new Error('取消失败')
-                        obj.status = 'cancelled'
-                        this.showToast('已取消该对象', 'success')
-                    } catch (e) {
-                        this.showToast('取消失败: ' + e.message, 'error')
-                    }
-                },
-                async undoCancelObject(obj) {
-                    if (this.isWriteDisabled) {
-                        this.showToast('UI-Only 模式下已禁用', 'error')
-                        return
-                    }
-                    try {
-                        const res = await fetch(`/api/tasks/${this.selectedTaskId}/object/undo_cancel`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                url: obj.url
-                            })
-                        })
-                        if (!res.ok) throw new Error('撤销失败')
-                        obj.status = 'pending'
-                        obj.progress = 0
-                        this.showToast('已撤销取消，回到待下载', 'success')
-                    } catch (e) {
-                        this.showToast('撤销失败: ' + e.message, 'error')
-                    }
-                },
-                async retryAllFailed() {
-                    if (this.isWriteDisabled) {
-                        this.showToast('UI-Only 模式下已禁用', 'error')
-                        return
-                    }
-                    if (!confirm("Retry all failed?")) return;
-                    try {
-                        await fetch(`/api/tasks/${this.selectedTaskId}/retry`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({})
-                        });
-                        this.fetchTaskDetails(this.selectedTaskId)
-                    } catch (e) {
-                        console.error(e)
-                    }
-                }
-            }
-        }).mount('#app')
-    </script>
-</body>
-
 </html>

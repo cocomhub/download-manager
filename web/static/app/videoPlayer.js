@@ -11,35 +11,37 @@
 
   var player = {
     register: function (app) {
-      // ---- data ----
-      app.data(function () {
-        return {
-          currentVideo: null,
-          isPlaying: false,
-          isBuffering: false,
-          currentTime: 0,
-          duration: 0,
-          buffered: 0,
-          volume: 0.1,
-          isMuted: false,
-          playbackRate: 1.0,
-          showControls: true,
-          controlsTimer: null,
-          showPlayIcon: false,
-          hoverTime: null,
-          hoverProgressPosition: 0,
-          showVideoSettings: false,
-          videoSettings: {
-            skipInterval: 10,
-            defaultSpeed: 1.0,
-            defaultVolume: 0.1,
-            autoPlay: true
+      // ---- data (via mixin so Vue recognizes it) ----
+      app.mixin({
+        data: function () {
+          return {
+            currentVideo: null,
+            isPlaying: false,
+            isBuffering: false,
+            currentTime: 0,
+            duration: 0,
+            buffered: 0,
+            volume: 0.1,
+            isMuted: false,
+            playbackRate: 1.0,
+            showControls: true,
+            controlsTimer: null,
+            showPlayIcon: false,
+            hoverTime: null,
+            hoverProgressPosition: 0,
+            showVideoSettings: false,
+            videoSettings: {
+              skipInterval: 10,
+              defaultSpeed: 1.0,
+              defaultVolume: 0.1,
+              autoPlay: true
+            }
           }
         }
       })
 
       // ---- methods ----
-      app.methods = Object.assign(app.methods || {}, {
+      app.mixin({methods: {
         loadVideoSettings: function () {
           try {
             var saved = localStorage.getItem('dm_video_settings')
@@ -245,7 +247,7 @@
           if (obj && obj.extra && obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
           return ''
         }
-      })
+      }})
     }
   }
 

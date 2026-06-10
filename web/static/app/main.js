@@ -221,15 +221,20 @@
     }
   })
 
+  // Register helpers module
+  if (typeof AppHelpers !== 'undefined') AppHelpers.register(app)
+
   // Register video player module
   AppVideoPlayer.register(app)
 
-  // Register helpers and rest methods (loaded from separate modules or inline below)
+  // Register task list and dashboard modules
   if (typeof AppTaskList !== 'undefined') AppTaskList.register(app)
+  if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
+
+  // Optional aggregate/config/download view modules (loaded from separate files)
   if (typeof AppAggregateView !== 'undefined') AppAggregateView.register(app)
   if (typeof AppConfigPanel !== 'undefined') AppConfigPanel.register(app)
   if (typeof AppDownloadView !== 'undefined') AppDownloadView.register(app)
-  if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
 
   app.mount('#app')
 })()

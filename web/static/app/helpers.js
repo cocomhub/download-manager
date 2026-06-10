@@ -11,7 +11,7 @@
 
   window.AppHelpers = {
     register: function (app) {
-      app.methods = Object.assign(app.methods || {}, {
+      app.mixin({methods: {
         // URL / Type routing
         initTypeFromURL: function () {
           try {
@@ -444,8 +444,155 @@
             if (typeof merged.diff_ignore_ws === 'boolean') self.diffOptions.ignore_ws = merged.diff_ignore_ws
             if (typeof merged.diff_ignore_comment === 'boolean') self.diffOptions.ignore_comments = merged.diff_ignore_comment
           }).catch(function () {})
+        },
+
+        // ---- Create task modal ----
+        openAddTask: function ($event) {
+          if ($event) $event.preventDefault()
+          this.showAddTaskModal = true
+        },
+        saveNewTask: function () {
+          var payload = {
+            id: this.newTask.id,
+            type: this.newTask.type,
+            save_dir: this.newTask.save_dir,
+            storage: { type: this.newTask.storage_type }
+          }
+          if (this.newTask.storage_type === 'file' && this.newTask.storage_config.path) {
+            payload.storage.path = this.newTask.storage_config.path
+          }
+          if (this.newTask.storage_type === 'mongo') {
+            if (this.newTask.storage_config.source) payload.storage.source = this.newTask.storage_config.source
+            if (this.newTask.storage_config.database) payload.storage.database = this.newTask.storage_config.database
+            if (this.newTask.storage_config.collection) payload.storage.collection = this.newTask.storage_config.collection
+          }
+          if (this.newTask.type === 'url_list') {
+            payload.urls_text = this.newTask.urls_text
+          }
+          if (this.newTask.type === 'tktube') {
+            if (this.newTask.keyword) payload.keyword = this.newTask.keyword
+            if (this.newTask.subtype) payload.subtype = this.newTask.subtype
+            if (this.newTask.max_concurrent) payload.max_concurrent = this.newTask.max_concurrent
+            if (this.newTask.refresh_interval) payload.refresh_interval = this.newTask.refresh_interval
+          }
+          if (!payload.id || !payload.type) {
+            this.showToast('请填写任务ID和类型', 'error')
+            return
+          }
+          var self = this
+          AppAPI.post('/api/tasks', payload).then(function (res) {
+            if (!res.ok) throw new Error('创建失败')
+            self.showToast('任务创建成功', 'success')
+            self.showAddTaskModal = false
+            self.newTask = { id: '', type: 'url_list', save_dir: '', storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
+            self.fetchTasks()
+          }).catch(function (e) { self.showToast('创建失败: ' + e.message, 'error') })
+        },
+
+        // ---- Config panel ----
+        openConfig: function () {
+          this.showConfigModal = true
+          var self = this
+          AppAPI.serverConfig().then(function (data) {
+            self.configForm = data || {}
+          }).catch(function () {})
+        },
+        saveConfig: function () {
+          var self = this
+          AppAPI.put('/api/config/server', this.configForm).then(function (res) {
+            if (!res.ok) throw new Error('保存失败')
+            self.showToast('配置已保存', 'success')
+            self.showConfigModal = false
+            self.initUiDefaults()
+          }).catch(function (e) { self.showToast('保存失败: ' + e.message, 'error') })
+        },
+        openConfigHistory: function () {
+          this.showConfigHistoryModal = true
+        },
+
+        // ---- Card / group modal ----
+        handleCardClick: function (obj) {
+          if (!obj) return
+          if (obj.status === 'completed' && this.isVideo(obj)) {
+            this.playVideo(obj)
+          }
+        },
+        openGroupModal: function (obj) {
+          var info = this.getScopedTaskInfo(obj)
+          this.groupModal.taskId = info.taskId
+          this.groupModal.taskType = info.taskType
+          this.showGroupModal = true
+        },
+        closeGroupModal: function () {
+          this.showGroupModal = false
+          this.groupModal = { taskId: '', taskType: '' }
+        },
+
+        // ---- Tktube / Aggregate view ----
+        openTktubeAggregate: function () {
+          this.viewMode = 'tktube'
+          this.fetchAggregateByType(this.selectedType || 'all')
+        },
+        fetchAggregateByType: function (type) {
+          if (this.tktubeLoading) return
+          this.tktubeLoading = true
+          var self = this
+          var sortBy = this.tktubeSortBy || ''
+          var groupBy = this.tktubeGroupBy || false
+          var url = '/api/tasks/objects?type=' + encodeURIComponent(type || 'all')
+          if (sortBy) url += '&sort=' + encodeURIComponent(sortBy)
+          if (groupBy) url += '&group=' + encodeURIComponent(groupBy)
+          AppAPI.get(url).then(function (data) {
+            self.tktubeObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
+            self.tktubePagination.total = (data && data.total) || self.tktubeObjects.length
+            self.showTktubeView = true
+          }).catch(function () {
+            self.showToast('加载聚合视图失败', 'error')
+          }).finally(function () {
+            self.tktubeLoading = false
+          })
+        },
+        cancelAggObject: function (obj) {
+          if (!obj || !obj.task_id) return
+          var self = this
+          AppAPI.post('/api/tasks/' + encodeURIComponent(obj.task_id) + '/object/cancel', { url: obj.url }).then(function (res) {
+            if (res && !res.ok) throw new Error('取消失败')
+            obj.status = 'cancelled'
+            self.showToast('已取消: ' + (obj.metadata && obj.metadata.title || obj.url), 'info')
+          }).catch(function (e) { self.showToast('取消失败: ' + e.message, 'error') })
+        },
+        changeTktubePage: function (page) {
+          this.tktubePagination.page = page
+          this.fetchAggregateByType(this.selectedType || 'all')
+        },
+        changeTktubeLimit: function () {
+          this.tktubePagination.page = 1
+          this.fetchAggregateByType(this.selectedType || 'all')
+        },
+
+        // ---- Clipboard ----
+        copyText: function (text) {
+          var self = this
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              self.showToast('已复制到剪贴板', 'success')
+            }).catch(function () {
+              self.showToast('复制失败', 'error')
+            })
+          } else {
+            // Fallback
+            var ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try { document.execCommand('copy'); self.showToast('已复制到剪贴板', 'success') }
+            catch (e) { self.showToast('复制失败', 'error') }
+            document.body.removeChild(ta)
+          }
         }
-      })
+      }})
     }
   }
 })()

@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/cavaliergopher/grab/v3 v3.0.1
+	github.com/cocomhub/sproxy v0.0.0-20260605220945-c3f77b4f644b
 	github.com/dop251/goja v0.0.0-20251201205617-2bb4c724c0f9
 	github.com/gofrs/flock v0.13.0
 	github.com/gorilla/mux v1.8.1
@@ -16,7 +17,6 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/cocomhub/sproxy v0.0.0-20260529164902-b14dfe1acb59 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/golang/snappy v0.0.4 // indirect
@@ -35,4 +35,4 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 )
 
-replace github.com/cocomhub/sproxy => ../sproxy
+// replace github.com/cocomhub/sproxy => ../sproxy

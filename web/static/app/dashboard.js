@@ -11,7 +11,7 @@
 
   window.AppDashboard = {
     register: function (app) {
-      app.methods = Object.assign(app.methods || {}, {
+      app.mixin({methods: {
         // --- Dashboard data fetching ---
 
         fetchDashboardData: function () {
@@ -96,7 +96,7 @@
         searchDashboardFailures: function () {
           this.fetchFailures()
         }
-      })
+      }})
     }
   }
 })()

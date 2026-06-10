@@ -10,7 +10,7 @@
 
   window.AppTaskList = {
     register: function (app) {
-      app.methods = Object.assign(app.methods || {}, {
+      app.mixin({methods: {
         fetchTasks: function () {
           var self = this
           AppAPI.tasks().then(function (data) {
@@ -274,8 +274,50 @@
               else self.showToast('部分对象撤销失败', 'error')
               self.selectedObjectUrls = []
             }).catch(function (e) { self.showToast('批量撤销失败: ' + e.message, 'error') })
-        }
-      })
-    }
-  }
+        },
+
+        // ---- Single-object cancel/undo ----
+        cancelObject: function (obj) {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (!this.selectedTaskId || !obj || !obj.url) return
+          var self = this
+          AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/cancel', { url: obj.url })
+            .then(function (res) {
+              if (!res.ok) throw new Error('取消失败')
+              obj.status = 'cancelled'
+              self.showToast('已取消该对象', 'success')
+            }).catch(function (e) { self.showToast('取消失败: ' + e.message, 'error') })
+        },
+        undoCancelObject: function (obj) {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (!this.selectedTaskId || !obj || !obj.url) return
+          var self = this
+          AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/undo_cancel', { url: obj.url })
+            .then(function (res) {
+              if (!res.ok) throw new Error('撤销失败')
+              obj.status = 'pending'
+              self.showToast('已撤销取消', 'success')
+            }).catch(function (e) { self.showToast('撤销失败: ' + e.message, 'error') })
+        },
+
+        // ---- Task config panel ----
+        toggleTaskConfigPanel: function () {
+          this.showTaskConfigPanel = !this.showTaskConfigPanel
+        },
+        saveTaskConfig: function () {
+          if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
+          if (!this.selectedTaskId) return
+          var self = this
+          AppAPI.patch('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/runtime', {
+            concurrency: this.taskConfigForm.concurrency,
+            refresh_interval: this.taskConfigForm.refresh_interval
+          }).then(function (res) {
+            if (!res.ok) throw new Error('保存失败')
+            self.showToast('任务配置已保存', 'success')
+            self.fetchTaskDetails(self.selectedTaskId, true)
+          }).catch(function (e) { self.showToast('保存失败: ' + e.message, 'error') })
+        }  // end saveTaskConfig
+      }})  // end app.mixin
+    }  // end register
+  }  // end AppTaskList
 })()
