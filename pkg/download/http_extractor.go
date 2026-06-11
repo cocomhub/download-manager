@@ -1,7 +1,7 @@
 // Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package extractor
+package download
 
 import (
 	"context"
@@ -16,15 +16,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
-	transport  download.Transport
-	selector   download.Selector
+	transport  Transport
+	selector   Selector
 	maxRetries int
 	rootDir    string
 	logDir     string
@@ -50,10 +48,10 @@ func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir strin
 }
 
 // SetTransport 注入 Transport 实例（实现 ExtractorWithTransport 接口）。
-func (e *HTTPExtractor) SetTransport(t download.Transport) { e.transport = t }
+func (e *HTTPExtractor) SetTransport(t Transport) { e.transport = t }
 
 // SetSelector 注入 Selector 实例（实现 ExtractorWithSelector 接口）。
-func (e *HTTPExtractor) SetSelector(s download.Selector) { e.selector = s }
+func (e *HTTPExtractor) SetSelector(s Selector) { e.selector = s }
 
 // Name 返回提取器名称。
 func (e *HTTPExtractor) Name() string { return "http" }
@@ -64,7 +62,7 @@ func (e *HTTPExtractor) Match(ctx context.Context, url string) bool {
 }
 
 // Extract 执行完整的 HTTP 文件下载编排。
-func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) error {
+func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	// 确保 Transport 已注入
 	if e.transport == nil {
 		return fmt.Errorf("http: transport not set, call SetTransport before Extract")
@@ -73,7 +71,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 	rPath := req.SavePath
 	var err error
 	if e.rootDir != "" {
-		rPath, err = download.ResolvePath(e.rootDir, req.SavePath)
+		rPath, err = ResolvePath(e.rootDir, req.SavePath)
 		if err != nil {
 			return err
 		}
@@ -101,14 +99,14 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		prevChecksum = req.Metadata["checksum"]
 	}
 
-	action := download.ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
-		_, hexMD5, err := download.ComputeFileMD5(path)
+	action := ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
+		_, hexMD5, err := ComputeFileMD5(path)
 		return hexMD5, err
 	})
-	if action == download.ActionSkip {
+	if action == ActionSkip {
 		slog.Info("Skipping download — file unchanged (ETag + checksum match)", "file", req.SavePath)
 		if req.Result == nil {
-			req.Result = &download.DownloadResult{}
+			req.Result = &DownloadResult{}
 		}
 		req.Result.StatusCode = http.StatusNotModified
 		req.Result.TotalSize = func() int64 {
@@ -131,10 +129,10 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		// - ActionResume: 续传
 		// - ActionReDownload/ActionDownload: 无 ETag 元数据但有文件 → 也尝试续传
 		//   如果服务器不支持续传会返回 200，代码自动回退
-		if action == download.ActionResume || (action == download.ActionDownload && fi.Size() > 0) {
+		if action == ActionResume || (action == ActionDownload && fi.Size() > 0) {
 			startOffset = fi.Size()
 			slog.Info("Resuming download (best-effort)", "file", req.SavePath, "offset", startOffset)
-		} else if action == download.ActionReDownload {
+		} else if action == ActionReDownload {
 			// ETag 不一致或文件损坏，清除后重新下载
 			_ = os.Remove(rPath)
 			slog.Info("Removing stale file for re-download", "file", req.SavePath)
@@ -145,7 +143,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		req.Metadata = make(map[string]string)
 	}
 	if req.Result == nil {
-		req.Result = &download.DownloadResult{}
+		req.Result = &DownloadResult{}
 	}
 
 	// 重试循环
@@ -166,7 +164,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 			slog.Info("Download: 304 Not Modified, file unchanged", "file", req.SavePath)
 			return nil
 		}
-		if err != nil && download.IsNoTry(err) {
+		if err != nil && IsNoTry(err) {
 			return err
 		}
 		if !success && err == nil {
@@ -179,11 +177,11 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
-	return fmt.Errorf("%w: max retries reached (%d)", download.ErrNoTry, e.maxRetries)
+	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, e.maxRetries)
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
-func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *download.Request) (success bool, err error) {
+func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) (success bool, err error) {
 
 	// ---- 进度日志文件创建 ----
 	var logWriter io.Writer
@@ -224,7 +222,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		fmt.Fprintf(logWriter, "Requesting URL: %s\n\n", rawURL)
 	}
 
-	treq := &download.TransportRequest{
+	treq := &TransportRequest{
 		URL:      rawURL,
 		Method:   "GET",
 		ProxyURL: proxyURL,
@@ -233,7 +231,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	// 断点续传：设置 Range 头
 	if startOffset > 0 {
-		treq.Range = &download.RangeRequest{Offset: startOffset}
+		treq.Range = &RangeRequest{Offset: startOffset}
 	}
 
 	tresp, tErr := e.transport.RoundTrip(ctx, treq)
@@ -288,7 +286,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	// 检查 HTTP 状态码
 	if tresp.StatusCode == http.StatusForbidden || tresp.StatusCode == http.StatusNotFound {
-		return false, fmt.Errorf("%w: HTTP %d", download.ErrNoTry, tresp.StatusCode)
+		return false, fmt.Errorf("%w: HTTP %d", ErrNoTry, tresp.StatusCode)
 	}
 
 	// 处理 304 Not Modified — 文件未变更，跳过下载
@@ -384,16 +382,16 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		// 注意：使用局部变量而非修改 req.OnProgress，避免重试时回调链累积。
 		onProgress := req.OnProgress
 		if logWriter != nil {
-			onProgress = download.ComposeProgress(
+			onProgress = ComposeProgress(
 				req.OnProgress,
-				download.NewProgressLogCallback(
-					download.WithLogWriter(logWriter),
-					download.WithMinPercentStep(0.5),
-					download.WithMaxInterval(10*time.Second),
+				NewProgressLogCallback(
+					WithLogWriter(logWriter),
+					WithMinPercentStep(0.5),
+					WithMaxInterval(10*time.Second),
 				),
 			)
 		}
-		reader = download.NewProgressReader(tresp.Body, totalSize, onProgress)
+		reader = NewProgressReader(tresp.Body, totalSize, onProgress)
 	}
 
 	if _, cErr := io.Copy(file, reader); cErr != nil {
@@ -406,8 +404,8 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	req.Result.TotalSize = totalSize
 
 	// MD5 校验
-	if wantMd5 := download.TryGetMd5(tresp.Headers); wantMd5 != "" {
-		base64MD5, hexMD5, md5Err := download.ComputeFileMD5(rPath)
+	if wantMd5 := TryGetMd5(tresp.Headers); wantMd5 != "" {
+		base64MD5, hexMD5, md5Err := ComputeFileMD5(rPath)
 		if md5Err != nil {
 			return false, fmt.Errorf("failed to compute MD5: %w", md5Err)
 		}
@@ -474,7 +472,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	return true, nil
 }
 
-func (e *HTTPExtractor) buildHeaders(req *download.Request) map[string]string {
+func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {
 	h := make(map[string]string)
 	if req.Headers != nil {
 		maps.Copy(h, req.Headers)
