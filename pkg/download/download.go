@@ -66,14 +66,18 @@ func Get(ctx context.Context, url, savePath string) error {
 
 // New 创建 Downloader，可通过 Option 自定义配置。
 // 零参数调用时自动注册 HTTPExtractor、StdlibTransport、DefaultSelector。
+// 若传入了 WithExtractor，则不注册默认 HTTPExtractor。
 func New(opts ...Option) *Downloader {
 	d := &Downloader{
 		transport:  NewStdlibTransport(),
 		selector:   NewDefaultSelector(),
-		extractors: []Extractor{NewHTTPExtractor()},
+		extractors: nil, // 由 initExtractors 惰性初始化
 	}
 	for _, o := range opts {
 		o(d)
+	}
+	if d.extractors == nil {
+		d.extractors = []Extractor{NewHTTPExtractor()}
 	}
 	return d
 }

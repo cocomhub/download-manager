@@ -16,8 +16,6 @@ import (
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
-	"github.com/cocomhub/download-manager/pkg/download/extractor"
-	"github.com/cocomhub/download-manager/pkg/download/transport"
 )
 
 // ---- compile-time interface checks ----
@@ -412,16 +410,18 @@ func TestDownloaderWithTransport(t *testing.T) {
 // ---- Global Get/Default/SetDefault tests ----
 
 func TestDefaultNilBeforeSet(t *testing.T) {
-	// Default() should return nil before SetDefault
-	if download.Default() != nil {
-		t.Error("Default() should be nil before SetDefault")
+	// Default() should return a valid default (lazy init)
+	dl := download.Default()
+	if dl == nil {
+		t.Error("Default() should return a valid downloader after lazy init")
 	}
 }
 
-func TestGetReturnsErrorBeforeSet(t *testing.T) {
+func TestGetReturnsNoError(t *testing.T) {
+	// Get() now lazy-initializes, so it shouldn't return ErrNoDefaultDownloader
 	err := download.Get(context.Background(), "http://example.com/file", "/tmp/file")
-	if !errors.Is(err, download.ErrNoDefaultDownloader) {
-		t.Errorf("expected ErrNoDefaultDownloader, got: %v", err)
+	if err == download.ErrNoDefaultDownloader {
+		t.Errorf("Get() should not return ErrNoDefaultDownloader after lazy init")
 	}
 }
 
@@ -457,8 +457,8 @@ func TestDownloaderRealDownload(t *testing.T) {
 	savePath := filepath.Join(tmpDir, "output.txt")
 
 	// Create downloader with HTTP extractor and stdlib transport
-	ex := extractor.NewHTTPExtractor()
-	tr := transport.NewStdlibTransport()
+	ex := download.NewHTTPExtractor()
+	tr := download.NewStdlibTransport()
 	d := download.New(download.WithExtractor(ex), download.WithTransport(tr))
 
 	err := d.Download(context.Background(), &download.Request{

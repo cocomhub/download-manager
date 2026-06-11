@@ -15,7 +15,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
-	"github.com/cocomhub/download-manager/pkg/download/transport"
 )
 
 // compile-time interface checks
@@ -55,7 +54,7 @@ func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 
 // ApplyDomainLimits 设置域名并发限制（通过 StdlibTransport）。
 func (a *DownloaderAdapter) ApplyDomainLimits(limits map[string]int) {
-	if tr, ok := a.transport.(*transport.StdlibTransport); ok {
+	if tr, ok := a.transport.(*download.StdlibTransport); ok {
 		tr.SetDomainLimits(limits)
 	}
 }
