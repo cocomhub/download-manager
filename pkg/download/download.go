@@ -71,7 +71,7 @@ func New(opts ...Option) *Downloader {
 	d := &Downloader{
 		transport:  NewStdlibTransport(),
 		selector:   NewDefaultSelector(),
-		extractors: nil, // 由 initExtractors 惰性初始化
+		extractors: nil, // nil：WithExtractor 选项 append 后非 nil，后置判断不会追加默认
 	}
 	for _, o := range opts {
 		o(d)
