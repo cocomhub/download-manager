@@ -75,6 +75,10 @@ type Task interface {
 	SetRefreshInterval(int) error
 	// Start 开始任务
 	Start() error
+	// ResolveObject 解析对象详情，填充 Extra["files"]（主要下载项列表）。
+	// 无需 resolve 的 task（如 urllist）直接返回 nil。
+	// ctx 用于超时控制。
+	ResolveObject(ctx context.Context, obj *model.DownloadObject) error
 	// Close 关闭任务，执行清理或持久化操作
 	Close() error
 }

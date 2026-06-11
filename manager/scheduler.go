@@ -33,6 +33,10 @@ func (m *Manager) Start() {
 		}
 		m.workerCount = limit
 	}
+	if m.workersEnabled.Load() {
+		m.StartResolveWorkers(3)
+		m.StartSmallObjectWorkers(2)
+	}
 	if m.schedulerEnabled.Load() {
 		m.schedulerStop = make(chan struct{})
 		go m.scheduler()
@@ -75,6 +79,8 @@ func (m *Manager) Stop(ctx context.Context) {
 
 	// 1. Signal workers to stop first — no new downloads
 	close(m.stopChan)
+	m.StopResolveWorkers()
+	m.StopSmallObjectWorkers()
 
 	// 2. Wait for workers and force-downloads with context deadline
 	done := make(chan struct{})
@@ -232,8 +238,23 @@ func (m *Manager) processTask(t core.Task) {
 			break
 		}
 
-		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded { // Store obj instead of URL
-			// slog.Debug("Object is already downloading", "task_id", t.ID(), "url", obj.URL)
+		// 如果已经在下载队列中，跳过
+		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded {
+			continue
+		}
+
+		// 检查对象状态：需要 resolve 的异步提交
+		if obj.GetStatus() == model.StatusPending && !hasFiles(obj) {
+			obj.SetStatus(model.StatusResolving)
+			_ = t.UpdateStatus(obj, model.StatusResolving, nil)
+			m.enqueueResolve(t.ID(), obj)
+			m.downloadingObj.Delete(obj.URL) // 不占用下载槽位
+			continue
+		}
+
+		// 对象在 resolve 中，跳过本周期
+		if obj.GetStatus() == model.StatusResolving {
+			m.downloadingObj.Delete(obj.URL)
 			continue
 		}
 
@@ -261,6 +282,25 @@ func (m *Manager) processTask(t core.Task) {
 		}
 	}
 	m.BroadcastTaskUpdate(t.ID())
+}
+
+// hasFiles 检查对象是否已填充 Extra["files"]（即已 resolve 或无需 resolve）。
+func hasFiles(obj *model.DownloadObject) bool {
+	if obj == nil || obj.Extra == nil {
+		return false
+	}
+	files, ok := obj.Extra["files"]
+	if !ok {
+		return false
+	}
+	switch f := files.(type) {
+	case []any:
+		return len(f) > 0
+	case []map[string]string:
+		return len(f) > 0
+	default:
+		return false
+	}
 }
 
 func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {

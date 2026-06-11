@@ -4,12 +4,14 @@
 package hanime
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
@@ -104,9 +106,12 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	if len(toResolve) > 0 {
 		for _, obj := range toResolve {
-			if err := t.ResolveObject(obj); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := t.ResolveObject(ctx, obj); err == nil {
+				cancel()
 				candidates = append(candidates, obj)
 			} else {
+				cancel()
 				t.Logger().Error("hanime resolve object failed", "url", obj.URL, "error", err)
 				t.UpdateStatus(obj, model.StatusFailed, err)
 			}
@@ -397,7 +402,7 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 	return info, nil
 }
 
-func (t *Task) ResolveObject(obj *model.DownloadObject) error {
+func (t *Task) ResolveObject(_ context.Context, obj *model.DownloadObject) error {
 	return t.resolveObject(obj, true)
 }
 

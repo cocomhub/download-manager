@@ -6,6 +6,7 @@ package model
 // 下载对象状态常量
 const (
 	StatusPending         = "pending"
+	StatusResolving       = "resolving"
 	StatusDownloading     = "downloading"
 	StatusCompleted       = "completed"
 	StatusFailed          = "failed"

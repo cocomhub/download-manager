@@ -363,8 +363,8 @@
                             <div v-for="obj in tktubePagedObjects" :key="obj.url + ':' + obj.task_id" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative">
                                 <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
                                     <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
-                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
-                                    <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400">
+                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" @error="onCoverError" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
+                                    <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400 fallback-icon">
                                         <i class="fas fa-file-image text-4xl"></i>
                                     </div>
                                     <div v-if="uiMode === 'manage'" class="absolute top-2 right-2 flex items-center gap-1 z-20">
@@ -426,8 +426,8 @@
                                             <div class="flex items-center">
                                                 <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
                                                     <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
-                                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
-                                                    <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400"></i>
+                                                    <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" @error="onCoverError" class="h-full w-full object-cover">
+                                                    <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400 fallback-icon"></i>
                                                 </div>
                                                 <div class="ml-4">
                                                     <div class="flex items-center gap-2">
@@ -721,7 +721,7 @@
                                 </label>
                                 <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
                                 <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" loading="lazy" alt="Cover">
-                                <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400">
+                                <div v-if="!getCoverImage(obj)" class="w-full h-full flex items-center justify-center text-gray-400 fallback-icon">
                                     <i class="fas fa-file-image text-4xl"></i>
                                 </div>
                                 <div v-if="isVideo(obj) && obj.status === 'completed'" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
@@ -817,8 +817,8 @@
                                     <input type="checkbox" :value="obj.url" v-model="selectedObjectUrls" class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-3">
                                     <div class="flex-shrink-0 h-10 w-10 bg-gray-100 rounded flex items-center justify-center overflow-hidden relative" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
                                         <video v-if="enablePreview && hoverObj === obj && getPreviewUrl(obj)" :src="getPreviewUrl(obj)" autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-10 bg-black" preload="none"></video>
-                                        <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" class="h-full w-full object-cover">
-                                        <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400"></i>
+                                        <img v-if="getCoverImage(obj)" :src="getCoverImage(obj)" @error="onCoverError" class="h-full w-full object-cover">
+                                        <i v-if="!getCoverImage(obj)" class="fas fa-file text-gray-400 fallback-icon"></i>
                                     </div>
                                     <div class="ml-4">
                                         <div class="text-sm font-medium text-gray-900 line-clamp-1 max-w-xs" :title="getTitle(obj)">{{ getTitle(obj) }}</div>

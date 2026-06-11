@@ -93,11 +93,52 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		}
 	}
 
+	// ETag/checksum 检查：如果文件完整且内容未变，跳过下载
+	prevETag := ""
+	prevChecksum := ""
+	if req.Metadata != nil {
+		prevETag = req.Metadata["etag"]
+		prevChecksum = req.Metadata["checksum"]
+	}
+
+	action := download.ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
+		_, hexMD5, err := download.ComputeFileMD5(path)
+		return hexMD5, err
+	})
+	if action == download.ActionSkip {
+		slog.Info("Skipping download — file unchanged (ETag + checksum match)", "file", req.SavePath)
+		if req.Result == nil {
+			req.Result = &download.DownloadResult{}
+		}
+		req.Result.StatusCode = http.StatusNotModified
+		req.Result.TotalSize = func() int64 {
+			if fi, _ := os.Stat(rPath); fi != nil {
+				return fi.Size()
+			}
+			return 0
+		}()
+		if req.OnProgress != nil {
+			req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		}
+		return nil
+	}
+
 	// 检查已有文件大小（断点续传支持）
 	startOffset := int64(0)
 	if fi, statErr := os.Stat(rPath); statErr == nil && fi.Size() > 0 {
-		startOffset = fi.Size()
-		slog.Info("Resuming download", "file", req.SavePath, "offset", startOffset)
+		// 文件存在：
+		// - ActionSkip: 跳过下载（ETag+checksum 匹配），保留 startOffset=0
+		// - ActionResume: 续传
+		// - ActionReDownload/ActionDownload: 无 ETag 元数据但有文件 → 也尝试续传
+		//   如果服务器不支持续传会返回 200，代码自动回退
+		if action == download.ActionResume || (action == download.ActionDownload && fi.Size() > 0) {
+			startOffset = fi.Size()
+			slog.Info("Resuming download (best-effort)", "file", req.SavePath, "offset", startOffset)
+		} else if action == download.ActionReDownload {
+			// ETag 不一致或文件损坏，清除后重新下载
+			_ = os.Remove(rPath)
+			slog.Info("Removing stale file for re-download", "file", req.SavePath)
+		}
 	}
 
 	if req.Metadata == nil {
@@ -118,6 +159,11 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *download.Request) erro
 		var success bool
 		success, err = e.tryDownload(ctx, rPath, req.URL, proxyURL, startOffset, req)
 		if err == nil && success {
+			return nil
+		}
+		// tryDownload 返回 304 时 success=true 且 req.Result.StatusCode==304
+		if err == nil && success && req.Result != nil && req.Result.StatusCode == http.StatusNotModified {
+			slog.Info("Download: 304 Not Modified, file unchanged", "file", req.SavePath)
 			return nil
 		}
 		if err != nil && download.IsNoTry(err) {
@@ -245,6 +291,30 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, fmt.Errorf("%w: HTTP %d", download.ErrNoTry, tresp.StatusCode)
 	}
 
+	// 处理 304 Not Modified — 文件未变更，跳过下载
+	if tresp.StatusCode == http.StatusNotModified {
+		if logWriter != nil {
+			fmt.Fprintf(logWriter, "Server responded with 304 Not Modified, file unchanged\n")
+		}
+		// 不实际写入文件，直接视为成功
+		req.Result.StatusCode = http.StatusNotModified
+		req.Result.ContentLength = 0
+		req.Result.TotalSize = 0
+		if fi, stErr := os.Stat(rPath); stErr == nil {
+			req.Result.TotalSize = fi.Size()
+		}
+		if req.OnProgress != nil {
+			req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		}
+		// 保存 ETag（304 响应也会携带 ETag，与 200 一致）
+		if etag := tresp.Headers["Etag"]; etag != "" {
+			req.Metadata["etag"] = etag
+		} else if etag := tresp.Headers["ETag"]; etag != "" {
+			req.Metadata["etag"] = etag
+		}
+		return true, nil
+	}
+
 	if tresp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		// 416 Range Not Satisfiable → 文件可能已变，重新从 0 开始
 		if logWriter != nil {
@@ -351,9 +421,22 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		}
 		req.Result.MD5Base64 = base64MD5
 		req.Result.MD5Hex = hexMD5
+		req.Metadata["checksum"] = hexMD5
 		if logWriter != nil {
 			fmt.Fprintf(logWriter, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
 		}
+	}
+
+	// 保存 ETag 到 metadata（供下次下载时决策）
+	if etag := tresp.Headers["Etag"]; etag != "" {
+		req.Metadata["etag"] = etag
+	} else if etag := tresp.Headers["ETag"]; etag != "" {
+		req.Metadata["etag"] = etag
+	}
+
+	// 如果服务端没给 ETag 但 MD5 校验通过了，用 MD5 hex 作为弱校验依据
+	if req.Metadata["etag"] == "" && req.Result.MD5Hex != "" {
+		req.Metadata["etag"] = `"` + req.Result.MD5Hex + `"`
 	}
 
 	// 设置 Last-Modified 时间
@@ -398,6 +481,16 @@ func (e *HTTPExtractor) buildHeaders(req *download.Request) map[string]string {
 	}
 	if _, ok := h["User-Agent"]; !ok && e.ua != "" {
 		h["User-Agent"] = e.ua
+	}
+
+	// 如果之前有 ETag 记录，设置 If-None-Match 条件请求头
+	if req.Metadata != nil {
+		if etag := req.Metadata["etag"]; etag != "" {
+			// 避免覆盖用户明确设置的头
+			if _, has := h["If-None-Match"]; !has {
+				h["If-None-Match"] = etag
+			}
+		}
 	}
 	return h
 }

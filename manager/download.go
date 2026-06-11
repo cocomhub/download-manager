@@ -47,6 +47,25 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	default:
 	}
 
+	// 定期清理小对象 tracker，防止内存泄漏
+	defer m.soTracker.Delete(obj.URL)
+
+	// 检查 resolve 是否过期，过期则重新 resolve
+	if m.resolveCache.IsExpired(obj.URL) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := t.ResolveObject(ctx, obj); err != nil {
+			slog.Error("Download: resolve expired and re-resolve failed", "task_id", t.ID(), "url", obj.URL, "error", err)
+			t.UpdateStatus(obj, model.StatusFailed, err)
+			return
+		}
+		m.resolveCache.MarkResolved(obj.URL)
+		slog.Debug("Download: re-resolved expired object", "task_id", t.ID(), "url", obj.URL)
+	}
+
+	// 发起小对象下载（不阻塞主体下载）
+	m.enqueueSmallObjects(t, obj)
+
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
@@ -134,6 +153,17 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		isPermanent := download.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
 		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
 	} else {
+		// 等待小对象完成后再标记 Completed
+		if soTracker := m.soTrackerForObj(obj.URL); soTracker != nil {
+			errs := soTracker.WaitAll(5 * time.Minute)
+			for _, e := range errs {
+				if e != nil {
+					slog.Warn("Small-object download had error", "task_id", t.ID(), "url", obj.URL, "error", e)
+				}
+			}
+			m.soTracker.Delete(obj.URL)
+		}
+
 		t.UpdateStatus(obj, model.StatusCompleted, nil)
 		// Reset failed count on success
 		m.failedCount.Delete(obj.URL)
@@ -158,6 +188,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+}
+
+// soTrackerForObj 返回指定对象的小对象 tracker（如果存在）。
+func (m *Manager) soTrackerForObj(url string) *objectTracker {
+	if v, ok := m.soTracker.Load(url); ok {
+		return v.(*objectTracker)
+	}
+	return nil
 }
 
 // forceDownload bypasses the queue and runs immediately
@@ -303,14 +341,11 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		obj.SetProgress(0)
 
 		// Resolve details if needed (JIT for forced retry?)
-		if resolver, ok := t.(interface {
-			ResolveObject(*model.DownloadObject) error
-		}); ok {
-			slog.Info("Resolving object before retry", "task_id", taskID, "url", url)
-			if err := resolver.ResolveObject(obj); err != nil {
-				slog.Error("Failed to resolve object for retry", "error", err)
-				return fmt.Errorf("failed to resolve object: %v", err)
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := t.ResolveObject(ctx, obj); err != nil {
+			slog.Error("Failed to resolve object for retry", "error", err)
+			return fmt.Errorf("failed to resolve object: %v", err)
 		}
 
 		m.forceDownload(t, obj)

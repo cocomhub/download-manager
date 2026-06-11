@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
@@ -30,11 +31,14 @@ func (m *mockTaskWithStore) GetDownloadObjects() ([]*model.DownloadObject, error
 func (m *mockTaskWithStore) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	return nil
 }
-func (m *mockTaskWithStore) Concurrency() int                                { return 1 }
-func (m *mockTaskWithStore) SetConcurrency(int) error                        { return nil }
-func (m *mockTaskWithStore) RefreshInterval() int                            { return 0 }
-func (m *mockTaskWithStore) SetRefreshInterval(int) error                    { return nil }
-func (m *mockTaskWithStore) Start() error                                    { return nil }
+func (m *mockTaskWithStore) Concurrency() int             { return 1 }
+func (m *mockTaskWithStore) SetConcurrency(int) error     { return nil }
+func (m *mockTaskWithStore) RefreshInterval() int         { return 0 }
+func (m *mockTaskWithStore) SetRefreshInterval(int) error { return nil }
+func (m *mockTaskWithStore) Start() error                 { return nil }
+func (m *mockTaskWithStore) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
+}
 func (m *mockTaskWithStore) Close() error                                    { return nil }
 func (m *mockTaskWithStore) GetAllObjects(lock bool) []*model.DownloadObject { return m.objs }
 

@@ -150,6 +150,12 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return pending, nil
 }
 
+// ResolveObject implements core.Task.ResolveObject.
+// vikacg 在 scrapeAndBuild 中已填充完整数据，返回 nil。
+func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
+}
+
 func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 	html, err := downloader.ScraperNative(pageURL, t.cookie)
 	if err != nil {

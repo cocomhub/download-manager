@@ -4,18 +4,16 @@
 package tktube
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
@@ -23,8 +21,6 @@ import (
 	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/task"
-
-	"github.com/PuerkitoBio/goquery"
 	"github.com/dop251/goja"
 )
 
@@ -39,15 +35,10 @@ func init() {
 // Task implements core.Task for Tktube
 type Task struct {
 	*task.BaseTask
-	taskType      string // "tag", "model", "search"
-	keyword       string
-	pageStart     int
-	pageEnd       int
-	prefetchQueue chan *model.DownloadObject
-	prefetchRate  int64
-	prefetchStop  chan struct{}
-	prefetchWg    sync.WaitGroup
-	prefetchRetry sync.Map // URL -> *int32
+	taskType  string // "tag", "model", "search"
+	keyword   string
+	pageStart int
+	pageEnd   int
 
 	resolvedURLs sync.Map
 }
@@ -72,19 +63,11 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		return nil, err
 	}
 	t := &Task{
-		BaseTask:      bt,
-		taskType:      subtype,
-		keyword:       keyword,
-		pageStart:     1,
-		pageEnd:       1,
-		prefetchQueue: make(chan *model.DownloadObject, 100), // Buffer
-		prefetchRate:  configutil.GetInt64(extra, "prefetch_rate", 10),
-		prefetchStop:  make(chan struct{}),
-	}
-	// Start prefetch workers
-	t.prefetchWg.Add(3)
-	for i := range 3 {
-		go t.prefetchWorker(i)
+		BaseTask:  bt,
+		taskType:  subtype,
+		keyword:   keyword,
+		pageStart: 1,
+		pageEnd:   1,
 	}
 
 	// Create PagingScanner for unified scrape pipeline
@@ -100,36 +83,11 @@ func (t *Task) Type() string {
 }
 
 func (t *Task) Close() error {
-	close(t.prefetchStop)
-	t.prefetchWg.Wait()
-	// Drain any remaining items in the queue
-	for {
-		select {
-		case <-t.prefetchQueue:
-		default:
-			goto drained
-		}
-	}
-drained:
 	return t.BaseTask.Close()
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	// Enqueue prefetch for pending objects
-	t.WithObjectsLock(func(objs []*model.DownloadObject) {
-		for _, obj := range objs {
-			if obj.GetStatus() == model.StatusPending {
-				_, hasLocalPreview := obj.Extra["local_preview"]
-				if !hasLocalPreview {
-					t.queuePrefetch(obj)
-				}
-			}
-		}
-	})
-
 	runtimeObjects := t.SnapshotRuntimeObjects(true)
-
-	// Return pending objects that are ready for download
 	var activeCount int64
 	if t.Storage() != nil {
 		count, err := t.Storage().Count(&core.StorageQuery{
@@ -213,7 +171,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 }
 
 // ResolveObject explicitly resolves an object (exposed for Manager)
-func (t *Task) ResolveObject(obj *model.DownloadObject) error {
+func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) error {
 	// Check shared state for resolved files first
 	if so := t.GetSharedObject(obj.URL); so != nil {
 		if files, ok := so.Extra["files"]; ok {
@@ -278,173 +236,38 @@ func (t *Task) parseTotalPages(html string) int {
 	return lastPage
 }
 
-const maxPrefetchRetries = 3
-
-func (t *Task) incrementPrefetchRetry(key string) int {
-	v, _ := t.prefetchRetry.LoadOrStore(key, new(int32))
-	return int(atomic.AddInt32(v.(*int32), 1))
-}
-
-func (t *Task) queuePrefetch(obj *model.DownloadObject) {
-	select {
-	case <-t.prefetchStop:
-		return
-	case t.prefetchQueue <- obj:
-	default:
-		// Queue full, ignore
-	}
-}
-
-// --- Prefetch Logic ---
-
-func (t *Task) prefetchWorker(workerID int) {
-	defer t.prefetchWg.Done()
-	for {
-		select {
-		case <-t.prefetchStop:
-			return
-		case obj, ok := <-t.prefetchQueue:
-			if !ok {
-				return
-			}
-			if t.prefetchRate > 0 {
-				time.Sleep(time.Duration(1000/t.prefetchRate) * time.Millisecond)
-			}
-			t.prefetchAssets(obj)
-		}
-	}
-}
-
-func (t *Task) prefetchAssets(obj *model.DownloadObject) {
-	// Don't prefetch if already completed or downloading main
-	if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusDownloading || obj.GetStatus() == model.StatusCancelled {
-		return
+// SmallObjects implements core.SmallObjectCap.
+// 返回与主对象关联的小对象（preview 视频 + cover 缩略图）。
+func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
+	if obj == nil || obj.Extra == nil || obj.Metadata == nil {
+		return nil
 	}
 
-	// Check if already prefetched (double check)
-	var hasPreview, hasCover bool
-	t.WithLock(func() {
-		_, hasPreview = obj.Extra["local_preview"]
-		_, hasCover = obj.Extra["local_cover"]
-	})
+	var items []core.SmallObjectInfo
 
-	if hasPreview && hasCover {
-		return
-	}
-
-	// 1. Preview Video
-	previewURL, _ := obj.Extra["preview_url"].(string)
-	if previewURL != "" && !hasPreview {
+	// Preview 视频
+	if previewURL, ok := obj.Extra["preview_url"].(string); ok && previewURL != "" {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_preview.mp4")
-
-		if err := t.downloadFile(previewURL, path); err == nil {
-			t.WithLock(func() {
-				obj.Extra["local_preview"] = path
-			})
-			t.FlushObject(obj)
-			t.Logger().Debug("Prefetched preview", "title", obj.Metadata["title"])
-		} else {
-			t.Logger().Warn("Failed to prefetch preview, retrying later", "url", previewURL, "error", err)
-			retries := t.incrementPrefetchRetry(obj.URL + ":preview")
-			if retries < maxPrefetchRetries {
-				go func() {
-					select {
-					case <-t.prefetchStop:
-					case <-time.After(10 * time.Second):
-						t.queuePrefetch(obj)
-					}
-				}()
-			}
-			return
-		}
+		items = append(items, core.SmallObjectInfo{
+			URL:      previewURL,
+			SavePath: path,
+			Rel:      "preview",
+		})
 	}
 
-	// 2. Cover Image
-	thumbURL, _ := obj.Extra["thumb_url"].(string)
-	if thumbURL != "" && !hasCover {
+	// Cover 缩略图
+	if thumbURL, ok := obj.Extra["thumb_url"].(string); ok && thumbURL != "" {
 		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_thumb.jpg")
-
-		if err := t.downloadFile(thumbURL, path); err == nil {
-			t.WithLock(func() {
-				obj.Extra["local_cover"] = path
-			})
-			t.FlushObject(obj)
-			t.Logger().Debug("Prefetched cover", "title", obj.Metadata["title"])
-		} else {
-			retries := t.incrementPrefetchRetry(obj.URL + ":cover")
-			if retries < maxPrefetchRetries {
-				go func() {
-					select {
-					case <-t.prefetchStop:
-					case <-time.After(10 * time.Second):
-						t.queuePrefetch(obj)
-					}
-				}()
-			}
-		}
-	}
-}
-
-func (t *Task) downloadFile(url, path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		items = append(items, core.SmallObjectInfo{
+			URL:      thumbURL,
+			SavePath: path,
+			Rel:      "cover",
+		})
 	}
 
-	if t.Downloader() == nil {
-		return t.simpleDownload(url, path)
-	}
-
-	obj := &model.DownloadObject{
-		TaskID:   t.ID(),
-		URL:      url,
-		SavePath: path,
-		Metadata: map[string]string{"type": "image"},
-		Extra:    map[string]any{},
-		Status:   model.StatusPending,
-	}
-	return t.Downloader().Download(obj, t.GetDownloadHeaders())
-}
-
-func (t *Task) simpleDownload(url, path string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	// Write to temp first
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-
-	buf := new(bytes.Buffer)
-	_, err = buf.ReadFrom(resp.Body)
-	if err != nil {
-		f.Close()
-		return err
-	}
-
-	f.Write(buf.Bytes())
-	f.Close()
-
-	modTimeStr := resp.Header.Get("Last-Modified")
-	if modTimeStr != "" {
-		modTime, err := time.Parse(time.RFC1123, modTimeStr)
-		if err == nil {
-			os.Chtimes(tmp, modTime, modTime)
-		}
-	}
-
-	return os.Rename(tmp, path)
+	return items
 }
 
 func (t *Task) createObjectFromVideoItem(v videoItem) *model.DownloadObject {
@@ -589,7 +412,7 @@ func (t *Task) parseHomePage(html string) ([]videoItem, error) {
 		var title string
 		s.Find(".title").First().Each(func(i int, s *goquery.Selection) {
 			title = strings.TrimSpace(s.Text())
-			title = strings.ReplaceAll(title, "/", "／")
+			title = strings.ReplaceAll(title, "/", "_")
 			title = strings.TrimRight(title, ".")
 		})
 
@@ -645,7 +468,7 @@ func (t *Task) parseVideoPage(pageURL string) (*detailedVideoInfo, error) {
 
 	// Title
 	info.title = strings.TrimSpace(doc.Find("h1").Text())
-	info.title = strings.ReplaceAll(info.title, "/", "／")
+	info.title = strings.ReplaceAll(info.title, "/", "_")
 	info.title = strings.TrimRight(info.title, ".")
 
 	// Info items

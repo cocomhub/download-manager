@@ -233,13 +233,29 @@
         },
 
         getCoverImage: function (obj) {
+          // 优先：本地已下载的封面图片
+          if (obj && obj.extra && obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
+          // 其次：源站缩略图 URL（图片格式，如 jpg/png/webp）
+          if (obj && obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+          // 再次：preview_url（可能是视频 mp4，img 无法渲染但作为最后 fallback）
           if (obj && obj.extra && obj.extra.preview_url) return obj.extra.preview_url
           if (obj && obj.extra && obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
+          // Hanime 兼容：从 page_url 拼接缩略图
           if (obj && obj.metadata && obj.metadata.page_url) {
             var u = obj.metadata.page_url
             if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) return 'https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg'
           }
           return ''
+        },
+
+        onCoverError: function (event) {
+          // 图片加载失败时隐藏 img，显示同级占位图标
+          event.target.style.display = 'none'
+          var parent = event.target.parentElement
+          if (parent) {
+            var fallback = parent.querySelector('.fallback-icon')
+            if (fallback) fallback.style.display = 'flex'
+          }
         },
 
         getPreviewUrl: function (obj) {

@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
@@ -30,13 +31,14 @@ func (m *mockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 func (m *mockTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	return nil
 }
-func (m *mockTask) Concurrency() int                                { return 1 }
-func (m *mockTask) SetConcurrency(int) error                        { return nil }
-func (m *mockTask) RefreshInterval() int                            { return 0 }
-func (m *mockTask) SetRefreshInterval(int) error                    { return nil }
-func (m *mockTask) Start() error                                    { return nil }
-func (m *mockTask) Close() error                                    { return nil }
-func (m *mockTask) GetAllObjects(lock bool) []*model.DownloadObject { return m.objs }
+func (m *mockTask) Concurrency() int                                               { return 1 }
+func (m *mockTask) SetConcurrency(int) error                                       { return nil }
+func (m *mockTask) RefreshInterval() int                                           { return 0 }
+func (m *mockTask) SetRefreshInterval(int) error                                   { return nil }
+func (m *mockTask) Start() error                                                   { return nil }
+func (m *mockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
+func (m *mockTask) Close() error                                                   { return nil }
+func (m *mockTask) GetAllObjects(lock bool) []*model.DownloadObject                { return m.objs }
 
 func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	cfg := &config.Config{

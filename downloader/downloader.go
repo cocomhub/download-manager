@@ -68,6 +68,8 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	}
 
 	dl := download.New(opts...)
+	// 设为全局默认，供 manager/small_object.go 中的 download.Get() 使用
+	download.SetDefault(dl)
 	adapter := NewDownloaderAdapter(dl)
 
 	// 注入传输层引用和 metrics

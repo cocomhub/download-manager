@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -59,6 +60,9 @@ func (tt *loaderTestTask) Start() error {
 		}
 	}
 	return tt.startErr
+}
+func (tt *loaderTestTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
 }
 func (tt *loaderTestTask) Close() error { return nil }
 

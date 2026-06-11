@@ -16,6 +16,120 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download/transport"
 )
 
+func TestHTTPExtractorETagSkip(t *testing.T) {
+	// 测试：服务器返回 304 时，跳过下载
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if inm := r.Header.Get("If-None-Match"); inm != "" {
+			// 检测是否有 etag 在 Metadata 中，如果有说明是第二次
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"abc123"`)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("hello world"))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "etag_skip.txt")
+
+	// 第一次下载：正常下载，保存 ETag
+	ext := extractor.NewHTTPExtractor()
+	ext.SetTransport(transport.NewStdlibTransport())
+	req := &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+		Metadata: map[string]string{},
+	}
+	err := ext.Extract(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first download failed: %v", err)
+	}
+	data, _ := os.ReadFile(dest)
+	if string(data) != "hello world" {
+		t.Errorf("expected 'hello world', got '%s'", data)
+	}
+	if req.Metadata["etag"] != `"abc123"` {
+		t.Errorf("expected etag 'abc123', got '%s'", req.Metadata["etag"])
+	}
+
+	// 第二次下载：携带 ETag（不含 checksum，模拟旧数据场景）
+	// 代码应发送 If-None-Match，服务器返回 304，文件内容保持
+	req2 := &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+		Metadata: map[string]string{"etag": `"abc123"`},
+	}
+	err = ext.Extract(context.Background(), req2)
+	if err != nil {
+		t.Fatalf("second download (304) failed: %v", err)
+	}
+	// 文件应保持原内容不变
+	data2, _ := os.ReadFile(dest)
+	if string(data2) != "hello world" {
+		t.Errorf("expected file content unchanged 'hello world', got '%s'", data2)
+	}
+	// 304 场景下 Result.StatusCode 应有指示
+	if req2.Result == nil || req2.Result.StatusCode != http.StatusNotModified {
+		t.Errorf("expected StatusCode=304, got %v", func() int {
+			if req2.Result == nil {
+				return 0
+			}
+			return req2.Result.StatusCode
+		}())
+	}
+}
+
+func TestHTTPExtractorIfNoneMatch(t *testing.T) {
+	// 测试：If-None-Match 头是否正确发送
+	var seenHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenHeader = r.Header.Get("If-None-Match")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	ext := extractor.NewHTTPExtractor()
+	ext.SetTransport(transport.NewStdlibTransport())
+	req := &download.Request{
+		URL:      ts.URL,
+		SavePath: filepath.Join(dir, "inm.txt"),
+		Metadata: map[string]string{"etag": `"xyz789"`},
+	}
+	_ = ext.Extract(context.Background(), req)
+	if seenHeader != `"xyz789"` {
+		t.Errorf("expected If-None-Match header 'xyz789', got '%s'", seenHeader)
+	}
+}
+
+func TestHTTPExtractorNoETag(t *testing.T) {
+	// 测试：无 ETag 元数据时不发送 If-None-Match
+	var seenETagHeader bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != "" {
+			seenETagHeader = true
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	ext := extractor.NewHTTPExtractor()
+	ext.SetTransport(transport.NewStdlibTransport())
+	req := &download.Request{
+		URL:      ts.URL,
+		SavePath: filepath.Join(dir, "noetag.txt"),
+		Metadata: map[string]string{}, // 无 etag
+	}
+	_ = ext.Extract(context.Background(), req)
+	if seenETagHeader {
+		t.Error("If-None-Match should not be sent without prior ETag")
+	}
+}
+
 func TestHTTPExtractorBasic(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
@@ -79,6 +80,9 @@ func (f *fakeTktTask) Type() string {
 		return f.typ
 	}
 	return tktube.TaskType
+}
+func (f *fakeTktTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
 }
 func (f *fakeTktTask) Close() error                                    { return nil }
 func (f *fakeTktTask) GetAllObjects(lock bool) []*model.DownloadObject { return f.objs }

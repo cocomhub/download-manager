@@ -126,3 +126,9 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	}
 	return pending, nil
 }
+
+// ResolveObject implements core.Task.ResolveObject.
+// urllist 的 URL 本身就是可下载目标，无需 resolve。
+func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
+}

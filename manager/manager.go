@@ -96,6 +96,18 @@ type Manager struct {
 	failureMu       sync.Mutex
 	failureWriteIdx int // 环形缓冲区写入索引
 	maxFailures     int // 环形容量（默认 1000）
+
+	// Async resolve pool
+	resolveCache *ResolveCache
+	resolveQueue chan resolveRequest
+	resolveStop  chan struct{}
+	resolveWg    sync.WaitGroup
+
+	// Small-object pool
+	soQueue   chan smallObjectRequest
+	soStop    chan struct{}
+	soWg      sync.WaitGroup
+	soTracker sync.Map // map[objKey]*objectTracker
 }
 
 type taskMetrics struct {
@@ -141,6 +153,9 @@ func NewManager(cfg *config.Config) *Manager {
 		downloadQueue:   make(chan *downloadRequest, max(globalLimit*8, 64)), // Buffer size
 		subscribers:     make(map[<-chan core.Event]chan core.Event),
 		urlRegistry:     NewURLStateRegistry(),
+		resolveCache:    NewResolveCache(time.Hour, 10000),
+		resolveQueue:    make(chan resolveRequest, 128),
+		soQueue:         make(chan smallObjectRequest, 128),
 	}
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
