@@ -1,7 +1,7 @@
 // Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package transport
+package download
 
 import (
 	"context"
@@ -9,14 +9,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 // StdlibTransport 是基于标准库 net/http 的 Transport 实现。
 type StdlibTransport struct {
 	client   *http.Client
-	dLimiter *download.DomainLimiter
+	dLimiter *DomainLimiter
 }
 
 // NewStdlibTransport 创建并返回一个 StdlibTransport 实例。
@@ -29,7 +27,7 @@ func NewStdlibTransport() *StdlibTransport {
 				IdleConnTimeout:     30 * time.Second,
 			},
 		},
-		dLimiter: download.NewDomainLimiter(),
+		dLimiter: NewDomainLimiter(),
 	}
 }
 
@@ -37,7 +35,7 @@ func NewStdlibTransport() *StdlibTransport {
 func (t *StdlibTransport) Name() string { return "stdlib" }
 
 // RoundTrip 实现 Transport 接口，执行一次 HTTP 往返。
-func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
 	targetURL := treq.URL
 	if treq.ProxyURL != "" {
 		targetURL = strings.TrimPrefix(targetURL, "http://")
@@ -74,7 +72,7 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *download.Transpor
 		headers[k] = resp.Header.Get(k)
 	}
 
-	return &download.TransportResponse{
+	return &TransportResponse{
 		Body:          resp.Body,
 		StatusCode:    resp.StatusCode,
 		ContentLength: resp.ContentLength,
