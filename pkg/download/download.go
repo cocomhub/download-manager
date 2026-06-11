@@ -38,33 +38,39 @@ func SetDefault(d *Downloader) {
 	defaultDlMu.Unlock()
 }
 
-// Default 返回包级默认 Downloader。若未初始化返回 nil。
+// Default 返回包级默认 Downloader。首次调用时若未初始化，自动创建。
 func Default() *Downloader {
 	defaultDlMu.RLock()
-	defer defaultDlMu.RUnlock()
+	if defaultDl != nil {
+		defaultDlMu.RUnlock()
+		return defaultDl
+	}
+	defaultDlMu.RUnlock()
+
+	defaultDlMu.Lock()
+	defer defaultDlMu.Unlock()
+	if defaultDl == nil {
+		defaultDl = New()
+	}
 	return defaultDl
 }
 
 // Get 使用默认 Downloader 执行一次简单下载。
-// 等效于 Default().Download(ctx, &Request{URL: url, SavePath: savePath})。
-// 若未调用 SetDefault 初始化则返回 ErrNoDefaultDownloader。
+// 若默认实例未初始化，自动创建。
 func Get(ctx context.Context, url, savePath string) error {
-	defaultDlMu.RLock()
-	dl := defaultDl
-	defaultDlMu.RUnlock()
-	if dl == nil {
-		return ErrNoDefaultDownloader
-	}
-	return dl.Download(ctx, &Request{
+	return Default().Download(ctx, &Request{
 		URL:      url,
 		SavePath: savePath,
 	})
 }
 
 // New 创建 Downloader，可通过 Option 自定义配置。
+// 零参数调用时自动注册 HTTPExtractor、StdlibTransport、DefaultSelector。
 func New(opts ...Option) *Downloader {
 	d := &Downloader{
-		extractors: make([]Extractor, 0),
+		transport:  NewStdlibTransport(),
+		selector:   NewDefaultSelector(),
+		extractors: []Extractor{NewHTTPExtractor()},
 	}
 	for _, o := range opts {
 		o(d)
