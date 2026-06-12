@@ -9,6 +9,7 @@ package mock
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/cocomhub/download-manager/config"
@@ -25,8 +26,10 @@ func init() {
 // configurable rules and supports a mock downloader behavior.
 type Task struct {
 	*task.BaseTask
+
 	rules  []MockRule
 	seeded atomic.Bool
+	seedMu sync.Mutex // guards seedObjects against concurrent calls
 }
 
 // newMockTask is the factory function registered with the task system.
@@ -51,15 +54,27 @@ func newMockTask(cfg *config.Task, opts task.Options) (core.Task, error) {
 func (t *Task) Type() string { return "mock" }
 
 // GetDownloadObjects returns all non-terminal objects.
-// On first call, it seeds the storage with objects generated from rules.
+// Concurrency-safe: only one goroutine seeds; concurrent callers wait.
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	if !t.seeded.Load() {
-		if err := t.seedObjects(); err != nil {
-			return nil, err
-		}
+	if t.seeded.Load() {
+		return t.pendingObjects(), nil
 	}
+	return t.syncSeedAndGet()
+}
 
-	// Return non-terminal objects.
+// syncSeedAndGet seeds objects under a mutex, then returns pending objects.
+func (t *Task) syncSeedAndGet() ([]*model.DownloadObject, error) {
+	t.seedMu.Lock()
+	defer t.seedMu.Unlock()
+
+	if err := t.seedObjects(); err != nil {
+		return nil, err
+	}
+	return t.pendingObjects(), nil
+}
+
+// pendingObjects returns non-terminal objects from the runtime list.
+func (t *Task) pendingObjects() []*model.DownloadObject {
 	all := t.GetAllObjects(true)
 	var pending []*model.DownloadObject
 	for _, obj := range all {
@@ -68,7 +83,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 			pending = append(pending, obj)
 		}
 	}
-	return pending, nil
+	return pending
 }
 
 // Scrape implements core.ScrapeCap. If refresh_interval > 0, it generates
@@ -116,8 +131,8 @@ func (t *Task) ResolveObject(_ context.Context, obj *model.DownloadObject) error
 }
 
 // seedObjects generates DownloadObjects from rules and persists them.
+// Must be called under seedMu to prevent duplicate seeding.
 func (t *Task) seedObjects() error {
-	// If already seeded, skip (double-check pattern).
 	if t.seeded.Load() {
 		return nil
 	}
@@ -125,7 +140,6 @@ func (t *Task) seedObjects() error {
 	var urlOffset int
 	allObjects := t.GetAllObjects(true)
 	if len(allObjects) > 0 {
-		// Calculate offset from existing objects.
 		urlOffset = len(allObjects)
 	}
 
@@ -141,7 +155,6 @@ func (t *Task) seedObjects() error {
 		urlOffset += len(objects)
 	}
 
-	// Set seeded AFTER all objects are persisted.
 	t.seeded.Store(true)
 	return nil
 }

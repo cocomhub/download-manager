@@ -1,0 +1,316 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/manager"
+	_ "github.com/cocomhub/download-manager/task/mock" // register mock task type
+)
+
+// TestAPI_TaskList verifies GET /api/tasks returns registered mock tasks.
+func TestAPI_TaskList(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-list", 2, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond) // wait for loadTasks in manager goroutine
+
+	rr := doJSONGet(r, "/api/tasks")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/tasks returned %d, want 200", rr.Code)
+	}
+
+	var tasks []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &tasks); err != nil {
+		t.Fatalf("unmarshal tasks: %v", err)
+	}
+	if len(tasks) == 0 {
+		t.Fatal("expected at least one task in list")
+	}
+
+	_ = done
+}
+
+// TestAPI_TaskDetail verifies GET /api/tasks/{id} returns task details.
+func TestAPI_TaskDetail(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-detail", 3, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/tasks/mock-detail")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/tasks/mock-detail returned %d, want 200", rr.Code)
+	}
+
+	var detail map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal detail: %v", err)
+	}
+	if id, ok := detail["id"].(string); !ok || id != "mock-detail" {
+		t.Errorf("id = %v, want mock-detail", detail["id"])
+	}
+
+	_ = done
+}
+
+// TestAPI_TaskDetail_NotFound verifies 404 for unknown task.
+func TestAPI_TaskDetail_NotFound(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-404", 1, false)
+	r := srv.Router()
+
+	rr := doJSONGet(r, "/api/tasks/nonexistent")
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown task, got %d", rr.Code)
+	}
+
+	var resp map[string]string
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["error"] == "" {
+		t.Error("expected error field in 404 response")
+	}
+}
+
+// TestAPI_TaskDetail_WithPagination verifies page/limit parameters.
+// Uses writeEnabled=true so the scheduler triggers object seeding
+// before the API pagination query.
+func TestAPI_TaskDetail_WithPagination(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-page", 10, true)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(500 * time.Millisecond) // wait for scan → seed → storage
+
+	rr := doJSONGet(r, "/api/tasks/mock-page?limit=3&page=1")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/tasks/mock-page returned %d, want 200", rr.Code)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	objects, _ := result["objects"].([]any)
+	if len(objects) > 3 {
+		t.Errorf("expected <= 3 objects with limit=3, got %d", len(objects))
+	}
+
+	if total, ok := result["total"].(float64); ok && total != 10 {
+		t.Errorf("total = %v, want 10", total)
+	}
+
+	_ = done
+}
+
+// TestAPI_CancelObject verifies POST /api/tasks/{id}/object/cancel.
+func TestAPI_CancelObject(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-cancel-api", 3, true)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	body := map[string]string{"url": "http://mock-download/file-0.bin"}
+	rr := doJSONPost(r, "/api/tasks/mock-cancel-api/object/cancel", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("cancel object returned %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	_ = done
+}
+
+// TestAPI_CancelTask verifies POST /api/tasks/{id}/cancel for a whole task.
+func TestAPI_CancelTask(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-cancel-task", 2, true)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONPost(r, "/api/tasks/mock-cancel-task/cancel", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("cancel task returned %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	_ = done
+}
+
+// TestAPI_Metrics verifies GET /api/metrics returns health metrics.
+func TestAPI_Metrics(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-metrics", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/metrics")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/metrics returned %d, want 200", rr.Code)
+	}
+
+	var metrics map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &metrics); err != nil {
+		t.Fatalf("unmarshal metrics: %v", err)
+	}
+
+	_ = done
+}
+
+// TestAPI_Aggregate verifies GET /api/aggregate returns aggregate data.
+func TestAPI_Aggregate(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-agg", 2, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/aggregate")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/aggregate returned %d, want 200", rr.Code)
+	}
+
+	var agg map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &agg); err != nil {
+		t.Fatalf("unmarshal aggregate: %v", err)
+	}
+
+	_ = done
+}
+
+// TestAPI_Health verifies GET /api/healthz returns health status.
+func TestAPI_Health(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-health", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/healthz")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/healthz returned %d, want 200", rr.Code)
+	}
+
+	var health map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &health); err != nil {
+		t.Fatalf("unmarshal health: %v", err)
+	}
+	if health["status"] == nil {
+		t.Error("expected status field in health response")
+	}
+
+	_ = done
+}
+
+// TestAPI_Config_Get verifies GET /api/config/server returns the config.
+func TestAPI_Config_Get(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-cfg", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+
+	rr := doJSONGet(r, "/api/config/server")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/config/server returned %d, want 200", rr.Code)
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+
+	_ = done
+}
+
+// --- helpers ---
+
+// newAPIServerWithMock creates an API server with a mock task.
+// When writeEnabled is true, Runtime.Download.Enabled is set so that
+// write operations (cancel, retry) are not blocked by the write guard.
+func newAPIServerWithMock(t *testing.T, taskID string, objectCount int, writeEnabled bool) (*Server, *config.Config) {
+	t.Helper()
+
+	cfg := &config.Config{
+		Runtime: config.Runtime{
+			Mode: config.RunModeFull,
+			Download: struct {
+				Enabled bool `yaml:"enabled" json:"enabled"`
+			}{
+				Enabled: writeEnabled,
+			},
+			Scheduler: struct {
+				Enabled bool `yaml:"enabled" json:"enabled"`
+			}{
+				Enabled: writeEnabled,
+			},
+		},
+		Server: config.Server{
+			WorkDir:         t.TempDir(),
+			DownloadRootDir: t.TempDir(),
+		},
+		Downloader: config.Downloader{
+			GlobalConcurrent: 5,
+			MaxRetries:       2,
+		},
+		Tasks: []config.Task{
+			{
+				ID:      taskID,
+				Type:    "mock",
+				SaveDir: t.TempDir(),
+				Storage: config.StorageConfig{Type: "memory"},
+				Extra: map[string]any{
+					"mock_rules": []any{
+						map[string]any{
+							"url_template": "http://mock-download/file-{n}.bin",
+							"count":        objectCount,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	mgr := manager.NewManager(cfg)
+	srv := NewServer(mgr)
+	return srv, cfg
+}
+
+// startAPIManager starts the manager in a goroutine and registers cleanup.
+func startAPIManager(t *testing.T, srv *Server) chan struct{} {
+	t.Helper()
+	mgr := srv.mgr
+	done := make(chan struct{})
+	go func() {
+		mgr.Start()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		mgr.Stop(ctx)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	})
+	return done
+}
+
+func doJSONGet(router http.Handler, url string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	return rr
+}
+
+// doJSONPost is defined in server_write_guard_test.go (same package).

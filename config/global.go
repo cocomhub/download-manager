@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
@@ -120,25 +119,17 @@ func defaultConfig() Config {
 	}
 }
 
-// applyViperEnvOverrides sets up Viper for DM_* env vars and overrides
-// corresponding fields in the Config. This centralizes env handling that
-// was previously spread across main.go parseFlags and manual env lookup.
-//
+// applyViperEnvOverrides handles DM_* environment variable overrides.
 // Currently supported env vars:
 //   - DM_RUN_MODE   → runtime.mode
 //   - DM_HTTP_PORT  → server.http_port
 //   - DM_UI_ONLY    → sets runtime.mode=ui (legacy)
+//
+// Note: uses os.Getenv directly instead of viper.BindEnv because the
+// config struct is still unmarshalled via yaml.Unmarshal (not viper.Unmarshal).
+// Viper integration is phased: env handling is centralized here before
+// a future full viper.Unmarshal migration.
 func applyViperEnvOverrides(cfg *Config, configFile string) {
-	v := viper.New()
-	v.SetConfigFile(configFile)
-	v.SetEnvPrefix("DM")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-
-	// Bind known env → config key mappings
-	_ = v.BindEnv("runtime.mode", "DM_RUN_MODE")
-	_ = v.BindEnv("server.http_port", "DM_HTTP_PORT")
-
 	// DM_RUN_MODE
 	if v := os.Getenv("DM_RUN_MODE"); v != "" {
 		switch strings.ToLower(v) {
@@ -156,9 +147,8 @@ func applyViperEnvOverrides(cfg *Config, configFile string) {
 		}
 	}
 
-	// Legacy DM_UI_ONLY
-	uiOnly := os.Getenv("DM_UI_ONLY")
-	if uiOnly != "" && !v.IsSet("runtime.mode") && os.Getenv("DM_RUN_MODE") == "" {
+	// Legacy DM_UI_ONLY — only applies when DM_RUN_MODE is not set.
+	if uiOnly := os.Getenv("DM_UI_ONLY"); uiOnly != "" && os.Getenv("DM_RUN_MODE") == "" {
 		switch uiOnly {
 		case "1", "true", "TRUE", "True", "yes", "Y", "y":
 			cfg.Runtime.Mode = RunModeUI

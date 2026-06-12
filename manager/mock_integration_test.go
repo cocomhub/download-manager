@@ -235,6 +235,11 @@ func waitForObjectsFinal(t *testing.T, mgr *Manager, task core.Task, count int, 
 // getAllObjectsFromTask fetches all download objects from a task.
 func getAllObjectsFromTask(t *testing.T, task core.Task) []*model.DownloadObject {
 	t.Helper()
+	if accessor, ok := task.(interface {
+		GetAllObjects(lock bool) []*model.DownloadObject
+	}); ok {
+		return accessor.GetAllObjects(true)
+	}
 	objs, err := task.GetDownloadObjects()
 	if err != nil {
 		t.Logf("GetDownloadObjects: %v", err)
