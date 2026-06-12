@@ -285,8 +285,14 @@ func (m *Manager) processTask(t core.Task) {
 }
 
 // hasFiles 检查对象是否已填充 Extra["files"]（即已 resolve 或无需 resolve）。
+// 通过对象的内部锁保护 Extra map 的并发安全。
 func hasFiles(obj *model.DownloadObject) bool {
-	if obj == nil || obj.Extra == nil {
+	if obj == nil {
+		return false
+	}
+	obj.Lock()
+	defer obj.Unlock()
+	if obj.Extra == nil {
 		return false
 	}
 	files, ok := obj.Extra["files"]

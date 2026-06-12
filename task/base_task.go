@@ -527,8 +527,15 @@ func applySharedState(dst, src *model.DownloadObject) {
 	if dst == nil || src == nil {
 		return
 	}
-	dst.SetStatus(src.GetStatus())
-	dst.SetProgress(src.GetProgress())
+	// Lock destination to synchronize with concurrent readers of Extra/Metadata
+	// (e.g., hasFiles() in scheduler.go and simulateProgress in MockDownloader).
+	// Directly set fields while holding the lock (rather than calling SetStatus/
+	// SetProgress which also take the lock, causing deadlock on the non-reentrant mutex).
+	dst.Lock()
+	defer dst.Unlock()
+
+	dst.Status = src.GetStatus()
+	dst.Progress = src.GetProgress()
 	if src.Metadata != nil {
 		if dst.Metadata == nil {
 			dst.Metadata = make(map[string]string, len(src.Metadata))

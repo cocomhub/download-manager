@@ -10,11 +10,7 @@ import (
 )
 
 func TestParseFlags_CLIRunModeOverridesOthers(t *testing.T) {
-	env := map[string]string{
-		"DM_RUN_MODE": "ui",
-		"DM_UI_ONLY":  "1",
-	}
-	res, err := parseFlags([]string{"--run-mode", "full", "--ui-only"}, env)
+	res, err := parseFlags([]string{"--run-mode", "full", "--ui-only"})
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}
@@ -24,8 +20,7 @@ func TestParseFlags_CLIRunModeOverridesOthers(t *testing.T) {
 }
 
 func TestParseFlags_UIOnlyWhenNoRunMode(t *testing.T) {
-	env := map[string]string{}
-	res, err := parseFlags([]string{"--ui-only"}, env)
+	res, err := parseFlags([]string{"--ui-only"})
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}
@@ -35,10 +30,8 @@ func TestParseFlags_UIOnlyWhenNoRunMode(t *testing.T) {
 }
 
 func TestParseFlags_EnvRunModeUsedWhenNoCLI(t *testing.T) {
-	env := map[string]string{
-		"DM_RUN_MODE": "ui",
-	}
-	res, err := parseFlags(nil, env)
+	t.Setenv("DM_RUN_MODE", "ui")
+	res, err := parseFlags(nil)
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}
@@ -48,10 +41,8 @@ func TestParseFlags_EnvRunModeUsedWhenNoCLI(t *testing.T) {
 }
 
 func TestParseFlags_EnvUIOnlyUsedWhenNoCLIAndNoRunModeEnv(t *testing.T) {
-	env := map[string]string{
-		"DM_UI_ONLY": "true",
-	}
-	res, err := parseFlags(nil, env)
+	t.Setenv("DM_UI_ONLY", "true")
+	res, err := parseFlags(nil)
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}
@@ -61,8 +52,7 @@ func TestParseFlags_EnvUIOnlyUsedWhenNoCLIAndNoRunModeEnv(t *testing.T) {
 }
 
 func TestParseFlags_InvalidValueFallbackFull(t *testing.T) {
-	env := map[string]string{}
-	res, err := parseFlags([]string{"--run-mode", "weird"}, env)
+	res, err := parseFlags([]string{"--run-mode", "weird"})
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}
@@ -72,8 +62,7 @@ func TestParseFlags_InvalidValueFallbackFull(t *testing.T) {
 }
 
 func TestParseFlags_NoProvided_NotSet(t *testing.T) {
-	env := map[string]string{}
-	res, err := parseFlags(nil, env)
+	res, err := parseFlags(nil)
 	if err != nil {
 		t.Fatalf("parseFlags error: %v", err)
 	}

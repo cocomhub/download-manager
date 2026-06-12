@@ -66,9 +66,6 @@ func NewTask(t testing.TB, cfg MockTaskConfig) core.Task {
 			if r.InitialProgress > 0 {
 				rm["initial_progress"] = r.InitialProgress
 			}
-			if r.InitialProgress > 0 {
-				rm["initial_progress"] = r.InitialProgress
-			}
 			if len(r.Metadata) > 0 {
 				metaRaw := make(map[string]any, len(r.Metadata))
 				for k, v := range r.Metadata {

@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -139,9 +140,8 @@ func applyViperEnvOverrides(cfg *Config, configFile string) {
 	_ = v.BindEnv("server.http_port", "DM_HTTP_PORT")
 
 	// DM_RUN_MODE
-	if v.IsSet("runtime.mode") {
-		envMode := v.GetString("runtime.mode")
-		switch strings.ToLower(envMode) {
+	if v := os.Getenv("DM_RUN_MODE"); v != "" {
+		switch strings.ToLower(v) {
 		case "ui":
 			cfg.Runtime.Mode = RunModeUI
 		case "full":
@@ -150,13 +150,15 @@ func applyViperEnvOverrides(cfg *Config, configFile string) {
 	}
 
 	// DM_HTTP_PORT
-	if v.IsSet("server.http_port") {
-		cfg.Server.HTTPPort = v.GetInt("server.http_port")
+	if v := os.Getenv("DM_HTTP_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.Server.HTTPPort = port
+		}
 	}
 
-	// Legacy DM_UI_ONLY (raw env, not through viper binding since it maps to a different key)
+	// Legacy DM_UI_ONLY
 	uiOnly := os.Getenv("DM_UI_ONLY")
-	if uiOnly != "" && !v.IsSet("runtime.mode") {
+	if uiOnly != "" && !v.IsSet("runtime.mode") && os.Getenv("DM_RUN_MODE") == "" {
 		switch uiOnly {
 		case "1", "true", "TRUE", "True", "yes", "Y", "y":
 			cfg.Runtime.Mode = RunModeUI

@@ -15,10 +15,10 @@ type DownloadObject struct {
 	SavePath string            `json:"save_path" bson:"save_path"`
 	Metadata map[string]string `json:"metadata" bson:"metadata"`
 	Extra    map[string]any    `json:"extra" bson:"extra"`
-	Status   string            `json:"status" bson:"status"` // pending, downloading, completed, failed
+	Status   string            `json:"status" bson:"status"`
 	Progress int               `json:"progress" bson:"progress"`
 
-	mu sync.RWMutex // protects Status and Progress for concurrent access
+	mu sync.RWMutex `json:"-" bson:"-"`
 }
 
 func (o *DownloadObject) GetProgress() int {
@@ -57,16 +57,19 @@ func (o *DownloadObject) SetStatus(s string) {
 	o.Status = s
 }
 
-// MarshalJSON preserves backward-compatible JSON output for the exported fields.
-// Custom marshal is not strictly needed since json encoder reads the struct fields,
-// but we keep it explicit to ensure safety.
+// MarshalJSON preserves backward-compatible JSON output.
 func (o *DownloadObject) MarshalJSON() ([]byte, error) {
 	if o == nil {
 		return json.Marshal(nil)
 	}
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	// Use type alias to avoid infinite recursion
 	type Alias DownloadObject
 	return json.Marshal((*Alias)(o))
 }
+
+// mu returns the mutex for external synchronization of Extra and Metadata.
+func (o *DownloadObject) Lock()    { o.mu.Lock() }
+func (o *DownloadObject) Unlock()  { o.mu.Unlock() }
+func (o *DownloadObject) RLock()   { o.mu.RLock() }
+func (o *DownloadObject) RUnlock() { o.mu.RUnlock() }

@@ -192,8 +192,17 @@ func (d *MockDownloader) SetContext(ctx context.Context) {
 	}
 }
 
-// ---- internal helpers ----
-
+// getContext returns the current context under the mutex, defaulting to
+// context.Background() if nil. This is used by internal helpers to safely
+// read the context without racing against SetContext.
+func (d *MockDownloader) getContext() context.Context {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
+}
 func (d *MockDownloader) complete(obj *model.DownloadObject) error {
 	obj.SetProgress(100)
 	obj.SetStatus(model.StatusCompleted)
@@ -212,9 +221,13 @@ func (d *MockDownloader) fail(obj *model.DownloadObject) error {
 }
 
 func (d *MockDownloader) timeout(obj *model.DownloadObject) error {
-	<-d.ctx.Done()
+	ctx := d.getContext()
+	<-ctx.Done()
 	obj.SetStatus(model.StatusFailed)
-	err := d.ctx.Err()
+	err := context.Cause(ctx)
+	if errors.Is(err, context.Canceled) {
+		err = context.Canceled
+	}
 	if d.OnFail != nil {
 		d.OnFail(obj.URL, err)
 	}
@@ -222,9 +235,13 @@ func (d *MockDownloader) timeout(obj *model.DownloadObject) error {
 }
 
 // simulateProgress calls OnProgress from 0 to 100 in steps of 5,
-// respecting context cancellation.
+// respecting context cancellation. It uses the object lock to safely
+// access Extra fields during progress simulation.
 func (d *MockDownloader) simulateProgress(obj *model.DownloadObject) error {
 	fileSize := 1024 * 1024 // 1MB default for progress simulation
+
+	// Read group_size under the object lock.
+	obj.Lock()
 	if obj.Extra != nil {
 		if gs, ok := obj.Extra["group_size"]; ok {
 			switch v := gs.(type) {
@@ -243,18 +260,19 @@ func (d *MockDownloader) simulateProgress(obj *model.DownloadObject) error {
 			}
 		}
 	}
-
+	// Copy lock-unrelated info before releasing.
 	groupSize := fileSize
 	if groupSize <= 0 {
 		groupSize = 1024 * 1024
 	}
+	obj.Unlock()
 
 	totalSteps := 20 // 5% steps
 	for i := 0; i <= totalSteps; i++ {
 		select {
-		case <-d.ctx.Done():
+		case <-d.getContext().Done():
 			obj.SetStatus(model.StatusFailed)
-			err := d.ctx.Err()
+			err := d.getContext().Err()
 			if d.OnFail != nil {
 				d.OnFail(obj.URL, err)
 			}
@@ -315,9 +333,9 @@ func (d *MockDownloader) pauseAtProgress(obj *model.DownloadObject) error {
 	}
 
 	// Block until cancelled.
-	<-d.ctx.Done()
+	<-d.getContext().Done()
 	obj.SetStatus(model.StatusFailed)
-	err := d.ctx.Err()
+	err := d.getContext().Err()
 	if d.OnFail != nil {
 		d.OnFail(obj.URL, err)
 	}

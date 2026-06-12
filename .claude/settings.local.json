@@ -43,7 +43,8 @@
       "Bash(findstr phase2 *)",
       "Bash(gofmt *)",
       "Bash(cd *)",
-      "Skill(commit-commands:commit)"
+      "Skill(commit-commands:commit)",
+      "Skill(code-review:code-review)"
     ],
     "deny": []
   }

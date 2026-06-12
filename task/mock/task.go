@@ -101,10 +101,11 @@ func (t *Task) Scrape(ctx context.Context) error {
 	return nil
 }
 
-// ResolveObject is a no-op for mock tasks since URLs are directly downloadable.
-// It marks the object as resolved by setting Extra["files"] so that
-// the Manager's processTask can proceed to enqueue it for download.
+// ResolveObject marks the object as resolved by setting Extra["files"].
+// It locks the object to synchronize with concurrent readers of Extra.
 func (t *Task) ResolveObject(_ context.Context, obj *model.DownloadObject) error {
+	obj.Lock()
+	defer obj.Unlock()
 	if obj.Extra == nil {
 		obj.Extra = make(map[string]any)
 	}

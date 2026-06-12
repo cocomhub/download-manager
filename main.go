@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,11 +37,7 @@ type parseResult struct {
 	UsageMessage string
 }
 
-func parseBoolEnv(v string) bool {
-	return v == "1" || v == "true" || v == "TRUE" || v == "True" || v == "yes" || v == "Y" || v == "y"
-}
-
-func parseFlags(args []string, env map[string]string) (parseResult, error) {
+func parseFlags(args []string) (parseResult, error) {
 	var res parseResult
 	var buf bytes.Buffer
 	fs := flag.NewFlagSet("download-manager", flag.ContinueOnError)
@@ -55,7 +52,7 @@ func parseFlags(args []string, env map[string]string) (parseResult, error) {
 
 	fs.StringVar(&cfgPath, "config", "config.yaml", "配置文件路径（默认 config.yaml）")
 	fs.BoolVar(&showVer, "version", false, "打印版本与构建信息后退出")
-	fs.StringVar(&runMode, "run-mode", "", "运行模式：full 或 ui。与 --ui-only 同时提供时，优先使用 --run-mode")
+	fs.StringVar(&runMode, "run-mode", "", "运行模式：full 或 ui")
 	fs.BoolVar(&uiOnly, "ui-only", false, "仅启动 Web UI（等价于 --run-mode=ui）")
 
 	fs.Usage = func() {
@@ -67,10 +64,10 @@ func parseFlags(args []string, env map[string]string) (parseResult, error) {
 		fmt.Fprintln(fs.Output(), "环境变量：")
 		fmt.Fprintln(fs.Output(), "  DM_RUN_MODE   设置运行模式 full|ui")
 		fmt.Fprintln(fs.Output(), "  DM_UI_ONLY    若为 1/true/yes 则等价 ui 模式")
+		fmt.Fprintln(fs.Output(), "  DM_HTTP_PORT  设置 HTTP 端口")
 	}
 
 	if err := fs.Parse(args); err != nil {
-		// Capture usage on error (including -h)
 		res.UsageMessage = buf.String()
 		return res, err
 	}
@@ -80,53 +77,46 @@ func parseFlags(args []string, env map[string]string) (parseResult, error) {
 
 	// Determine effective run-mode with precedence:
 	// CLI --run-mode > CLI --ui-only > ENV DM_RUN_MODE > ENV DM_UI_ONLY
-	var (
-		modeProvided bool
-		modeValue    string
-	)
 	if runMode != "" {
-		modeProvided = true
-		modeValue = runMode
+		// CLI --run-mode provided
+		res.RunModeSet = true
+		res.RunMode = config.RunModeFull
+		switch strings.ToLower(runMode) {
+		case "full":
+			res.RunMode = config.RunModeFull
+		case "ui":
+			res.RunMode = config.RunModeUI
+		}
 	} else if uiOnly {
-		modeProvided = true
-		modeValue = "ui"
-	} else if v, ok := env["DM_RUN_MODE"]; ok && v != "" {
-		modeProvided = true
-		modeValue = v
-	} else if v, ok := env["DM_UI_ONLY"]; ok && parseBoolEnv(v) {
-		modeProvided = true
-		modeValue = "ui"
+		// CLI --ui-only provided
+		res.RunModeSet = true
+		res.RunMode = config.RunModeUI
+	} else if envMode := os.Getenv("DM_RUN_MODE"); envMode != "" {
+		// ENV DM_RUN_MODE
+		res.RunModeSet = true
+		switch strings.ToLower(envMode) {
+		case "full":
+			res.RunMode = config.RunModeFull
+		case "ui":
+			res.RunMode = config.RunModeUI
+		default:
+			res.RunMode = config.RunModeFull
+		}
+	} else if v, ok := os.LookupEnv("DM_UI_ONLY"); ok && parseBoolEnv(v) {
+		// ENV DM_UI_ONLY
+		res.RunModeSet = true
+		res.RunMode = config.RunModeUI
 	}
 
-	if modeProvided {
-		switch modeValue {
-		case string(config.RunModeFull), "FULL", "Full":
-			res.RunMode = config.RunModeFull
-			res.RunModeSet = true
-		case string(config.RunModeUI), "UI", "Ui":
-			res.RunMode = config.RunModeUI
-			res.RunModeSet = true
-		default:
-			// illegal value fallback to full
-			res.RunMode = config.RunModeFull
-			res.RunModeSet = true
-		}
-	}
 	return res, nil
 }
 
+func parseBoolEnv(v string) bool {
+	return v == "1" || v == "true" || v == "TRUE" || v == "True" || v == "yes" || v == "Y" || v == "y"
+}
+
 func main() {
-	// build env map
-	env := map[string]string{}
-	for _, kv := range os.Environ() {
-		for i := 0; i < len(kv); i++ {
-			if kv[i] == '=' {
-				env[kv[:i]] = kv[i+1:]
-				break
-			}
-		}
-	}
-	res, err := parseFlags(os.Args[1:], env)
+	res, err := parseFlags(os.Args[1:])
 	if err == flag.ErrHelp {
 		fmt.Print(res.UsageMessage)
 		return
@@ -146,7 +136,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Merge runtime mode with precedence
+	// Merge runtime mode with precedence (CLI > Env > Config)
 	if res.RunModeSet {
 		cfg.Runtime.Mode = res.RunMode
 	}
