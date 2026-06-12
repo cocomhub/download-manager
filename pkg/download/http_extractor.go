@@ -306,9 +306,9 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		}
 		// 保存 ETag（304 响应也会携带 ETag，与 200 一致）
 		if etag := tresp.Headers["Etag"]; etag != "" {
-			req.Metadata["etag"] = etag
+			setReqMetadata(req, "etag", etag)
 		} else if etag := tresp.Headers["ETag"]; etag != "" {
-			req.Metadata["etag"] = etag
+			setReqMetadata(req, "etag", etag)
 		}
 		return true, nil
 	}
@@ -419,7 +419,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		}
 		req.Result.MD5Base64 = base64MD5
 		req.Result.MD5Hex = hexMD5
-		req.Metadata["checksum"] = hexMD5
+		setReqMetadata(req, "checksum", hexMD5)
 		if logWriter != nil {
 			fmt.Fprintf(logWriter, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
 		}
@@ -427,14 +427,14 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	// 保存 ETag 到 metadata（供下次下载时决策）
 	if etag := tresp.Headers["Etag"]; etag != "" {
-		req.Metadata["etag"] = etag
+		setReqMetadata(req, "etag", etag)
 	} else if etag := tresp.Headers["ETag"]; etag != "" {
-		req.Metadata["etag"] = etag
+		setReqMetadata(req, "etag", etag)
 	}
 
 	// 如果服务端没给 ETag 但 MD5 校验通过了，用 MD5 hex 作为弱校验依据
 	if req.Metadata["etag"] == "" && req.Result.MD5Hex != "" {
-		req.Metadata["etag"] = `"` + req.Result.MD5Hex + `"`
+		setReqMetadata(req, "etag", `"`+req.Result.MD5Hex+`"`)
 	}
 
 	// 设置 Last-Modified 时间
@@ -470,6 +470,18 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 
 	return true, nil
+}
+
+// setReqMetadata 写入 req.Metadata 并触发 OnMetadata 回调（如有），
+// 确保调用方能立即持久化，避免 crash 窗口导致 ETag/checksum 丢失。
+func setReqMetadata(req *Request, key, value string) {
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]string)
+	}
+	req.Metadata[key] = value
+	if req.OnMetadata != nil {
+		req.OnMetadata(key, value)
+	}
 }
 
 func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {

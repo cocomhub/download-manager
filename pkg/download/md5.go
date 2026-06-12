@@ -49,5 +49,9 @@ func TryGetMd5(headers map[string]string) string {
 	if x := headers["Content-MD5"]; len(x) == 32 {
 		return x
 	}
+	// Go 标准库 canonical 将 Content-MD5 转为 Content-Md5
+	if x := headers["Content-Md5"]; len(x) == 32 {
+		return x
+	}
 	return ""
 }

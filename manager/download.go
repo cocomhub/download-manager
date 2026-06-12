@@ -108,6 +108,31 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		nd.SetContext(dlCtx)
 	}
 
+	// 设置 metadata flusher：在 Extractor 提取到 ETag/checksum 后立即持久化到存储，
+	// 避免进程崩溃时丢失元数据导致下次必须重新下载。
+	if mf, ok := dl.(interface{ SetMetadataFlusher(func()) }); ok {
+		mf.SetMetadataFlusher(func() {
+			st := t.Storage()
+			if st == nil {
+				return
+			}
+			if err := st.Update(obj); err != nil {
+				slog.Error("Metadata flush: store.Update failed",
+					"task_id", t.ID(), "url", obj.URL, "error", err)
+				return
+			}
+			if flusher, ok := st.(interface{ ForceFlush() error }); ok {
+				if err := flusher.ForceFlush(); err != nil {
+					slog.Error("Metadata flush: ForceFlush failed",
+						"task_id", t.ID(), "url", obj.URL, "error", err)
+				}
+			}
+		})
+	} else {
+		slog.Warn("Metadata flush not supported — crash may lose ETag/checksum",
+			"task_id", t.ID(), "url", obj.URL)
+	}
+
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
 		if obj.GetStatus() == model.StatusCancelled {

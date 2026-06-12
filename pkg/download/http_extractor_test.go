@@ -5,20 +5,26 @@ package download_test
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 func TestHTTPExtractorETagSkip(t *testing.T) {
-	// 测试：服务器返回 304 时，跳过下载
+	// 测试：服务器返回 304 时，跳过下载；验证 OnMetadata 触发
+	var capturedEtag string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if inm := r.Header.Get("If-None-Match"); inm != "" {
-			// 检测是否有 etag 在 Metadata 中，如果有说明是第二次
+			// 第二次请求：携带 If-None-Match 时返回 304
+			w.Header().Set("ETag", `"abc123"`)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -31,13 +37,18 @@ func TestHTTPExtractorETagSkip(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "etag_skip.txt")
 
-	// 第一次下载：正常下载，保存 ETag
+	// 第一次下载：正常下载，保存 ETag，验证 OnMetadata 触发
 	ext := download.NewHTTPExtractor()
 	ext.SetTransport(download.NewStdlibTransport())
 	req := &download.Request{
 		URL:      ts.URL,
 		SavePath: dest,
 		Metadata: map[string]string{},
+		OnMetadata: func(key, value string) {
+			if key == "etag" {
+				capturedEtag = value
+			}
+		},
 	}
 	err := ext.Extract(context.Background(), req)
 	if err != nil {
@@ -47,16 +58,24 @@ func TestHTTPExtractorETagSkip(t *testing.T) {
 	if string(data) != "hello world" {
 		t.Errorf("expected 'hello world', got '%s'", data)
 	}
+	if capturedEtag != `"abc123"` {
+		t.Errorf("expected OnMetadata etag 'abc123', got '%s'", capturedEtag)
+	}
 	if req.Metadata["etag"] != `"abc123"` {
-		t.Errorf("expected etag 'abc123', got '%s'", req.Metadata["etag"])
+		t.Errorf("expected metadata etag 'abc123', got '%s'", req.Metadata["etag"])
 	}
 
-	// 第二次下载：携带 ETag（不含 checksum，模拟旧数据场景）
-	// 代码应发送 If-None-Match，服务器返回 304，文件内容保持
+	// 第二次下载：携带 ETag，验证 304 路径下的 OnMetadata 触发
+	capturedEtag = ""
 	req2 := &download.Request{
 		URL:      ts.URL,
 		SavePath: dest,
 		Metadata: map[string]string{"etag": `"abc123"`},
+		OnMetadata: func(key, value string) {
+			if key == "etag" {
+				capturedEtag = value
+			}
+		},
 	}
 	err = ext.Extract(context.Background(), req2)
 	if err != nil {
@@ -75,6 +94,10 @@ func TestHTTPExtractorETagSkip(t *testing.T) {
 			}
 			return req2.Result.StatusCode
 		}())
+	}
+	// 304 路径下也应通过 OnMetadata 更新 ETag
+	if capturedEtag != `"abc123"` {
+		t.Errorf("expected OnMetadata etag from 304 '%s', got '%s'", `"abc123"`, capturedEtag)
 	}
 }
 
@@ -358,5 +381,121 @@ func TestHTTPExtractorResumeUnsupported(t *testing.T) {
 	expected := "full_content"
 	if string(data) != expected {
 		t.Errorf("expected %q (complete content), got: %q", expected, string(data))
+	}
+}
+
+// TestHTTPExtractorOnMetadataFires 验证 OnMetadata 在成功下载后触发所有关键 key。
+func TestHTTPExtractorOnMetadataFires(t *testing.T) {
+	var (
+		mu             sync.Mutex
+		seenEtag       bool
+		seenChecksum   bool
+		serverChecksum string
+		serverEtag     string
+	)
+
+	content := "test file content for md5"
+	h := md5.New()
+	io.WriteString(h, content)
+	hexMD5 := hex.EncodeToString(h.Sum(nil))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"my-file-etag"`)
+		w.Header().Set("Content-MD5", hexMD5)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(content))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "on_metadata.txt")
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+	req := &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+		Metadata: map[string]string{},
+		OnMetadata: func(key, value string) {
+			mu.Lock()
+			defer mu.Unlock()
+			switch key {
+			case "etag":
+				seenEtag = true
+				serverEtag = value
+			case "checksum":
+				seenChecksum = true
+				serverChecksum = value
+			}
+		},
+	}
+	err := ext.Extract(context.Background(), req)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+
+	mu.Lock()
+	if !seenEtag {
+		t.Error("OnMetadata did not fire for 'etag'")
+	}
+	if !seenChecksum {
+		t.Error("OnMetadata did not fire for 'checksum'")
+	}
+	if serverEtag != `"my-file-etag"` {
+		t.Errorf("expected etag '\"my-file-etag\"', got '%s'", serverEtag)
+	}
+	if serverChecksum != hexMD5 {
+		t.Errorf("expected checksum '%s', got '%s'", hexMD5, serverChecksum)
+	}
+	mu.Unlock()
+
+	if req.Metadata["etag"] != `"my-file-etag"` {
+		t.Errorf("metadata etag: expected '\"my-file-etag\"', got '%s'", req.Metadata["etag"])
+	}
+	if req.Metadata["checksum"] != hexMD5 {
+		t.Errorf("metadata checksum: expected '%s', got '%s'", hexMD5, req.Metadata["checksum"])
+	}
+}
+
+// TestHTTPExtractorNoEtagFallback 验证服务器没给 ETag 时，
+// OnMetadata 能用 MD5 hex 合成弱 ETag 触发。
+func TestHTTPExtractorNoEtagFallback(t *testing.T) {
+	content := "some fallback content"
+	h := md5.New()
+	io.WriteString(h, content)
+	hexMD5 := hex.EncodeToString(h.Sum(nil))
+
+	var capturedEtag string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-MD5", hexMD5)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(content))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "no_etag_file.txt")
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+
+	req := &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+		Metadata: map[string]string{},
+		OnMetadata: func(key, value string) {
+			if key == "etag" {
+				capturedEtag = value
+			}
+		},
+	}
+	err := ext.Extract(context.Background(), req)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+
+	wantEtag := `"` + hexMD5 + `"`
+	if capturedEtag != wantEtag {
+		t.Errorf("expected fallback etag '%s', got '%s'", wantEtag, capturedEtag)
 	}
 }

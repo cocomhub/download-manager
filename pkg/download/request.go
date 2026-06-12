@@ -20,9 +20,12 @@ type Request struct {
 	Headers       map[string]string
 	TrackProgress bool
 	OnProgress    func(progress float64, downloaded, total int64)
-	Metadata      map[string]string
-	Hint          *DownloadHint
-	Result        *DownloadResult // Extractor 填充此字段，调用方读取后显式应用到目标对象
+	// OnMetadata 在每次 Extractor 提取到元数据（ETag、checksum 等）时触发。
+	// 触发时 req.Metadata[key] 已被设置，回调用于接收方立即持久化，避免 crash 丢失。
+	OnMetadata func(key, value string)
+	Metadata   map[string]string
+	Hint       *DownloadHint
+	Result     *DownloadResult // Extractor 填充此字段，调用方读取后显式应用到目标对象
 }
 
 // DownloadResult 包含下载完成后的元数据信息。
