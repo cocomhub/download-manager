@@ -42,7 +42,8 @@
       "Bash(gofmt -s -w manager/manager.go manager/scheduler.go manager/download.go manager/tasks.go)",
       "Bash(findstr phase2 *)",
       "Bash(gofmt *)",
-      "Bash(cd *)"
+      "Bash(cd *)",
+      "Skill(commit-commands:commit)"
     ],
     "deny": []
   }
