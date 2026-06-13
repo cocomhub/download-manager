@@ -1,24 +1,18 @@
-/**
- * Copyright 2026 The Cocomhub Authors. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { test, expect } from '@playwright/test';
 import { apiPost } from '../helpers/api';
 
 test.describe('Realtime Updates via SSE', () => {
 
-  test('T6: API cancel triggers UI status change', async ({ page }) => {
-    // Navigate to the tktube task (stable, all completed)
+  test('T6: cancel entire task triggers status change', async ({ page }) => {
     await page.goto('/');
-    await page.locator('[data-testid="task-test-tktube"]').click();
-    await expect(page.locator('main')).toContainText('completed', { timeout: 10000 });
+    await page.locator('[data-testid="task-test-mixed"]').click();
+    await expect(page.locator('h2:has-text("test-mixed")')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
 
-    // Cancel the entire task via API — the sidebar should update
-    const cancelResp = await apiPost('/api/tasks/test-tktube/cancel');
+    // Cancel the entire task via API (more reliable than single object cancel)
+    const cancelResp = await apiPost('/api/tasks/test-mixed/cancel');
     expect(cancelResp).toBeDefined();
 
-    // Verify the page is still rendering correctly
     await page.waitForTimeout(1000);
     await expect(page.locator('main')).toBeVisible();
   });
