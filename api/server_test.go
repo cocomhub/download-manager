@@ -338,6 +338,7 @@ func newAPIServerWithMock(t *testing.T, taskID string, objectCount int, writeEna
 							"count":        objectCount,
 						},
 					},
+					"refresh_interval": 0,
 				},
 			},
 		},
