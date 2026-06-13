@@ -109,7 +109,11 @@
         dashboardFailuresTaskId: '',
         dashboardHealthzTimer: null,
         dashboardMetricsTimer: null,
-        dashboardFailuresTimer: null
+        dashboardFailuresTimer: null,
+
+        // Mobile responsive
+        mobileSidebarOpen: false,
+        mobileToolbarOpen: false
       }
     },
 

@@ -68,8 +68,11 @@
 
 <body class="bg-gray-100 h-screen overflow-hidden flex">
     <div id="app" v-cloak class="flex w-full h-full">
+        <!-- Mobile sidebar backdrop -->
+        <div v-if="mobileSidebarOpen" @click="mobileSidebarOpen = false" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"></div>
+
         <!-- Sidebar: Task List -->
-        <aside class="w-64 bg-white shadow-md flex flex-col z-10" data-testid="sidebar">
+        <aside class="w-64 bg-white shadow-md flex flex-col z-10 fixed lg:relative inset-y-0 left-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0" :class="mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'" data-testid="sidebar">
             <div class="p-4 border-b flex justify-between items-center bg-gray-50">
                 <h1 class="text-xl font-bold text-gray-800">Tasks</h1>
                 <div class="flex space-x-3">
@@ -137,77 +140,88 @@
         <!-- Main Content -->
         <main class="flex-1 flex flex-col overflow-hidden relative">
             <!-- Top Bar -->
-            <header class="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm z-10">
-                <div class="flex items-center space-x-4 flex-1">
-                    <h2 class="text-xl font-semibold text-gray-700 truncate" v-if="selectedTask" :title="getTaskDisplayName(selectedTask)">
+            <header class="bg-white border-b px-4 lg:px-6 py-3 shadow-sm z-10">
+                <div class="flex items-center gap-2">
+                    <!-- Mobile hamburger -->
+                    <button @click="mobileSidebarOpen = !mobileSidebarOpen" class="lg:hidden p-2 text-gray-600 hover:text-gray-800 rounded-md hover:bg-gray-100">
+                        <i class="fas fa-bars text-lg"></i>
+                    </button>
+                    <h2 class="text-lg lg:text-xl font-semibold truncate flex-1" v-if="selectedTask" :title="getTaskDisplayName(selectedTask)">
                         {{ getTaskDisplayName(selectedTask) }}
                     </h2>
-                    <h2 class="text-xl font-semibold text-gray-500" v-if="!selectedTask">Select a Task</h2>
+                    <h2 class="text-lg lg:text-xl font-semibold text-gray-500 flex-1" v-if="!selectedTask">Select a Task</h2>
+                    <!-- Mobile: expand toolbar button -->
+                    <button @click="mobileToolbarOpen = !mobileToolbarOpen"
+                            class="lg:hidden p-1.5 text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100">
+                        <i class="fas" :class="mobileToolbarOpen ? 'fa-times' : 'fa-ellipsis-v'"></i>
+                    </button>
                 </div>
 
-                <div class="flex items-center space-x-4" v-if="selectedTask">
+                <div v-if="selectedTask"
+                     class="flex items-center gap-2 lg:gap-3 mt-2 overflow-x-auto pb-1"
+                     :class="mobileToolbarOpen || 'hidden lg:flex'">
                     <!-- Actions -->
-                    <button @click="retryAllFailed" data-testid="btn-retry-all" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors flex items-center disabled:opacity-50">
-                            <i class="fas fa-redo mr-1"></i> Retry Failed
+                    <button @click="retryAllFailed" data-testid="btn-retry-all" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs lg:text-sm bg-red-50 text-red-600 hover:bg-red-100 px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center disabled:opacity-50 whitespace-nowrap">
+                            <i class="fas fa-redo mr-1"></i> Retry
                         </button>
-                    <button @click="cancelCurrentTask" data-testid="btn-cancel-task" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-sm bg-gray-50 text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-md transition-colors flex items-center disabled:opacity-50">
-                            <i class="fas fa-ban mr-1"></i> 取消任务
+                    <button @click="cancelCurrentTask" data-testid="btn-cancel-task" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs lg:text-sm bg-gray-50 text-gray-700 hover:bg-gray-100 px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center disabled:opacity-50 whitespace-nowrap">
+                            <i class="fas fa-ban mr-1"></i> 取消
                         </button>
 
                     <!-- Sort -->
-                    <select v-model="sortBy" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="default">Default Sort</option>
-                        <option value="date_desc">Date (Newest)</option>
-                        <option value="date_asc">Date (Oldest)</option>
-                        <option value="duration_desc">Duration (Longest)</option>
-                        <option value="name_asc">Name (A-Z)</option>
+                    <select v-model="sortBy" class="text-xs lg:text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="default">Default</option>
+                        <option value="date_desc">Newest</option>
+                        <option value="date_asc">Oldest</option>
+                        <option value="duration_desc">Longest</option>
+                        <option value="name_asc">A-Z</option>
                     </select>
 
                     <!-- Pagination -->
-                    <div class="flex items-center space-x-2 border-l pl-4 border-gray-200">
-                        <select v-model="pagination.limit" @change="changeLimit" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" title="Items per page">
+                    <div class="flex items-center gap-1 lg:gap-2 border-l pl-2 lg:pl-4 border-gray-200">
+                        <select v-model="pagination.limit" @change="changeLimit" class="text-xs lg:text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" title="Items per page">
                             <option :value="25">25</option>
                             <option :value="50">50</option>
                             <option :value="100">100</option>
                             <option value="all">All</option>
                         </select>
-                        <div class="flex items-center space-x-1" v-if="pagination.limit !== 'all' && pagination.total > 0">
-                            <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
-                                <i class="fas fa-chevron-left"></i>
+                        <div class="flex items-center gap-1" v-if="pagination.limit !== 'all' && pagination.total > 0">
+                            <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" class="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                <i class="fas fa-chevron-left text-xs"></i>
                              </button>
-                            <select v-model.number="pagination.page" @change="changePage(pagination.page)" class="text-sm border-none bg-transparent focus:ring-0 cursor-pointer font-medium text-center w-12">
+                            <select v-model.number="pagination.page" @change="changePage(pagination.page)" class="text-xs lg:text-sm border-none bg-transparent focus:ring-0 cursor-pointer font-medium text-center w-10 lg:w-12">
                                 <option v-for="p in Math.ceil(pagination.total / pagination.limit) || 1" :key="p" :value="p">{{ p }}</option>
                              </select>
                             <span class="text-gray-400 text-xs">/ {{ Math.ceil(pagination.total / pagination.limit) || 1 }}</span>
-                            <button @click="changePage(pagination.page + 1)" :disabled="pagination.page * pagination.limit >= pagination.total" class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
-                                <i class="fas fa-chevron-right"></i>
+                            <button @click="changePage(pagination.page + 1)" :disabled="pagination.page * pagination.limit >= pagination.total" class="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 transition-colors">
+                                <i class="fas fa-chevron-right text-xs"></i>
                              </button>
                         </div>
                     </div>
 
                     <!-- Search Box -->
-                    <div class="relative">
-                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                            <i class="fas fa-search"></i>
+                    <div class="relative flex-1 lg:flex-none">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-2 lg:pl-3 text-gray-400">
+                            <i class="fas fa-search text-xs"></i>
                         </span>
-                        <input type="text" v-model="searchQuery" data-testid="search-input" class="pl-10 pr-4 py-2 border rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 transition-all" placeholder="Search name or tag...">
+                        <input type="text" v-model="searchQuery" data-testid="search-input" class="pl-8 lg:pl-10 pr-3 py-1.5 border rounded-full text-xs lg:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full lg:w-64 transition-all" placeholder="Search...">
                     </div>
 
                     <!-- View Toggle -->
-                    <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
-                        <button @click="viewMode = 'grid'" class="px-3 py-1.5 rounded-md transition-all" :class="viewMode === 'grid' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
-                            <i class="fas fa-th-large mr-1"></i> Grid
+                    <div class="bg-gray-100 p-0.5 lg:p-1 rounded-lg flex text-xs lg:text-sm shrink-0">
+                        <button @click="viewMode = 'grid'" class="px-2 lg:px-3 py-1 rounded-md transition-all" :class="viewMode === 'grid' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500'">
+                            <i class="fas fa-th-large"></i>
                         </button>
-                        <button @click="viewMode = 'list'" class="px-3 py-1.5 rounded-md transition-all" :class="viewMode === 'list' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
-                            <i class="fas fa-list mr-1"></i> List
+                        <button @click="viewMode = 'list'" class="px-2 lg:px-3 py-1 rounded-md transition-all" :class="viewMode === 'list' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500'">
+                            <i class="fas fa-list"></i>
                         </button>
                     </div>
                     <!-- UI Mode Toggle -->
-                    <div class="bg-gray-100 p-1 rounded-lg flex text-sm">
-                        <button @click="uiMode = 'watch'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'watch' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                    <div class="bg-gray-100 p-0.5 lg:p-1 rounded-lg flex text-xs lg:text-sm shrink-0">
+                        <button @click="uiMode = 'watch'" class="px-2 lg:px-3 py-1 rounded-md transition-all" :class="uiMode === 'watch' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500'">
                             观看
                         </button>
-                        <button @click="uiMode = 'manage'" class="px-3 py-1.5 rounded-md transition-all" :class="uiMode === 'manage' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500 hover:text-gray-700'">
+                        <button @click="uiMode = 'manage'" class="px-2 lg:px-3 py-1 rounded-md transition-all" :class="uiMode === 'manage' ? 'bg-white shadow text-purple-600 font-medium' : 'text-gray-500'">
                             管理
                         </button>
                     </div>

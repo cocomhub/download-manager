@@ -21,6 +21,7 @@
         },
 
         selectTask: function (id) {
+          this.mobileSidebarOpen = false
           this.selectedTaskId = id
           this.selectedTaskIds = this.selectedTaskIds.filter(function (x) { return x !== id })
           this.selectedObjectUrls = []
