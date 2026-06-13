@@ -12,9 +12,8 @@ test.describe('Dashboard', () => {
 
     // Switch to dashboard
     await page.locator('[data-testid="view-mode-dashboard"]').click();
-    await page.waitForTimeout(1000);
 
-    // Should see status/health related text
+    // Should show status/health related text
     const dashboardContent = page.locator('main');
     await expect(dashboardContent).toBeVisible({ timeout: 10000 });
   });
@@ -22,10 +21,10 @@ test.describe('Dashboard', () => {
   test('T11: dashboard shows metrics', async ({ page }) => {
     await page.goto('/');
     await page.locator('[data-testid="view-mode-dashboard"]').click();
-    await page.waitForTimeout(1000);
 
-    // Should show some form of metrics
+    // Wait for dashboard to render
     const mainContent = page.locator('main');
+    await expect(mainContent).toBeVisible({ timeout: 10000 });
     const text = await mainContent.textContent();
     expect(text?.length).toBeGreaterThan(50);
   });

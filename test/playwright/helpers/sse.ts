@@ -71,7 +71,7 @@ export class SSEWatcher {
 
   /** Returns all captured SSE events of a given type. */
   eventsOfType(type: string): any[] {
-    return (this.page as any).__sseEvents?.filter((e: any) => e.type === type) || [];
+    return (this.page as any).__sseLog?.filter((e: any) => e.type === type).map((e: any) => e.data) || [];
   }
 
   /** Waits for at least one event of the given type to arrive. */

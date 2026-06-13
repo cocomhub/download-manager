@@ -33,6 +33,10 @@ function apiRequest<T>(method: string, path: string, body?: any): Promise<T> {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`API ${method} ${path} returned ${res.statusCode}: ${data}`));
+          return;
+        }
         try {
           resolve(JSON.parse(data));
         } catch {

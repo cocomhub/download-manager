@@ -7,7 +7,8 @@ import { spawn, type ChildProcess } from 'child_process';
 import { request } from 'http';
 
 const TEST_PORT = parseInt(process.env.TEST_PORT || '19199', 10);
-const SERVER_BINARY = process.env.SERVER_BINARY || '../../cmd/playwright-server/playwright-server';
+const SERVER_BINARY = process.env.SERVER_BINARY ||
+  `../../cmd/playwright-server/playwright-server${process.platform === 'win32' ? '.exe' : ''}`;
 
 let serverProcess: ChildProcess | null = null;
 
@@ -43,7 +44,7 @@ export async function stopServer(): Promise<void> {
   return new Promise((resolve) => {
     const killTimer = setTimeout(() => {
       console.log('[server] force kill');
-      serverProcess?.kill('SIGKILL');
+      try { serverProcess?.kill('SIGKILL'); } catch { /* ignore */ }
       resolve();
     }, 5000);
 
@@ -53,7 +54,13 @@ export async function stopServer(): Promise<void> {
       resolve();
     });
 
-    serverProcess!.kill('SIGTERM');
+    try {
+      serverProcess!.kill('SIGTERM');
+    } catch {
+      clearTimeout(killTimer);
+      serverProcess = null;
+      resolve();
+    }
   });
 }
 

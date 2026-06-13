@@ -93,6 +93,8 @@ func main() {
 	<-sig
 
 	slog.Info("shutting down")
+	defer os.RemoveAll(workDir)
+	defer os.RemoveAll(downloadDir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(ctx)

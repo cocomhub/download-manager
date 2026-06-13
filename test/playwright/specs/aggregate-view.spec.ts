@@ -12,32 +12,33 @@ test.describe('Aggregate View', () => {
 
     // Switch to aggregate view
     await page.locator('[data-testid="view-mode-aggregate"]').click();
-    await page.waitForTimeout(1500);
 
-    // The aggregate view renders objects differently (TktubeAggregate).
-    // Check main content area shows content.
+    // Wait for aggregate view to render
     const main = page.locator('main');
-    await expect(main).toBeVisible();
+    await expect(main).toBeVisible({ timeout: 10000 });
     const text = await main.textContent();
     expect(text).toBeTruthy();
   });
 
   test('T9: aggregate view search renders results', async ({ page }) => {
     await page.goto('/');
+
+    // Switch to aggregate view
     await page.locator('[data-testid="view-mode-aggregate"]').click();
-    await page.waitForTimeout(1500);
+
+    // Wait for the area to be interactive
+    const main = page.locator('main');
+    await expect(main).toBeVisible({ timeout: 10000 });
 
     // Use search filter — the aggregate view uses tktubeSearchQuery
     // with placeholder "搜索标题、标签、URL"
     const searchInput = page.locator('input[placeholder="搜索标题、标签、URL"]');
-    if (await searchInput.isVisible()) {
-      await searchInput.fill('tktube');
-      await page.waitForTimeout(1500);
+    await searchInput.waitFor({ state: 'visible', timeout: 5000 });
+    await searchInput.fill('tktube');
+    await page.waitForTimeout(1500);
 
-      // Check that the aggregate view responded (content area changed)
-      const main = page.locator('main');
-      const text = await main.textContent();
-      expect(text).toBeTruthy();
-    }
+    // Check that the aggregate view responded (content area updated)
+    const text = await main.textContent();
+    expect(text).toBeTruthy();
   });
 });
