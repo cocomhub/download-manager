@@ -69,3 +69,32 @@ run: build
 
 show-version:
 	$(BIN_NAME) --version
+
+# Playwright E2E 测试
+# Windows 下编译产出 playwright-server.exe，Unix 下产出 playwright-server
+EXT =
+ifneq ($(findstring Windows,$(OS)),)
+    EXT = .exe
+endif
+PW_SERVER_BIN = cmd/playwright-server/playwright-server$(EXT)
+PW_DIR = test/playwright
+
+.PHONY: playwright-server
+playwright-server: ## 编译 Playwright 测试用 Go server
+	cd cmd/playwright-server && $(GO) build -o playwright-server$(EXT) .
+
+.PHONY: playwright-test
+playwright-test: playwright-server ## 运行 Playwright E2E 测试
+	cd $(PW_DIR) && npx playwright test
+
+.PHONY: playwright-ui
+playwright-ui: playwright-server ## 运行 Playwright UI 交互模式（AI 辅助调试）
+	cd $(PW_DIR) && npx playwright test --ui
+
+.PHONY: playwright-report
+playwright-report: ## 查看 Playwright 测试报告
+	cd $(PW_DIR) && npx playwright show-report
+
+.PHONY: playwright-codegen
+playwright-codegen: playwright-server ## 启动 Playwright 代码生成器
+	cd $(PW_DIR) && SERVER_BINARY=../../$(PW_SERVER_BIN) TEST_PORT=19199 npx playwright codegen http://localhost:19199

@@ -37,3 +37,50 @@ jobs:
         with:
           version: latest
           args: --timeout=3m
+
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: |
+            go.sum
+            cmd/playwright-server/go.sum
+
+      - name: Build test server
+        working-directory: cmd/playwright-server
+        run: go build -o playwright-server .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: test/playwright/package-lock.json
+
+      - name: Install dependencies
+        working-directory: test/playwright
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: test/playwright
+        run: npx playwright install chromium
+
+      - name: Run Playwright tests
+        working-directory: test/playwright
+        env:
+          SERVER_BINARY: ../../cmd/playwright-server/playwright-server
+          TEST_PORT: 19199
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-artifacts
+          path: |
+            test/playwright/test-results/
+            test/playwright/artifacts/
+          retention-days: 7

@@ -8,3 +8,14 @@ download-manager
 .claude/worktrees/
 .superpowers/
 .claude/diff_phase2.txt
+
+# Playwright test artifacts
+test/playwright/node_modules/
+test/playwright/playwright-report/
+test/playwright/test-results/
+test/playwright/artifacts/
+test/playwright/.cache/
+
+# Playwright test server binary
+cmd/playwright-server/playwright-server
+cmd/playwright-server/playwright-server.exe

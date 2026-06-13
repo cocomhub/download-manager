@@ -115,6 +115,26 @@ Progress(int), Metadata(map[string]string), Extra(map[string]any)
 - 无 `make lint`、无 `make test`；直接 `go test ./...`
 - 代码格式：`gofmt -s`（gofumpt 已注释）
 
+## Playwright E2E 测试
+
+浏览器 UI 自动化测试，覆盖 14 个核心场景。测试目录 `test/playwright/`（TypeScript），
+测试服务端 `cmd/playwright-server/`（Go，独立 go.mod，不污染主包）。
+
+```bash
+make playwright-test       # 全部 E2E 测试（CI 模式）
+make playwright-ui         # Playwright UI 交互模式（AI 辅助调试）
+make playwright-codegen    # 启动代码生成器，可录制 AI 操作
+```
+
+关键文件：
+- `test/playwright/helpers/server.ts` — Go server 子进程管理
+- `test/playwright/helpers/api.ts` — REST API 封装
+- `test/playwright/helpers/sse.ts` — SSE 事件拦截辅助
+- `test/playwright/specs/` — 14 个测试场景
+- `cmd/playwright-server/fixture/` — 测试数据集（4 个预置任务）
+
+设计文档：`docs/superpowers/specs/2026-06-14-browser-e2e-testing-design.md`
+
 <!-- superpowers-zh:begin (do not edit between these markers) -->
 # Superpowers-ZH 中文增强版
 
