@@ -4,41 +4,11 @@
 package manager
 
 import (
-	"context"
-	"log/slog"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
-	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
-
-type mockTask struct {
-	id   string
-	typ  string
-	objs []*model.DownloadObject
-}
-
-func (m *mockTask) ID() string                            { return m.id }
-func (m *mockTask) Type() string                          { return m.typ }
-func (m *mockTask) Logger() *slog.Logger                  { return slog.Default() }
-func (m *mockTask) Storage() core.Storage                 { return nil }
-func (m *mockTask) SetDownloader(core.Downloader)         {}
-func (m *mockTask) GetDownloadHeaders() map[string]string { return map[string]string{} }
-func (m *mockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	return []*model.DownloadObject{}, nil
-}
-func (m *mockTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
-	return nil
-}
-func (m *mockTask) Concurrency() int                                               { return 1 }
-func (m *mockTask) SetConcurrency(int) error                                       { return nil }
-func (m *mockTask) RefreshInterval() int                                           { return 0 }
-func (m *mockTask) SetRefreshInterval(int) error                                   { return nil }
-func (m *mockTask) Start() error                                                   { return nil }
-func (m *mockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
-func (m *mockTask) Close() error                                                   { return nil }
-func (m *mockTask) GetAllObjects(lock bool) []*model.DownloadObject                { return m.objs }
 
 func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	cfg := &config.Config{
@@ -82,7 +52,10 @@ func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
-	objs2 := res2["objects"].([]*model.DownloadObject)
+	objs2, ok := res2["objects"].([]*model.DownloadObject)
+	if !ok {
+		t.Fatalf("expected objects slice, got %T", res2["objects"])
+	}
 	if len(objs2) != 1 || objs2[0].TaskID != "t2" {
 		t.Fatalf("expect only t2 matched, got: %+v", objs2)
 	}
@@ -91,7 +64,10 @@ func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
-	objs3 := res3["objects"].([]*model.DownloadObject)
+	objs3, ok := res3["objects"].([]*model.DownloadObject)
+	if !ok {
+		t.Fatalf("expected objects slice, got %T", res3["objects"])
+	}
 	if len(objs3) != 2 {
 		t.Fatalf("expect 2 objects when no type filter, got: %d", len(objs3))
 	}

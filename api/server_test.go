@@ -232,6 +232,69 @@ func TestAPI_Config_Get(t *testing.T) {
 	_ = done
 }
 
+// TestAPI_Runtime verifies GET /api/runtime returns runtime info.
+func TestAPI_Runtime(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-rt", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/runtime")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/runtime returned %d, want 200", rr.Code)
+	}
+
+	var runtime map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &runtime); err != nil {
+		t.Fatalf("unmarshal runtime: %v", err)
+	}
+
+	_ = done
+}
+
+// TestAPI_Downloads verifies GET /api/downloads returns active downloads list.
+func TestAPI_Downloads(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-dls", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/downloads")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/downloads returned %d, want 200", rr.Code)
+	}
+
+	var downloads []any
+	if err := json.Unmarshal(rr.Body.Bytes(), &downloads); err != nil {
+		t.Fatalf("unmarshal downloads: %v", err)
+	}
+
+	_ = done
+}
+
+// TestAPI_Failures verifies GET /api/metrics/failures returns failure metrics.
+func TestAPI_Failures(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-fail", 1, false)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	time.Sleep(200 * time.Millisecond)
+
+	rr := doJSONGet(r, "/api/metrics/failures")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/metrics/failures returned %d, want 200", rr.Code)
+	}
+
+	var failures any
+	if err := json.Unmarshal(rr.Body.Bytes(), &failures); err != nil {
+		t.Fatalf("unmarshal failures: %v", err)
+	}
+
+	_ = done
+}
+
 // --- helpers ---
 
 // newAPIServerWithMock creates an API server with a mock task.

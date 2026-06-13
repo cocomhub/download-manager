@@ -4,43 +4,11 @@
 package manager
 
 import (
-	"context"
-	"log/slog"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
-	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
-
-type mockTaskWithStore struct {
-	id   string
-	typ  string
-	objs []*model.DownloadObject
-}
-
-func (m *mockTaskWithStore) ID() string                            { return m.id }
-func (m *mockTaskWithStore) Type() string                          { return m.typ }
-func (m *mockTaskWithStore) Logger() *slog.Logger                  { return slog.Default() }
-func (m *mockTaskWithStore) Storage() core.Storage                 { return nil }
-func (m *mockTaskWithStore) SetDownloader(core.Downloader)         {}
-func (m *mockTaskWithStore) GetDownloadHeaders() map[string]string { return map[string]string{} }
-func (m *mockTaskWithStore) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	return []*model.DownloadObject{}, nil
-}
-func (m *mockTaskWithStore) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
-	return nil
-}
-func (m *mockTaskWithStore) Concurrency() int             { return 1 }
-func (m *mockTaskWithStore) SetConcurrency(int) error     { return nil }
-func (m *mockTaskWithStore) RefreshInterval() int         { return 0 }
-func (m *mockTaskWithStore) SetRefreshInterval(int) error { return nil }
-func (m *mockTaskWithStore) Start() error                 { return nil }
-func (m *mockTaskWithStore) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
-	return nil
-}
-func (m *mockTaskWithStore) Close() error                                    { return nil }
-func (m *mockTaskWithStore) GetAllObjects(lock bool) []*model.DownloadObject { return m.objs }
 
 func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	cfg := &config.Config{
@@ -68,7 +36,7 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 		Metadata: map[string]string{"title": "ABP-456", "content_group": "ABP-456", "date": "2024-02-01"},
 		Extra:    map[string]any{},
 	}
-	t1 := &mockTaskWithStore{
+	t1 := &mockTask{
 		id:   "t1",
 		typ:  "tktube",
 		objs: []*model.DownloadObject{o1, o2, o3},
@@ -79,7 +47,10 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
-	objs := res["objects"].([]*model.DownloadObject)
+	objs, ok := res["objects"].([]*model.DownloadObject)
+	if !ok {
+		t.Fatalf("expected objects slice, got %T", res["objects"])
+	}
 	if len(objs) != 2 {
 		t.Fatalf("expect 2 groups, got %d", len(objs))
 	}
@@ -138,14 +109,17 @@ func TestAggregateByContent_ScopesSameGroupAcrossTasks(t *testing.T) {
 		},
 		Extra: map[string]any{},
 	}
-	m.tasks.Store("t1", &mockTaskWithStore{id: "t1", typ: "tktube", objs: []*model.DownloadObject{t1Obj}})
-	m.tasks.Store("t2", &mockTaskWithStore{id: "t2", typ: "tktube", objs: []*model.DownloadObject{t2Obj}})
+	m.tasks.Store("t1", &mockTask{id: "t1", typ: "tktube", objs: []*model.DownloadObject{t1Obj}})
+	m.tasks.Store("t2", &mockTask{id: "t2", typ: "tktube", objs: []*model.DownloadObject{t2Obj}})
 
 	res, err := m.AggregateByContent(1, -1, "", "date_desc", "all", []string{})
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
-	objs := res["objects"].([]*model.DownloadObject)
+	objs, ok := res["objects"].([]*model.DownloadObject)
+	if !ok {
+		t.Fatalf("expected objects slice, got %T", res["objects"])
+	}
 	if len(objs) != 2 {
 		t.Fatalf("expect 2 scoped groups, got %d", len(objs))
 	}
@@ -185,13 +159,16 @@ func TestAggregateByContent_UnknownKeysStaySeparated(t *testing.T) {
 		},
 		Extra: map[string]any{},
 	}
-	m.tasks.Store("t1", &mockTaskWithStore{id: "t1", typ: "tktube", objs: []*model.DownloadObject{o1, o2}})
+	m.tasks.Store("t1", &mockTask{id: "t1", typ: "tktube", objs: []*model.DownloadObject{o1, o2}})
 
 	res, err := m.AggregateByContent(1, -1, "", "date_desc", "all", []string{})
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
-	objs := res["objects"].([]*model.DownloadObject)
+	objs, ok := res["objects"].([]*model.DownloadObject)
+	if !ok {
+		t.Fatalf("expected objects slice, got %T", res["objects"])
+	}
 	if len(objs) != 2 {
 		t.Fatalf("expect 2 unknown groups, got %d", len(objs))
 	}
