@@ -29,6 +29,9 @@ jobs:
       - name: Run tests
         run: go test ./... -v -count=1 -timeout=180s
 
+      - name: Run tests (no mongo)
+        run: go test -tags no_mongo ./... -v -count=1 -timeout=180s
+
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:

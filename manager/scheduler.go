@@ -66,7 +66,12 @@ func (m *Manager) Start() {
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
 			if m.schedulerStop != nil {
-				close(m.schedulerStop)
+				select {
+				case <-m.schedulerStop:
+					// already closed
+				default:
+					close(m.schedulerStop)
+				}
 			}
 			m.closeAllTasks()
 			return
@@ -380,27 +385,7 @@ func (m *Manager) scheduler() {
 		case <-fallbackTicker.C:
 			m.schedulerHeartbeat.Store(time.Now())
 			if time.Since(lastUpdate) > 2*time.Second {
-				weights = make(map[string]int)
-				m.tasks.Range(func(key, value any) bool {
-					id := key.(string)
-					w := 1
-					w += max(0, len(m.getTaskQueue(id))/8)
-					if v, ok := m.metrics.Load(id); ok {
-						mt := v.(*taskMetrics)
-						if mt.avgLatencyMs.Load() > 5000 {
-							w -= 1
-						}
-						if mt.failures.Load() > 0 {
-							w -= int(min(mt.failures.Load(), int64(2)))
-						}
-						if w < 1 {
-							w = 1
-						}
-					}
-					w = min(w, maxSchedulerWeight)
-					weights[id] = w
-					return true
-				})
+				weights = m.recalcWeights(weights, maxSchedulerWeight)
 				lastUpdate = time.Now()
 			}
 			drainOnce()
@@ -409,4 +394,30 @@ func (m *Manager) scheduler() {
 			drainOnce()
 		}
 	}
+}
+
+// recalcWeights recomputes scheduler weights for the given maxSchedulerWeight.
+// Exported for testing; used by scheduler() and scheduler_test.
+func (m *Manager) recalcWeights(weights map[string]int, maxSchedulerWeight int) map[string]int {
+	m.tasks.Range(func(key, value any) bool {
+		id := key.(string)
+		w := 1
+		w += max(0, len(m.getTaskQueue(id))/8)
+		if v, ok := m.metrics.Load(id); ok {
+			mt := v.(*taskMetrics)
+			if mt.avgLatencyMs.Load() > 5000 {
+				w -= 1
+			}
+			if mt.failures.Load() > 0 {
+				w -= int(min(mt.failures.Load(), int64(2)))
+			}
+			if w < 1 {
+				w = 1
+			}
+		}
+		w = min(w, maxSchedulerWeight)
+		weights[id] = w
+		return true
+	})
+	return weights
 }

@@ -1,6 +1,8 @@
 build
 local
 bin
+config_backups
+config.yaml
 download-manager
 .workbuddy/
 .claude/worktrees/

@@ -17,8 +17,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var (
@@ -136,8 +134,8 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
 
-		if files, ok := filesVal.(primitive.A); ok {
-			filesVal = []any(files)
+		if typeName := fmt.Sprintf("%T", filesVal); typeName == "primitive.A" {
+			filesVal = filesVal.([]any)
 		}
 
 		if files, ok := filesVal.([]map[string]string); ok {
