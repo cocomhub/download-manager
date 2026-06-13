@@ -1,3 +1,8 @@
+/**
+ * Copyright 2026 The Cocomhub Authors. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { request, type RequestOptions } from 'http';
 
 const TEST_PORT = parseInt(process.env.TEST_PORT || '19199', 10);
