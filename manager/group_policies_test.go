@@ -346,3 +346,139 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 		t.Fatalf("expect different task_type redirect_url unset, got %v", sameTaskIDWrongType.Extra["redirect_url"])
 	}
 }
+
+// TestApplyGroupPriorityPolicies_MultipleContentGroups verifies multiple groups
+// only cancel objects matching the canonical's content_group.
+func TestApplyGroupPriorityPolicies_MultipleContentGroups(t *testing.T) {
+	m := &Manager{}
+	store := &memStore{m: make(map[string]*model.DownloadObject)}
+
+	canonical := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u1",
+		Metadata: map[string]string{
+			"title":         "【高画质】CLUB-100",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusCompleted,
+	}
+	sameGroupPending := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u2",
+		Metadata: map[string]string{
+			"title":         "CLUB-100C",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusPending,
+	}
+	otherGroupPending := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u3",
+		Metadata: map[string]string{
+			"title":         "ABP-456",
+			"task_type":     tktube.TaskType,
+			"content_group": "ABP-456",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusPending,
+	}
+	noGroupPending := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u4",
+		Metadata: map[string]string{
+			"title":     "no-group-video",
+			"task_type": tktube.TaskType,
+			// no content_group
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusPending,
+	}
+	for _, o := range []*model.DownloadObject{canonical, sameGroupPending, otherGroupPending, noGroupPending} {
+		_ = store.Update(o)
+	}
+	task := &fakeTktTask{id: "t1", st: store, objs: []*model.DownloadObject{canonical, sameGroupPending, otherGroupPending, noGroupPending}}
+
+	m.applyGroupPriorityPolicies(task, canonical)
+
+	if sameGroupPending.Status != model.StatusCancelled {
+		t.Fatalf("expect same-group pending cancelled, got %s", sameGroupPending.Status)
+	}
+	if otherGroupPending.Status != model.StatusPending {
+		t.Fatalf("expect other-group pending untouched, got %s", otherGroupPending.Status)
+	}
+	if noGroupPending.Status != model.StatusPending {
+		t.Fatalf("expect no-group pending untouched, got %s", noGroupPending.Status)
+	}
+}
+
+// TestApplyGroupPriorityPolicies_AlreadyCompleted verifies completed objects are not cancelled.
+func TestApplyGroupPriorityPolicies_AlreadyCompleted(t *testing.T) {
+	m := &Manager{}
+	store := &memStore{m: make(map[string]*model.DownloadObject)}
+
+	canonical := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u1",
+		Metadata: map[string]string{
+			"title":         "【高画质】CLUB-100",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusCompleted,
+	}
+	alreadyFailed := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u2",
+		Metadata: map[string]string{
+			"title":         "CLUB-100C",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusFailed,
+	}
+	alreadyCancelled := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u3",
+		Metadata: map[string]string{
+			"title":         "CLUB-100D",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusCancelled,
+	}
+	alreadyFailedPermanent := &model.DownloadObject{
+		TaskID: "t1",
+		URL:    "u4",
+		Metadata: map[string]string{
+			"title":         "CLUB-100E",
+			"task_type":     tktube.TaskType,
+			"content_group": "CLUB-100",
+		},
+		Extra:  map[string]any{},
+		Status: model.StatusFailedPermanent,
+	}
+	for _, o := range []*model.DownloadObject{canonical, alreadyFailed, alreadyCancelled, alreadyFailedPermanent} {
+		_ = store.Update(o)
+	}
+	task := &fakeTktTask{id: "t1", st: store, objs: []*model.DownloadObject{canonical, alreadyFailed, alreadyCancelled, alreadyFailedPermanent}}
+
+	m.applyGroupPriorityPolicies(task, canonical)
+
+	// Non-pending objects should not be modified
+	if alreadyFailed.Status != model.StatusFailed {
+		t.Fatalf("expect failed object unchanged, got %s", alreadyFailed.Status)
+	}
+	if alreadyCancelled.Status != model.StatusCancelled {
+		t.Fatalf("expect cancelled object unchanged, got %s", alreadyCancelled.Status)
+	}
+	if alreadyFailedPermanent.Status != model.StatusFailedPermanent {
+		t.Fatalf("expect failed_permanent object unchanged, got %s", alreadyFailedPermanent.Status)
+	}
+}
