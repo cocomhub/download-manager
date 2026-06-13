@@ -159,7 +159,7 @@
 
                 <div v-if="selectedTask"
                      class="flex items-center gap-2 lg:gap-3 mt-2 overflow-x-auto pb-1"
-                     :class="mobileToolbarOpen || 'hidden lg:flex'">
+                     :class="mobileToolbarOpen ? 'flex' : 'hidden lg:flex'">
                     <!-- Actions -->
                     <button @click="retryAllFailed" data-testid="btn-retry-all" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs lg:text-sm bg-red-50 text-red-600 hover:bg-red-100 px-2 lg:px-3 py-1.5 rounded-md transition-colors flex items-center disabled:opacity-50 whitespace-nowrap">
                             <i class="fas fa-redo mr-1"></i> Retry
