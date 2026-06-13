@@ -30,9 +30,8 @@ test.describe('Aggregate View', () => {
     const main = page.locator('main');
     await expect(main).toBeVisible({ timeout: 10000 });
 
-    // Use search filter — the aggregate view uses tktubeSearchQuery
-    // with placeholder "搜索标题、标签、URL"
-    const searchInput = page.locator('input[placeholder="搜索标题、标签、URL"]');
+    // Use search filter — the aggregate view uses its own search input
+    const searchInput = page.locator('[data-testid="search-input-aggregate"]');
     await searchInput.waitFor({ state: 'visible', timeout: 5000 });
     await searchInput.fill('tktube');
     await page.waitForTimeout(1500);

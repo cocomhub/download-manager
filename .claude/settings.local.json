@@ -3,6 +3,8 @@
     "allow": [
       "mcp__mcp-atlassian-http__confluence_get_page",
       "mcp__mcp-atlassian-http__jira_get_issue",
+      "Bash(*)",
+      "PowerShell(*)",
       "Read(**)",
       "Bash(awk:*)",
       "Bash(bash:*)",
@@ -37,9 +39,7 @@
       "Bash(go build *)",
       "Bash(Get-ChildItem *)",
       "Bash(dir *)",
-      "Bash(gofmt -s -w manager/)",
       "Bash(xxd)",
-      "Bash(gofmt -s -w manager/manager.go manager/scheduler.go manager/download.go manager/tasks.go)",
       "Bash(findstr phase2 *)",
       "Bash(gofmt *)",
       "Bash(cd *)",
