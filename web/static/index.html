@@ -270,7 +270,7 @@
                                 <tr>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task ID</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Progress</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owners</th>
                                 </tr>
@@ -279,7 +279,7 @@
                                 <tr v-for="d in activeDownloads" :key="d.url">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ d.task_id }}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500 truncate max-w-md" :title="d.title">{{ d.title || d.url }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell">
                                         <div class="flex items-center">
                                             <div class="w-full bg-gray-200 rounded-full h-2 mr-2">
                                                 <div class="bg-blue-600 h-2 rounded-full" :style="{ width: d.progress + '%' }"></div>
@@ -426,10 +426,10 @@
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Info</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tags</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Progress</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                     </tr>
@@ -452,11 +452,11 @@
                                                 </div>
                                             </div>
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                                        <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500 hidden md:table-cell">
                                             <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
                                             <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
                                         </td>
-                                        <td class="px-6 py-4">
+                                        <td class="px-6 py-4 hidden md:table-cell">
                                             <div class="flex flex-wrap gap-1 max-w-xs">
                                                 <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">{{ tag }}</span>
                                             </div>
@@ -469,7 +469,7 @@
                                                     'bg-gray-100 text-gray-800': obj.status === 'pending'
                                                 }">{{ obj.status }}</span>
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell">
                                             <div class="w-24 bg-gray-200 rounded-full h-1.5">
                                                 <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
                                             </div>
@@ -570,11 +570,11 @@
                             <th class="text-left py-2 pr-4">任务</th>
                             <th class="text-right py-2 px-2">完成</th>
                             <th class="text-right py-2 px-2">失败</th>
-                            <th class="text-right py-2 px-2">重试</th>
-                            <th class="text-right py-2 px-2">平均延迟</th>
-                            <th class="text-right py-2 px-2">队列深度</th>
-                            <th class="text-right py-2 px-2">活跃数</th>
-                            <th class="text-right py-2 px-2">并发度</th>
+                            <th class="text-right py-2 px-2 hidden md:table-cell">重试</th>
+                            <th class="text-right py-2 px-2 hidden md:table-cell">平均延迟</th>
+                            <th class="text-right py-2 px-2 hidden md:table-cell">队列深度</th>
+                            <th class="text-right py-2 px-2 hidden md:table-cell">活跃数</th>
+                            <th class="text-right py-2 px-2 hidden md:table-cell">并发度</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -582,11 +582,11 @@
                             <td class="py-2 pr-4 font-medium text-gray-800">{{ tid }}</td>
                             <td class="py-2 px-2 text-right">{{ tm.completed || 0 }}</td>
                             <td class="py-2 px-2 text-right" :class="tm.failures > 0 ? 'text-red-600' : ''">{{ tm.failures || 0 }}</td>
-                            <td class="py-2 px-2 text-right">{{ tm.retried || 0 }}</td>
-                            <td class="py-2 px-2 text-right">{{ tm.avg_latency_ms ? (tm.avg_latency_ms + 'ms') : '-' }}</td>
-                            <td class="py-2 px-2 text-right">{{ tm.queue_depth || 0 }}</td>
-                            <td class="py-2 px-2 text-right">{{ tm.active || 0 }}</td>
-                            <td class="py-2 px-2 text-right">{{ tm.concurrency || '-' }}</td>
+                            <td class="py-2 px-2 text-right hidden md:table-cell">{{ tm.retried || 0 }}</td>
+                            <td class="py-2 px-2 text-right hidden md:table-cell">{{ tm.avg_latency_ms ? (tm.avg_latency_ms + 'ms') : '-' }}</td>
+                            <td class="py-2 px-2 text-right hidden md:table-cell">{{ tm.queue_depth || 0 }}</td>
+                            <td class="py-2 px-2 text-right hidden md:table-cell">{{ tm.active || 0 }}</td>
+                            <td class="py-2 px-2 text-right hidden md:table-cell">{{ tm.concurrency || '-' }}</td>
                           </tr>
                         </tbody>
                       </table>
@@ -616,20 +616,20 @@
                           <tr class="border-b text-xs text-gray-500">
                             <th class="text-left py-2 pr-4">时间</th>
                             <th class="text-left py-2 pr-4">任务</th>
-                            <th class="text-left py-2 pr-4">URL</th>
+                            <th class="text-left py-2 pr-4 hidden md:table-cell">URL</th>
                             <th class="text-left py-2 pr-4">错误信息</th>
-                            <th class="text-center py-2 px-2">尝试</th>
-                            <th class="text-center py-2 px-2">永久</th>
+                            <th class="text-center py-2 px-2 hidden md:table-cell">尝试</th>
+                            <th class="text-center py-2 px-2 hidden md:table-cell">永久</th>
                           </tr>
                         </thead>
                         <tbody>
                           <tr v-for="(f, idx) in dashboardFailures.failures" :key="idx" class="border-b hover:bg-gray-50">
                             <td class="py-2 pr-4 text-xs text-gray-500 whitespace-nowrap">{{ f.timestamp ? new Date(f.timestamp * 1000).toLocaleString() : '-' }}</td>
                             <td class="py-2 pr-4 font-medium text-gray-800">{{ f.task_id || '-' }}</td>
-                            <td class="py-2 pr-4 max-w-xs truncate text-gray-600" :title="f.url">{{ f.url || '-' }}</td>
+                            <td class="py-2 pr-4 max-w-xs truncate text-gray-600 hidden md:table-cell" :title="f.url">{{ f.url || '-' }}</td>
                             <td class="py-2 pr-4 text-red-600 max-w-md truncate" :title="f.error">{{ f.error || '-' }}</td>
-                            <td class="py-2 px-2 text-center">{{ f.attempt || 0 }}</td>
-                            <td class="py-2 px-2 text-center">{{ f.permanent ? '✅' : '❌' }}</td>
+                            <td class="py-2 px-2 text-center hidden md:table-cell">{{ f.attempt || 0 }}</td>
+                            <td class="py-2 px-2 text-center hidden md:table-cell">{{ f.permanent ? '✅' : '❌' }}</td>
                           </tr>
                         </tbody>
                       </table>
@@ -817,10 +817,10 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tags</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Info</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tags</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Progress</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
@@ -840,11 +840,11 @@
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500 hidden md:table-cell">
                                 <div v-if="getDuration(obj)"><i class="far fa-clock mr-1"></i> {{ getDuration(obj) }}</div>
                                 <div v-if="getDate(obj)"><i class="far fa-calendar mr-1"></i> {{ getDate(obj) }}</div>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-6 py-4 hidden md:table-cell">
                                 <div class="flex flex-wrap gap-1 max-w-xs">
                                     <span v-for="tag in getTags(obj).slice(0, 3)" :key="tag" class="text-xs text-gray-500 bg-gray-100 px-1 rounded">{{ tag }}</span>
                                 </div>
@@ -857,7 +857,7 @@
                                                 'bg-gray-100 text-gray-800': obj.status === 'pending'
                                             }">{{ obj.status }}</span>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell">
                                 <div class="w-24 bg-gray-200 rounded-full h-1.5">
                                     <div class="bg-blue-500 h-1.5 rounded-full" :style="{ width: (obj.progress || 0) + '%' }"></div>
                                 </div>
