@@ -27,7 +27,13 @@ import (
 func main() {
 	port := flag.Int("port", 19199, "HTTP server port")
 	fixtureName := flag.String("fixture", "", "Test fixture name to load (e.g. 'full')")
+	uiOnly := flag.Bool("ui-only", false, "Start in UI-only mode (read-only)")
 	flag.Parse()
+
+	runMode := config.RunModeFull
+	if *uiOnly {
+		runMode = config.RunModeUI
+	}
 
 	workDir := os.TempDir() + "/playwright-test"
 	downloadDir := os.TempDir() + "/playwright-downloads"
@@ -42,13 +48,13 @@ func main() {
 			DownloadRootDir: downloadDir,
 		},
 		Runtime: config.Runtime{
-			Mode: config.RunModeFull,
+			Mode: runMode,
 			Download: struct {
 				Enabled bool `yaml:"enabled" json:"enabled"`
-			}{Enabled: true},
+			}{Enabled: !*uiOnly},
 			Scheduler: struct {
 				Enabled bool `yaml:"enabled" json:"enabled"`
-			}{Enabled: true},
+			}{Enabled: !*uiOnly},
 		},
 		Downloader: config.Downloader{
 			GlobalConcurrent: 5,

@@ -6,24 +6,33 @@
 import { request, type RequestOptions } from 'http';
 
 const TEST_PORT = parseInt(process.env.TEST_PORT || '19199', 10);
+export const UI_ONLY_PORT = TEST_PORT + 1;
 
 export async function apiGet<T = any>(path: string): Promise<T> {
-  return apiRequest<T>('GET', path);
+  return apiRequest<T>('GET', path, TEST_PORT);
 }
 
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  return apiRequest<T>('POST', path, body);
+  return apiRequest<T>('POST', path, TEST_PORT, body);
 }
 
 export async function apiPatch<T = any>(path: string, body?: any): Promise<T> {
-  return apiRequest<T>('PATCH', path, body);
+  return apiRequest<T>('PATCH', path, TEST_PORT, body);
 }
 
-function apiRequest<T>(method: string, path: string, body?: any): Promise<T> {
+export async function apiGetUI<T = any>(path: string): Promise<T> {
+  return apiRequest<T>('GET', path, UI_ONLY_PORT);
+}
+
+export async function apiPostUI<T = any>(path: string, body?: any): Promise<T> {
+  return apiRequest<T>('POST', path, UI_ONLY_PORT, body);
+}
+
+function apiRequest<T>(method: string, path: string, port: number, body?: any): Promise<T> {
   return new Promise((resolve, reject) => {
     const options: RequestOptions = {
       hostname: 'localhost',
-      port: TEST_PORT,
+      port,
       path,
       method,
       headers: { 'Content-Type': 'application/json' },

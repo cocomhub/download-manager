@@ -11,6 +11,9 @@ const SERVER_BINARY = process.env.SERVER_BINARY ||
   `../../cmd/playwright-server/playwright-server${process.platform === 'win32' ? '.exe' : ''}`;
 
 let serverProcess: ChildProcess | null = null;
+let uiOnlyServerProcess: ChildProcess | null = null;
+
+const UI_ONLY_PORT = TEST_PORT + 1;
 
 export async function startServer(fixture: string): Promise<void> {
   const serverPath = SERVER_BINARY;
@@ -38,27 +41,62 @@ export async function startServer(fixture: string): Promise<void> {
   await waitForHealthz(TEST_PORT, 15000);
 }
 
-export async function stopServer(): Promise<void> {
-  if (!serverProcess) return;
+export async function startUIOnlyServer(): Promise<void> {
+  const serverPath = SERVER_BINARY;
 
+  uiOnlyServerProcess = spawn(serverPath, [
+    '--port', String(UI_ONLY_PORT),
+    '--ui-only',
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  uiOnlyServerProcess.stdout?.on('data', (data: Buffer) => {
+    console.log(`[ui-only] ${data.toString().trim()}`);
+  });
+
+  uiOnlyServerProcess.stderr?.on('data', (data: Buffer) => {
+    console.error(`[ui-only:err] ${data.toString().trim()}`);
+  });
+
+  uiOnlyServerProcess.on('exit', (code) => {
+    console.log(`[ui-only] exited with code ${code}`);
+    uiOnlyServerProcess = null;
+  });
+
+  await waitForHealthz(UI_ONLY_PORT, 15000);
+}
+
+export async function stopServer(): Promise<void> {
+  if (serverProcess) {
+    await killProcess(serverProcess);
+    serverProcess = null;
+  }
+  if (uiOnlyServerProcess) {
+    await killProcess(uiOnlyServerProcess);
+    uiOnlyServerProcess = null;
+  }
+}
+
+export { TEST_PORT, UI_ONLY_PORT };
+
+function killProcess(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     const killTimer = setTimeout(() => {
       console.log('[server] force kill');
-      try { serverProcess?.kill('SIGKILL'); } catch { /* ignore */ }
+      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
       resolve();
     }, 5000);
 
-    serverProcess!.on('exit', () => {
+    proc.on('exit', () => {
       clearTimeout(killTimer);
-      serverProcess = null;
       resolve();
     });
 
     try {
-      serverProcess!.kill('SIGTERM');
+      proc.kill('SIGTERM');
     } catch {
       clearTimeout(killTimer);
-      serverProcess = null;
       resolve();
     }
   });

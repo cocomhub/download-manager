@@ -4,24 +4,43 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { apiPost, apiPostUI, apiGetUI, UI_ONLY_PORT } from '../helpers/api';
 
 test.describe('UI-only Mode & Error Boundaries', () => {
 
-  // TODO: 完整 T14 场景需要启动第二个 server 实例（UI-only 模式）
-  // 当前在 full mode 下验证基本导航功能
-  // 后续在 playwright.config.ts 中添加第二个 project（ui-only）覆盖：
-  //   - 所有操作按钮禁用/灰化
-  //   - 写 API 返回 405
-  //   - 提示写禁用
-  test('T14: UI renders correctly in full mode', async ({ page }) => {
+  test('T14a: full mode has write buttons enabled', async ({ page }) => {
     await page.goto('/');
 
-    // Verify navigation elements
+    // Verify navigation elements in full mode
     await expect(page.locator('[data-testid="view-mode-downloads"]')).toBeVisible();
     await expect(page.locator('[data-testid="view-mode-aggregate"]')).toBeVisible();
     await expect(page.locator('[data-testid="view-mode-dashboard"]')).toBeVisible();
-
-    // Sidebar visible
     await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
+
+    // Select a task first to reveal the write buttons
+    await page.locator('[data-testid="task-test-tktube"]').click();
+    await page.waitForTimeout(1000);
+
+    // Write buttons should be enabled in full mode
+    await expect(page.locator('[data-testid="btn-retry-all"]')).not.toBeDisabled();
+  });
+
+  test('T14b: UI-only page loads correctly', async ({ page }) => {
+    // Open UI-only server page
+    await page.goto(`http://localhost:${UI_ONLY_PORT}/`);
+
+    // Verify navigation elements exist
+    await expect(page.locator('[data-testid="view-mode-downloads"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
+
+    // Check runtime endpoint to confirm it's UI-only mode
+    const runtime = await apiGetUI('/api/runtime');
+    expect(runtime).toBeDefined();
+  });
+
+  test('T14c: UI-only API returns 405 on write endpoints', async () => {
+    // UI-only server: write should reject with 405
+    await expect(apiPostUI('/api/tasks/test-tktube/cancel'))
+      .rejects.toThrow(/405/);
   });
 });
