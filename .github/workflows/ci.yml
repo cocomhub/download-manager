@@ -90,10 +90,16 @@ jobs:
         run: npx playwright test
 
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: playwright-artifacts
           path: |
             test/playwright/test-results/
+            test/playwright/playwright-report/
             test/playwright/artifacts/
           retention-days: 7
+
+      - name: Generate test summary
+        if: always()
+        working-directory: test/playwright
+        run: bash ../../scripts/playwright-report-gen.sh test-results

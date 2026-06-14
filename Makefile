@@ -98,3 +98,11 @@ playwright-report: ## 查看 Playwright 测试报告
 .PHONY: playwright-codegen
 playwright-codegen: playwright-server ## 启动 Playwright 代码生成器
 	cd $(PW_DIR) && SERVER_BINARY=../../$(PW_SERVER_BIN) TEST_PORT=19199 npx playwright codegen http://localhost:19199
+
+.PHONY: playwright-report-gen
+playwright-report-gen: ## 生成 Playwright 测试摘要报告
+	@if command -v bash >/dev/null 2>&1; then \
+		bash scripts/playwright-report-gen.sh; \
+	else \
+		echo "Skipping report generation (requires bash)"; \
+	fi
