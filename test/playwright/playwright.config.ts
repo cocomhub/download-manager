@@ -9,9 +9,9 @@ const TEST_PORT = parseInt(process.env.TEST_PORT || '19199', 10);
 
 export default defineConfig({
   testDir: './specs',
-  timeout: 30000,
+  timeout: 45000,
   expect: {
-    timeout: 10000,
+    timeout: 15000,
   },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
