@@ -133,6 +133,15 @@ make playwright-codegen    # 启动代码生成器，可录制 AI 操作
 - `test/playwright/specs/` — 14 个测试场景
 - `cmd/playwright-server/fixture/` — 测试数据集（4 个预置任务）
 
+## AI 交互式测试
+
+```bash
+make playwright-codegen    # 启动 Codegen 录制（AI 操作 -> 自动生成测试）
+```
+
+Playwright Codegen 与 Chrome DevTools MCP 结合，AI 可以用自然语言描述操作步骤，
+系统自动录制为测试脚本。关键 `data-testid` 锚点见 `test/playwright/CODEGEN.md`。
+
 设计文档：`docs/superpowers/specs/2026-06-14-browser-e2e-testing-design.md`
 
 <!-- superpowers-zh:begin (do not edit between these markers) -->
