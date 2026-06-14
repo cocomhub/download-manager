@@ -38,7 +38,10 @@ test.describe('Performance Benchmarks', () => {
 
     const startTime = Date.now();
     await page.locator('[data-testid="view-mode-dashboard"]').click();
-    await page.waitForTimeout(1000);
+
+    // Wait for the dashboard content to appear
+    await expect(page.locator('main')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(200);
 
     const switchTime = Date.now() - startTime;
     console.log(`View switch -> content time: ${switchTime}ms`);

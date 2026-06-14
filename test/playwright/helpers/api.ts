@@ -7,6 +7,7 @@ import { request, type RequestOptions } from 'http';
 
 const TEST_PORT = parseInt(process.env.TEST_PORT || '19199', 10);
 export const UI_ONLY_PORT = TEST_PORT + 1;
+export { TEST_PORT };
 
 export async function apiGet<T = any>(path: string): Promise<T> {
   return apiRequest<T>('GET', path, TEST_PORT);

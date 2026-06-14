@@ -9,7 +9,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { apiGet, apiPost, apiPatch } from '../helpers/api';
+import { apiPost } from '../helpers/api';
 
 test.describe('Fixtures & Data Scenarios', () => {
 

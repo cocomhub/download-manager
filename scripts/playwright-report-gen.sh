@@ -19,10 +19,10 @@ echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$REPORT_FILE"
 echo "" >> "$REPORT_FILE"
 
 # Count passed/failed from JSON results if available
-if [ -f "test/playwright/test-results/.last-run.json" ]; then
-    total=$(jq -r '.stats.expected // 0' "test/playwright/test-results/.last-run.json" 2>/dev/null || echo "0")
-    failed=$(jq -r '.stats.unexpected // 0' "test/playwright/test-results/.last-run.json" 2>/dev/null || echo "0")
-    duration=$(jq -r '.stats.duration // 0' "test/playwright/test-results/.last-run.json" 2>/dev/null || echo "0")
+if [ -f "${RESULTS_DIR}/.last-run.json" ]; then
+    total=$(jq -r '.stats.expected // 0' "${RESULTS_DIR}/.last-run.json" 2>/dev/null || echo "0")
+    failed=$(jq -r '.stats.unexpected // 0' "${RESULTS_DIR}/.last-run.json" 2>/dev/null || echo "0")
+    duration=$(jq -r '.stats.duration // 0' "${RESULTS_DIR}/.last-run.json" 2>/dev/null || echo "0")
     echo "## Summary" >> "$REPORT_FILE"
     echo "- **Total:** $total passed, $failed failed" >> "$REPORT_FILE"
     echo "- **Duration:** ${duration}ms" >> "$REPORT_FILE"

@@ -28,27 +28,35 @@ test.describe('Lighthouse Audits', () => {
     await page.locator('[data-testid="task-test-tktube"]').click();
     await page.waitForTimeout(2000);
 
-    // All images should have alt attributes or be decorative
+    // Verify all images have alt attributes (pass if no images exist)
     const images = page.locator('img');
     const count = await images.count();
-    let altCount = 0;
+    let withAlt = 0;
+    let withoutAlt = 0;
     for (let i = 0; i < count; i++) {
       const alt = await images.nth(i).getAttribute('alt');
-      if (alt !== null) {
-        altCount++;
+      if (alt !== null && alt !== '') {
+        withAlt++;
+      } else {
+        withoutAlt++;
       }
     }
-    console.log(`Images: ${count}, with alt: ${altCount}`);
-    // At minimum, half should have alt text
-    expect(altCount).toBeGreaterThanOrEqual(0);
+    console.log(`Images: ${count}, with alt: ${withAlt}, without alt: ${withoutAlt}`);
+    // Either there are no images, or all have alt text
+    expect(withoutAlt).toBeLessThanOrEqual(0);
   });
 
   test('L3: check viewport meta tag', async ({ page }) => {
     await page.goto('/');
 
-    // Check viewport meta tag exists
+    // Verify viewport meta tag exists and has width=device-width
     const viewportMeta = page.locator('meta[name="viewport"]');
     const count = await viewportMeta.count();
-    expect(count).toBeGreaterThanOrEqual(0);
+    expect(count).toBe(1);
+
+    if (count === 1) {
+      const content = await viewportMeta.getAttribute('content');
+      expect(content).toContain('width=device-width');
+    }
   });
 });

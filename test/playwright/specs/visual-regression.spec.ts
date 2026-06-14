@@ -32,16 +32,16 @@ test.describe('Visual Regression', () => {
     });
   });
 
-  test('V3: heading area matches snapshot', async ({ page }) => {
+  test('V3: task header area matches snapshot after selection', async ({ page }) => {
     await page.goto('/');
 
     // Select a task to get the full header
     await page.locator('[data-testid="task-test-tktube"]').click();
     await page.waitForTimeout(2000);
 
-    // Capture just the sidebar heading area (stable content)
-    const heading = page.locator('h1:has-text("Tasks")');
-    await expect(heading).toHaveScreenshot('heading.png', {
+    // Capture the task header area (stable content)
+    const header = page.locator('h2:has-text("test-tktube")');
+    await expect(header).toHaveScreenshot('task-header.png', {
       maxDiffPixels: 100,
     });
   });

@@ -8,7 +8,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { apiGet } from '../helpers/api';
+import { apiGet, TEST_PORT } from '../helpers/api';
 
 test.describe('Fault Injection & Resilience', () => {
 
@@ -43,7 +43,8 @@ test.describe('Fault Injection & Resilience', () => {
   });
 
   test('R3: 404 handling returns proper JSON error', async () => {
-    const res = await fetch('http://localhost:19199/api/tasks/nonexistent');
+    const port = TEST_PORT;
+    const res = await fetch(`http://localhost:${port}/api/tasks/nonexistent`);
     expect(res.status).toBe(404);
 
     const body = await res.json();
