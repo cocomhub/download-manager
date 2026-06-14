@@ -21,11 +21,17 @@ import (
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	start := time.Now()
 	defer func() {
-		m.mu.Lock()
-		m.activeDownloads[t.ID()]--
-		m.mu.Unlock()
+		// Only decrement activeDownloads if the object is still tracked in downloadingObj.
+		// CancelTask/CancelObject may have already handled cleanup, including the
+		// decrement and downloadingObj.Delete. Without this check, the double-decrement
+		// would make activeDownloads negative.
+		if _, stillActive := m.downloadingObj.Load(obj.URL); stillActive {
+			m.mu.Lock()
+			m.activeDownloads[t.ID()]--
+			m.mu.Unlock()
+		}
 
-		// Remove from downloadingObj map
+		// Remove from downloadingObj map (safe to call even if CancelTask already removed it)
 		m.downloadingObj.Delete(obj.URL)
 		m.lastProgress.Delete(obj.URL)
 
@@ -158,7 +164,18 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 		// Increment failed count
 		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
-		c := v.(*atomic.Int64).Add(1)
+		counter, ok := v.(*atomic.Int64)
+		if !ok {
+			m.failedCount.Store(obj.URL, new(atomic.Int64))
+			raw, _ := m.failedCount.Load(obj.URL)
+			counter, ok = raw.(*atomic.Int64)
+			if !ok {
+				fallback := new(atomic.Int64)
+				m.failedCount.Store(obj.URL, fallback)
+				counter = fallback
+			}
+		}
+		c := counter.Add(1)
 		// Track retries (c > 1 means this is a retry)
 		if c > 1 {
 			m.getOrCreateMetrics(t.ID()).retried.Add(1)

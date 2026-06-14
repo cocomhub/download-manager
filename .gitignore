@@ -1,6 +1,11 @@
 build
 local
 bin
+*.log
+*.exe
+*.bak
+*.tmp
+*.out
 config_backups
 config.yaml
 download-manager

@@ -14,6 +14,36 @@ make run                                # build + 用 build/config.yaml 运行
 
 测试：`go test ./...` 或 `go test -v -run TestXxx ./path/...`
 
+并发测试：`go test -race -count=1 -timeout=180s ./...`
+
+增量覆盖（2026-06-15）：
+- Phase 1（并发安全）：8 个测试，覆盖 shutdown/activeDownloads race/类型断言/配置热加载等
+- Phase 2（API）：5 个测试，覆盖分页边界/错误码/写保护/聚合配额
+- Phase 3（Task）：14 个测试，覆盖 urllist 重复文件名/BaseTask 状态管理
+- Phase 4（Storage）：10 个测试，覆盖多过滤器/并发/Flush-Recovery/损坏文件等
+- Phase 5（Playwright）：10 个测试，覆盖网络节流/a11y 审计/跨浏览器布局
+
+## 关键陷阱（2026-06-15 积累）
+
+### sync.Map 类型断言
+`LoadOrStore` / `Load` 返回的 `any` 必须用 `ok` 模式检查类型，直接 `v.(*atomic.Int64)` 会在值被覆盖时 panic。
+应始终：`v, ok := m.failedCount.LoadOrStore(k, new(atomic.Int64)); counter, ok := v.(*atomic.Int64)`
+
+### Config 指针竞争
+`mgr.currentCfg()` 返回内部 `*config.Config` 指针。**绝对不能直接修改返回的指针字段**，必须先浅拷贝：`cfgCopy := *newCfg`。
+`UpdateConfig` 内部也必须拷贝输入参数，避免 `ValidateAndClamp` 修改调用者的配置。
+
+### adjustGlobalWorkers 加锁
+`m.workerCount` 在 `Start()` 和 `adjustGlobalWorkers` 之间共享，后者必须在函数入口持有 `m.mu`。
+
+### 文件编码
+PowerShell 写入 Go 源码文件会默认使用 UTF-16 LE + BOM，导致 git 显示全文件变更。优先使用 bash `sed` 或 `Edit` 工具。
+修改前后运行 `go fmt` 可能导致 `Edit` 的 `old_string` 不匹配——先 `go fmt` 再读文件确认内容。
+
+### Playwright SSE 测试
+- `addInitScript` 注册的 patch 在 **新导航** 时执行，必须在 `page.goto()` 前调用
+- 拦截 SSE 端点使用 `page.context().route('**/api/events', route => route.abort())`
+
 ## 架构概览
 
 单二进制，`main.go` → `manager.Manager` 编排全局流程。启动顺序：flag/env 解析 → YAML 配置加载 → 日志初始化 → flock 单实例锁 → goroutine 启动 Manager + HTTP server。

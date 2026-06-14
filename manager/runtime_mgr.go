@@ -35,6 +35,8 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 	if newLimit <= 0 {
 		newLimit = 5
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if newLimit > m.workerCount {
 		add := newLimit - m.workerCount
 		slog.Info("Increasing global workers", "from", m.workerCount, "to", newLimit)

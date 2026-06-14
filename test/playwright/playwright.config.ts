@@ -51,7 +51,7 @@ export default defineConfig({
     {
       name: 'firefox',
       testDir: './specs',
-      testMatch: ['**/task-lifecycle.spec.ts', '**/error-boundary.spec.ts', '**/realtime-updates.spec.ts'],
+      testMatch: ['**/task-lifecycle.spec.ts', '**/error-boundary.spec.ts', '**/realtime-updates.spec.ts', '**/cross-browser-visual.spec.ts', '**/accessibility.spec.ts', '**/network-resilience.spec.ts'],
       use: {
         browserName: 'firefox',
         viewport: { width: 1440, height: 900 },

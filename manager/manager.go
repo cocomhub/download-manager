@@ -449,7 +449,8 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Validate before IO
-	newCfg.ValidateAndClamp()
+	cfgCopy := *newCfg
+	cfgCopy.ValidateAndClamp()
 	// Save to file with comment preservation
 	if err := m.configSvc.WriteConfigWithComments(newCfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -472,10 +473,10 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		}
 	}
 	// Apply in-memory config
-	m.configSvc.StoreConfig(newCfg)
+	m.configSvc.StoreConfig(&cfgCopy)
 	// Reload components
-	m.downloader = downloader.New(newCfg.Downloader)
-	logutil.InitLogger(newCfg.Log)
+	m.downloader = downloader.New(cfgCopy.Downloader)
+	logutil.InitLogger(cfgCopy.Log)
 	// Runtime adjustments
 	m.adjustGlobalWorkers(newCfg.Downloader.GlobalConcurrent)
 	m.applyTaskRuntime(newCfg)

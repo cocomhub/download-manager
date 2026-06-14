@@ -224,3 +224,52 @@ CI 配置 `working-directory: test/playwright` 改变了当前目录，但脚本
 - Tags: fixture, test-data, coverage-gap
 
 ---
+
+## [LRN-20260615-009] best_practice — sync.Map 类型断言必须安全
+
+**Logged**: 2026-06-15T03:20:00Z
+**Priority**: critical
+**Status**: resolved
+**Area**: backend
+
+### Summary
+从 `sync.Map.LoadOrStore` / `Load` 返回的 `any` 直接断言为具体类型（`v.(*atomic.Int64)`），若值被意外覆盖则导致 panic。
+
+### Details
+`manager/download.go` 中 `m.failedCount` 存储 `*atomic.Int64`，但原始代码直接断言：
+```go
+c := v.(*atomic.Int64).Add(1)
+```
+如果 map 中某个 key 被意外写入了其他类型（如 string），整个进程 panic。修复方案：
+1. 使用 `ok` 模式检查类型，失败时重新 Store
+2. 后备路径中连 `Load` 也返回错误类型时，创建全新 fallback counter
+
+### Resolution
+- **Resolved**: 2026-06-15T03:20:00Z
+- **Commit**: 8d5b038
+- **Notes**: download.go 两层防御，确保永不 panic
+
+### Metadata
+- Source: error
+- Related Files: manager/download.go
+- Tags: concurrency, type-assertion, sync.Map, panic
+
+---
+
+## [LRN-20260615-016] best_practice — Windows HTTP 监听必须用 127.0.0.1
+
+**Logged**: 2026-06-15T03:30:00Z
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+Windows 上 `0.0.0.0` 和 `localhost`（IPv6 `::1`）触发 Defender 防火墙弹窗。所有 Go HTTP 服务器必须用 `127.0.0.1`。
+
+### Details
+- `httptest.NewServer` 默认监听 `127.0.0.1`，无需修改
+- 自定义 `http.ListenAndServe` 用 `net.Listen("tcp", "127.0.0.1:0")` 替代
+- 开发配置中写 `http_port: 127.0.0.1:8080` 而非 `:8080`
+
+### Metadata
+- Source: conversation
