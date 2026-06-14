@@ -48,6 +48,24 @@ export default defineConfig({
         hasTouch: true,
       },
     },
+    {
+      name: 'firefox',
+      testDir: './specs',
+      testMatch: ['**/task-lifecycle.spec.ts', '**/error-boundary.spec.ts', '**/realtime-updates.spec.ts'],
+      use: {
+        browserName: 'firefox',
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'webkit',
+      testDir: './specs',
+      testMatch: ['**/task-lifecycle.spec.ts', '**/error-boundary.spec.ts', '**/realtime-updates.spec.ts'],
+      use: {
+        browserName: 'webkit',
+        viewport: { width: 1440, height: 900 },
+      },
+    },
   ],
   globalSetup: './helpers/global-setup.ts',
   globalTeardown: './helpers/global-teardown.ts',
