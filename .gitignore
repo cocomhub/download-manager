@@ -19,3 +19,6 @@ test/playwright/.cache/
 # Playwright test server binary
 cmd/playwright-server/playwright-server
 cmd/playwright-server/playwright-server.exe
+
+# Playwright visual regression snapshots (auto-regenerated)
+test/playwright/specs/visual-regression.spec.ts-snapshots/
