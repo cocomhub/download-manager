@@ -23,6 +23,8 @@ var (
 	DefaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
+// Deprecated: NativeHTTPDownloader uses the deprecated pkg/dlcore.
+// Use New() with a "native" type to get the new pkg/download path.
 type NativeHTTPDownloader struct {
 	ctx               context.Context
 	logDir            string

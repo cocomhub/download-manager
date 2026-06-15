@@ -12,8 +12,6 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
-	"github.com/cocomhub/download-manager/task/hanime"
-	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 type snapshotStore struct {
@@ -101,7 +99,7 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 		Metadata: map[string]string{
 			"title":         "【高画质】CLUB-100C",
 			"content_group": "WRONG-GROUP",
-			"task_type":     hanime.TaskType,
+			"task_type":     core.TaskTypeHanime,
 		},
 	}
 	missingTaskType := &model.DownloadObject{
@@ -125,11 +123,11 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 	if got != want {
 		t.Fatalf("expect corrected content_group %q, got %q", want, got)
 	}
-	if gotType := store.m[obj.URL].Metadata["task_type"]; gotType != tktube.TaskType {
-		t.Fatalf("expect corrected task_type %q, got %q", tktube.TaskType, gotType)
+	if gotType := store.m[obj.URL].Metadata["task_type"]; gotType != core.TaskTypeTktube {
+		t.Fatalf("expect corrected task_type %q, got %q", core.TaskTypeTktube, gotType)
 	}
-	if gotType := store.m[missingTaskType.URL].Metadata["task_type"]; gotType != tktube.TaskType {
-		t.Fatalf("expect missing task_type backfilled to %q, got %q", tktube.TaskType, gotType)
+	if gotType := store.m[missingTaskType.URL].Metadata["task_type"]; gotType != core.TaskTypeTktube {
+		t.Fatalf("expect missing task_type backfilled to %q, got %q", core.TaskTypeTktube, gotType)
 	}
 	if store.updates != 2 {
 		t.Fatalf("expect 2 persisted updates, got %d", store.updates)

@@ -12,7 +12,6 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
-	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
@@ -170,7 +169,7 @@ func scopedContentGroupKey(taskID, taskType, group string) string {
 }
 
 func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
-	if t == nil || obj == nil || t.Type() != tktube.TaskType {
+	if t == nil || obj == nil || t.Type() != core.TaskTypeTktube {
 		return 0
 	}
 	hq, c := titlegroup.TKTVariantFlags(obj.Metadata["title"])
@@ -190,7 +189,7 @@ func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
 func (m *Manager) BackfillContentGroups() {
 	m.tasks.Range(func(key, value any) bool {
 		t, _ := value.(core.Task)
-		if t == nil || t.Type() != tktube.TaskType {
+		if t == nil || t.Type() != core.TaskTypeTktube {
 			return true
 		}
 		st := t.Storage()

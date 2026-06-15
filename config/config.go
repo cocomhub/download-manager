@@ -263,6 +263,12 @@ func (c *Config) ValidateAndClamp() {
 	if c.TaskScan.Interval <= 0 {
 		c.TaskScan.Interval = 10
 	}
+	// Migrate deprecated "native_http" type to "native_old"
+	if c.Downloader.Type == "native_http" {
+		slog.Warn("config: downloader type 'native_http' is deprecated, migrating to 'native_old'. " +
+			"Use type 'native' for the new pkg/download path.")
+		c.Downloader.Type = "native_old"
+	}
 	c.Downloader.GlobalConcurrent = clampInt(c.Downloader.GlobalConcurrent, 1, 100)
 	if c.Downloader.MaxRetries < 0 {
 		c.Downloader.MaxRetries = 0

@@ -15,12 +15,16 @@ import (
 // New 创建 core.Downloader 实例。
 // 根据 config.Type 选择后端：
 //   - "wget": 使用旧的 WgetDownloader（已废弃）
+//   - "native_old": 使用旧的 NativeHTTPDownloader（使用已废弃的 pkg/dlcore）
 //   - "native" 或默认: 使用新的 pkg/download.Downloader（通过适配器）
 func New(cfg config.Downloader) core.Downloader {
 	switch cfg.Type {
 	case "wget":
 		slog.Warn("wget backend is deprecated, use native instead")
 		return NewWgetDownloader(cfg)
+	case "native_old":
+		slog.Warn("native_old uses deprecated pkg/dlcore, migrate to native (new pkg/download path)")
+		return NewNativeHTTPDownloader(cfg)
 	default:
 		return newDownloaderFromConfig(cfg)
 	}

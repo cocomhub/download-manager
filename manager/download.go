@@ -15,7 +15,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
-	"github.com/cocomhub/download-manager/task/tktube"
 )
 
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
@@ -262,7 +261,7 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 // Even if multiple tasks share the same storage, only objects whose TaskID matches t.ID()
 // and whose task_type/content_group match the completed object are eligible.
 func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObject) {
-	if t.Type() != tktube.TaskType {
+	if t.Type() != core.TaskTypeTktube {
 		return
 	}
 	if obj == nil || obj.GetStatus() != model.StatusCompleted {
