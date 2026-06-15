@@ -70,33 +70,45 @@ func TestAPI_Pagination_Boundaries(t *testing.T) {
 
 // TestAPI_TaskNotFound verifies 404 response format for non-existent tasks.
 func TestAPI_TaskNotFound(t *testing.T) {
+	// GET（读操作）使用 writeEnabled=false server
 	srv, _ := newAPIServerWithMock(t, "mock-404", 1, false)
 	r := srv.Router()
-	done := startAPIManager(t, srv)
+	startAPIManager(t, srv)
 
-	endpoints := []string{
-		"/api/tasks/non-existent",
-		"/api/tasks/non-existent/cancel",
-	}
+	// GET /api/tasks/{id} — task endpoint returns JSON 404 for unknown task.
+	t.Run("/api/tasks/non-existent", func(t *testing.T) {
+		rr := doJSONGet(r, "/api/tasks/non-existent")
+		if rr.Code != http.StatusNotFound {
+			t.Logf("GET %s returned %d (acceptable if redirected): %s", "/api/tasks/non-existent", rr.Code, rr.Body.String())
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal error response: %v", err)
+		}
+		if body["error"] == "" {
+			t.Errorf("expected non-empty 'error' field in 404 response, got %v", body)
+		}
+	})
 
-	for _, ep := range endpoints {
-		t.Run(ep, func(t *testing.T) {
-			rr := doJSONGet(r, ep)
-			if rr.Code != http.StatusNotFound {
-				t.Logf("GET %s returned %d (acceptable if redirected): %s", ep, rr.Code, rr.Body.String())
-			}
+	// POST /api/tasks/{id}/cancel — cancel on non-existent task returns JSON 404.
+	// 使用 writeEnabled=true 避免 write middleware 拦截
+	t.Run("/api/tasks/non-existent/cancel (POST)", func(t *testing.T) {
+		srv2, _ := newAPIServerWithMock(t, "mock-404-cancel", 1, true)
+		r2 := srv2.Router()
+		startAPIManager(t, srv2)
 
-			var body map[string]string
-			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal error response: %v", err)
-			}
-			if body["error"] == "" {
-				t.Errorf("expected non-empty 'error' field in 404 response, got %v", body)
-			}
-		})
-	}
-
-	_ = done
+		rr := doJSONPost(r2, "/api/tasks/non-existent/cancel", nil)
+		if rr.Code != http.StatusNotFound && rr.Code != http.StatusBadRequest {
+			t.Errorf("POST cancel returned %d, expected 404/400: %s", rr.Code, rr.Body.String())
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal error response: %v", err)
+		}
+		if body["error"] == "" {
+			t.Errorf("expected non-empty 'error' field, got %v", body)
+		}
+	})
 }
 
 // TestAPI_WriteDisabled verifies 405 response when write operations are disabled.

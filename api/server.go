@@ -67,6 +67,15 @@ func (s *Server) Router() *mux.Router {
 	// Individual route .Methods() still restrict to specific HTTP methods on top of this.
 	r.Use(s.writeMiddleware)
 
+	// Custom NotFoundHandler: return JSON for unmatched routes.
+	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError(w, http.StatusNotFound, "not_found", "page not found")
+	})
+	// Custom MethodNotAllowedHandler: return JSON for method mismatches.
+	r.MethodNotAllowedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	})
+
 	// API Routes
 	r.HandleFunc("/api/runtime", s.getRuntime).Methods("GET")
 	r.HandleFunc("/api/healthz", s.healthHandler).Methods("GET")
