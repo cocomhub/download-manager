@@ -143,10 +143,7 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 		return false
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return false
-	}
-	return true
+	return resp.StatusCode == http.StatusOK
 }
 
 // getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。

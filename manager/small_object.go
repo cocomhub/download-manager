@@ -164,10 +164,10 @@ func (m *Manager) processSO(req smallObjectRequest) {
 
 	// 下载成功后将路径写回 parentObj.Extra，供前端读取
 	if err == nil {
-		rel := req.info.Rel
-		if rel == "cover" || rel == "thumb" {
+		switch rel := req.info.Rel; rel {
+		case "cover", "thumb":
 			req.parentObj.Extra["local_cover"] = req.info.SavePath
-		} else if rel == "preview" {
+		case "preview":
 			req.parentObj.Extra["local_preview"] = req.info.SavePath
 		}
 	}

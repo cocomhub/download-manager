@@ -311,11 +311,11 @@ func (cs *ConfigService) WriteConfigWithComments(cfg *config.Config) error {
 			if sItem.Kind != yaml.MappingNode {
 				continue
 			}
-			_, sId, _ := mapGet(sItem, "id")
-			if sId == nil {
+			_, sID, _ := mapGet(sItem, "id")
+			if sID == nil {
 				continue
 			}
-			if dItem, ok := dstMap[sId.Value]; ok {
+			if dItem, ok := dstMap[sID.Value]; ok {
 				for _, k := range []string{"type", "save_dir", "storage", "storage_context", "extra"} {
 					_, sVal, _ := mapGet(sItem, k)
 					if sVal != nil {

@@ -473,9 +473,10 @@ func (t *Task) parseVideoPage(pageURL string) (*detailedVideoInfo, error) {
 
 	// Info items
 	doc.Find(".info>.item").Each(func(i int, s *goquery.Selection) {
-		if i == 1 {
+		switch i {
+		case 1:
 			// Title info
-		} else if i == 3 {
+		case 3:
 			s.Find("a").Each(func(_ int, tag *goquery.Selection) {
 				info.tags = append(info.tags, tag.Text())
 			})

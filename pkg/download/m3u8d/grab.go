@@ -49,8 +49,6 @@ func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []Dow
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	responses := make([]*grab.Response, 0, len(reqs))
-
 	retryRound := 0
 retry:
 	// 读 Concurrency 时加锁，避免与 StatusCode==472 时的写操作产生 data race。
@@ -90,10 +88,6 @@ retry:
 				req = req.WithContext(ctx)
 				errReqs = append(errReqs, req)
 				continue
-			}
-
-			if resp != nil {
-				responses = append(responses, resp)
 			}
 
 			if resp != nil && resp.HTTPResponse != nil && resp.HTTPResponse.Request != nil {

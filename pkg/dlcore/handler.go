@@ -98,7 +98,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 
 	// 准备日志文件
 	var logFile string
-	var f io.Writer = io.Discard
+	var f = io.Discard
 	if c.logDir != "" {
 		logFileName := filepath.Base(rPath)
 		if strings.HasPrefix(logFileName, "0") {

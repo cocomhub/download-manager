@@ -262,8 +262,3 @@ func TestFileStorage_LoadFromExistingFile(t *testing.T) {
 		t.Fatalf("TaskID = %q, want %q", obj.TaskID, "preload")
 	}
 }
-
-// formatURL is a helper to generate sequential URLs.
-func formatURL(tmpl string, _ ...any) string {
-	return tmpl
-}
