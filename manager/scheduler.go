@@ -54,6 +54,10 @@ func (m *Manager) Start() {
 	defer ticker.Stop()
 	defer progressTicker.Stop()
 
+	// Signal that initialization is complete (guards against race with UpdateConfig).
+	// Must happen before the infinite for-loop below since defer would never fire.
+	close(m.initializedCh)
+
 	// Immediate scan on start
 	m.scan()
 

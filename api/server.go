@@ -577,8 +577,6 @@ func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	cur := s.mgr.GetConfig()
 	// Deep-copy before mutation to avoid data race on shared config
 	cc := cur.Clone()
-	cc.Tasks = make([]config.Task, len(cur.Tasks))
-	copy(cc.Tasks, cur.Tasks)
 	// prevent duplicate
 	for _, existing := range cc.Tasks {
 		if existing.ID == t.ID {
@@ -613,8 +611,6 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	cur := s.mgr.GetConfig()
 	// Deep-copy before mutation to avoid data race on shared config
 	cc := cur.Clone()
-	cc.Tasks = make([]config.Task, len(cur.Tasks))
-	copy(cc.Tasks, cur.Tasks)
 	found := false
 	for i := range cc.Tasks {
 		if cc.Tasks[i].ID == id {

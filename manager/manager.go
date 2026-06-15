@@ -108,6 +108,8 @@ type Manager struct {
 	soStop    chan struct{}
 	soWg      sync.WaitGroup
 	soTracker sync.Map // map[objKey]*objectTracker
+
+	initializedCh chan struct{} // closed when Start() initialization completes
 }
 
 type taskMetrics struct {
@@ -156,6 +158,7 @@ func NewManager(cfg *config.Config) *Manager {
 		resolveCache:    NewResolveCache(time.Hour, 10000),
 		resolveQueue:    make(chan resolveRequest, 128),
 		soQueue:         make(chan smallObjectRequest, 128),
+		initializedCh:   make(chan struct{}),
 	}
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
@@ -202,6 +205,12 @@ func (m *Manager) GetDownloadRootDir() string {
 
 func (m *Manager) currentCfg() *config.Config {
 	return m.configSvc.GetConfig()
+}
+
+// Initialized returns a channel that is closed when Start() completes initial setup.
+// Tests should wait on this before interacting with the manager.
+func (m *Manager) Initialized() <-chan struct{} {
+	return m.initializedCh
 }
 
 func cloneStorageQuery(query *core.StorageQuery) *core.StorageQuery {

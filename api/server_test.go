@@ -358,6 +358,12 @@ func startAPIManager(t *testing.T, srv *Server) chan struct{} {
 		mgr.Start()
 		close(done)
 	}()
+
+	// Wait for manager initialization to complete before returning.
+	// This prevents data races when tests interact with the manager
+	// while Start() is still loading tasks.
+	<-mgr.Initialized()
+
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

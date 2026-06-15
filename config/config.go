@@ -219,9 +219,7 @@ func (c *Config) Clone() *Config {
 		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(c.Downloader.FFmpeg.ExtraArgs))
 		copy(cc.Downloader.FFmpeg.ExtraArgs, c.Downloader.FFmpeg.ExtraArgs)
 	}
-	if c.Downloader.FFmpeg.MoveIfExists.Dir != "" {
-		// MoveIfExists and ExternalHLSLog are plain structs, deep-copy not needed
-	}
+	// MoveIfExists and ExternalHLSLog are plain structs — shallow copy is sufficient.
 
 	// Deep-cache Mongo (simple struct slice, no maps)
 	if c.Mongo != nil {
@@ -230,24 +228,6 @@ func (c *Config) Clone() *Config {
 	}
 
 	return &cc
-}
-
-// Clone shallow copy tasks (called by ValidateAndClamp when reusing the returned config)
-func (c *Config) cloneTasks() []Task {
-	tasks := make([]Task, len(c.Tasks))
-	for i, t := range c.Tasks {
-		tc := t
-		if t.Extra != nil {
-			tc.Extra = make(map[string]any, len(t.Extra))
-			maps.Copy(tc.Extra, t.Extra)
-		}
-		if t.Storage.Config != nil {
-			tc.Storage.Config = make(map[string]string, len(t.Storage.Config))
-			maps.Copy(tc.Storage.Config, t.Storage.Config)
-		}
-		tasks[i] = tc
-	}
-	return tasks
 }
 
 func (c *Config) ValidateAndClamp() {
