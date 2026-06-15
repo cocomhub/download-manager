@@ -448,8 +448,8 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 // --- Config Management ---
 
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
-	// Validate before IO
-	cfgCopy := *newCfg
+	// Validate before IO — Clone to avoid map race in ValidateAndClamp
+	cfgCopy := newCfg.Clone()
 	cfgCopy.ValidateAndClamp()
 	// Save to file with comment preservation
 	if err := m.configSvc.WriteConfigWithComments(newCfg); err != nil {
@@ -473,7 +473,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		}
 	}
 	// Apply in-memory config
-	m.configSvc.StoreConfig(&cfgCopy)
+	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
 	m.downloader = downloader.New(cfgCopy.Downloader)
 	logutil.InitLogger(cfgCopy.Log)
@@ -522,13 +522,16 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 
 func (m *Manager) UpdateLogConfig(newLog logutil.LogConfig) error {
 	cur := m.GetConfig()
-	cfgCopy := *cur
+	// Clone to avoid map race in ValidateAndClamp.
+	// ValidateAndClamp modifies t.Extra maps in-place, but the original
+	// config's task Extra maps may be concurrently read by other goroutines.
+	cfgCopy := cur.Clone()
 	cfgCopy.Log = newLog
 	cfgCopy.ValidateAndClamp()
-	if err := config.Save(config.GetConfigFilePath(), &cfgCopy); err != nil {
+	if err := config.Save(config.GetConfigFilePath(), cfgCopy); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	logutil.InitLogger(newLog)
-	m.configSvc.StoreConfig(&cfgCopy)
+	m.configSvc.StoreConfig(cfgCopy)
 	return nil
 }

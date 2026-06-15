@@ -145,6 +145,11 @@ Progress(int), Metadata(map[string]string), Extra(map[string]any)
 - 无 `make lint`、无 `make test`；直接 `go test ./...`
 - 代码格式：`gofmt -s`（gofumpt 已注释）
 
+## 执行偏好
+
+- **子代理开发**：多步骤实现计划优先使用 `subagent-driven-development` 技能，禁用 worktree，直接在当前分支开发。
+- **worktree**：除非用户明确要求，不使用 git worktree。
+
 ## Playwright E2E 测试
 
 浏览器 UI 自动化测试，覆盖 14 个核心场景。测试目录 `test/playwright/`（TypeScript），

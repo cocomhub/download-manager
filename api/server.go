@@ -575,15 +575,19 @@ func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := s.mgr.GetConfig()
+	// Deep-copy before mutation to avoid data race on shared config
+	cc := cur.Clone()
+	cc.Tasks = make([]config.Task, len(cur.Tasks))
+	copy(cc.Tasks, cur.Tasks)
 	// prevent duplicate
-	for _, existing := range cur.Tasks {
+	for _, existing := range cc.Tasks {
 		if existing.ID == t.ID {
 			writeJSONError(w, http.StatusConflict, "duplicate_id", fmt.Sprintf("task id %s already exists", t.ID))
 			return
 		}
 	}
-	cur.Tasks = append(cur.Tasks, t)
-	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+	cc.Tasks = append(cc.Tasks, t)
+	if err := s.mgr.UpdateConfig(cc, &manager.AuditInfo{
 		Author:  "ui",
 		Source:  "api/tasks/post",
 		Message: fmt.Sprintf("task %s created", t.ID),
@@ -607,11 +611,15 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := s.mgr.GetConfig()
+	// Deep-copy before mutation to avoid data race on shared config
+	cc := cur.Clone()
+	cc.Tasks = make([]config.Task, len(cur.Tasks))
+	copy(cc.Tasks, cur.Tasks)
 	found := false
-	for i := range cur.Tasks {
-		if cur.Tasks[i].ID == id {
-			cur.Tasks[i] = t
-			cur.Tasks[i].ID = id
+	for i := range cc.Tasks {
+		if cc.Tasks[i].ID == id {
+			cc.Tasks[i] = t
+			cc.Tasks[i].ID = id
 			found = true
 			break
 		}
@@ -620,7 +628,7 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "not_found", fmt.Sprintf("task %s not found", id))
 		return
 	}
-	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+	if err := s.mgr.UpdateConfig(cc, &manager.AuditInfo{
 		Author:  "ui",
 		Source:  "api/tasks/put",
 		Message: fmt.Sprintf("task %s updated", id),
@@ -660,28 +668,30 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := s.mgr.GetConfig()
-	cur.TaskScan = req.TaskScan
+	// Deep-copy before mutation to avoid data race on shared config
+	cc := cur.Clone()
+	cc.TaskScan = req.TaskScan
 	// Override whole Downloader (new sub-structures included)
-	cur.Downloader.Type = req.Downloader.Type
+	cc.Downloader.Type = req.Downloader.Type
 	if req.Downloader.GlobalConcurrent > 0 {
-		cur.Downloader.GlobalConcurrent = req.Downloader.GlobalConcurrent
+		cc.Downloader.GlobalConcurrent = req.Downloader.GlobalConcurrent
 	}
 	if req.Downloader.MaxRetries > 0 {
-		cur.Downloader.MaxRetries = req.Downloader.MaxRetries
+		cc.Downloader.MaxRetries = req.Downloader.MaxRetries
 	}
-	cur.Downloader.ForceProxy = req.Downloader.ForceProxy
-	cur.Downloader.Proxies = req.Downloader.Proxies
-	cur.Downloader.DomainLimits = req.Downloader.DomainLimits
+	cc.Downloader.ForceProxy = req.Downloader.ForceProxy
+	cc.Downloader.Proxies = req.Downloader.Proxies
+	cc.Downloader.DomainLimits = req.Downloader.DomainLimits
 	// New sub-structures
-	cur.Downloader.Filesystem = req.Downloader.Filesystem
+	cc.Downloader.Filesystem = req.Downloader.Filesystem
 	if req.Downloader.HTTP.TimeoutSeconds > 0 {
-		cur.Downloader.HTTP = req.Downloader.HTTP
+		cc.Downloader.HTTP = req.Downloader.HTTP
 	}
-	cur.Downloader.Proxy = req.Downloader.Proxy
-	cur.Downloader.Progress = req.Downloader.Progress
-	cur.Downloader.FFmpeg = req.Downloader.FFmpeg
-	cur.Server.UIDefaults = req.UIDefaults
-	if err := s.mgr.UpdateConfig(cur, &manager.AuditInfo{
+	cc.Downloader.Proxy = req.Downloader.Proxy
+	cc.Downloader.Progress = req.Downloader.Progress
+	cc.Downloader.FFmpeg = req.Downloader.FFmpeg
+	cc.Server.UIDefaults = req.UIDefaults
+	if err := s.mgr.UpdateConfig(cc, &manager.AuditInfo{
 		Author:  "ui",
 		Source:  "api/config/server",
 		Message: "server config updated",

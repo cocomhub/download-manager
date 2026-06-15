@@ -1,0 +1,32 @@
+#!/bin/sh
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Pre-commit hook for download-manager
+set -e
+
+echo "🔍 Pre-commit checks..."
+
+# 1. go fix
+echo "  • go fix ./..."
+go fix ./...
+
+# 2. go fmt
+echo "  • go fmt ./..."
+gofmt -s -l -w .
+
+# 3. addlicense（如果已安装）
+if command -v addlicense >/dev/null 2>&1; then
+    echo "  • addlicense"
+    addlicense -c "The Cocomhub Authors. All rights reserved." -s=only .
+fi
+
+# 4. go build
+echo "  • go build ./..."
+go build ./...
+
+# 5. go vet
+echo "  • go vet ./..."
+go vet ./...
+
+echo "✅ Pre-commit checks passed"

@@ -5,6 +5,7 @@ package config
 
 import (
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"reflect"
 
@@ -164,6 +165,89 @@ func clampInt(v, min, max int) int {
 		return max
 	}
 	return v
+}
+
+// Clone returns a deep copy of the Config, including all map and slice fields.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	cc := *c // shallow copy value
+
+	// Deep-copy Tasks (each has Extra map and Storage.Config map)
+	cc.Tasks = make([]Task, len(c.Tasks))
+	for i, t := range c.Tasks {
+		tc := t
+		if t.Extra != nil {
+			tc.Extra = make(map[string]any, len(t.Extra))
+			maps.Copy(tc.Extra, t.Extra)
+		}
+		if t.Storage.Config != nil {
+			tc.Storage.Config = make(map[string]string, len(t.Storage.Config))
+			maps.Copy(tc.Storage.Config, t.Storage.Config)
+		}
+		cc.Tasks[i] = tc
+	}
+
+	// Deep-copy Contexts (each has Storage.Config map)
+	if c.Contexts != nil {
+		cc.Contexts = make(map[string]Context, len(c.Contexts))
+		for k, ctx := range c.Contexts {
+			ctxc := ctx
+			if ctx.Storage.Config != nil {
+				ctxc.Storage.Config = make(map[string]string, len(ctx.Storage.Config))
+				maps.Copy(ctxc.Storage.Config, ctx.Storage.Config)
+			}
+			cc.Contexts[k] = ctxc
+		}
+	}
+
+	// Deep-copy Downloader slices and maps
+	if c.Downloader.Proxies != nil {
+		cc.Downloader.Proxies = make([]string, len(c.Downloader.Proxies))
+		copy(cc.Downloader.Proxies, c.Downloader.Proxies)
+	}
+	if c.Downloader.DomainLimits != nil {
+		cc.Downloader.DomainLimits = make(map[string]int, len(c.Downloader.DomainLimits))
+		maps.Copy(cc.Downloader.DomainLimits, c.Downloader.DomainLimits)
+	}
+	if c.Downloader.Proxy.List != nil {
+		cc.Downloader.Proxy.List = make([]string, len(c.Downloader.Proxy.List))
+		copy(cc.Downloader.Proxy.List, c.Downloader.Proxy.List)
+	}
+	if c.Downloader.FFmpeg.ExtraArgs != nil {
+		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(c.Downloader.FFmpeg.ExtraArgs))
+		copy(cc.Downloader.FFmpeg.ExtraArgs, c.Downloader.FFmpeg.ExtraArgs)
+	}
+	if c.Downloader.FFmpeg.MoveIfExists.Dir != "" {
+		// MoveIfExists and ExternalHLSLog are plain structs, deep-copy not needed
+	}
+
+	// Deep-cache Mongo (simple struct slice, no maps)
+	if c.Mongo != nil {
+		cc.Mongo = make([]MongoSource, len(c.Mongo))
+		copy(cc.Mongo, c.Mongo)
+	}
+
+	return &cc
+}
+
+// Clone shallow copy tasks (called by ValidateAndClamp when reusing the returned config)
+func (c *Config) cloneTasks() []Task {
+	tasks := make([]Task, len(c.Tasks))
+	for i, t := range c.Tasks {
+		tc := t
+		if t.Extra != nil {
+			tc.Extra = make(map[string]any, len(t.Extra))
+			maps.Copy(tc.Extra, t.Extra)
+		}
+		if t.Storage.Config != nil {
+			tc.Storage.Config = make(map[string]string, len(t.Storage.Config))
+			maps.Copy(tc.Storage.Config, t.Storage.Config)
+		}
+		tasks[i] = tc
+	}
+	return tasks
 }
 
 func (c *Config) ValidateAndClamp() {

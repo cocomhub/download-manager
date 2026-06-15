@@ -106,3 +106,36 @@ playwright-report-gen: ## 生成 Playwright 测试摘要报告
 	else \
 		echo "Skipping report generation (requires bash)"; \
 	fi
+
+# Install git hooks
+.PHONY: install-hooks
+install-hooks:
+	@echo "Installing git hooks..."
+	git config core.hooksPath .githooks
+	@echo "✅ Git hooks installed at .githooks/"
+
+.PHONY: test test-cover test-cover-html test-no-mongo vet lint bench all
+
+test:
+	go test -race -count=1 -timeout=180s ./...
+
+test-cover:
+	go test -race -count=1 -coverprofile=build/cover.out -covermode=atomic ./...
+
+test-cover-html: test-cover
+	go tool cover -html=build/cover.out -o build/cover.html
+
+test-no-mongo:
+	go test -tags no_mongo -race -count=1 -timeout=180s ./...
+
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
+
+bench:
+	go test -bench=. -benchmem -count=5 -run=^$$ ./... > build/bench.txt
+
+all: vet test bench
+	@echo "✅ All checks passed"
