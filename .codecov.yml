@@ -1,0 +1,22 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    after_n_builds: 1
+
+coverage:
+  status:
+    project:
+      default:
+        target: 60%
+        threshold: 2%
+    patch:
+      default:
+        target: 70%
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false

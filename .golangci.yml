@@ -1,64 +1,79 @@
 # Copyright 2026 The Cocomhub Authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-
-linters-settings:
-  errcheck:
-    check-type-assertions: false
-    check-blank: false
-  staticcheck:
-    checks: ["all", "-SA6002"]
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-    - linters:
-        - errcheck
-      source: "Encode"
-    - linters:
-        - errcheck
-      source: "w.Write"
-    - linters:
-        - errcheck
-      source: "UpdateStatus"
-    - linters:
-        - errcheck
-      source: "os\\."
-    - linters:
-        - errcheck
-      source: "io\\.Copy"
-    - linters:
-        - errcheck
-      source: "\\.Set\\("
-    - linters:
-        - errcheck
-      source: "SetConcurrency|SetRefreshInterval"
-    - linters:
-        - errcheck
-      source: "\\.Write\\("
-    - path: pkg\\dlcore\\client\\.go
-      linters:
-        - staticcheck
-    - path: api\\server\\.go
-      linters:
-        - staticcheck
-    - path: task\\vikacg\\task\\.go
-      linters:
-        - staticcheck
-    - path: manager\\manager\\.go
-      linters:
-        - gosimple
-
+version: "2"
 run:
-  timeout: 3m
-  go: "1.22"
+  go: "1.26"
+linters:
+  settings:
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+    staticcheck:
+      checks:
+        - all
+        - -SA6002
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - errcheck
+        source: Encode
+      - linters:
+          - errcheck
+        source: w.Write
+      - linters:
+          - errcheck
+        source: UpdateStatus
+      - linters:
+          - errcheck
+        source: os\.
+      - linters:
+          - errcheck
+        source: io\.Copy
+      - linters:
+          - errcheck
+        source: \.Set\(
+      - linters:
+          - errcheck
+        source: SetConcurrency|SetRefreshInterval
+      - linters:
+          - errcheck
+        source: \.Write\(
+      - linters:
+          - staticcheck
+        path: pkg\\dlcore\\client\\.go
+      - linters:
+          - staticcheck
+        path: pkg\\dlcore\\handler\\.go
+      - linters:
+          - staticcheck
+        path: api\\server\\.go
+      - linters:
+          - staticcheck
+        path: task\\vikacg\\task\\.go
+      - linters:
+          - staticcheck
+        path: manager\\manager\\.go
+      - linters:
+          - staticcheck
+        path: downloader\\native\\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

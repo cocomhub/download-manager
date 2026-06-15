@@ -36,7 +36,8 @@
       "Bash(xxd:)",
       "Bash(gofmt *)",
       "Skill(commit-commands:commit)",
-      "Skill(code-review:code-review)"
+      "Skill(code-review:code-review)",
+      "Skill(code-review)"
     ],
     "deny": []
   }

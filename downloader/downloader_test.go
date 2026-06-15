@@ -4,6 +4,7 @@
 package downloader
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
@@ -21,10 +22,12 @@ func TestNew_Native(t *testing.T) {
 }
 
 func TestNew_Default(t *testing.T) {
-	cfg := config.Downloader{Type: ""}
-	d := New(cfg)
+	d := New(config.Downloader{})
 	if d == nil {
 		t.Fatal("New() with empty type returned nil")
+	}
+	if got := d.Name(); got == "" {
+		t.Error("Name() returned empty")
 	}
 }
 
@@ -33,5 +36,73 @@ func TestNew_UnknownType(t *testing.T) {
 	d := New(cfg)
 	if d == nil {
 		t.Fatal("New() with unknown type returned nil")
+	}
+}
+
+func TestNew_NativeOld(t *testing.T) {
+	cfg := config.Downloader{Type: "native_old"}
+	d := New(cfg)
+	if d == nil {
+		t.Fatal("New() with type=native_old returned nil")
+	}
+	if got := d.Name(); got == "" {
+		t.Error("Name() returned empty for native_old")
+	}
+}
+
+func TestNew_WithContext(t *testing.T) {
+	d := New(config.Downloader{Type: "native"})
+	if wc, ok := d.(interface{ SetContext(context.Context) }); ok {
+		wc.SetContext(context.Background())
+		// 不 panic 即可
+	} else {
+		t.Log("Downloader does not implement SetContext, skipping")
+	}
+}
+
+func TestNew_NameValues(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.Downloader
+	}{
+		{"native", config.Downloader{Type: "native"}},
+		{"native_old", config.Downloader{Type: "native_old"}},
+		{"wget", config.Downloader{Type: "wget"}},
+		{"empty_default", config.Downloader{Type: ""}},
+	}
+	for _, tt := range tests {
+		d := New(tt.cfg)
+		if d == nil {
+			t.Errorf("New(%q) returned nil", tt.name)
+			continue
+		}
+		if got := d.Name(); got == "" {
+			t.Errorf("New(%q).Name() returned empty", tt.name)
+		}
+	}
+}
+
+func TestAdapter_ExtendedInterfaces(t *testing.T) {
+	d := New(config.Downloader{Type: "native"})
+	// 检查 Cancelable 接口
+	if canceler, ok := d.(interface{ Cancel(string) error }); ok {
+		err := canceler.Cancel("http://test.url/file")
+		if err != nil {
+			t.Logf("Cancel on idle adapter returned: %v (acceptable)", err)
+		}
+	}
+	// 检查 Name 一致性
+	if d.Name() == "" {
+		t.Error("Name() should not be empty")
+	}
+}
+
+func TestAdapter_DomainLimits(t *testing.T) {
+	d := New(config.Downloader{Type: "native"})
+	if dl, ok := d.(interface{ ApplyDomainLimits(map[string]int) }); ok {
+		dl.ApplyDomainLimits(map[string]int{"example.com": 3})
+		// 不 panic 即可
+	} else {
+		t.Log("Downloader does not implement ApplyDomainLimits, skipping")
 	}
 }

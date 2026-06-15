@@ -144,6 +144,27 @@ Progress(int), Metadata(map[string]string), Extra(map[string]any)
 - 单实例锁 `github.com/gofrs/flock`（跨平台）
 - 无 `make lint`、无 `make test`；直接 `go test ./...`
 - 代码格式：`gofmt -s`（gofumpt 已注释）
+- golangci-lint v2 配置格式（.golangci.yml 中 `version: "2"`）
+
+## 关键陷阱
+
+### sync.Map 类型断言
+`LoadOrStore` / `Load` 返回的 `any` 必须用 `ok` 模式检查类型，直接 `v.(*atomic.Int64)` 会在值被覆盖时 panic。
+应始终：`v, ok := m.failedCount.LoadOrStore(k, new(atomic.Int64)); counter, ok := v.(*atomic.Int64)`
+
+### Config 指针竞争
+`mgr.currentCfg()` 返回内部 `*config.Config` 指针。**绝对不能直接修改返回的指针字段**，必须先浅拷贝：`cfgCopy := *newCfg`。
+`UpdateConfig` 内部也必须拷贝输入参数，避免 `ValidateAndClamp` 修改调用者的配置。
+
+### Config 深拷贝
+始终使用 `cfg.Clone()` 而非手写 `make+copy`。`Clone()` 已处理所有 map/slice 字段（Tasks、Contexts、Proxies、DomainLimits、FFmpeg.ExtraArgs、Mongo）。不要用 `make+copy` 覆盖 `Clone()` 的结果——这会丢失深拷贝。
+
+### Manager.Start 无限循环中的同步
+`Start()` 末尾是 `for { select {} }`，defer 永远不会执行。`close(initializedCh)` 必须在 for 循环之前直接调用，不能使用 defer。
+
+### 文件编码
+PowerShell 写入 Go 源码文件会默认使用 UTF-16 LE + BOM，导致 git 显示全文件变更。优先使用 bash `sed` 或 `Edit` 工具。
+修改前后运行 `go fmt` 可能导致 `Edit` 的 `old_string` 不匹配——先 `go fmt` 再读文件确认内容。
 
 ## 执行偏好
 

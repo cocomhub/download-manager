@@ -16,6 +16,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	//lint:ignore SA1019 deprecated dlcore used only by native_old downloader
 	"github.com/cocomhub/download-manager/pkg/dlcore"
 )
 

@@ -11,32 +11,86 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        go: ["1.26"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: ${{ matrix.go }}
           check-latest: true
 
       - name: Verify dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: go mod verify
 
       - name: Build
         run: go build ./...
 
-      - name: Run tests
-        run: go test ./... -v -count=1 -timeout=180s
+      - name: Run tests with coverage
+        run: go test -race -count=1 -coverprofile=build/cover_unit.out -covermode=atomic -timeout=180s ./...
 
-      - name: Run tests (no mongo)
-        run: go test -tags no_mongo ./... -v -count=1 -timeout=180s
+      - name: Run tests (no mongo) with coverage
+        run: go test -tags no_mongo -race -count=1 -coverprofile=build/cover_no_mongo.out -covermode=atomic -timeout=180s ./...
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
+        uses: golangci/golangci-lint-action@v7
         with:
           version: latest
           args: --timeout=3m
+
+      - name: Merge coverage reports
+        shell: bash
+        run: |
+          mkdir -p build
+          echo "mode: atomic" > build/cover.out
+          for f in build/cover_unit.out build/cover_no_mongo.out; do
+            if [ -f "$f" ]; then
+              tail -n +2 "$f" >> build/cover.out
+            fi
+          done
+
+      - name: Generate coverage report
+        shell: bash
+        run: |
+          go tool cover -html=build/cover.out -o build/cover.html
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=build/cover.out >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build/cover.out
+          flags: unittests
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.os }}-${{ matrix.go }}
+          path: |
+            build/cover.out
+            build/cover.html
+          retention-days: 7
+
+      - name: Run benchmarks
+        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
+        run: go test -bench=. -benchmem -count=3 -run=^$ ./... > build/bench.txt
+
+      - uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
+        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
+        with:
+          tool: go
+          output-file-path: build/bench.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          alert-threshold: "200%"
+          comment-on-alert: true
+          fail-on-alert: false
 
   playwright:
     runs-on: ubuntu-latest

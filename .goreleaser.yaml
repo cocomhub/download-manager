@@ -1,0 +1,50 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# GoReleaser configuration for download-manager.
+# Triggered by tag push v* via .github/workflows/release.yml.
+
+project_name: download-manager
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.BuildAt={{.Date}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - files:
+      - config.yaml
+      - README.md
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^ci:"
+      - "^test:"
+      - "^chore:"

@@ -1,275 +1,303 @@
-# Learnings
 
-Corrections, insights, and knowledge gaps captured during development.
+## [LRN-20260616-001] best_practice — Config 深拷贝必须用 Clone() 而非浅拷贝
 
-**Categories**: correction | insight | knowledge_gap | best_practice
-
----
-
-## [LRN-20260613-001] best_practice — Playwright 定位器选择策略
-
-**Logged**: 2026-06-13T15:00:00Z
+**Logged**: 2026-06-16T06:00:00Z
 **Priority**: high
 **Status**: promoted
-**Area**: tests
+**Area**: backend
 
 ### Summary
-测试定位器应遵循 "文本优先 → data-testid 备用 → CSS class 最后" 的层级，且 data-testid 必须唯一。
+共享 `*config.Config` 指针直接修改 map/slice 字段会导致 data race。必须使用 `Clone()` 深拷贝，且不要用 `make+copy` 覆盖 `Clone()` 的 Tasks 结果。
 
 ### Details
-初始实现中使用 CSS class（如 `.grid`）、文本内容（如 `button:has-text("List")`）和 data-testid 混用导致测试脆弱：
-- CSS class 在响应式适配中变更（`grid-cols-1` → `grid-cols-2`）
-- 带文本的定位器在 UI 重构中改名（"List" → 纯图标无文字）
-- `data-testid="search-input"` 在不同视图下重复（下载列表 + 聚合视图）
+原代码在 `api/server.go` 中：
+```go
+cc := cur.Clone()
+cc.Tasks = make([]config.Task, len(cur.Tasks))
+copy(cc.Tasks, cur.Tasks)  // 用 cur 的浅拷贝覆盖了 Clone() 的深拷贝！
+```
+这导致 `cc.Tasks[i].Extra` 和 `.Storage.Config` map 仍指向原始数据，失去深拷贝意义。
 
 ### Suggested Action
-- 功能交互点必须使用 `data-testid`（P0 级）
-- `data-testid` 在整个页面中必须唯一（加后缀区分视图）
-- 验证性断言使用 `toContainText()` 而非 CSS class 可见性
-- 详见 `CODEGEN.md`
+始终使用 `cfg.Clone()` 并直接使用返回的 Tasks 字段。`Clone()` 已正确处理所有 map/slice 的深拷贝（Tasks、Contexts、Proxies、DomainLimits、FFmpeg.ExtraArgs、Mongo）。
+
+### Promoted
+- CLAUDE.md (Config 深拷贝陷阱)
 
 ### Metadata
-- Source: conversation
-- Related Files: test/playwright/specs/*.ts, web/static/index.html
-- Tags: playwright, selectors, data-testid
+- Source: code_review
+- Related Files: config/config.go, api/server.go
+- Tags: data_race, config, cloning
 
 ---
 
-## [LRN-20260613-002] best_practice — 共享 Server 下的测试隔离
+## [LRN-20260616-002] correction — initializedCh 不能在 defer 中 close（无限循环）
 
-**Logged**: 2026-06-13T15:30:00Z
+**Logged**: 2026-06-16T06:30:00Z
 **Priority**: high
 **Status**: promoted
-**Area**: tests
+**Area**: backend
 
 ### Summary
-多个测试共享同一个 Go 测试 Server 时，写操作（cancel/retry）与读操作（列表渲染）并行执行导致竞态。`fullyParallel: true` 加剧此问题。
+`Manager.Start()` 中的 `close(m.initializedCh)` 如果在 `for{}` 循环前用 `defer`，将永远不会执行。必须放在循环前直接 close。
 
 ### Details
-T4（取消对象）、T6（API cancel）、T5（批量操作）修改 server 状态，与验证任务列表的 T1/T2 并行时，读测试看到不一致的 cancelled 状态导致间歇性失败。
+`Start()` 末尾是 `for { select { case ... } }` 无限循环。defer 在该函数退出时执行，但无限循环永不退出。所以需要直接调用 `close(m.initializedCh)` 而非 defer。
 
-### Suggested Action
-- 读测试（验证 UI 渲染）和写测试（变更状态）应隔离运行
-- 在 `playwright.config.ts` 中设 `fullyParallel: false`
-- 或将可写测试串行化（`test.describe.serial`）
-- 使用 test-tktube（稳定 all-completed）而非 test-mixed（动态状态）作为读测试的基准
+### Resolution
+- **Resolved**: 2026-06-16T06:30:00Z
+- **Notes**: 位置在 scheduler.go:58
+
+### Promoted
+- CLAUDE.md (Manager.Start 无限循环中的同步)
 
 ### Metadata
-- Source: conversation
-- Related Files: test/playwright/playwright.config.ts
-- Tags: testing, parallel, race-condition
+- Related Files: manager/scheduler.go
+- Tags: goroutine, synchronization, test
 
 ---
 
-## [LRN-20260613-003] best_practice — 视觉回归快照的稳定性
+## [LRN-20260616-003] best_practice — golangci-lint v7 配置格式变化
 
-**Logged**: 2026-06-13T16:00:00Z
-**Priority**: high
-**Status**: promoted
-**Area**: tests
-
-### Summary
-动态元素（连接状态指示器、加载动画、任务进度）导致截图基线不稳定。截图命名冲突导致基线覆盖。
-
-### Details
-- `status-indicator`（绿点/红点）每次运行可能不同 → `mask` 排除
-- `animate-spin` 加载动画不同步 → `mask` 排除
-- V1 和 V3 使用了相同的 `heading.png` 文件名 → 后者覆盖前者
-
-### Suggested Action
-- `toHaveScreenshot()` 的 `mask` 选项排除所有动态元素
-- 每个截图使用唯一的文件名（不要复用）
-- 截图区域选择稳定的 DOM 节点（如 h1 标题文字而非整个 sidebar）
-- `.gitignore` 排除 `visual-regression.spec.ts-snapshots/`（CI 自动生成）
-
-### Metadata
-- Source: conversation
-- Related Files: test/playwright/specs/visual-regression.spec.ts
-- Tags: visual-regression, snapshots, stability
-
----
-
-## [LRN-20260613-004] correction — 端口参数化必须彻底
-
-**Logged**: 2026-06-13T16:30:00Z
-**Priority**: critical
-**Status**: promoted
-**Area**: tests
-
-### Summary
-`fault-injection.spec.ts` 中 R3 使用了硬编码 `localhost:19199`，导致 `TEST_PORT` 环境变量被忽略。
-
-### Details
-api.ts 导出了 `TEST_PORT`，但 R3 使用了裸的 `fetch('http://localhost:19199/...')`。这是第一次 review 遗漏的。修复方案：从 api.ts 导入 `TEST_PORT` 并使用模板字符串拼接。
-
-### Suggested Action
-- 全局搜索 `localhost:19199` 确保全部替换为参数化端口
-- ESLint 规则：禁止硬编码端口
-- 所有 HTTP 请求必须通过 helpers/api.ts 或使用 TEST_PORT
-
-### Metadata
-- Source: conversation
-- Related Files: test/playwright/specs/fault-injection.spec.ts, test/playwright/helpers/api.ts
-- Tags: port, parameterization, eslint
-
----
-
-## [LRN-20260613-005] knowledge_gap — SSE 事件捕获时机
-
-**Logged**: 2026-06-13T17:00:00Z
-**Priority**: high
-**Status**: pending
-**Area**: tests
-
-### Summary
-SSE（EventSource）在 `page.goto()` 导航时立即建立连接，`addInitScript` 的 patch 必须在 `goto()` 之前执行才能拦截到事件。
-
-### Details
-SSEWatcher 使用 `page.addInitScript()` 注入 `EventSource.prototype.addEventListener` 补丁。但：
-- `addInitScript` 注册的脚本在 **新导航** 时执行（在 `window.onload` 之前）
-- `page.goto('/')` 之后调用 `watcher.attach()` 不会影响已建立的 EventSource
-- 正确顺序：`watcher.attach()` → `page.goto('/')`
-
-当前 T6 测试因此无法通过 SSEWatcher 捕获事件，改为验证 API 调用的间接效果。
-
-### Suggested Action
-- SSEWatcher 的 `attach()` 必须在 `page.goto()` 之前调用
-- 或使用 `page.addInitScript(() => { ... patch EventSource ... })` 在全局 setup 中注册
-- 后续可改用 `page.waitForResponse()` 监听 SSE endpoint 的响应流
-
-### Metadata
-- Source: conversation
-- Related Files: test/playwright/helpers/sse.ts
-- Tags: SSE, EventSource, timing, addInitScript
-
----
-
-## [LRN-20260613-006] correction — 断言必须真实验证
-
-**Logged**: 2026-06-13T17:30:00Z
-**Priority**: high
-**Status**: promoted
-**Area**: tests
-
-### Summary
-Lighthouse L2 的 `expect(altCount).toBeGreaterThanOrEqual(0)` 和 L3 的 `expect(count).toBeGreaterThanOrEqual(0)` 是永真断言，从不失败，无法检测回归。
-
-### Details
-- `altCount` 初始化为 0，loop 中只增不减，所以 `>= 0` 永远 true
-- `viewportMeta.count()` 返回 `>= 0`，`>= 0` 始终满足
-
-### Suggested Action
-- 验证性断言必须能失败：统计 `withoutAlt` 并 `expect(withoutAlt).toBe(0)`
-- Viewport meta 必须存在：`expect(count).toBe(1)` + 验证 content 属性
-- 代码审查时检查所有 `toBeGreaterThanOrEqual(0)` 模式
-
-### Metadata
-- Source: conversation
-- Related Files: test/playwright/specs/lighthouse.spec.ts
-- Tags: assertions, validation, tautology
-
----
-
-## [LRN-20260613-007] best_practice — 报告脚本的路径可靠性
-
-**Logged**: 2026-06-13T18:00:00Z
-**Priority**: high
+**Logged**: 2026-06-16T07:00:00Z
+**Priority**: medium
 **Status**: promoted
 **Area**: infra
 
 ### Summary
-`scripts/playwright-report-gen.sh` 初始硬编码 `test/playwright/test-results/.last-run.json`，当 CI 中 `working-directory` 改变后路径解析错误。
+golangci-lint v7 (version 2.x.x) 使用新的配置格式：`version: "2"` + `linters/settings/exclusions/rules` + `linters/exclusions/presets`。旧的 `issues/exclude-rules` 不再适用。
 
 ### Details
-CI 配置 `working-directory: test/playwright` 改变了当前目录，但脚本中的相对路径假设从仓库根运行。导致：
-- `.last-run.json` 找不到 → 统计静默跳过
-- `test/playwright/playwright-report/` 在嵌套目录 `test/playwright/test/playwright/` 下创建
+旧格式（v1）：
+```yaml
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [errcheck]
+```
+
+新格式（v2）：
+```yaml
+linters:
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]
+    presets:
+      - comments
+      - common-false-positives
+```
 
 ### Suggested Action
-- 脚本使用 `${RESULTS_DIR}` 变量而非硬编码路径
-- 在 CI 中明确传递 `test-results`（相对路径）而非硬编码
-- 所有 shell 脚本考虑 `working-directory` 对路径的影响
+使用 `golangci-lint config verify` 验证配置。使用 `//lint:ignore` 注释对特定行抑制 lint。
 
 ### Metadata
-- Source: conversation
-- Related Files: scripts/playwright-report-gen.sh, .github/workflows/ci.yml
-- Tags: CI, paths, shell-script
+- Source: error
+- Related Files: .golangci.yml
+- Tags: golangci-lint, config, migration
 
 ---
 
-## [LRN-20260613-008] correction — fixture 加载与实际验证的偏差
+## [LRN-20260616-004] insight — sync.Map 类型断言必须用 ok 模式
 
-**Logged**: 2026-06-13T18:30:00Z
-**Priority**: medium
-**Status**: pending
+**Logged**: 2026-06-16T07:30:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`sync.Map` 的 `LoadOrStore`/`Load` 返回 `(any, bool)`，对 value 做类型断言时必须使用 ok 模式，直接断言会在值被覆盖时 panic。
+
+### Details
+```go
+// 错误
+counter := v.(*atomic.Int64)
+
+// 正确
+v, ok := m.failedCount.LoadOrStore(k, new(atomic.Int64))
+counter, ok := v.(*atomic.Int64)
+```
+
+### Suggested Action
+代码审查时重点检查 `sync.Map` 的类型断言模式。
+
+### Metadata
+- Source: code_review
+- Related Files: manager/manager.go
+- Tags: sync.Map, type_assertion, concurrency
+
+---
+
+## [LRN-20260616-005] insight — ValidateAndClamp 修改 config 的 map 字段引发 data race
+
+**Logged**: 2026-06-16T08:00:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`ValidateAndClamp()` 直接修改传入的 `*Config` 的 `Extra` map（`t.Extra["refresh_interval"] = ...`），如果该 Config 被多个 goroutine 共享，就产生 data race。
+
+### Details
+修复方案：在调用 `ValidateAndClamp()` 前先对 Config 做 `Clone()` 深拷贝，或在调用方确保独占访问。`UpdateLogConfig()` 和 `UpdateConfig()` 中已改为先 Clone 再 ValidateAndClamp。
+
+### Suggested Action
+任何调用 `ValidateAndClamp()` 的路径都必须确保 config 是独占的（通过 Clone）或外部有锁保护。
+
+### Metadata
+- Source: error
+- Tags: data_race, config, validation
+
+---
+
+## [LRN-20260616-006] best_practice — `Manager.Start()` 与测试之间的同步信号
+
+**Logged**: 2026-06-16T08:30:00Z
+**Priority**: high
+**Status**: promoted
 **Area**: tests
 
 ### Summary
-`fixture-stress.spec.ts` 中的 F1-F5 测试描述上声称测试"大数据"、"压力"、"分组"等场景，但实际 `globalSetup` 始终加载 `--fixture "full"`，专用数据集从未被使用。
+Manager.Start() 异步启动 goroutine，测试中用 `time.Sleep` 等待初始化完成不稳定且浪费。应使用 channel 信号：
+
+```go
+// Manager 中添加
+initializedCh chan struct{}
+
+// Start() 末尾
+close(m.initializedCh)
+
+// 测试中
+<-mgr.Initialized()
+```
 
 ### Details
-- F1 注释 "requires --fixture large-task" → 实际跳过
-- F4 声称 "empty task edge case" → 实际验证 "full" 数据集
-- F5 声称 "content_group" → 实际验证 "full" 数据集
-- 只有 F2 使用了 test-mixed（"full" 中的默认任务）
-
-### Suggested Action
-- 方案 A：修改 `globalSetup` 或 fixture loader 支持按测试动态切换 fixture
-- 方案 B：重写测试描述，与实际使用的 "full" 数据集匹配
-- 或创建独立的 Playwright project 使用不同的 `--fixture` 参数
+`startAPIManager` 在 `go mgr.Start()` 后立即 `<-mgr.Initialized()` 等待，确保 `loadTasks()` 等初始化完成后再执行测试操作。移除了 `time.Sleep(200ms)` 的需要。
 
 ### Metadata
-- Source: conversation
-- Related Files: test/playwright/specs/fixture-stress.spec.ts, cmd/playwright-server/fixture/datasets.go
-- Tags: fixture, test-data, coverage-gap
+- Source: code_review
+- Tags: testing, synchronization, goroutine
 
 ---
 
-## [LRN-20260615-009] best_practice — sync.Map 类型断言必须安全
+## [LRN-20260616-007] best_practice — 架构解耦：上层不应依赖具体任务包
 
-**Logged**: 2026-06-15T03:20:00Z
-**Priority**: critical
+**Logged**: 2026-06-16T09:00:00Z
+**Priority**: medium
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`manager/aggregate.go` 直接 import `task/tktube` 导致编排层依赖具体实现。解决方案：在 `core/` 包中定义 `TaskType` 常量字符串。
+
+### Details
+```go
+// core/tasktype.go
+const (
+    TaskTypeTktube  = "tktube"
+    TaskTypeHanime  = "hanime"
+    TaskTypeVikacg  = "vikacg"
+    TaskTypeURLList = "url_list"
+)
+```
+所有引用 `tktube.TaskType` 的地方改为 `core.TaskTypeTktube`。对比现有 `task/factory.go` 中的注册 key 保持一致。
+
+### Metadata
+- Source: architecture_review
+- Related Files: core/tasktype.go, manager/aggregate.go
+- Tags: architecture, decoupling, dependency
+
+---
+
+## [LRN-20260616-008] best_practice — go:embed 内联常量提取
+
+**Logged**: 2026-06-16T09:30:00Z
+**Priority**: medium
 **Status**: resolved
 **Area**: backend
 
 ### Summary
-从 `sync.Map.LoadOrStore` / `Load` 返回的 `any` 直接断言为具体类型（`v.(*atomic.Int64)`），若值被意外覆盖则导致 panic。
+大型内联 JS 字符串（116 行 `playerUtilJS`）应使用 `//go:embed` 提取到独立文件，减少 Go 源文件体积，支持语法高亮和编辑器支持。
 
 ### Details
-`manager/download.go` 中 `m.failedCount` 存储 `*atomic.Int64`，但原始代码直接断言：
 ```go
-c := v.(*atomic.Int64).Add(1)
+// task/tktube/player_util_embed.go
+package tktube
+import _ "embed"
+//go:embed player_util.js
+var PlayerUtilJS string
 ```
-如果 map 中某个 key 被意外写入了其他类型（如 string），整个进程 panic。修复方案：
-1. 使用 `ok` 模式检查类型，失败时重新 Store
-2. 后备路径中连 `Load` 也返回错误类型时，创建全新 fallback counter
 
-### Resolution
-- **Resolved**: 2026-06-15T03:20:00Z
-- **Commit**: 8d5b038
-- **Notes**: download.go 两层防御，确保永不 panic
+注意：`//go:embed` 指令必须紧贴变量声明上方，不能有空行。embed 的变量必须是包级别（不能是局部变量）。
 
 ### Metadata
-- Source: error
-- Related Files: manager/download.go
-- Tags: concurrency, type-assertion, sync.Map, panic
+- Related Files: task/tktube/player_util_embed.go, task/tktube/task.go
+- Tags: go:embed, refactoring
 
 ---
 
-## [LRN-20260615-016] best_practice — Windows HTTP 监听必须用 127.0.0.1
+## [LRN-20260616-009] best_practice — pre-commit hook 安装方式
 
-**Logged**: 2026-06-15T03:30:00Z
-**Priority**: high
-**Status**: pending
+**Logged**: 2026-06-16T10:00:00Z
+**Priority**: medium
+**Status**: promoted
 **Area**: infra
 
 ### Summary
-Windows 上 `0.0.0.0` 和 `localhost`（IPv6 `::1`）触发 Defender 防火墙弹窗。所有 Go HTTP 服务器必须用 `127.0.0.1`。
+使用 `git config core.hooksPath .githooks` 而非直接修改 `.git/hooks/`。Makefile 提供 `install-hooks` 目标。
 
 ### Details
-- `httptest.NewServer` 默认监听 `127.0.0.1`，无需修改
-- 自定义 `http.ListenAndServe` 用 `net.Listen("tcp", "127.0.0.1:0")` 替代
-- 开发配置中写 `http_port: 127.0.0.1:8080` 而非 `:8080`
+```makefile
+install-hooks:
+	git config core.hooksPath .githooks
+```
+
+Hook 链：`go fix` → `gofmt -s` → `addlicense` → `go build` → `go vet`
 
 ### Metadata
-- Source: conversation
+- Tags: git, hooks, automation
+
+---
+
+## [LRN-20260616-010] correction — `scripts/pre-commit.sh` vs `.githooks/pre-commit` 冲突
+
+**Logged**: 2026-06-16T10:30:00Z
+**Priority**: low
+**Status**: resolved
+**Area**: config
+
+### Summary
+同时存在 `scripts/pre-commit.sh`（手动）和 `.githooks/pre-commit`（自动 hook），内容有分歧，造成维护负担。删除前者。
+
+### Metadata
+- Tags: cleanup, dead_code
+
+---
+
+## [LRN-20260616-011] insight — 内容组优先级选择器依赖 core.TaskType
+
+**Logged**: 2026-06-16T11:00:00Z
+**Priority**: low
+**Status**: resolved
+**Area**: backend
+
+### Summary
+`variantPriorityScore()` 通过 `t.Type() != core.TaskTypeTktube` 来判断是否应用 tktube 特有逻辑，而不是依赖具体的 `*tktube.Task` 类型断言。这使得代码可在不导入具体任务包的情况下正常工作。
+
+### Metadata
+- Tags: design_pattern, interface
+
+---
+
+## [LRN-20260616-012] best_practice — `maps.Copy` 替代手动 for-range map 拷贝 (Go 1.21+)
+
+**Logged**: 2026-06-16T11:30:00Z
+**Priority**: low
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Go 1.21+ 的 `maps.Copy(dst, src)` 可以替代手写 `for k, v := range src { dst[k] = v }`。
+
+### Metadata
+- Tags: Go1.21, maps, simplification

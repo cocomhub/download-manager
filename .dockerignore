@@ -1,0 +1,10 @@
+.git/
+.gitignore
+*.md
+test/
+cmd/playwright-server/
+.claude/
+.trae/
+.cursor/
+build/
+node_modules/
