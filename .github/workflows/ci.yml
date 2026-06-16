@@ -3,6 +3,9 @@
 
 name: CI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [dev, main, master, "release/**"]
@@ -17,12 +20,17 @@ jobs:
         go: ["1.26"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
           check-latest: true
+
+      - name: Ensure make (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install make -y --no-progress
+        shell: pwsh
 
       - name: Configure private module access
         env:
@@ -40,38 +48,15 @@ jobs:
         run: go mod verify
 
       - name: Build
-        run: go build ./...
+        run: |
+          make build-ci
+          make build-all
 
       - name: Run tests with coverage
-        run: go test -race -count=1 -coverprofile=build/cover_unit.out -covermode=atomic -timeout=180s ./...
+        run: make test-cover
 
-      - name: Run tests (no mongo) with coverage
-        run: go test -tags no_mongo -race -count=1 -coverprofile=build/cover_no_mongo.out -covermode=atomic -timeout=180s ./...
-
-      - name: Lint
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: latest
-          args: --timeout=3m
-
-      - name: Merge coverage reports
-        shell: bash
-        run: |
-          mkdir -p build
-          echo "mode: atomic" > build/cover.out
-          for f in build/cover_unit.out build/cover_no_mongo.out; do
-            if [ -f "$f" ]; then
-              tail -n +2 "$f" >> build/cover.out
-            fi
-          done
-
-      - name: Generate coverage report
-        shell: bash
-        run: |
-          go tool cover -html=build/cover.out -o build/cover.html
-          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=build/cover.out >> $GITHUB_STEP_SUMMARY
+      - name: Check coverage threshold
+        run: make cover-check
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -81,34 +66,83 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-${{ matrix.os }}-${{ matrix.go }}
-          path: |
-            build/cover.out
-            build/cover.html
+          path: build/cover.out
           retention-days: 7
 
       - name: Run benchmarks
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
-        run: go test -bench=. -benchmem -count=3 -run=^$ ./... > build/bench.txt
+        run: make bench
 
       - uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
         with:
           tool: go
-          output-file-path: build/bench.txt
+          output-file-path: build/bench/bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           alert-threshold: "200%"
           comment-on-alert: true
           fail-on-alert: false
 
+  test-no-mongo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: Configure private module access
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+        shell: bash
+
+      - name: Run tests (no mongo) with coverage
+        run: make cover-check GOTAGS="-tags no_mongo"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build/cover.out
+          flags: no_mongo
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report-no-mongo
+          path: |
+            build/cover.out
+          retention-days: 7
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --timeout=3m
+
   playwright:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
           check-latest: true
@@ -120,7 +154,7 @@ jobs:
         working-directory: cmd/playwright-server
         run: go build -o playwright-server .
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -132,7 +166,7 @@ jobs:
 
       - name: Restore Playwright browsers cache
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('test/playwright/package-lock.json') }}
@@ -149,7 +183,7 @@ jobs:
           TEST_PORT: 19199
         run: npx playwright test
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-artifacts

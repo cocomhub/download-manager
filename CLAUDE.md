@@ -5,11 +5,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 构建与运行
 
 ```bash
-make build                              # gofmt + 构建到 build/bin/download-manager
-make run                                # build + 用 build/config.yaml 运行
-./build/bin/download-manager --config config.yaml   # full 模式
-./build/bin/download-manager --ui-only              # UI-only 模式
-./build/bin/download-manager --run-mode=ui          # 等价 --ui-only
+make build           # 本地构建（含格式化）
+make build-ci        # CI 构建（跳过格式化）
+make test            # 快速单元测试
+make test-cover      # 测试 + 覆盖率收集
+make test-no-mongo   # 不带 MongoDB 的测试
+make cover-check     # 覆盖率门禁检查（默认 20%）
+make vet             # go vet
+make lint            # golangci-lint
+make bench           # 基准测试（-count=5）
+make check-loopback  # 检查测试地址是否使用不安全监听
+make notest          # 检查所有包有测试文件（.notestignore 控制免检）
+make gofix           # go fix ./...
+make fmt             # go fix + addlicense + gofmt
+make check-ci        # 全量检查入口（提交前使用）
+make clean           # 清理产物
+make run             # build + 用 build/config.yaml 运行
+make all             # vet + test + bench
+
+Windows 首次运行需安装 make：
+  pwsh scripts/install-make.ps1
+
+所有 CI job 通过 `make <target>` 调用，不写裸 go 命令。
 ```
 
 测试：`go test ./...` 或 `go test -v -run TestXxx ./path/...`

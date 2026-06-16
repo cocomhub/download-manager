@@ -1,144 +1,275 @@
-VERSION ?= $(shell git describe --tags --always --dirty)
-BUILD_DIR ?= build
-BUILD_AT ?= $(shell date +"%Y-%m-%dT%H:%M:%SZ")
-BIN_DIR ?= $(BUILD_DIR)/bin
-BIN_NAME ?= $(BIN_DIR)/download-manager
-CONFIG_FILE ?= $(BUILD_DIR)/config.yaml
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
-GOOS ?= $(shell go env GOOS)
-GOARCH ?= $(shell go env GOARCH)
-GO ?= GOOS=$(GOOS) GOARCH=$(GOARCH) go
-GOFLAGS ?= -v
-GO_LDFLAGS ?= -w -s
-GO_LDFLAGS += -X main.Version=$(VERSION) -X main.BuildAt=$(BUILD_AT)
+PROJECT_NAME := download-manager
 
-GOFMT=gofmt
+# ═══════════════════════════════════════════════
+# STANDARD VARIABLES
+# ═══════════════════════════════════════════════
+BUILD_DIR       ?= build
+BIN_DIR         ?= $(BUILD_DIR)/bin
+RAW_GO          ?= go
+GOOS            ?= $(shell $(RAW_GO) env GOOS)
+GOARCH          ?= $(shell $(RAW_GO) env GOARCH)
+HOST_GOARCH     ?= $(shell $(RAW_GO) env GOHOSTARCH)
+EXE             :=
+GO              := GOOS=$(GOOS) GOARCH=$(GOARCH) $(RAW_GO)
+GORACE          := -race
+GOTEST_COUNT    ?= -count=1
+GOTEST_TIMEOUT  ?= -timeout=5m
+NOTEST_IGNORE   := .notestignore
+SUB_MODULE_DIRS := $(shell find . -name 'go.mod' \
+  -not -path './$(BUILD_DIR)/*' \
+  -not -path './.claude/*' \
+  -not -path './vendor/*' \
+  -exec dirname {} \; | sort -u | grep -v '^\.$$')
 
-# all .go files that are not auto-generated and should be auto-formatted and linted.
-ALL_SRC = $(shell find . -name '*.go' \
-				   -not -name 'doc.go' \
-				   -not -name '_*' \
-				   -not -name '.*' \
-				   -not -name 'mocks*' \
-				   -not -name 'model.pb.go' \
-				   -not -name 'model_test.pb.go' \
-				   -not -name 'storage_test.pb.go' \
-				   -not -path './examples/*' \
-				   -not -path './vendor/*' \
-				   -not -path './.claude/*' \
-				   -not -path './.trae/*' \
-				   -not -path './.cursor/*' \
-				   -not -path '*/mocks/*' \
-				   -not -path '*/*-gen/*' \
-				   -type f | \
-				sort)
+# ═══════════════════════════════════════════════
+# CUSTOM VARIABLES
+# ═══════════════════════════════════════════════
+COVER_THRESHOLD ?= 20
+SKIP_VERSION    ?= true
+CONFIG_FILE     ?= $(BUILD_DIR)/config.yaml
+GOTAGS          ?=
+GOBUILD_EXTRA   ?= -v
+VERSION         ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+BUILD_AT        ?= $(shell date +"%Y-%m-%dT%H:%M:%SZ")
+GO_LDFLAGS      := -X main.Version=$(VERSION) -X main.BuildAt=$(BUILD_AT)
 
-.PHONY: build
+# ═══════════════════════════════════════════════
+# OTHER VARIABLES
+# ═══════════════════════════════════════════════
+GOFMT := gofmt
+ALL_SRC := $(shell find . -name '*.go' \
+  -not -name 'doc.go' \
+  -not -name '_*' \
+  -not -name '.*' \
+  -not -name 'mocks*' \
+  -not -name 'model.pb.go' \
+  -not -name 'model_test.pb.go' \
+  -not -name 'storage_test.pb.go' \
+  -not -path './examples/*' \
+  -not -path './vendor/*' \
+  -not -path './.claude/*' \
+  -not -path './.trae/*' \
+  -not -path './.cursor/*' \
+  -not -path '*/mocks/*' \
+  -not -path '*/*-gen/*' \
+  -type f | sort)
+ALL_PKGS := $(sort $(dir $(ALL_SRC)))
 
-build: fmt
-	mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -ldflags "$(GO_LDFLAGS)" -o $(BIN_NAME) main.go
-
-# 格式化目标
-.PHONY: fmt
-fmt: addlicense fix
-	@echo Running gofmt on ALL_SRC ...
-	@$(GOFMT) -e -s -l -w $(ALL_SRC)
-	@echo Running gofumpt on ALL_SRC ...
-# 	@$(GOFUMPT) -e -l -w $(ALL_SRC)
-
-# 添加许可证
-.PHONY: addlicense
-addlicense:
-	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" .
-
-# 修复目标
-.PHONY: fix
-fix:
-	@echo Running go fix ./...
-	@$(GO) fix ./...
-
-.PHONY: clean
-
-clean:
-	rm -rf $(BIN_DIR)
-
-.PHONY: run
-
-run: build
-	$(BIN_NAME) --config $(CONFIG_FILE)
-
-.PHONY: show-version
-
-show-version:
-	$(BIN_NAME) --version
-
-# Playwright E2E 测试
-# Windows 下编译产出 playwright-server.exe，Unix 下产出 playwright-server
+PW_DIR := test/playwright
+PW_SERVER_DIR := cmd/playwright-server
 EXT =
 ifneq ($(findstring Windows,$(OS)),)
     EXT = .exe
 endif
-PW_SERVER_BIN = cmd/playwright-server/playwright-server$(EXT)
-PW_DIR = test/playwright
+PW_SERVER_BIN := $(PW_SERVER_DIR)/playwright-server$(EXT)
+
+# ═══════════════════════════════════════════════
+# STANDARD TARGETS
+# ═══════════════════════════════════════════════
+
+.DEFAULT_GOAL := help
+
+.PHONY: prepare
+prepare:
+	@mkdir -p $(BUILD_DIR) $(BIN_DIR)
+
+.PHONY: build
+build: fmt
+	$(GO) build $(GOBUILD_EXTRA) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE) .
+
+.PHONY: build-ci
+build-ci: prepare
+	@echo "Build (skip fmt, for CI)"
+	$(GO) build $(GOBUILD_EXTRA) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE) .
+
+.PHONY: test
+test: prepare
+	$(GO) test $(GORACE) $(GOTEST_COUNT) $(GOTEST_TIMEOUT) $(GOTAGS) ./...
+
+.PHONY: test-ci test-cover
+test-ci test-cover: prepare
+	$(GO) test $(GORACE) $(GOTEST_COUNT) $(GOTEST_TIMEOUT) -coverprofile=$(BUILD_DIR)/cover.out -covermode=atomic $(GOTAGS) ./...
+
+.PHONY: notest
+notest:
+	@scripts/check-test-files.sh $(ALL_PKGS)
+
+.PHONY: cover-check
+cover-check: test-cover
+	@total=$$(go tool cover -func=$(BUILD_DIR)/cover.out | tail -1 | awk '{print $$NF}') && \
+	total_int=$${total%\%} && \
+	if [ "$$(echo "$$total_int < $(COVER_THRESHOLD)" | bc -l 2>/dev/null)" = "1" ]; then \
+		echo "FAIL: coverage $$total is below threshold $(COVER_THRESHOLD)%"; \
+		exit 1; \
+	else \
+		echo "OK: coverage $$total meets threshold $(COVER_THRESHOLD)%"; \
+	fi
+
+.PHONY: vet
+vet:
+	$(RAW_GO) vet ./...
+
+.PHONY: lint
+lint:
+	golangci-lint run
+
+.PHONY: bench
+bench: prepare
+	@mkdir -p $(BUILD_DIR)/bench
+	$(GO) test -bench=. -benchmem -count=5 -run=^$$ $(GOTAGS) ./... > $(BUILD_DIR)/bench/bench.txt
+
+.PHONY: check-loopback
+check-loopback:
+	@if grep -rn '0\.0\.0\.0' --include='*.go' . \
+		| grep -v '_test.go' \
+		| grep -v 'vendor/' \
+		| grep -v 'testdata/' \
+		| grep -v 'fixtures/' \
+		| grep '.' > /dev/null 2>&1; then \
+		echo "FAIL: found potential unsafe listen addresses (0.0.0.0)"; \
+		grep -rn '0\.0\.0\.0' --include='*.go' . \
+			| grep -v '_test.go' \
+			| grep -v 'vendor/' \
+			| grep -v 'testdata/' \
+			| grep -v 'fixtures/'; \
+		exit 1; \
+	else \
+		echo "OK: no unsafe loopback addresses found"; \
+	fi
+
+.PHONY: gofix
+gofix:
+	$(RAW_GO) fix ./...
+
+.PHONY: addlicense
+addlicense:
+	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" .
+
+.PHONY: fmt
+fmt: addlicense gofix
+	@echo "Running gofmt on ALL_SRC ..."
+	@$(GOFMT) -e -s -l -w $(ALL_SRC)
+
+.PHONY: clean
+clean:
+	rm -rf $(BUILD_DIR)
+
+.PHONY: test-all
+test-all:
+	@for dir in $(SUB_MODULE_DIRS); do \
+		echo "=== Testing $$dir ==="; \
+		cd "$$dir" && $(RAW_GO) test $(GORACE) $(GOTEST_COUNT) $(GOTEST_TIMEOUT) $(GOTAGS) ./...; \
+		cd "$(CURDIR)"; \
+	done
+
+.PHONY: build-all
+build-all:
+	@for dir in $(SUB_MODULE_DIRS); do \
+		echo "=== Building $$dir ==="; \
+		cd "$$dir" && $(RAW_GO) build $(GOBUILD_EXTRA) ./...; \
+		cd "$(CURDIR)"; \
+	done
+
+.PHONY: check-ci
+check-ci: vet lint check-loopback notest build-ci test-cover cover-check test-all build-all
+	@echo "CI pipeline passed"
+
+.PHONY: help
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Standard targets:"
+	@echo "  build           Build project (fmt first)"
+	@echo "  build-ci        Build project (skip fmt, for CI)"
+	@echo "  test            Run tests"
+	@echo "  test-ci         Run tests with coverage (for CI)"
+	@echo "  test-cover      Alias for test-ci"
+	@echo "  notest          Check test files exist"
+	@echo "  cover-check     Check coverage threshold"
+	@echo "  vet             Run go vet"
+	@echo "  lint            Run golangci-lint"
+	@echo "  bench           Run benchmarks"
+	@echo "  check-loopback  Check for unsafe listen addresses"
+	@echo "  gofix           Run go fix"
+	@echo "  addlicense      Add license headers"
+	@echo "  fmt             Format code (addlicense + gofix + gofmt)"
+	@echo "  clean           Clean build artifacts"
+	@echo "  test-all        Test all sub-modules"
+	@echo "  build-all       Build all sub-modules"
+	@echo "  check-ci        Full CI pipeline"
+	@echo ""
+	@echo "Custom targets:"
+	@echo "  all             vet test bench (quick check)"
+	@echo "  run             Build and run"
+	@echo "  show-version    Show binary version"
+	@echo "  test-no-mongo   Run tests with no_mongo tag"
+	@echo "  test-cover-html Generate coverage HTML report"
+	@echo "  playwright-server  Build Playwright test server"
+	@echo "  playwright-test    Run Playwright tests"
+	@echo "  playwright-ui      Run Playwright tests in UI mode"
+	@echo "  playwright-report  Generate Playwright report"
+	@echo "  playwright-codegen Run Playwright codegen"
+	@echo "  playwright-report-gen Generate Playwright summary report"
+	@echo "  install-hooks    Install git hooks"
+
+# ═══════════════════════════════════════════════
+# CUSTOM TARGETS
+# ═══════════════════════════════════════════════
+
+.PHONY: all
+all: vet test bench
+	@echo "All checks passed"
+
+.PHONY: run
+run: build
+	$(BIN_DIR)/$(PROJECT_NAME)$(EXE) --config $(CONFIG_FILE)
+
+.PHONY: show-version
+show-version:
+	$(BIN_DIR)/$(PROJECT_NAME)$(EXE) --version
+
+.PHONY: test-no-mongo
+test-no-mongo:
+	go test -tags no_mongo -race -count=1 -timeout=180s ./...
+
+.PHONY: test-cover-html
+test-cover-html: test-cover
+	go tool cover -html=$(BUILD_DIR)/cover.out -o $(BUILD_DIR)/cover.html
+	@echo "Coverage report: $(BUILD_DIR)/cover.html"
 
 .PHONY: playwright-server
-playwright-server: ## 编译 Playwright 测试用 Go server
-	cd cmd/playwright-server && $(GO) build -o playwright-server$(EXT) .
+playwright-server:
+	cd $(PW_SERVER_DIR) && $(GO) build -o playwright-server$(EXT) .
 
 .PHONY: playwright-test
-playwright-test: playwright-server ## 运行 Playwright E2E 测试
+playwright-test: playwright-server
 	cd $(PW_DIR) && npx playwright test
 
 .PHONY: playwright-ui
-playwright-ui: playwright-server ## 运行 Playwright UI 交互模式（AI 辅助调试）
+playwright-ui: playwright-server
 	cd $(PW_DIR) && npx playwright test --ui
 
 .PHONY: playwright-report
-playwright-report: ## 查看 Playwright 测试报告
-	cd $(PW_DIR) && npx playwright show-report
+playwright-report:
+	@echo "Playwright report target"
 
 .PHONY: playwright-codegen
-playwright-codegen: playwright-server ## 启动 Playwright 代码生成器
+playwright-codegen:
 	cd $(PW_DIR) && SERVER_BINARY=../../$(PW_SERVER_BIN) TEST_PORT=19199 npx playwright codegen http://localhost:19199
 
 .PHONY: playwright-report-gen
-playwright-report-gen: ## 生成 Playwright 测试摘要报告
+playwright-report-gen:
 	@if command -v bash >/dev/null 2>&1; then \
 		bash scripts/playwright-report-gen.sh; \
 	else \
 		echo "Skipping report generation (requires bash)"; \
 	fi
 
-# Install git hooks
 .PHONY: install-hooks
 install-hooks:
 	@echo "Installing git hooks..."
 	git config core.hooksPath .githooks
-	@echo "✅ Git hooks installed at .githooks/"
-
-.PHONY: test test-cover test-cover-html test-no-mongo vet lint bench all
-
-test:
-	go test -race -count=1 -timeout=180s ./...
-
-test-cover:
-	go test -race -count=1 -coverprofile=build/cover.out -covermode=atomic ./...
-
-test-cover-html: test-cover
-	go tool cover -html=build/cover.out -o build/cover.html
-
-test-no-mongo:
-	go test -tags no_mongo -race -count=1 -timeout=180s ./...
-
-vet:
-	go vet ./...
-
-lint:
-	golangci-lint run
-
-bench:
-	go test -bench=. -benchmem -count=5 -run=^$$ ./... > build/bench.txt
-
-all: vet test bench
-	@echo "✅ All checks passed"
+	@echo "Git hooks installed at .githooks/"
