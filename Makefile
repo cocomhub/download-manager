@@ -25,6 +25,9 @@ ALL_SRC = $(shell find . -name '*.go' \
 				   -not -name 'storage_test.pb.go' \
 				   -not -path './examples/*' \
 				   -not -path './vendor/*' \
+				   -not -path './.claude/*' \
+				   -not -path './.trae/*' \
+				   -not -path './.cursor/*' \
 				   -not -path '*/mocks/*' \
 				   -not -path '*/*-gen/*' \
 				   -type f | \

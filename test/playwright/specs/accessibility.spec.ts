@@ -104,6 +104,10 @@ test.describe('Accessibility Audits', () => {
       console.log(`Color contrast violations: ${colorViolations.length}`);
       colorViolations.forEach(v => {
         console.log(`  - ${v.help}: ${v.nodes.length} nodes`);
+        v.nodes.forEach((node, i) => {
+          console.log(`    node ${i}: ${node.html}`);
+          console.log(`    target: ${node.target.join(', ')}`);
+        });
       });
     }
     // Fail if new contrast violations appear beyond known baseline

@@ -29,13 +29,17 @@ test.describe('Fault Injection & Resilience', () => {
 
   test('R2: API returns healthy response under concurrent load', async () => {
     // Fire multiple parallel API requests
-    const results = await Promise.allSettled([
-      apiGet('/api/tasks'),
-      apiGet('/api/healthz'),
-      apiGet('/api/runtime'),
-      apiGet('/api/aggregate'),
-      apiGet('/api/metrics'),
-    ]);
+    const endpoints = ['/api/tasks', '/api/healthz', '/api/runtime', '/api/aggregate', '/api/metrics'];
+    const results = await Promise.allSettled(
+      endpoints.map(path => apiGet(path))
+    );
+
+    // Log failures for debugging
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        console.log(`R2 failure: ${endpoints[i]} rejected: ${r.reason}`);
+      }
+    });
 
     // All should be fulfilled (not rejected)
     const fulfilled = results.filter(r => r.status === 'fulfilled');

@@ -24,8 +24,19 @@ jobs:
           go-version: ${{ matrix.go }}
           check-latest: true
 
+      - name: Configure private module access
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+        shell: bash
+
       - name: Verify dependencies
         if: matrix.os == 'ubuntu-latest'
+        env:
+          GOPRIVATE: github.com/cocomhub/*
+          GONOSUMCHECK: github.com/cocomhub/*
+          GONOSUMDB: github.com/cocomhub/*
         run: go mod verify
 
       - name: Build
@@ -129,12 +140,7 @@ jobs:
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: test/playwright
-        run: npx playwright install chromium --with-deps
-
-      - name: Ensure Playwright browsers (cache-hit fallback)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        working-directory: test/playwright
-        run: npx playwright install chromium --with-deps 2>/dev/null || true
+        run: npx playwright install --with-deps
 
       - name: Run Playwright tests
         working-directory: test/playwright

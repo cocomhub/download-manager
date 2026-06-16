@@ -1,3 +1,10 @@
+# Learnings
+
+Corrections, insights, and knowledge gaps captured during development.
+
+**Categories**: correction | insight | knowledge_gap | best_practice
+
+---
 
 ## [LRN-20260616-001] best_practice — Config 深拷贝必须用 Clone() 而非浅拷贝
 
@@ -301,3 +308,183 @@ Go 1.21+ 的 `maps.Copy(dst, src)` 可以替代手写 `for k, v := range src { d
 
 ### Metadata
 - Tags: Go1.21, maps, simplification
+# Learnings
+
+Corrections, insights, and knowledge gaps captured during development.
+
+**Categories**: correction | insight | knowledge_gap | best_practice
+
+---
+
+## [LRN-20260616-013] insight — golangci-lint v2: `//lint:ignore` 对 import 块无效，需用 `//nolint:staticcheck`
+
+**Logged**: 2026-06-16T08:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: infra
+
+### Summary
+在 golangci-lint v2 中，`//lint:ignore SA1019` 放在 import 语句前的单独行无法抑制 lint 错误。需要改为 `//nolint:staticcheck` 放在 import 行行末。
+
+### Details
+```go
+// 无效（v2 不识别）
+//lint:ignore SA1019 deprecated dlcore
+"github.com/cocomhub/pkg/dlcore"
+
+// 有效
+"github.com/cocomhub/pkg/dlcore" //nolint:staticcheck // deprecated dlcore
+```
+
+另：`//nolint:SA1019` 也不被 v2 识别（报 `Found unknown linters in directives: sa1019`），必须用 `//nolint:staticcheck`（linter 名而非规则名）。
+
+### Metadata
+- Source: error
+- Related Files: .golangci.yml, downloader/native.go
+- Tags: golangci-lint, lint_suppression, nolint
+
+---
+
+## [LRN-20260616-014] best_practice — Playwright 截图快照模板应使用 {projectName} 而非 {platform}
+
+**Logged**: 2026-06-16T08:30:00Z
+**Priority**: high
+**Status**: pending
+**Area**: tests
+
+### Summary
+Playwright 默认 `snapshotPathTemplate` 使用 `{platform}` 变量，在不同 OS 上生成不同后缀名（win32/linux/darwin）。这导致 CI（Linux）找不到开发机（Windows）生成的截图基线。
+
+### Details
+```ts
+// 默认（跨平台不兼容）
+snapshotPathTemplate: '{arg}-{platform}{ext}'
+// → heading-desktop-win32.png (Windows)
+// → heading-desktop-linux.png (Linux)  ❌ 找不到
+
+// 修复（跨平台兼容）
+snapshotPathTemplate: '{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}'
+// → heading-desktop.png (所有平台)
+```
+
+`{projectName}` 取自 `playwright.config.ts` 中 `projects[].name`（如 `desktop`、`firefox`、`webkit`），不依赖 OS 名称。
+
+### Metadata
+- Source: error
+- Related Files: test/playwright/playwright.config.ts
+- Tags: playwright, snapshot, cross-platform, CI
+
+---
+
+## [LRN-20260616-015] best_practice — Edit 工具因实际缩进差异失败时改用 cat -An + sed
+
+**Logged**: 2026-06-16T08:45:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: config
+
+### Summary
+当 Edit 工具反复返回 `String to replace not found` 时，可能是因为文件实际缩进（tab 空格混合）与预期不符。
+
+### Details
+调试方法：
+1. `sed -n 'N,Mp' target_file | cat -An` — 显示行号、tab 为 `^I`、行末为 `$`
+2. 用 tab 对齐实际内容复制到 Edit 调用中
+3. 如仍不匹配，改用 `sed` 直接操作文件：
+   ```bash
+   sed -i 'N,Md' target_file  # 删除 N-M 行
+   sed -i '43i\    // insert this line' target_file  # 在第 43 行前插入
+   ```
+
+注意：`sed -i` 在 Git Bash 可用，PowerShell 中要用 `bash -c` 包裹。
+
+### Metadata
+- Source: error
+- Related Files: N/A
+- Tags: editing, troubleshooting, sed
+
+---
+
+## [LRN-20260616-016] best_practice — Playwright 测试中 axe-core 对比度类违规的调试方法
+
+**Logged**: 2026-06-16T09:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+axe-core `color-contrast` 违规仅报告数量，不报告具体元素。需要手动在测试中遍历 `v.nodes` 输出 `node.html` 和 `node.target` 才能定位哪个元素失败。
+
+### Details
+```ts
+colorViolations.forEach(v => {
+  console.log(`  - ${v.help}: ${v.nodes.length} nodes`);
+  v.nodes.forEach((node, i) => {
+    console.log(`    node ${i}: ${node.html}`);
+    console.log(`    target: ${node.target.join(', ')}`);
+  });
+});
+```
+
+定位到问题后，修复方案是改变 CSS 颜色组合提高对比度（≥4.5:1 for AA）：
+- 低对比度：`bg-white` + `text-blue-500` + `border-blue-500` ≈ 2.8:1 ❌
+- 修复：`bg-blue-600` + `text-white` ≈ 4.6:1+ ✅
+
+### Metadata
+- Source: error
+- Related Files: test/playwright/specs/accessibility.spec.ts, web/static/index.html
+- Tags: axe-core, accessibility, color_contrast, debugging
+
+---
+
+## [LRN-20260616-017] best_practice — CI 私有依赖认证配置模式
+
+**Logged**: 2026-06-16T09:15:00Z
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+Go module 依赖私有 GitHub 仓库时，需要在 CI 的 `go mod verify` 前配置：
+
+1. Git URL 重写（用 PAT 鉴权）：
+   ```bash
+   git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+   ```
+2. 环境变量（绕过 sumdb/sumcheck）：
+   ```
+   GOPRIVATE: github.com/cocomhub/*
+   GONOSUMCHECK: github.com/cocomhub/*
+   GONOSUMDB: github.com/cocomhub/*
+   ```
+
+注意：`GITHUB_TOKEN` 默认为 `Contents: read` 但不对同一 org 的其他私有仓库授权。必须使用显式 PAT（`secrets.GH_PAT`）且具有目标仓库的 `Contents: read` 权限。
+
+### Metadata
+- Source: error
+- Related Files: .github/workflows/ci.yml
+- Tags: CI, private_repo, authentication, Go_modules
+
+---
+
+## [LRN-20260616-018] best_practice — go:embed 修改后必须重新构建二进制
+
+**Logged**: 2026-06-16T09:30:00Z
+**Priority**: low
+**Status**: pending
+**Area**: infra
+
+### Summary
+修改 `//go:embed` 文件（如 `web/static/index.html`）后，测试服务器二进制不会自动更新。必须显式重新构建（`go build`）才能生效。
+
+### Details
+Playwright 测试使用预构建的 `playwright-server.exe`（在 `SERVER_BINARY` 环境变量中指定），如果只改了 HTML/CSS 但没重新构建，测试仍然使用旧版内嵌资源。
+
+修复：在测试前执行 `cd cmd/playwright-server && go build -o playwright-server .`。
+
+### Metadata
+- Source: error
+- Related Files: cmd/playwright-server/main.go, web/static/index.html
+- Tags: go:embed, build_cache, testing
+
+---
