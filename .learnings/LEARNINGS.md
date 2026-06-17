@@ -308,11 +308,6 @@ Go 1.21+ 的 `maps.Copy(dst, src)` 可以替代手写 `for k, v := range src { d
 
 ### Metadata
 - Tags: Go1.21, maps, simplification
-# Learnings
-
-Corrections, insights, and knowledge gaps captured during development.
-
-**Categories**: correction | insight | knowledge_gap | best_practice
 
 ---
 
@@ -400,7 +395,6 @@ snapshotPathTemplate: '{testFileDir}/{testFileName}-snapshots/{arg}-{projectName
 
 ### Metadata
 - Source: error
-- Related Files: N/A
 - Tags: editing, troubleshooting, sed
 
 ---
@@ -488,3 +482,241 @@ Playwright 测试使用预构建的 `playwright-server.exe`（在 `SERVER_BINARY
 - Tags: go:embed, build_cache, testing
 
 ---
+
+## [LRN-20260617-001] best_practice — 数据竞争保护使用专用锁 + getter/setter
+
+**Logged**: 2026-06-17T16:00:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`m.downloader` 被 Manager 的 work goroutine（读）、UpdateConfig（写）、测试代码（写）三方同时访问，产生 data race。修复方式：独立 `downloaderMu sync.Mutex` + `getDownloader()`/`setDownloader()` 封装。
+
+### Details
+不同于 `m.mu`（保护 activeDownloads 热路径），使用专用锁避免锁竞争。所有读/写点（生产代码 + 测试代码）都通过 getter/setter，不再直接字段赋值。
+
+涉及修改的 11 个文件：`manager.go`、`download.go`、`task_loader.go`、`tasks.go`、`hot_reload_test.go`、`race_test.go`、`e2e_test.go`、`mock_integration_test.go`、`scheduler_queue_test.go`。
+
+### Metadata
+- Source: error
+- Related Files: manager/manager.go, manager/*.go, manager/*_test.go
+- Tags: data_race, concurrency, mutex, downloader
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-002] best_practice — Playwright 纯文字截图不跨 OS 兼容
+
+**Logged**: 2026-06-17T16:30:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: tests
+
+### Summary
+`h1:has-text("Tasks")` 纯文字元素在 Ubuntu CI（62×28px）与 Windows 本地（54×28px）渲染尺寸不同，连续 4 次 CI 运行 pixel diff 均超阈值。最终改用文本断言替代 snapshot。
+
+### Details
+连续修复演进：100→500→5000→10000→6000 maxDiffPixels 都无法覆盖 OS 字体差异。最终改为：
+```ts
+const heading = page.locator('h1:has-text("Tasks")');
+await expect(heading).toBeVisible();
+await expect(heading).toHaveText('Tasks');
+```
+
+**教训**：纯文字元素只验证存在性和内容，不验证像素。结构性元素（grid、sidebar）才保留 snapshot。
+
+### Metadata
+- Source: error
+- Related Files: test/playwright/specs/visual-regression.spec.ts
+- Tags: playwright, snapshot, cross-platform, CSS, font_rendering
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-003] insight — Playwright route() 延时处理竞争
+
+**Logged**: 2026-06-17T16:45:00Z
+**Priority**: medium
+**Status**: promoted
+**Area**: tests
+
+### Summary
+`page.context().route('**/api/**', async (route) => { await sleep(3000); route.continue(); })` 在 firefox 下，并发 API 请求到达时第一条请求阻塞 3s，第二条请求看到路由仍在"占用"中，报 `Route is already handled!`。
+
+### Details
+修复方案：
+1. 加 `routeHandled` guard 只拦截首条请求，其余 pass-through
+2. 跳过 health check 端点保 worker 心跳（避免 healthz 被延迟触发 503）
+
+### Metadata
+- Source: error
+- Related Files: test/playwright/specs/network-resilience.spec.ts
+- Tags: playwright, route, firefox, concurrency
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-004] best_practice — Manager worker() 空闲心跳保持
+
+**Logged**: 2026-06-17T17:00:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`worker()` 在 `downloadQueue` 通道无消息时 select 阻塞，不更新 `workerHeartbeat`。health check 在 5s 内无心跳 → workers 组件 503。fault-injection 测试 R2 连续失败。
+
+### Details
+```go
+func (m *Manager) worker() {
+    m.workerHeartbeat.Store(time.Now())
+    hbTicker := time.NewTicker(3 * time.Second)
+    defer hbTicker.Stop()
+    for {
+        select {
+        case req := <-m.downloadQueue:
+            m.workerHeartbeat.Store(time.Now())
+            m.download(req.task, req.obj)
+        case <-hbTicker.C:
+            m.workerHeartbeat.Store(time.Now())  // idle heartbeat
+        case <-m.stopChan:
+            return
+        }
+    }
+}
+```
+
+### Metadata
+- Source: error
+- Related Files: manager/runtime_mgr.go, manager/health.go
+- Tags: health_check, worker, heartbeat, 503
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-005] best_practice — CI benchmark step 需要 continue-on-error
+
+**Logged**: 2026-06-17T17:15:00Z
+**Priority**: low
+**Status**: promoted
+**Area**: infra
+
+### Summary
+`benchmark-action/github-action-benchmark@v1.22.1` 在 `gh-pages` 分支不存在时 `git fetch` 失败（exit 128），直接中断整个 job。但 benchmark 报告的推送不是核心测试，不应阻塞 CI。
+
+### Details
+```yaml
+- uses: benchmark-action/github-action-benchmark@...
+  continue-on-error: true
+```
+
+### Metadata
+- Source: error
+- Related Files: .github/workflows/ci.yml
+- Tags: CI, benchmark, gh-pages
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-006] best_practice — TestE2E_MixedResults 随机概率设计
+
+**Logged**: 2026-06-17T17:30:00Z
+**Priority**: low
+**Status**: promoted
+**Area**: tests
+
+### Summary
+`TestE2E_MixedResults` 使用 `fail_rate=0.5`, 10 个 objects。有 `0.5^10=0.1%` 概率全部成功导致测试失败。在 CI 多平台长期运行中，概率虽小但必然发生。
+
+### Details
+修复：`fail_rate=0.4`，全部成功概率降到 `0.4^10≈0.001%`。更低 fail_rate 确保多数对象失败的同时仍有机会部分成功满足 `1×completed` 断言。
+
+**教训**：随机概率测试要评估最坏情况的概率。长期运行 CI 中，千分之一概率 ≈ 每 1000 次运行失败 1 次，在全量 CI（4 平台 × 日均多次）下不是足够小。
+
+### Metadata
+- Source: error
+- Related Files: manager/e2e_test.go
+- Tags: testing, probability, flaky_test
+
+### Promoted
+- CLAUDE.md
+
+---
+
+## [LRN-20260617-007] best_practice — bandwidth probe 零时长保护
+
+**Logged**: 2026-06-17T17:45:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: backend
+
+### Summary
+`CheckBandwidth` 使用 httptest 本地服务测带宽，Windows CI 上快于 1ns 导致 `elapsed < 0` → 返回 `"elapsed time too short"` 错误。调整为 fallback 1ns 避免除零即可。
+
+### Details
+```go
+elapsed := time.Since(start)
+if elapsed <= 0 {
+    elapsed = time.Nanosecond  // 本地 probe 极快时保护
+}
+```
+
+### Metadata
+- Source: error
+- Related Files: pkg/download/bandwidth.go
+- Tags: bandwidth, windows, division_by_zero
+
+---
+
+## [LRN-20260617-008] best_practice — 连续 CI 修复的调试工作流
+
+**Logged**: 2026-06-17T18:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: config
+
+### Summary
+本次 CI 修复经历了 4 轮 push（commit 1→4），每轮发现新问题。高效工作流：
+
+1. **一次性获取所有失败**：`gh run view --log | grep -E "✘|FAIL|##\[error\]"` 找出所有失败点
+2. **按根因分组**：同一测试连续失败先看看趋势（是否同一个 snapshot 持续 diff）
+3. **递增容差 vs 彻底修改**：snapshot 容差递增（100→500→5000→10000）纯属浪费，到第三次就应该意识到该换方案
+4. **锁定版本**：github-action-benchmark pin 到 SHA 而非 tag，但 remote ref 不存在是上游问题，用 `continue-on-error` 绕过
+5. **CI 代码不可测试**：CI 配置和测试修复必须 push 才能验证，应在本地用等效命令先验证
+
+### Metadata
+- Source: insight
+- Tags: CI, debugging, workflow
+
+---
+
+## [LRN-20260617-009] best_practice — `github.com/cocomhub/sproxy` 私有依赖认证模式
+
+**Logged**: 2026-06-17T18:15:00Z
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+sproxy 是 download-manager 的私有 Go 模块依赖。CI 中需要：
+1. 每个 job 都要添加 "Configure private module access" step（不能只在 test job 有）
+2. lint job 的 `golangci-lint-action` 需要解析 Go module，也需要认证
+3. `GOPRIVATE`/`GONOSUMCHECK`/`GONOSUMDB` 防止 sum.golang.org 验证
+
+原代码只在 test job 有配置，lint 和 playwright job 都缺少，导致 lint 拉不到 sproxy 失败。
+
+### Metadata
+- Source: error
+- Related Files: .github/workflows/ci.yml
+- Tags: CI, private_module, authentication, sproxy
