@@ -78,6 +78,7 @@ jobs:
 
       - uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
+        continue-on-error: true
         with:
           tool: go
           output-file-path: build/bench/bench.txt

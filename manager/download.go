@@ -74,9 +74,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
-	m.mu.Lock()
 	dl := m.getDownloader()
-	m.mu.Unlock()
 
 	// Create per-download context tied to manager lifecycle for cancellation
 	dlCtx, dlCancel := context.WithCancel(context.Background())
