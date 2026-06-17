@@ -324,3 +324,36 @@ func TestLoadNoRuntime_DefaultsApplied(t *testing.T) {
 		t.Fatalf("runtime.scheduler.enabled = false, want true")
 	}
 }
+
+func TestConfig_DefaultHTTPPort(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Server.HTTPPort != 8080 {
+		t.Errorf("HTTPPort = %d, want 8080", cfg.Server.HTTPPort)
+	}
+	if cfg.Server.UIOnlyPort != 8091 {
+		t.Errorf("UIOnlyPort = %d, want 8091", cfg.Server.UIOnlyPort)
+	}
+}
+
+func TestConfig_FileRoot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default to filesystem root dir", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.Downloader.Filesystem.RootDir = "/data/downloads"
+		if got := cfg.FileRoot(); got != "/data/downloads" {
+			t.Errorf("FileRoot() = %q, want %q", got, "/data/downloads")
+		}
+	})
+
+	t.Run("use files_dir when set", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.Server.FilesDir = "/data/files"
+		cfg.Downloader.Filesystem.RootDir = "/data/downloads"
+		if got := cfg.FileRoot(); got != "/data/files" {
+			t.Errorf("FileRoot() = %q, want %q", got, "/data/files")
+		}
+	})
+}

@@ -49,6 +49,8 @@ type Server struct {
 	UIOnlyLockFile  string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
 	ScraperPath     string     `yaml:"scraper_path" json:"scraper_path"`
 	DownloadRootDir string     `yaml:"download_root_dir" json:"download_root_dir"` // Root directory for downloads
+	FilesDir        string     `yaml:"files_dir" json:"files_dir"`                 // Root directory for HTTP /files/ serving
+	Auth            AuthConfig `yaml:"auth" json:"auth"`
 	UIDefaults      UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
 }
 
@@ -154,6 +156,23 @@ type StorageConfig struct {
 // (e.g., proxy, downloader overrides) beyond storage.
 type Context struct {
 	Storage StorageConfig `yaml:"storage" json:"storage"`
+}
+
+// AuthConfig defines HTTP authentication settings.
+type AuthConfig struct {
+	Type     string `yaml:"type" json:"type"`         // "none" | "basic" | "token"
+	Username string `yaml:"username" json:"username"` // basic auth username, default "admin"
+	Password string `yaml:"password" json:"password"` // environment variable DM_AUTH_PASSWORD takes precedence
+	Token    string `yaml:"token" json:"token"`       // environment variable DM_AUTH_TOKEN takes precedence
+}
+
+// FileRoot returns the root directory for HTTP /files/ serving.
+// Prefer FilesDir if set, otherwise fall back to Downloader.Filesystem.RootDir.
+func (c *Config) FileRoot() string {
+	if c.Server.FilesDir != "" {
+		return c.Server.FilesDir
+	}
+	return c.Downloader.Filesystem.RootDir
 }
 
 func clampInt(v, min, max int) int {
@@ -307,6 +326,12 @@ func (c *Config) ValidateAndClamp() {
 		}
 	}
 	// Server defaults
+	if c.Server.HTTPPort <= 0 {
+		c.Server.HTTPPort = 8080
+	}
+	if c.Server.UIOnlyPort <= 0 {
+		c.Server.UIOnlyPort = 8091
+	}
 	if c.Server.DownloadRootDir == "" {
 		c.Server.DownloadRootDir = filepath.Join(c.Server.WorkDir, "downloads")
 	}

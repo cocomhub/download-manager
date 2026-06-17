@@ -40,6 +40,12 @@ func (c Config) Diff(b Config) []Change {
 	if c.Server.DownloadRootDir != b.Server.DownloadRootDir {
 		changes = append(changes, Change{Path: "server.download_root_dir", A: c.Server.DownloadRootDir, B: b.Server.DownloadRootDir})
 	}
+	if c.Server.FilesDir != b.Server.FilesDir {
+		changes = append(changes, Change{Path: "server.files_dir", A: c.Server.FilesDir, B: b.Server.FilesDir})
+	}
+	if c.Server.Auth.Type != b.Server.Auth.Type {
+		changes = append(changes, Change{Path: "server.auth.type", A: c.Server.Auth.Type, B: b.Server.Auth.Type})
+	}
 	if c.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
 		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: c.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})
 	}
