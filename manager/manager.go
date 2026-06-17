@@ -210,8 +210,8 @@ func (m *Manager) getAllTasks() []core.Task {
 
 func (m *Manager) GetDownloadRootDir() string {
 	cfg := m.currentCfg()
-	if cfg != nil && cfg.Server.DownloadRootDir != "" {
-		return cfg.Server.DownloadRootDir
+	if cfg != nil {
+		return cfg.FileRoot()
 	}
 	// Fallback for test / nil config
 	wd := config.GetWorkDir()
