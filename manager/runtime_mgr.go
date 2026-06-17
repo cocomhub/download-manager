@@ -13,6 +13,7 @@ import (
 )
 
 func (m *Manager) worker() {
+	m.workerHeartbeat.Store(time.Now()) // initial heartbeat for idle worker health check
 	for {
 		select {
 		case req, ok := <-m.downloadQueue:

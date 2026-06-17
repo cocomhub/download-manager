@@ -42,11 +42,11 @@ func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout t
 			return 0, fmt.Errorf("bandwidth probe: read error: %w", readErr)
 		}
 	}
-	elapsed := time.Since(start).Seconds()
+	elapsed := time.Since(start)
 	if elapsed <= 0 {
-		return 0, fmt.Errorf("bandwidth probe: elapsed time too short")
+		elapsed = time.Nanosecond // avoid division by zero on fast local probes
 	}
-	return float64(total) / elapsed, nil
+	return float64(total) / elapsed.Seconds(), nil
 }
 
 // CheckHealth 检查代理/隧道节点是否健康。
