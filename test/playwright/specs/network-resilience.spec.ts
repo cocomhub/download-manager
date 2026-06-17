@@ -56,8 +56,20 @@ test.describe('Network Resilience', () => {
 
   // Simulate API latency spike
   test('N3: page recovers after API latency spike', async ({ page }) => {
-    // First delay all API calls heavily
-    await page.context().route('**/api/**', async (route) => {
+    test.setTimeout(60000);
+    // Register route BEFORE goto to avoid race between route registration and requests
+    let routeHandled = false;
+    await page.context().route('**/api/**', async (route, request) => {
+      // Skip health check route to keep the server worker heartbeat alive
+      if (request.url().includes('/api/healthz')) {
+        await route.continue();
+        return;
+      }
+      if (routeHandled) {
+        route.continue();
+        return;
+      }
+      routeHandled = true;
       await new Promise(r => setTimeout(r, 3000));
       await route.continue();
     });

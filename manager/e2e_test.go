@@ -119,7 +119,7 @@ func TestE2E_CancelAllObjects(t *testing.T) {
 // some objects complete and others fail.
 func TestE2E_MixedResults(t *testing.T) {
 	dl := mockdl.New(mockdl.ModeRandomFail,
-		mockdl.WithFailRate(0.5),
+		mockdl.WithFailRate(0.4),
 		mockdl.WithDelay(30*time.Millisecond))
 	mgr, _ := newMockManager(t, "e2e-mixed", 10, dl)
 	_ = startManager(t, mgr)
@@ -131,7 +131,7 @@ func TestE2E_MixedResults(t *testing.T) {
 		t.Fatal("task not found after wait")
 	}
 
-	// With 10 objects and fail_rate=0.5, wait long enough for downloads to complete.
+	// With 10 objects and fail_rate=0.4, wait long enough for downloads to complete.
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusCompleted, 5*time.Second)
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
 
