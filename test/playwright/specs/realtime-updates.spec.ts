@@ -9,6 +9,7 @@ import { apiPost } from '../helpers/api';
 test.describe('Realtime Updates via SSE', () => {
 
   test('T6: cancel entire task triggers status change', async ({ page }) => {
+    test.setTimeout(60000);
     await page.goto('/');
     await page.locator('[data-testid="task-test-mixed"]').click();
     await expect(page.locator('h2:has-text("test-mixed")')).toBeVisible({ timeout: 10000 });

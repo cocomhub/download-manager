@@ -14,6 +14,8 @@ import (
 
 func (m *Manager) worker() {
 	m.workerHeartbeat.Store(time.Now()) // initial heartbeat for idle worker health check
+	hbTicker := time.NewTicker(3 * time.Second)
+	defer hbTicker.Stop()
 	for {
 		select {
 		case req, ok := <-m.downloadQueue:
@@ -24,6 +26,8 @@ func (m *Manager) worker() {
 				m.workerHeartbeat.Store(time.Now())
 				m.download(req.task, req.obj)
 			}
+		case <-hbTicker.C:
+			m.workerHeartbeat.Store(time.Now())
 		case <-m.stopChan:
 			return
 		case <-m.workerStop:
