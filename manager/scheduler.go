@@ -28,10 +28,12 @@ func (m *Manager) Start() {
 			limit = 5
 		}
 		slog.Info("Starting global workers", "count", limit)
+		m.mu.Lock()
 		for i := 0; i < limit; i++ {
 			m.workerWg.Go(m.worker)
 		}
 		m.workerCount = limit
+		m.mu.Unlock()
 	}
 	if m.workersEnabled.Load() {
 		m.StartResolveWorkers(3)
