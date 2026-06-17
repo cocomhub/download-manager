@@ -36,12 +36,17 @@ func cloneObject(src *model.DownloadObject) *model.DownloadObject {
 	if src == nil {
 		return nil
 	}
+	// Lock the source object to protect against concurrent writes to Extra/Metadata.
+	// Direct field reads are safe under RLock; do NOT call GetStatus/GetProgress here
+	// because Go's RWMutex is not reentrant and would deadlock.
+	src.RLock()
+	defer src.RUnlock()
 	dst := &model.DownloadObject{
 		TaskID:   src.TaskID,
 		URL:      src.URL,
 		SavePath: src.SavePath,
-		Status:   src.GetStatus(),
-		Progress: src.GetProgress(),
+		Status:   src.Status,
+		Progress: src.Progress,
 	}
 	if src.Metadata != nil {
 		dst.Metadata = make(map[string]string, len(src.Metadata))
