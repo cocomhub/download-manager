@@ -65,7 +65,7 @@ func validateTokenAuth(cfg config.AuthConfig, token string) bool {
 		expected = envToken
 	}
 	if expected == "" {
-		return true // empty token means no auth
+		return false // token mode requires a non-empty token
 	}
 	if len(token) > 7 && token[:7] == "Bearer " {
 		token = token[7:]

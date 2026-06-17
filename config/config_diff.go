@@ -46,6 +46,15 @@ func (c Config) Diff(b Config) []Change {
 	if c.Server.Auth.Type != b.Server.Auth.Type {
 		changes = append(changes, Change{Path: "server.auth.type", A: c.Server.Auth.Type, B: b.Server.Auth.Type})
 	}
+	if c.Server.Auth.Username != b.Server.Auth.Username {
+		changes = append(changes, Change{Path: "server.auth.username", A: c.Server.Auth.Username, B: b.Server.Auth.Username})
+	}
+	if c.Server.Auth.Password != b.Server.Auth.Password {
+		changes = append(changes, Change{Path: "server.auth.password", A: "(redacted)", B: "(redacted)"})
+	}
+	if c.Server.Auth.Token != b.Server.Auth.Token {
+		changes = append(changes, Change{Path: "server.auth.token", A: "(redacted)", B: "(redacted)"})
+	}
 	if c.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
 		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: c.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})
 	}

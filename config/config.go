@@ -167,10 +167,14 @@ type AuthConfig struct {
 }
 
 // FileRoot returns the root directory for HTTP /files/ serving.
-// Prefer FilesDir if set, otherwise fall back to Downloader.Filesystem.RootDir.
+// Prefer FilesDir if set, otherwise fall back to Server.DownloadRootDir,
+// then Downloader.Filesystem.RootDir.
 func (c *Config) FileRoot() string {
 	if c.Server.FilesDir != "" {
 		return c.Server.FilesDir
+	}
+	if c.Server.DownloadRootDir != "" {
+		return c.Server.DownloadRootDir
 	}
 	return c.Downloader.Filesystem.RootDir
 }

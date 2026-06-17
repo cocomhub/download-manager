@@ -20,7 +20,12 @@ func newTestManager(cfg *config.Config) *manager.Manager {
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	t.Parallel()
+	// Note: no t.Parallel() here — t.Setenv is incompatible with parallel tests.
+	// Subtests inherit the env vars set at parent level.
+
+	// Clear env vars that could pollute test results.
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	t.Setenv("DM_AUTH_TOKEN", "")
 
 	tests := []struct {
 		name       string
@@ -99,11 +104,11 @@ func TestAuthMiddleware(t *testing.T) {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "token empty is pass-through",
+			name:       "token empty rejects all",
 			authType:   "token",
 			token:      "",
-			setupReq:   func(r *http.Request) {},
-			wantStatus: http.StatusNotFound,
+			setupReq:   func(r *http.Request) { r.Header.Set("Authorization", "Bearer mytoken") },
+			wantStatus: http.StatusUnauthorized,
 		},
 	}
 

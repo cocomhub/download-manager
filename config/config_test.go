@@ -356,4 +356,20 @@ func TestConfig_FileRoot(t *testing.T) {
 			t.Errorf("FileRoot() = %q, want %q", got, "/data/files")
 		}
 	})
+
+	t.Run("use download_root_dir when set", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.Server.DownloadRootDir = "/data/downloads"
+		cfg.Downloader.Filesystem.RootDir = "/data/fallback"
+		if got := cfg.FileRoot(); got != "/data/downloads" {
+			t.Errorf("FileRoot() = %q, want %q", got, "/data/downloads")
+		}
+	})
+
+	t.Run("all empty returns empty", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.FileRoot(); got != "" {
+			t.Errorf("FileRoot() = %q, want empty", got)
+		}
+	})
 }
