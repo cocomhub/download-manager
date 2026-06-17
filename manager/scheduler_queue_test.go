@@ -51,7 +51,7 @@ func TestScheduler_GlobalQueueFull(t *testing.T) {
 		},
 	}
 	mgr := NewManager(cfg)
-	mgr.downloader = mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(10*time.Millisecond))
+	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(10*time.Millisecond)))
 	startManager(t, mgr)
 
 	task := waitForTask(t, mgr, "queue-full")

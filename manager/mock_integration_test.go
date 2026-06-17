@@ -156,7 +156,7 @@ func newMockManager(t *testing.T, taskID string, objectCount int, dl *mockdl.Moc
 		},
 	}
 	mgr := NewManager(cfg)
-	mgr.downloader = dl
+	mgr.setDownloader(dl)
 	return mgr, dl
 }
 

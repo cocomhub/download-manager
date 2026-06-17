@@ -57,7 +57,7 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 	cfg := mgr.currentCfg()
 	newCfg := *cfg
 	newCfg.Downloader.GlobalConcurrent = 20
-	mgr.downloader = mockdl.New(mockdl.ModeAlwaysSuccess)
+	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))
 	if err := mgr.UpdateConfig(&newCfg, &AuditInfo{Source: "test", Message: "hot-reload-test"}); err != nil {
 		t.Fatalf("UpdateConfig failed: %v", err)
 	}

@@ -131,6 +131,12 @@ jobs:
           go-version: "1.26"
           check-latest: true
 
+      - name: Configure private module access
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -175,6 +181,12 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: test/playwright
         run: npx playwright install --with-deps
+
+      - name: Ensure snapshot directories writable
+        working-directory: test/playwright
+        run: |
+          mkdir -p snapshots
+          chmod -R u+w snapshots 2>/dev/null || true
 
       - name: Run Playwright tests
         working-directory: test/playwright

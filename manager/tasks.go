@@ -50,7 +50,7 @@ func (m *Manager) CancelTask(taskID string) error {
 		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		if _, active := m.downloadingObj.Load(obj.URL); active {
-			if c, ok := m.downloader.(interface {
+			if c, ok := m.getDownloader().(interface {
 				Cancel(url string) error
 			}); ok {
 				_ = c.Cancel(obj.URL)
@@ -103,7 +103,7 @@ func (m *Manager) CancelObject(taskID, url string) error {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 	if _, active := m.downloadingObj.Load(obj.URL); active {
-		if c, ok := m.downloader.(interface {
+		if c, ok := m.getDownloader().(interface {
 			Cancel(url string) error
 		}); ok {
 			_ = c.Cancel(obj.URL)

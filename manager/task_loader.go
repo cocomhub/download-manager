@@ -23,7 +23,7 @@ func (m *Manager) loadTasks() {
 			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
 			continue
 		}
-		t.SetDownloader(m.downloader)
+		t.SetDownloader(m.getDownloader())
 		if srSetter, ok := t.(core.SharedRegistrySetter); ok {
 			srSetter.SetSharedRegistry(m.urlRegistry)
 		}

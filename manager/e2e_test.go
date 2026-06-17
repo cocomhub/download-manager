@@ -319,7 +319,7 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 
 	// Use a shared downloader for both tasks
 	dl := mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(10*time.Millisecond))
-	mgr.downloader = dl
+	mgr.setDownloader(dl)
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify both tasks have objects

@@ -43,7 +43,7 @@ func TestRace_ActiveDownloadsNegative(t *testing.T) {
 	// Concurrently cancel and force-download.
 	// Make downloads complete quickly so CancelTask and retries race.
 	// Switch downloader to always-success mode for the race.
-	mgr.downloader = mockdl.New(mockdl.ModeAlwaysSuccess)
+	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))
 
 	var wg sync.WaitGroup
 	for range 5 {

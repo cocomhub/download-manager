@@ -14,7 +14,7 @@ export default defineConfig({
     timeout: 15000,
   },
   snapshotPathTemplate:
-    '{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
+    'snapshots/{testFileName}-snapshots/{arg}-{projectName}{ext}',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

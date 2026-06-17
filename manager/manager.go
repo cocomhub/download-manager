@@ -45,6 +45,7 @@ type Manager struct {
 	aggSvc          *AggregationService
 	tasks           sync.Map
 	downloader      core.Downloader
+	downloaderMu    sync.Mutex
 	stopChan        chan struct{}
 	workerStop      chan struct{}
 	workerCount     int
@@ -126,6 +127,20 @@ type RuntimeFeatures struct {
 	Workers   bool `json:"workers"`
 }
 
+// getDownloader returns the current downloader under read lock.
+func (m *Manager) getDownloader() core.Downloader {
+	m.downloaderMu.Lock()
+	defer m.downloaderMu.Unlock()
+	return m.downloader
+}
+
+// setDownloader replaces the downloader under write lock.
+func (m *Manager) setDownloader(dl core.Downloader) {
+	m.downloaderMu.Lock()
+	m.downloader = dl
+	m.downloaderMu.Unlock()
+}
+
 func NewManager(cfg *config.Config) *Manager {
 	// Initialize Mongo Clients if configured
 	var mongoConfigs []struct{ Name, URI string }
@@ -163,7 +178,7 @@ func NewManager(cfg *config.Config) *Manager {
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
 	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())
-	if nd, ok := mgr.downloader.(core.DownloaderWithDomainLimits); ok {
+	if nd, ok := mgr.getDownloader().(core.DownloaderWithDomainLimits); ok {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
 	// Wire up AggregationService with real callbacks
@@ -484,7 +499,11 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Apply in-memory config
 	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
-	m.downloader = downloader.New(cfgCopy.Downloader)
+	m.setDownloader(downloader.New(cfgCopy.Downloader))
+	// Apply domain limits to new downloader (consistent with NewManager)
+	if nd, ok := m.getDownloader().(core.DownloaderWithDomainLimits); ok {
+		nd.ApplyDomainLimits(cfgCopy.Downloader.DomainLimits)
+	}
 	logutil.InitLogger(cfgCopy.Log)
 	// Runtime adjustments
 	m.adjustGlobalWorkers(newCfg.Downloader.GlobalConcurrent)

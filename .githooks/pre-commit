@@ -18,7 +18,7 @@ gofmt -s -l -w .
 # 3. addlicense（如果已安装）
 if command -v addlicense >/dev/null 2>&1; then
     echo "  • addlicense"
-    addlicense -c "The Cocomhub Authors. All rights reserved." -s=only .
+    addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" .
 fi
 
 # 4. go build
