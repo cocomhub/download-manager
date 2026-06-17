@@ -27,7 +27,7 @@ SUB_MODULE_DIRS := $(shell find . -name 'go.mod' \
 # ═══════════════════════════════════════════════
 # CUSTOM VARIABLES
 # ═══════════════════════════════════════════════
-COVER_THRESHOLD ?= 20
+COVER_THRESHOLD ?= 40
 SKIP_VERSION    ?= true
 CONFIG_FILE     ?= $(BUILD_DIR)/config.yaml
 GOTAGS          ?=
