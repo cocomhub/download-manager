@@ -61,6 +61,10 @@ func (s *Server) writeMiddleware(next http.Handler) http.Handler {
 func (s *Server) Router() *mux.Router {
 	r := mux.NewRouter()
 
+	// Auth middleware runs before writeMiddleware so that auth failures
+	// return 401 before write-protection checks.
+	r.Use(s.authMiddleware())
+
 	// Global write middleware: blocks non-GET/HEAD requests when writes are disabled.
 	// Individual route .Methods() still restrict to specific HTTP methods on top of this.
 	r.Use(s.writeMiddleware)
