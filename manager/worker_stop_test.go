@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -24,8 +25,7 @@ func TestWorkerStop_ChannelFull(t *testing.T) {
 
 	// Wait until at least one object enters downloading state.
 	var downloading int
-	deadline := time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
 		all := getAllObjectsFromTask(t, task)
 		downloading = 0
@@ -34,34 +34,33 @@ func TestWorkerStop_ChannelFull(t *testing.T) {
 				downloading++
 			}
 		}
-		if downloading >= 1 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if downloading < 1 {
-		t.Fatalf("expected at least 1 downloading object, got %d", downloading)
-	}
+		return downloading >= 1
+	}, 6*time.Second, 100*time.Millisecond, "expected at least 1 downloading object")
 	t.Logf("found %d downloading objects", downloading)
 
 	// Concurrently reduce workers — the workerStop channel should not block.
 	var wg sync.WaitGroup
-	for i := range 10 {
-		wg.Add(1)
-		go func(step int) {
-			defer wg.Done()
-			mgr.mu.Lock()
-			old := mgr.workerCount
-			mgr.mu.Unlock()
+	for range 10 {
+		wg.Go(func() {
+			old := int(mgr.workerCount.Load())
 			if old > 1 {
 				mgr.adjustGlobalWorkers(old - 1)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 
-	// Brief pause for goroutines to settle.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for workers to settle and activeDownloads to stabilize (no negative values).
+	assert.MustEventually(t, func() bool {
+		mgr.mu.Lock()
+		defer mgr.mu.Unlock()
+		for _, count := range mgr.activeDownloads {
+			if count < 0 {
+				return false
+			}
+		}
+		return true
+	}, 3*time.Second, 50*time.Millisecond, "expected no negative activeDownloads after stopping workers")
 
 	// Verify activeDownloads never went negative.
 	mgr.mu.Lock()

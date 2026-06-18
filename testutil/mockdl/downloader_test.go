@@ -22,49 +22,64 @@ func TestMockDownloader_Name(t *testing.T) {
 }
 
 func TestMockDownloader_AlwaysSuccess(t *testing.T) {
-	obj := testObject("http://example.com/file1.bin")
-	d := New(ModeAlwaysSuccess)
+	tests := []struct {
+		name string
+		opts []Option
+		run  func(t *testing.T, d *MockDownloader, obj *model.DownloadObject)
+	}{
+		{
+			name: "basic",
+			run: func(t *testing.T, d *MockDownloader, obj *model.DownloadObject) {
+				err := d.Download(obj, nil)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if obj.GetStatus() != model.StatusCompleted {
+					t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusCompleted)
+				}
+				if obj.GetProgress() != 100 {
+					t.Errorf("progress = %d, want 100", obj.GetProgress())
+				}
+			},
+		},
+		{
+			name: "fires callbacks",
+			opts: []Option{WithFailError(errors.New("should-not-fire"))},
+			run: func(t *testing.T, d *MockDownloader, obj *model.DownloadObject) {
+				var started, completed atomic.Bool
+				d.OnStart = func(url string) {
+					if url != obj.URL {
+						t.Errorf("OnStart url = %q, want %q", url, obj.URL)
+					}
+					started.Store(true)
+				}
+				d.OnComplete = func(url string) {
+					if url != obj.URL {
+						t.Errorf("OnComplete url = %q, want %q", url, obj.URL)
+					}
+					completed.Store(true)
+				}
+				d.OnFail = func(url string, err error) {
+					t.Errorf("OnFail should not fire, got url=%q err=%v", url, err)
+				}
 
-	err := d.Download(obj, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if obj.GetStatus() != model.StatusCompleted {
-		t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusCompleted)
-	}
-	if obj.GetProgress() != 100 {
-		t.Errorf("progress = %d, want 100", obj.GetProgress())
-	}
-}
-
-func TestMockDownloader_AlwaysSuccess_FiresCallbacks(t *testing.T) {
-	var started, completed atomic.Bool
-	obj := testObject("http://example.com/cb.bin")
-	d := New(ModeAlwaysSuccess,
-		WithFailError(errors.New("should-not-fire")),
-	)
-	d.OnStart = func(url string) {
-		if url != obj.URL {
-			t.Errorf("OnStart url = %q, want %q", url, obj.URL)
-		}
-		started.Store(true)
-	}
-	d.OnComplete = func(url string) {
-		if url != obj.URL {
-			t.Errorf("OnComplete url = %q, want %q", url, obj.URL)
-		}
-		completed.Store(true)
-	}
-	d.OnFail = func(url string, err error) {
-		t.Errorf("OnFail should not fire, got url=%q err=%v", url, err)
+				_ = d.Download(obj, nil)
+				if !started.Load() {
+					t.Error("OnStart was not called")
+				}
+				if !completed.Load() {
+					t.Error("OnComplete was not called")
+				}
+			},
+		},
 	}
 
-	_ = d.Download(obj, nil)
-	if !started.Load() {
-		t.Error("OnStart was not called")
-	}
-	if !completed.Load() {
-		t.Error("OnComplete was not called")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := testObject("http://example.com/" + tc.name + ".bin")
+			d := New(ModeAlwaysSuccess, tc.opts...)
+			tc.run(t, d, obj)
+		})
 	}
 }
 
@@ -268,47 +283,55 @@ func TestMockDownloader_PauseOnProgress_Cancelled(t *testing.T) {
 	}
 }
 
-func TestMockDownloader_FailURLs(t *testing.T) {
-	failURL := "http://example.com/always-fail.bin"
-	okURL := "http://example.com/always-ok.bin"
-
-	d := New(ModeAlwaysSuccess, WithFailURLs(failURL))
-
-	// URL in fail list should fail even in always_success mode.
-	objFail := testObject(failURL)
-	err := d.Download(objFail, nil)
-	if err == nil {
-		t.Fatal("expected error for URL in FailURLs, got nil")
+func TestMockDownloader_URLRouting(t *testing.T) {
+	tests := []struct {
+		name      string
+		failURL   string
+		okURL     string
+		extraOpts func(t *testing.T) []Option
+	}{
+		{
+			name:    "fail urls",
+			failURL: "http://example.com/always-fail.bin",
+			okURL:   "http://example.com/always-ok.bin",
+			extraOpts: func(t *testing.T) []Option {
+				return []Option{WithFailURLs("http://example.com/always-fail.bin")}
+			},
+		},
+		{
+			name:    "timeout urls",
+			failURL: "http://example.com/slow.bin",
+			okURL:   "http://example.com/fast.bin",
+			extraOpts: func(t *testing.T) []Option {
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return []Option{WithTimeoutURLs("http://example.com/slow.bin"), WithContext(ctx)}
+			},
+		},
 	}
 
-	// Other URL should succeed.
-	objOK := testObject(okURL)
-	err = d.Download(objOK, nil)
-	if err != nil {
-		t.Fatalf("unexpected error for non-fail URL: %v", err)
-	}
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var opts []Option
+			if tc.extraOpts != nil {
+				opts = tc.extraOpts(t)
+			}
+			d := New(ModeAlwaysSuccess, opts...)
 
-func TestMockDownloader_TimeoutURLs(t *testing.T) {
-	timeoutURL := "http://example.com/slow.bin"
-	okURL := "http://example.com/fast.bin"
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel() // immediate cancellation, so timeout URL returns right away
+			// URL in special list should fail.
+			objFail := testObject(tc.failURL)
+			err := d.Download(objFail, nil)
+			if err == nil {
+				t.Fatal("expected error for URL in special list, got nil")
+			}
 
-	d := New(ModeAlwaysSuccess, WithTimeoutURLs(timeoutURL), WithContext(ctx))
-
-	// URL in timeout list should block and return cancelled error.
-	objID := testObject(timeoutURL)
-	err := d.Download(objID, nil)
-	if err == nil {
-		t.Fatal("expected error for URL in TimeoutURLs, got nil")
-	}
-
-	// Other URL should succeed (always_success mode).
-	objOK := testObject(okURL)
-	err = d.Download(objOK, nil)
-	if err != nil {
-		t.Fatalf("unexpected error for non-timeout URL: %v", err)
+			// Other URL should succeed.
+			objOK := testObject(tc.okURL)
+			err = d.Download(objOK, nil)
+			if err != nil {
+				t.Fatalf("unexpected error for non-special URL: %v", err)
+			}
+		})
 	}
 }
 

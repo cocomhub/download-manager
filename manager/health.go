@@ -67,7 +67,7 @@ func (m *Manager) GetHealthStatus() HealthStatus {
 					c.LastBeat = lastBeat.Format(time.RFC3339)
 					if time.Since(lastBeat) < heartbeatTimeout {
 						c.Status = "ok"
-						c.Detail = fmt.Sprintf("%d workers", m.workerCount)
+						c.Detail = fmt.Sprintf("%d workers", m.workerCount.Load())
 					} else {
 						c.Detail = fmt.Sprintf("last heartbeat %s ago", time.Since(lastBeat).Round(time.Second))
 					}

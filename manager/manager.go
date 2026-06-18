@@ -48,7 +48,7 @@ type Manager struct {
 	downloaderMu    sync.Mutex
 	stopChan        chan struct{}
 	workerStop      chan struct{}
-	workerCount     int
+	workerCount     atomic.Int64
 	taskQueues      sync.Map
 	schedulerStop   chan struct{}
 	schedulerSignal chan struct{} // buffered(1): enqueue -> wake scheduler. Fixed channel, initialized once in NewManager, not rebuilt on restart.
@@ -533,7 +533,8 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		slog.Info("Workers enabled via config update")
 	} else if !workersWanted && m.workersEnabled.Load() {
 		m.workersEnabled.Store(false)
-		for i := 0; i < m.workerCount; i++ {
+		wc := m.workerCount.Load()
+		for range wc {
 			m.workerStop <- struct{}{}
 		}
 		slog.Info("Workers disabled via config update")

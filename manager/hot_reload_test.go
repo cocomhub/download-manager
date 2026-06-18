@@ -67,17 +67,21 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))
 
 	// Wait for config changes to propagate: at least one object should complete
-	// with the new downloader (ModeAlwaysSuccess).
-	//
-	// IMPORTANT: The previously-downloading objects (ModePauseOnProgress)
-	// are blocked in their Download() call. scan() sees them as ModePauseOnProgress
-	// objects still in downloading state. But NEW objects enqueued after the
-	// config reload will use ModeAlwaysSuccess and complete immediately.
-	// We need to wait for those new objects to be enqueued and processed.
-	//
-	// Since pending objects may already be present, the scheduler needs to
-	// re-evaluate and enqueue them. We scan and retry repeatedly.
-	time.Sleep(1 * time.Second)
+	// with the new downloader (ModeAlwaysSuccess). Previously-downloading
+	// objects (ModePauseOnProgress) are blocked in Download(), so only NEW
+	// objects enqueued after the config reload can complete. We scan and poll
+	// until at least one object transitions to StatusCompleted.
+	assert.MustEventually(t, func() bool {
+		mgr.scan()
+		all := getAllObjectsFromTask(t, task)
+		for _, obj := range all {
+			if obj.GetStatus() == model.StatusCompleted {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 100*time.Millisecond,
+		"expected at least one completed object after config hot-reload")
 
 	// The previously-downloading objects should still exist and either be
 	// completed (if they finished) or still in a valid state.

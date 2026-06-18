@@ -17,11 +17,181 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-func TestHTTPExtractorCaching(t *testing.T) {
+// newHTTPExtractor creates an HTTPExtractor with a stdlib transport set.
+func newHTTPExtractor(t *testing.T) *download.HTTPExtractor {
+	t.Helper()
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+	return ext
+}
+
+// TestHTTPExtractorDownload covers Extract() in various scenarios.
+func TestHTTPExtractorDownload(t *testing.T) {
 	tests := []struct {
 		name string
 		run  func(t *testing.T)
 	}{
+		{
+			name: "basic download",
+			run: func(t *testing.T) {
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("hello world"))
+				}))
+				defer ts.Close()
+				dir := t.TempDir()
+				dest := filepath.Join(dir, "output.txt")
+
+				ext := newHTTPExtractor(t)
+				req := &download.Request{
+					URL:           ts.URL,
+					SavePath:      dest,
+					TrackProgress: false,
+					Metadata:      make(map[string]string),
+				}
+				err := ext.Extract(t.Context(), req)
+				if err != nil {
+					t.Fatalf("expected no error, got: %v", err)
+				}
+				data, err := os.ReadFile(dest)
+				if err != nil {
+					t.Fatalf("failed to read output file: %v", err)
+				}
+				if string(data) != "hello world" {
+					t.Errorf("expected content 'hello world', got: %q", string(data))
+				}
+				if req.Result.StatusCode != 200 {
+					t.Errorf("expected Result.StatusCode=200, got: %d", req.Result.StatusCode)
+				}
+				if req.Result.ContentLength <= 0 {
+					t.Errorf("expected Result.ContentLength to be set, got: %d", req.Result.ContentLength)
+				}
+			},
+		},
+		{
+			name: "with progress callback",
+			run: func(t *testing.T) {
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("hello world progress test payload"))
+				}))
+				defer ts.Close()
+				dir := t.TempDir()
+				dest := filepath.Join(dir, "output.txt")
+
+				ext := newHTTPExtractor(t)
+				var finalProgress float64
+				err := ext.Extract(t.Context(), &download.Request{
+					URL:           ts.URL,
+					SavePath:      dest,
+					TrackProgress: true,
+					OnProgress: func(progress float64, downloaded, total int64) {
+						finalProgress = progress
+					},
+				})
+				if err != nil {
+					t.Fatalf("expected no error, got: %v", err)
+				}
+				if finalProgress != 100 {
+					t.Errorf("expected final progress 100, got: %f", finalProgress)
+				}
+			},
+		},
+		{
+			name: "404 returns ErrNoTry",
+			run: func(t *testing.T) {
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNotFound)
+				}))
+				defer ts.Close()
+				dir := t.TempDir()
+				dest := filepath.Join(dir, "output.txt")
+
+				ext := newHTTPExtractor(t)
+				err := ext.Extract(t.Context(), &download.Request{
+					URL:      ts.URL,
+					SavePath: dest,
+				})
+				if !download.IsNoTry(err) {
+					t.Fatalf("expected ErrNoTry for 404, got: %v", err)
+				}
+			},
+		},
+		{
+			name: "retries on server error",
+			run: func(t *testing.T) {
+				var attempts int32
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					attempts++
+					if attempts < 2 {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("success after retry"))
+				}))
+				defer ts.Close()
+				dir := t.TempDir()
+				dest := filepath.Join(dir, "retry.txt")
+
+				ext := newHTTPExtractor(t)
+				err := ext.Extract(t.Context(), &download.Request{
+					URL:      ts.URL,
+					SavePath: dest,
+				})
+				if err != nil {
+					t.Fatalf("expected no error after retry, got: %v", err)
+				}
+				data, err := os.ReadFile(dest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(data) != "success after retry" {
+					t.Errorf("expected 'success after retry', got: %q", string(data))
+				}
+			},
+		},
+		{
+			name: "ETag fallback from Content-MD5",
+			run: func(t *testing.T) {
+				content := "some fallback content"
+				h := md5.New()
+				io.WriteString(h, content)
+				hexMD5 := hex.EncodeToString(h.Sum(nil))
+
+				var capturedEtag string
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-MD5", hexMD5)
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte(content))
+				}))
+				defer ts.Close()
+
+				dir := t.TempDir()
+				dest := filepath.Join(dir, "no_etag_file.txt")
+
+				ext := newHTTPExtractor(t)
+				req := &download.Request{
+					URL:      ts.URL,
+					SavePath: dest,
+					Metadata: map[string]string{},
+					OnMetadata: func(key, value string) {
+						if key == "etag" {
+							capturedEtag = value
+						}
+					},
+				}
+				err := ext.Extract(t.Context(), req)
+				if err != nil {
+					t.Fatalf("download failed: %v", err)
+				}
+
+				wantEtag := `"` + hexMD5 + `"`
+				if capturedEtag != wantEtag {
+					t.Errorf("expected fallback etag '%s', got '%s'", wantEtag, capturedEtag)
+				}
+			},
+		},
 		{
 			name: "304 skip",
 			run: func(t *testing.T) {
@@ -41,9 +211,7 @@ func TestHTTPExtractorCaching(t *testing.T) {
 				dir := t.TempDir()
 				dest := filepath.Join(dir, "etag_skip.txt")
 
-				// First download: normal download, saves ETag, OnMetadata fires.
-				ext := download.NewHTTPExtractor()
-				ext.SetTransport(download.NewStdlibTransport())
+				ext := newHTTPExtractor(t)
 				req := &download.Request{
 					URL:      ts.URL,
 					SavePath: dest,
@@ -102,7 +270,7 @@ func TestHTTPExtractorCaching(t *testing.T) {
 			},
 		},
 		{
-			name: "If-None-Match header",
+			name: "If-None-Match header sent",
 			run: func(t *testing.T) {
 				var seenHeader string
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,8 +281,7 @@ func TestHTTPExtractorCaching(t *testing.T) {
 				defer ts.Close()
 
 				dir := t.TempDir()
-				ext := download.NewHTTPExtractor()
-				ext.SetTransport(download.NewStdlibTransport())
+				ext := newHTTPExtractor(t)
 				req := &download.Request{
 					URL:      ts.URL,
 					SavePath: filepath.Join(dir, "inm.txt"),
@@ -127,7 +294,7 @@ func TestHTTPExtractorCaching(t *testing.T) {
 			},
 		},
 		{
-			name: "no prior ETag",
+			name: "no ETag without prior request",
 			run: func(t *testing.T) {
 				var seenETagHeader bool
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,8 +307,7 @@ func TestHTTPExtractorCaching(t *testing.T) {
 				defer ts.Close()
 
 				dir := t.TempDir()
-				ext := download.NewHTTPExtractor()
-				ext.SetTransport(download.NewStdlibTransport())
+				ext := newHTTPExtractor(t)
 				req := &download.Request{
 					URL:      ts.URL,
 					SavePath: filepath.Join(dir, "noetag.txt"),
@@ -160,83 +326,13 @@ func TestHTTPExtractorCaching(t *testing.T) {
 	}
 }
 
-func TestHTTPExtractorBasic(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("hello world"))
-	}))
-	defer ts.Close()
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "output.txt")
-
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
-
-	req := &download.Request{
-		URL:           ts.URL,
-		SavePath:      dest,
-		TrackProgress: false,
-		Metadata:      make(map[string]string),
-	}
-	err := ext.Extract(t.Context(), req)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("failed to read output file: %v", err)
-	}
-	if string(data) != "hello world" {
-		t.Errorf("expected content 'hello world', got: %q", string(data))
-	}
-
-	if req.Result.StatusCode != 200 {
-		t.Errorf("expected Result.StatusCode=200, got: %d", req.Result.StatusCode)
-	}
-	if req.Result.ContentLength <= 0 {
-		t.Errorf("expected Result.ContentLength to be set, got: %d", req.Result.ContentLength)
-	}
-}
-
-func TestHTTPExtractorWithProgress(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("hello world progress test payload"))
-	}))
-	defer ts.Close()
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "output.txt")
-
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
-
-	var finalProgress float64
-	err := ext.Extract(t.Context(), &download.Request{
-		URL:           ts.URL,
-		SavePath:      dest,
-		TrackProgress: true,
-		OnProgress: func(progress float64, downloaded, total int64) {
-			finalProgress = progress
-		},
-	})
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if finalProgress != 100 {
-		t.Errorf("expected final progress 100, got: %f", finalProgress)
-	}
-}
-
+// TestHTTPExtractorResume covers resume download (supported and unsupported servers).
 func TestHTTPExtractorResume(t *testing.T) {
 	tests := []struct {
-		name string
-		// serverHandler returns a handler that may or may not support resume.
-		serverHandler func(t *testing.T) http.HandlerFunc
-		// expectedContent is the full file content after download completes.
+		name            string
+		serverHandler   func(t *testing.T) http.HandlerFunc
 		expectedContent string
-		// initialContent is written to the destination before Extract.
-		initialContent string
+		initialContent  string
 	}{
 		{
 			name: "supported",
@@ -256,7 +352,6 @@ func TestHTTPExtractorResume(t *testing.T) {
 			name: "unsupported",
 			serverHandler: func(t *testing.T) http.HandlerFunc {
 				return func(w http.ResponseWriter, r *http.Request) {
-					// Always return 200 even when client requests Range.
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte("full_content"))
 				}
@@ -278,9 +373,7 @@ func TestHTTPExtractorResume(t *testing.T) {
 			ts := httptest.NewServer(tc.serverHandler(t))
 			defer ts.Close()
 
-			ext := download.NewHTTPExtractor()
-			ext.SetTransport(download.NewStdlibTransport())
-
+			ext := newHTTPExtractor(t)
 			err := ext.Extract(t.Context(), &download.Request{
 				URL:      ts.URL,
 				SavePath: dest,
@@ -300,75 +393,37 @@ func TestHTTPExtractorResume(t *testing.T) {
 	}
 }
 
-func TestHTTPExtractor404(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "output.txt")
-
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
-
-	err := ext.Extract(t.Context(), &download.Request{
-		URL:      ts.URL,
-		SavePath: dest,
-	})
-	if !download.IsNoTry(err) {
-		t.Fatalf("expected ErrNoTry for 404, got: %v", err)
-	}
-}
-
-func TestHTTPExtractorRetriesOnError(t *testing.T) {
-	var attempts int32
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts++
-		if attempts < 2 {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("success after retry"))
-	}))
-	defer ts.Close()
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "retry.txt")
-
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
-
-	err := ext.Extract(t.Context(), &download.Request{
-		URL:      ts.URL,
-		SavePath: dest,
-	})
-	if err != nil {
-		t.Fatalf("expected no error after retry, got: %v", err)
+// TestHTTPExtractorInfo covers basic metadata methods (Match and Name).
+func TestHTTPExtractorInfo(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "Match rejects .m3u8 URLs",
+			run: func(t *testing.T) {
+				ext := newHTTPExtractor(t)
+				if ext.Match(t.Context(), "http://example.com/video.m3u8") {
+					t.Error("expected Match to return false for .m3u8 URLs")
+				}
+				if !ext.Match(t.Context(), "http://example.com/video.mp4") {
+					t.Error("expected Match to return true for non-m3u8 URLs")
+				}
+			},
+		},
+		{
+			name: "Name returns http",
+			run: func(t *testing.T) {
+				ext := newHTTPExtractor(t)
+				if ext.Name() != "http" {
+					t.Errorf("expected name 'http', got: %q", ext.Name())
+				}
+			},
+		},
 	}
 
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "success after retry" {
-		t.Errorf("expected 'success after retry', got: %q", string(data))
-	}
-}
-
-func TestHTTPExtractorMatchRejectsM3U8(t *testing.T) {
-	ext := download.NewHTTPExtractor()
-	if ext.Match(t.Context(), "http://example.com/video.m3u8") {
-		t.Error("expected Match to return false for .m3u8 URLs")
-	}
-	if !ext.Match(t.Context(), "http://example.com/video.mp4") {
-		t.Error("expected Match to return true for non-m3u8 URLs")
-	}
-}
-
-func TestHTTPExtractorName(t *testing.T) {
-	ext := download.NewHTTPExtractor()
-	if ext.Name() != "http" {
-		t.Errorf("expected name 'http', got: %q", ext.Name())
+	for _, tc := range tests {
+		t.Run(tc.name, tc.run)
 	}
 }
 
@@ -398,8 +453,7 @@ func TestHTTPExtractorOnMetadataFires(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "on_metadata.txt")
 
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
+	ext := newHTTPExtractor(t)
 	req := &download.Request{
 		URL:      ts.URL,
 		SavePath: dest,
@@ -442,48 +496,5 @@ func TestHTTPExtractorOnMetadataFires(t *testing.T) {
 	}
 	if req.Metadata["checksum"] != hexMD5 {
 		t.Errorf("metadata checksum: expected '%s', got '%s'", hexMD5, req.Metadata["checksum"])
-	}
-}
-
-// TestHTTPExtractorNoEtagFallback verifies OnMetadata synthesizes a weak ETag from Content-MD5
-// when the server doesn't provide an ETag header.
-func TestHTTPExtractorNoEtagFallback(t *testing.T) {
-	content := "some fallback content"
-	h := md5.New()
-	io.WriteString(h, content)
-	hexMD5 := hex.EncodeToString(h.Sum(nil))
-
-	var capturedEtag string
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-MD5", hexMD5)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(content))
-	}))
-	defer ts.Close()
-
-	dir := t.TempDir()
-	dest := filepath.Join(dir, "no_etag_file.txt")
-
-	ext := download.NewHTTPExtractor()
-	ext.SetTransport(download.NewStdlibTransport())
-
-	req := &download.Request{
-		URL:      ts.URL,
-		SavePath: dest,
-		Metadata: map[string]string{},
-		OnMetadata: func(key, value string) {
-			if key == "etag" {
-				capturedEtag = value
-			}
-		},
-	}
-	err := ext.Extract(t.Context(), req)
-	if err != nil {
-		t.Fatalf("download failed: %v", err)
-	}
-
-	wantEtag := `"` + hexMD5 + `"`
-	if capturedEtag != wantEtag {
-		t.Errorf("expected fallback etag '%s', got '%s'", wantEtag, capturedEtag)
 	}
 }

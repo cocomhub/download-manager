@@ -32,7 +32,7 @@ func (m *Manager) Start() {
 		for i := 0; i < limit; i++ {
 			m.workerWg.Go(m.worker)
 		}
-		m.workerCount = limit
+		m.workerCount.Store(int64(limit))
 		m.mu.Unlock()
 	}
 	if m.workersEnabled.Load() {

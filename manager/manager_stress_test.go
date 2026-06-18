@@ -54,7 +54,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 		mgr.scan()
 		mgr.AggregateObjects(1, 100, "", "created_at", "", nil)
 		mgr.GetHealthStatus()
-		// Brief interleave between concurrent operations.
-		time.Sleep(5 * time.Millisecond)
+		// Yield to allow goroutine scheduling interleaving between concurrent operations.
+		runtime.Gosched()
 	}
 }

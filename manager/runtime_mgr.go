@@ -42,20 +42,21 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if newLimit > m.workerCount {
-		add := newLimit - m.workerCount
-		slog.Info("Increasing global workers", "from", m.workerCount, "to", newLimit)
+	current := m.workerCount.Load()
+	if newLimit > int(current) {
+		add := newLimit - int(current)
+		slog.Info("Increasing global workers", "from", current, "to", newLimit)
 		for range add {
 			m.workerWg.Go(m.worker)
 		}
-		m.workerCount = newLimit
-	} else if newLimit < m.workerCount {
-		remove := m.workerCount - newLimit
-		slog.Info("Decreasing global workers", "from", m.workerCount, "to", newLimit)
+		m.workerCount.Store(int64(newLimit))
+	} else if newLimit < int(current) {
+		remove := int(current) - newLimit
+		slog.Info("Decreasing global workers", "from", current, "to", newLimit)
 		for range remove {
 			m.workerStop <- struct{}{}
 		}
-		m.workerCount = newLimit
+		m.workerCount.Store(int64(newLimit))
 	}
 }
 
