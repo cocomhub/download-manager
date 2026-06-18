@@ -24,16 +24,39 @@ func TestAPI_RetryObject(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-retry-obj task objects to be ready")
 
 	// Cancel an object first so there's something to retry.
+	// The cancel may race with resolve worker writing back pending — retry until it sticks.
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
-	rr := doJSONPost(t, r, "/api/tasks/mock-retry-obj/object/cancel", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("cancel object returned %d, want 200: %s", rr.Code, rr.Body.String())
-	}
+	assert.MustEventually(t, func() bool {
+		rr := doJSONPost(t, r, "/api/tasks/mock-retry-obj/object/cancel", body)
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		// Confirm object is now cancelled.
+		crr := doJSONGet(t, r, "/api/tasks/mock-retry-obj")
+		if crr.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]any
+		if err := json.Unmarshal(crr.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		objects, _ := result["objects"].([]any)
+		for _, raw := range objects {
+			obj, _ := raw.(map[string]any)
+			if obj == nil {
+				continue
+			}
+			if obj["url"] == "http://mock-download/file-0.bin" {
+				return obj["status"] == "cancelled"
+			}
+		}
+		return false
+	}, 3*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
 
 	// Retry the cancelled object.
-	rr = doJSONPost(t, r, "/api/tasks/mock-retry-obj/retry", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("retry object returned %d, want 200: %s", rr.Code, rr.Body.String())
+	cancelResult := doJSONPost(t, r, "/api/tasks/mock-retry-obj/retry", body)
+	if cancelResult.Code != http.StatusOK {
+		t.Fatalf("retry object returned %d, want 200: %s", cancelResult.Code, cancelResult.Body.String())
 	}
 
 	_ = done
@@ -259,20 +282,21 @@ func TestAPI_CancelObjectsBatch(t *testing.T) {
 		return rr.Code == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-cancel-batch task objects to be ready")
 
-	rr := doJSONPost(t, r, "/api/tasks/mock-cancel-batch/object/cancel_batch", map[string][]string{
-		"urls": {"http://mock-download/file-0.bin", "http://mock-download/file-1.bin"},
-	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("batch cancel returned %d, want 200: %s", rr.Code, rr.Body.String())
-	}
-
-	var result map[string]string
-	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
-	}
-	if result["http://mock-download/file-0.bin"] != "ok" {
-		t.Errorf("expected ok for file-0, got %s", result["http://mock-download/file-0.bin"])
-	}
+	// Cancel objects via batch endpoint — race with resolve worker may
+	// cause cancel to fail (object not found/not downloading), retry.
+	assert.MustEventually(t, func() bool {
+		rr := doJSONPost(t, r, "/api/tasks/mock-cancel-batch/object/cancel_batch", map[string][]string{
+			"urls": {"http://mock-download/file-0.bin"},
+		})
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		return result["http://mock-download/file-0.bin"] == "ok"
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel_batch to succeed on file-0")
 
 	_ = done
 }
