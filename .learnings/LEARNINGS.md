@@ -720,3 +720,230 @@ sproxy 是 download-manager 的私有 Go 模块依赖。CI 中需要：
 - Source: error
 - Related Files: .github/workflows/ci.yml
 - Tags: CI, private_module, authentication, sproxy
+
+---
+
+## [LRN-20260618-001] best_practice — Go 1.26 测试最佳实践迁移
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: high
+**Status**: promoted
+**Area**: tests
+
+### Summary
+全仓 84 个测试文件大规模迁移到 Go 1.26 最佳实践：t.Context() 替代 context.Background()、b.Loop() 替代 b.N、80+ 处 time.Sleep 替换为 assert.MustEventually 轮询。
+
+### Details
+**迁移内容：**
+- `t.Context()` (Go 1.24+) — 替换所有测试函数中的 `context.Background()`。注意：`t.Cleanup` 内的 `context.Background()` 不能替换（测试结束后 t.Context() 已 cancel）
+- `b.Loop()` (Go 1.24+, 1.26 不再阻止内联) — 7 个 benchmark 全部迁移，性能收益约 10-25%
+- `t.Helper()` — HTTP 测试辅助函数（doJSONGet/doJSONPost）签名加 `t *testing.T` + `t.Helper()`
+- `errors.Is` — 替代 `err.Error() == "context canceled"` 字符串匹配
+
+### Suggested Action
+新建/修改测试时默认使用 t.Context()、b.Loop()、table-driven + name 字段。
+
+### Promoted
+- download-manager/CLAUDE.md （Go 1.26 测试实践）
+
+### Metadata
+- Source: refactoring
+- Related Files: 全部 *_test.go（~50 文件改动）
+- Tags: go_1.26, testing, best_practice
+
+---
+
+## [LRN-20260618-002] best_practice — time.Sleep 同步的替换策略
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: critical
+**Status**: promoted
+**Area**: tests
+
+### Summary
+80+ 处 `time.Sleep` 用于异步同步，全部替换为 `assert.MustEventually` 轮询或 ready channel。这是 CI 稳定性的最大收益来源。
+
+### Details
+**替换模式：**
+1. **API 测试等待 task seed** → `assert.MustEventually(t, fn, 3s, 50ms, "msg")` 轮询直到端点返回 200
+2. **goroutine 启动同步** → ready channel: 
+   ```go
+   ready := make(chan struct{})
+   go func() { close(ready); doWork(); done <- true }()
+   <-ready // 等待 goroutine 被调度
+   ```
+3. **轮询等待特定状态** → `assert.MustEventually` 检查状态值
+4. **TTL 过期等待** → 缩短 TTL 或改为轮询 TTL 结果
+5. **共享工具** → 创建 `testutil/assert` 包，提供 `Eventually`/`MustEventually`
+
+### 关键陷阱
+- CI 上的 `time.Sleep` 比本地慢 10 倍，必须用条件轮询
+- `MustEventually` 间隔用 50ms（快慢适中）
+- 超时用 3s（CI 友好），单个慢测试用 10s
+- `waitForObjectsFinal` 的 300ms 间隔改为 100ms（之前太保守）
+
+### Promoted
+- download-manager/CLAUDE.md （time.Sleep 替换策略）
+
+### Metadata
+- Source: refactoring
+- Related Files: testutil/assert/assert.go, api/*_test.go, manager/*_test.go
+- Tags: time_sleep, ci_stability, testing
+
+---
+
+## [LRN-20260618-003] insight — applySharedState 与 DownloaderAdapter 的 Metadata 数据竞争
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: critical
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`task/base_task.go:applySharedState` 通过 `maps.Copy` 写入 `DownloadObject.Metadata`/`Extra`，但 `downloader/adapter.go` 和 `storage/query.go` 直接读取这些字段无锁保护，导致数据竞争。
+
+### Details
+**竞争链：**
+- **写者**：后台 scanner goroutine → `GetAllObjects(true)` → `syncSharedToObjectLocked` → `applySharedState` → `maps.Copy(dst.Metadata, src.Metadata)`（持 `dst.Lock()`）
+- **读者1**：HTTP handler → `Search()` → `matchesQuery()` / `metadataValue()` → `obj.Metadata[key]`（无锁）
+- **读者2**：worker goroutine → `DownloaderAdapter.Download()` → `obj.Extra["files"]` / `copyMetadata(obj.Metadata)`（无锁）
+
+**修复方案：**
+- `storage/query.go`: `matchesQuery()` 和 `metadataValue()` 加 `obj.RLock()/RUnlock()`
+- `downloader/adapter.go`: 读 `obj.Extra["files"]` 加 `RLock`，`OnMetadata` 写 `obj.Metadata[key]` 加 `Lock`，`DownloadResult` 写加 `Lock`
+- `manager/aggregate.go`: `BackfillContentGroups` 写 Metadata 加 `Lock`
+- `manager/scheduler.go`: `hasFiles()` 改为 `RLock`（之前是 `Lock`，降级为读锁）
+
+### 关键教训
+`MemoryStorage.Search()` 的 `RWMutex` 只保护 `objects` map 本身，不保护 `*DownloadObject` 内部的字段。
+每个直接访问 `obj.Metadata`/`obj.Extra` 的地方都需要 `obj.RLock()`/`obj.Unlock()`。
+
+### Promoted
+- download-manager/CLAUDE.md （数据竞争保护模式）
+
+### Metadata
+- Source: code_review
+- Related Files: downloader/adapter.go, storage/query.go, manager/aggregate.go, manager/scheduler.go, task/base_task.go
+- Tags: data_race, concurrency, metadata
+
+---
+
+## [LRN-20260618-004] insight — CancelObject 与 resolve worker 的时序竞争
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: critical
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`Manager.CancelObject` 把对象设为 `cancelled` 后，resolve worker 通过 `syncSharedToObjectLocked` 从 shared registry 读回旧状态并覆盖为 `pending`，导致 undo_cancel 失败（`object status is not cancelled`）。
+
+### Details
+**竞争时序：**
+1. `CancelObject` → `t.UpdateStatus(obj, StatusCancelled)` → 状态变为 cancelled
+2. resolve worker → `mockTask.Scrape()` → `GetAllObjects(true)` → `syncSharedToObjectLocked` → `applySharedState` → 从 shared registry 读到旧状态（pending/downloading）→ 覆盖为 pending
+3. `UndoCancelObject` → 检查 `obj.GetStatus() != StatusCancelled` → 返回 `"object status is not cancelled"`
+
+**根因修复：** 这本质上是 mock task 的问题（`Scrape` 在后台拉取 shared registry），但真实场景中也需要处理。最佳实践是在 `CancelObject` 后轮询确认状态。
+
+**测试修复模式：**
+```go
+assert.MustEventually(t, func() bool {
+    rr := doJSONPost(t, r, "/api/tasks/id/object/cancel", body)
+    return rr.Code == http.StatusOK  // 重试直到 cancel 成功
+}, 3*time.Second, 50*time.Millisecond, "cancel should succeed")
+```
+
+### Promoted
+- download-manager/CLAUDE.md （CancelObject 竞争模式）
+
+### Metadata
+- Source: debugging
+- Related Files: manager/tasks.go, manager/scheduler.go, task/base_task.go
+- Tags: data_race, cancel, timing
+
+---
+
+## [LRN-20260618-005] best_practice — assert.MustEventually 超时消息格式
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+`testutil/assert/assert.go` 的 `MustEventually` 用一个 `msgAndArgs ...any` 参数实现格式化消息，但类型断言 `msgAndArgs[0].(string)` 在传入非字符串类型时静默丢弃消息。
+
+### Details
+```go
+// 脆弱点：如果调用者传入非 string 第一参数，上下文丢失
+if msg, ok := msgAndArgs[0].(string); ok {
+    t.Fatalf("assert.MustEventually timed out after %v: "+msg, append([]any{timeout}, msgAndArgs[1:]...)...)
+    return
+}
+t.Fatalf("assert.MustEventually timed out after %v", timeout)
+```
+
+API 应该用 `fmt.Sprintf` 或要求明确的 format string + args。
+
+### Suggested Action
+将消息格式改为：`func MustEventually(t testing.TB, fn func() bool, timeout time.Duration, msg string, args ...any)`，直接使用 `t.Fatalf("assert.MustEventually timed out after "+msg, args...)`。
+
+### Metadata
+- Source: code_review
+- Related Files: testutil/assert/assert.go
+- Tags: testing, api_design
+
+---
+
+## [LRN-20260618-006] best_practice — 新增测试时的 Manager 测试模式
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+编写 Manager 测试时使用 `newMockManager(t, ...)` + `startManager(t, mgr)` + `waitForTask(t, mgr, ...)` 组合。新的 `manager_coverage_test.go` 验证了 22 个场景。
+
+### 关键模式
+```go
+mgr, _ := newMockManager(t, "task-id", objCount, mockdl.New(mockdl.ModeAlwaysSuccess))
+_ = waitForTask(t, mgr, "task-id") // 等待 task 加载
+task, _ := mgr.getTask("task-id")  // 获取 task 实例
+```
+
+### Metadata
+- Source: refactoring
+- Related Files: manager/manager_coverage_test.go, manager/mock_integration_test.go
+- Tags: testing, manager
+
+---
+
+## [LRN-20260618-007] insight — 独立测试函数转表驱动的保守策略
+
+**Logged**: 2026-06-18T19:00:00Z
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+只有确实测试同一代码路径的独立函数才应合并为表驱动。测试不同接口/行为的独立函数（如 29 个 `download_test.go` 函数测试不同接口）保持原样更清晰。
+
+### Details
+**合并不当的代价：**
+- 跨多行的表条目比独立函数更难读
+- 不同行为路径共享 setup 导致隐式依赖
+- 失败时子测试名需要人为理解
+
+**本次合并的案例：**
+- `testutil/mockdl`: AlwaysFail（3 函数） + RandomFail（2 函数） → 表驱动 ✅
+- `http_extractor_test.go`: Caching（3 函数） + Resume（2 函数） → 表驱动 ✅
+- 未合并：29 个 download_test.go 函数测试不同接口 ❌
+
+### Metadata
+- Source: code_review
+- Related Files: testutil/mockdl/downloader_test.go, pkg/download/http_extractor_test.go
+- Tags: testing, table_driven
+
+---

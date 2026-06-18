@@ -59,7 +59,7 @@ jobs:
         run: make cover-check
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: build/cover.out
           flags: unittests
@@ -108,7 +108,7 @@ jobs:
         run: make cover-check GOTAGS="-tags no_mongo"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: build/cover.out
           flags: no_mongo

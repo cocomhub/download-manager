@@ -216,12 +216,13 @@ func TestAPI_UndoCancelObjectsBatch(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-undo-batch task objects to be ready")
 
 	// Cancel two objects and wait for both to be confirmed cancelled.
+	// Must retry cancel because resolve worker may overwrite the status.
 	for _, u := range []string{"http://mock-download/file-0.bin", "http://mock-download/file-1.bin"} {
 		body := map[string]string{"url": u}
-		rr := doJSONPost(t, r, "/api/tasks/mock-undo-batch/object/cancel", body)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("cancel %s returned %d", u, rr.Code)
-		}
+		assert.MustEventually(t, func() bool {
+			rr := doJSONPost(t, r, "/api/tasks/mock-undo-batch/object/cancel", body)
+			return rr.Code == http.StatusOK
+		}, 3*time.Second, 50*time.Millisecond, "cancel %s", u)
 	}
 	assert.MustEventually(t, func() bool {
 		crr := doJSONGet(t, r, "/api/tasks/mock-undo-batch")
