@@ -14,7 +14,7 @@ import (
 
 // TestWorkerStop_ChannelFull verifies that when many workers are stopped
 // simultaneously via adjustGlobalWorkers, the workerStop channel does not
-// block (it must have sufficient capacity or non-blocking semantics).
+// block and no data race occurs.
 func TestWorkerStop_ChannelFull(t *testing.T) {
 	mgr, _ := newMockManager(t, "worker-stop", 5,
 		mockdl.New(mockdl.ModePauseOnProgress, mockdl.WithDelay(10*time.Millisecond)))
@@ -22,28 +22,29 @@ func TestWorkerStop_ChannelFull(t *testing.T) {
 
 	task := waitForTask(t, mgr, "worker-stop")
 
-	// Let some objects enter downloading state.
-	deadline := time.Now().Add(3 * time.Second)
+	// Wait until at least one object enters downloading state.
+	var downloading int
+	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		mgr.scan()
-		time.Sleep(100 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
-		var downloading int
+		downloading = 0
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
 				downloading++
 			}
 		}
 		if downloading >= 1 {
-			t.Logf("found %d downloading objects", downloading)
 			break
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	if downloading < 1 {
+		t.Fatalf("expected at least 1 downloading object, got %d", downloading)
+	}
+	t.Logf("found %d downloading objects", downloading)
 
-	// Perform many concurrent worker count adjustments in sequence
-	// to ensure workerStop channel doesn't block adjustGlobalWorkers.
-	// AdjustGlobalWorkers now holds mu internally, so read count outside.
+	// Concurrently reduce workers — the workerStop channel should not block.
 	var wg sync.WaitGroup
 	for i := range 10 {
 		wg.Add(1)
@@ -59,11 +60,8 @@ func TestWorkerStop_ChannelFull(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Small sleep to let workers drain.
+	// Brief pause for goroutines to settle.
 	time.Sleep(100 * time.Millisecond)
-
-	all := getAllObjectsFromTask(t, task)
-	t.Logf("after worker stop test: %d objects in task", len(all))
 
 	// Verify activeDownloads never went negative.
 	mgr.mu.Lock()

@@ -14,7 +14,7 @@ func BenchmarkTKTVariantFlags(b *testing.B) {
 		"Another Video (4K)",
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, title := range titles {
 			TKTVariantFlags(title)
 		}

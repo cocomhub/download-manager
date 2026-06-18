@@ -19,13 +19,13 @@ func TestDomainLimiterSetAndAcquire(t *testing.T) {
 	// 3rd acquire should block, so we do it in a goroutine
 	acquired3 := make(chan struct{}, 1)
 
+	ready := make(chan struct{})
 	go func() {
+		close(ready) // signal that goroutine started
 		dl.Acquire("https://example.com/file3")
 		acquired3 <- struct{}{}
 	}()
-
-	// Give goroutine time to enter Acquire and block
-	time.Sleep(50 * time.Millisecond)
+	<-ready // wait for goroutine to be scheduled
 
 	// Release one, then the 3rd should get through
 	dl.Release("https://example.com/file1")
@@ -66,13 +66,13 @@ func TestDomainLimiterSetZero(t *testing.T) {
 	// 2nd acquire should block since limit is clamped to 1
 	acquired2 := make(chan struct{}, 1)
 
+	ready := make(chan struct{})
 	go func() {
+		close(ready) // signal that goroutine started
 		dl.Acquire("https://example.com/file2")
 		acquired2 <- struct{}{}
 	}()
-
-	// Give goroutine time to enter Acquire and block
-	time.Sleep(50 * time.Millisecond)
+	<-ready // wait for goroutine to be scheduled
 
 	// Release the first one
 	dl.Release("https://example.com/file1")

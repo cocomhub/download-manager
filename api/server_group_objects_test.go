@@ -12,6 +12,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 func TestGetGroupObjects_RequiresTaskScope(t *testing.T) {
@@ -39,33 +40,49 @@ func TestGetGroupObjects_SuccessPath(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(500 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-group-succ")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for group task to seed objects")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/groups/test-group-1/objects?task_id=mock-group-succ&task_type=mock", nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
+	// Use MustEventually to wait for group objects to be populated.
+	// Retry the group objects request until it returns at least 1 object.
+	var total float64
+	assert.MustEventually(t, func() bool {
+		req := httptest.NewRequest(http.MethodGet, "/api/groups/test-group-1/objects?task_id=mock-group-succ&task_type=mock", nil)
+		groupRR := httptest.NewRecorder()
+		r.ServeHTTP(groupRR, req)
+		if groupRR.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]any
+		if err := json.Unmarshal(groupRR.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		total, _ = result["total"].(float64)
+		return total >= 3
+	}, 3*time.Second, 50*time.Millisecond, "wait for group objects to be populated (total >= 3)")
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expect 200, got %d: %s", rr.Code, rr.Body.String())
+	if total < 3 {
+		t.Errorf("expected total >= 3, got %.0f", total)
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+	// Issue one more request for field-level validation.
+	finalReq := httptest.NewRequest(http.MethodGet, "/api/groups/test-group-1/objects?task_id=mock-group-succ&task_type=mock", nil)
+	finalRR := httptest.NewRecorder()
+	r.ServeHTTP(finalRR, finalReq)
+	var finalResult map[string]any
+	if err := json.Unmarshal(finalRR.Body.Bytes(), &finalResult); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if result["group"] != "test-group-1" {
-		t.Errorf("expected group=test-group-1, got %v", result["group"])
+	if finalResult["group"] != "test-group-1" {
+		t.Errorf("expected group=test-group-1, got %v", finalResult["group"])
 	}
-	if result["task_id"] != "mock-group-succ" {
-		t.Errorf("expected task_id=mock-group-succ, got %v", result["task_id"])
+	if finalResult["task_id"] != "mock-group-succ" {
+		t.Errorf("expected task_id=mock-group-succ, got %v", finalResult["task_id"])
 	}
-	if result["task_type"] != "mock" {
-		t.Errorf("expected task_type=mock, got %v", result["task_type"])
-	}
-	total, _ := result["total"].(float64)
-	t.Logf("got total=%v (expected 3)", total)
-	if total < 3 {
-		t.Fatalf("expected total >= 3, got %v", total)
+	if finalResult["task_type"] != "mock" {
+		t.Errorf("expected task_type=mock, got %v", finalResult["task_type"])
 	}
 
 	_ = done

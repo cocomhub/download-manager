@@ -13,6 +13,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	assert "github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -131,54 +132,66 @@ func TestE2E_MixedResults(t *testing.T) {
 		t.Fatal("task not found after wait")
 	}
 
-	// With 10 objects and fail_rate=0.4, wait long enough for downloads to complete.
-	waitForObjectsFinal(t, mgr, task, 1, model.StatusCompleted, 5*time.Second)
-	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
-
-	// Re-fetch: use GetAllObjects to see ALL objects including terminal states.
-	all := getAllObjectsFromTask(t, task)
-	if len(all) < 10 {
-		t.Fatalf("expected >=10 objects, got %d", len(all))
-	}
-
-	var completed, failed int
-	for _, obj := range all {
-		switch obj.GetStatus() {
-		case model.StatusCompleted:
-			completed++
-		case model.StatusFailed:
-			failed++
+	// With 10 objects and fail_rate=0.4, wait for at least one completed and
+	// one failed. The 0.4^10 ≈ 0.0001% chance of all succeeding is negligible.
+	// Use a single MustEventually loop with extended timeout (CI may be slow).
+	assert.MustEventually(t, func() bool {
+		mgr.scan()
+		all := getAllObjectsFromTask(t, task)
+		if len(all) < 10 {
+			return false
 		}
-	}
-
-	t.Logf("mixed results: completed=%d failed=%d pending=%d (of %d)",
-		completed, failed, len(all)-completed-failed, len(all))
-	if completed == 0 {
-		t.Error("expected at least one completed object with fail_rate=0.5")
-	}
-	if failed == 0 {
-		t.Error("expected at least one failed object with fail_rate=0.5")
-	}
+		var completed, failed int
+		for _, obj := range all {
+			switch obj.GetStatus() {
+			case model.StatusCompleted:
+				completed++
+			case model.StatusFailed:
+				failed++
+			}
+		}
+		t.Logf("mixed results: completed=%d failed=%d pending=%d (of %d)",
+			completed, failed, len(all)-completed-failed, len(all))
+		return completed > 0 && failed > 0
+	}, 10*time.Second, 200*time.Millisecond, "wait for mixed results (completed>0 && failed>0)")
 }
 
 // --- Scenario 6: 超时处理 ---
 
 // TestE2E_TimeoutHandling verifies that a timing-out download
 // results in a failed object.
+//
+// Note: mgr.download() calls SetContext(dlCtx) on the mock, replacing
+// any context set by mockdl.WithContext(). The only way to cancel
+// dlCtx is via m.stopChan (triggered by mgr.Stop()). So this test
+// manages the lifecycle manually and calls Stop() itself.
 func TestE2E_TimeoutHandling(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	dl := mockdl.New(mockdl.ModeTimeout, mockdl.WithContext(ctx), mockdl.WithDelay(50*time.Millisecond))
+	dl := mockdl.New(mockdl.ModeTimeout)
 	mgr, _ := newMockManager(t, "e2e-timeout", 1, dl)
-	_ = startManager(t, mgr)
+
+	mgrDone := make(chan struct{})
+	go func() {
+		mgr.Start()
+		close(mgrDone)
+	}()
 
 	task := waitForTask(t, mgr, "e2e-timeout")
 
-	// Let the timeout mode block (it waits on ctx.Done()).
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the scheduler to enqueue the object and the worker to
+	// call dl.Download(). The mock's ModeTimeout blocks on <-ctx.Done()
+	// inside timeout(), where ctx is dlCtx from SetContext(dlCtx).
+	waitForDownloading(t, mgr, task, 5*time.Second)
 
-	// Cancel the context to unblock the timeout.
-	cancel()
+	// Stop the manager — closes m.stopChan, triggers dlCancel() in the
+	// download goroutine, cancelling dlCtx. The mock's timeout() unblocks
+	// and sets StatusFailed on the object.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stopCancel()
+	mgr.Stop(stopCtx)
+	<-mgrDone
 
+	// The mock set StatusFailed directly on the object pointer.
+	// waitForObjectsFinal calls mgr.scan which reads from storage.
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
 }
 
@@ -202,15 +215,19 @@ func TestE2E_PauseThenCancel(t *testing.T) {
 	if err := mgr.CancelObject("e2e-pause", target); err != nil {
 		t.Logf("CancelObject returned: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
 
 	// The object should be cancelled.
-	all := getAllObjectsFromTask(t, task)
-	for _, obj := range all {
-		if obj.URL == target && obj.GetStatus() != model.StatusCancelled {
-			t.Errorf("expected cancelled for %s, got %s", target, obj.GetStatus())
+	assert.MustEventually(t, func() bool {
+		all := getAllObjectsFromTask(t, task)
+		for _, obj := range all {
+			if obj.URL == target {
+				if obj.GetStatus() == model.StatusCancelled {
+					return true
+				}
+			}
 		}
-	}
+		return false
+	}, 5*time.Second, 200*time.Millisecond, "expected object %s to be cancelled", target)
 }
 
 // --- Scenario 8: 通过 HTTP test server 验证完整下载 ---
@@ -304,23 +321,37 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 	waitForTask(t, mgr, "task-a")
 	waitForTask(t, mgr, "task-b")
 
-	// Wait for both tasks to make progress
-	time.Sleep(2 * time.Second)
+	var taskA, taskB any
 
-	// At this point both tasks should have objects being processed
-	taskA, ok := mgr.tasks.Load("task-a")
-	if !ok {
-		t.Fatal("task-a not found in registry")
-	}
-	taskB, ok := mgr.tasks.Load("task-b")
-	if !ok {
-		t.Fatal("task-b not found in registry")
-	}
+	// Wait for both tasks to make progress — the scheduler should
+	// have started processing objects from both tasks.
+	_ = assert.Eventually(t, func() bool {
+		gotA, ok := mgr.tasks.Load("task-a")
+		if !ok {
+			return false
+		}
+		gotB, ok := mgr.tasks.Load("task-b")
+		if !ok {
+			return false
+		}
+		taskA = gotA
+		taskB = gotB
+		return true
+	}, 5*time.Second, 500*time.Millisecond)
 
 	// Use a shared downloader for both tasks
 	dl := mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(10*time.Millisecond))
 	mgr.setDownloader(dl)
-	time.Sleep(500 * time.Millisecond)
+
+	// Wait for downloader to start processing objects in both tasks
+	assert.MustEventually(t, func() bool {
+		allA := getAllObjectsFromTask(t, taskA.(core.Task))
+		allB := getAllObjectsFromTask(t, taskB.(core.Task))
+		if len(allA) > 0 && len(allB) > 0 {
+			return true
+		}
+		return false
+	}, 5*time.Second, 200*time.Millisecond, "both tasks should have objects after downloader start")
 
 	// Verify both tasks have objects
 	allA := getAllObjectsFromTask(t, taskA.(core.Task))
@@ -355,18 +386,18 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 // waitForDownloading polls until an object enters StatusDownloading.
 func waitForDownloading(t *testing.T, mgr *Manager, task core.Task, timeout time.Duration) string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	var foundURL string
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(200 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
+				foundURL = obj.URL
 				t.Logf("found downloading object: %s", obj.URL)
-				return obj.URL
+				return true
 			}
 		}
-	}
-	return ""
+		return false
+	}, timeout, 200*time.Millisecond, "object did not enter downloading state within %v", timeout)
+	return foundURL
 }

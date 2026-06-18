@@ -212,6 +212,8 @@ func (m *Manager) BackfillContentGroups() {
 				continue
 			}
 			total++
+
+			obj.Lock()
 			if obj.Metadata == nil {
 				obj.Metadata = make(map[string]string)
 			}
@@ -225,6 +227,7 @@ func (m *Manager) BackfillContentGroups() {
 				obj.Metadata["task_type"] = taskType
 				dirty = true
 			}
+			obj.Unlock()
 			if !dirty {
 				continue
 			}

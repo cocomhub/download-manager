@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -21,24 +22,23 @@ func TestRace_ActiveDownloadsNegative(t *testing.T) {
 
 	task := waitForTask(t, mgr, "race-ad")
 
-	// Wait until at least 5 objects enter downloading state.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	// Wait until at least 2 objects enter downloading state (limited by
+	// small-object workers — ModePauseOnProgress blocks workers, so only
+	// 2 can be downloading at a time).
+	var downloading int
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(100 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
-		var downloading int
+		downloading = 0
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
 				downloading++
 			}
 		}
-		if downloading >= 5 {
-			t.Logf("found %d downloading objects", downloading)
-			break
-		}
-	}
+		t.Logf("downloading objects: %d (need >= 2)", downloading)
+		return downloading >= 2
+	}, 15*time.Second, 100*time.Millisecond, "expected at least 2 downloading objects")
+	t.Logf("found %d downloading objects", downloading)
 
 	// Concurrently cancel and force-download.
 	// Make downloads complete quickly so CancelTask and retries race.
@@ -59,8 +59,17 @@ func TestRace_ActiveDownloadsNegative(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Wait for activeDownloads to settle.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for activeDownloads to settle (all non-negative).
+	assert.MustEventually(t, func() bool {
+		mgr.mu.Lock()
+		defer mgr.mu.Unlock()
+		for _, count := range mgr.activeDownloads {
+			if count < 0 {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 100*time.Millisecond, "expected activeDownloads to be non-negative for all tasks")
 
 	// Verify activeDownloads >= 0 for all tasks.
 	mgr.mu.Lock()

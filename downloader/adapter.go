@@ -110,7 +110,12 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 	}
 
 	// 处理复合下载：检查 Extra["files"]
-	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
+	// Must lock the object to synchronize with concurrent writes
+	// from applySharedState (task/base_task.go).
+	obj.RLock()
+	filesVal, hasFiles := obj.Extra["files"]
+	obj.RUnlock()
+	if hasFiles {
 		return a.downloadComposite(ctx, obj, headers, filesVal)
 	}
 
@@ -119,13 +124,18 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		URL:           obj.URL,
 		SavePath:      obj.SavePath,
 		Headers:       headers,
-		Metadata:      copyMetadata(obj.Metadata), // 传入已有 ETag/checksum 供条件请求检查
+		Metadata:      func() map[string]string { obj.RLock(); defer obj.RUnlock(); return copyMetadata(obj.Metadata) }(),
 		TrackProgress: true,
 		OnProgress: func(progress float64, downloaded, total int64) {
 			obj.SetProgress(int(progress))
 		},
 		OnMetadata: func(key, value string) {
+			obj.Lock()
+			if obj.Metadata == nil {
+				obj.Metadata = make(map[string]string)
+			}
 			obj.Metadata[key] = value
+			obj.Unlock()
 			if a.metadataFlusher != nil {
 				a.metadataFlusher()
 			}
@@ -142,7 +152,8 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		return fmt.Errorf("adapter: download failed: %w", err)
 	}
 
-	// 将 DownloadResult 显式写入 obj.Metadata
+	// 将 DownloadResult 显式写入 obj.Metadata（加锁保护）
+	obj.Lock()
 	if r := req.Result; r != nil {
 		if r.StatusCode > 0 {
 			obj.Metadata["status_code"] = strconv.Itoa(r.StatusCode)
@@ -163,6 +174,7 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 			obj.Metadata["mod_time"] = r.ModTime
 		}
 	}
+	obj.Unlock()
 
 	obj.SetProgress(100)
 	return nil
@@ -203,12 +215,14 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		// 为子文件构建带前缀的 metadata，传入已有的 ETag/checksum 供条件请求检查
 		subMeta := make(map[string]string)
 		prefix := fType + "_"
+		obj.RLock()
 		if v, ok := obj.Metadata[prefix+"etag"]; ok {
 			subMeta["etag"] = v
 		}
 		if v, ok := obj.Metadata[prefix+"checksum"]; ok {
 			subMeta["checksum"] = v
 		}
+		obj.RUnlock()
 
 		subReq := &download.Request{
 			URL:           subURL,
@@ -221,7 +235,12 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 			},
 			OnMetadata: func(key, value string) {
 				// 按 type 前缀写入 obj.Metadata（如 cover_etag、video_checksum）
+				obj.Lock()
+				if obj.Metadata == nil {
+					obj.Metadata = make(map[string]string)
+				}
 				obj.Metadata[prefix+key] = value
+				obj.Unlock()
 				if a.metadataFlusher != nil {
 					a.metadataFlusher()
 				}

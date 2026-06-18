@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 func TestMockDownloader_Name(t *testing.T) {
@@ -67,51 +68,72 @@ func TestMockDownloader_AlwaysSuccess_FiresCallbacks(t *testing.T) {
 	}
 }
 
+var errCustom = errors.New("custom download error")
+
 func TestMockDownloader_AlwaysFail(t *testing.T) {
-	obj := testObject("http://example.com/fail.bin")
-	d := New(ModeAlwaysFail)
-
-	err := d.Download(obj, nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if obj.GetStatus() != model.StatusFailed {
-		t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusFailed)
-	}
-}
-
-func TestMockDownloader_AlwaysFail_CustomError(t *testing.T) {
-	customErr := errors.New("custom download error")
-	obj := testObject("http://example.com/fail2.bin")
-	d := New(ModeAlwaysFail, WithFailError(customErr))
-
-	err := d.Download(obj, nil)
-	if !errors.Is(err, customErr) {
-		t.Errorf("error = %v, want %v", err, customErr)
-	}
-}
-
-func TestMockDownloader_AlwaysFail_FiresCallbacks(t *testing.T) {
-	var started, failed atomic.Bool
-	obj := testObject("http://example.com/fail-cb.bin")
-	d := New(ModeAlwaysFail)
-	d.OnStart = func(url string) { started.Store(true) }
-	d.OnFail = func(url string, err error) {
-		if url != obj.URL {
-			t.Errorf("OnFail url = %q, want %q", url, obj.URL)
-		}
-		failed.Store(true)
-	}
-	d.OnComplete = func(url string) {
-		t.Error("OnComplete should not fire on failure")
+	tests := []struct {
+		name string
+		opts []Option
+		// check 接收 Download 返回的 err 和传入的 obj，做具体断言
+		check func(t *testing.T, err error, obj *model.DownloadObject)
+	}{
+		{
+			name: "basic",
+			check: func(t *testing.T, err error, obj *model.DownloadObject) {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if obj.GetStatus() != model.StatusFailed {
+					t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusFailed)
+				}
+			},
+		},
+		{
+			name: "custom error",
+			opts: []Option{WithFailError(errCustom)},
+			check: func(t *testing.T, err error, obj *model.DownloadObject) {
+				if !errors.Is(err, errCustom) {
+					t.Errorf("error = %v, want %v", err, errCustom)
+				}
+			},
+		},
+		{
+			name: "fires callbacks",
+			check: func(t *testing.T, err error, obj *model.DownloadObject) {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+			},
+		},
 	}
 
-	_ = d.Download(obj, nil)
-	if !started.Load() {
-		t.Error("OnStart was not called")
-	}
-	if !failed.Load() {
-		t.Error("OnFail was not called")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := testObject("http://example.com/fail-" + tc.name + ".bin")
+			d := New(ModeAlwaysFail, tc.opts...)
+
+			var started, failed atomic.Bool
+			d.OnStart = func(url string) { started.Store(true) }
+			d.OnFail = func(url string, err error) {
+				if url != obj.URL {
+					t.Errorf("OnFail url = %q, want %q", url, obj.URL)
+				}
+				failed.Store(true)
+			}
+			d.OnComplete = func(url string) {
+				t.Error("OnComplete should not fire on failure")
+			}
+
+			err := d.Download(obj, nil)
+			tc.check(t, err, obj)
+
+			if !started.Load() {
+				t.Error("OnStart was not called")
+			}
+			if !failed.Load() {
+				t.Error("OnFail was not called")
+			}
+		})
 	}
 }
 
@@ -143,32 +165,39 @@ func TestMockDownloader_SimulateProgress(t *testing.T) {
 }
 
 func TestMockDownloader_RandomFail(t *testing.T) {
-	d := New(ModeRandomFail, WithFailRate(1.0)) // always fail
-	obj := testObject("http://example.com/rand.bin")
-
-	err := d.Download(obj, nil)
-	if err == nil {
-		t.Fatal("expected error with fail_rate=1.0, got nil")
+	tests := []struct {
+		name      string
+		failRate  float64
+		wantError bool
+	}{
+		{name: "always fail (rate=1.0)", failRate: 1.0, wantError: true},
+		{name: "always succeed (rate=0.0)", failRate: 0.0, wantError: false},
 	}
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := New(ModeRandomFail, WithFailRate(tc.failRate))
+			obj := testObject("http://example.com/rand-" + tc.name + ".bin")
 
-func TestMockDownloader_RandomFail_Sometimes(t *testing.T) {
-	// With fail_rate=0, it should always succeed.
-	d := New(ModeRandomFail, WithFailRate(0.0))
-	obj := testObject("http://example.com/rand0.bin")
-
-	err := d.Download(obj, nil)
-	if err != nil {
-		t.Fatalf("unexpected error with fail_rate=0.0: %v", err)
-	}
-	if obj.GetStatus() != model.StatusCompleted {
-		t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusCompleted)
+			err := d.Download(obj, nil)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if obj.GetStatus() != model.StatusCompleted {
+					t.Errorf("status = %q, want %q", obj.GetStatus(), model.StatusCompleted)
+				}
+			}
+		})
 	}
 }
 
 func TestMockDownloader_Timeout(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // immediately cancelled
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // immediately cancelled, so timeout returns right away
 
 	obj := testObject("http://example.com/timeout.bin")
 	d := New(ModeTimeout, WithContext(ctx))
@@ -208,7 +237,7 @@ func TestMockDownloader_FirstFailThenSuccess(t *testing.T) {
 }
 
 func TestMockDownloader_PauseOnProgress_Cancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	obj := testObject("http://example.com/pause.bin")
 	obj.SetProgress(30)
@@ -221,15 +250,17 @@ func TestMockDownloader_PauseOnProgress_Cancelled(t *testing.T) {
 		errCh <- d.Download(obj, nil)
 	}()
 
-	// Give it time to reach the pause point.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the download to reach the pause point (progress >= 30).
+	assert.MustEventually(t, func() bool {
+		return obj.GetProgress() >= 30
+	}, time.Second, 10*time.Millisecond, "wait for download to reach progress 30")
 
 	// Cancel to unblock.
 	cancel()
 
 	select {
 	case err := <-errCh:
-		if err == nil || err.Error() != "context canceled" {
+		if err == nil || !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled error, got %v", err)
 		}
 	case <-time.After(time.Second):
@@ -261,8 +292,8 @@ func TestMockDownloader_FailURLs(t *testing.T) {
 func TestMockDownloader_TimeoutURLs(t *testing.T) {
 	timeoutURL := "http://example.com/slow.bin"
 	okURL := "http://example.com/fast.bin"
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // immediate cancellation
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // immediate cancellation, so timeout URL returns right away
 
 	d := New(ModeAlwaysSuccess, WithTimeoutURLs(timeoutURL), WithContext(ctx))
 
@@ -295,17 +326,19 @@ func TestMockDownloader_Delay(t *testing.T) {
 }
 
 func TestMockDownloader_SetContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	d := New(ModeSimulateProgress)
 	d.SetContext(ctx)
 
 	errCh := make(chan error, 1)
+	ready := make(chan struct{})
 	go func() {
+		close(ready)
 		obj := testObject("http://example.com/setctx.bin")
 		errCh <- d.Download(obj, nil)
 	}()
+	<-ready
 
-	time.Sleep(50 * time.Millisecond)
 	cancel()
 
 	select {

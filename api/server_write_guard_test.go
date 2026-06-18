@@ -30,7 +30,8 @@ func newMgrWithMode(mode config.RunMode, enableDownload, enableScheduler bool) *
 	return manager.NewManager(cfg)
 }
 
-func doJSONPost(router http.Handler, url string, body any) *httptest.ResponseRecorder {
+func doJSONPost(t *testing.T, router http.Handler, url string, body any) *httptest.ResponseRecorder {
+	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		_ = json.NewEncoder(&buf).Encode(body)
@@ -42,7 +43,8 @@ func doJSONPost(router http.Handler, url string, body any) *httptest.ResponseRec
 	return rr
 }
 
-func doJSONPut(router http.Handler, url string, body any) *httptest.ResponseRecorder {
+func doJSONPut(t *testing.T, router http.Handler, url string, body any) *httptest.ResponseRecorder {
+	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		_ = json.NewEncoder(&buf).Encode(body)
@@ -88,7 +90,7 @@ func TestWriteGuardUIMode(t *testing.T) {
 	}
 	for _, url := range targets {
 		body := map[string]any{"ids": []string{"t1"}, "url": "http://a"}
-		rr := doJSONPost(r, url, body)
+		rr := doJSONPost(t, r, url, body)
 		if rr.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected 405 for POST %s, got %d", url, rr.Code)
 		}
@@ -100,7 +102,7 @@ func TestWriteGuardUIMode(t *testing.T) {
 	}
 
 	// PUT routes also covered
-	rr := doJSONPut(r, "/api/tasks/t1", map[string]any{"id": "t1", "type": "test"})
+	rr := doJSONPut(t, r, "/api/tasks/t1", map[string]any{"id": "t1", "type": "test"})
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 for PUT /api/tasks/t1, got %d", rr.Code)
 	}
@@ -120,7 +122,7 @@ func TestWriteGuardFullMode_BlocksWhenBothDisabled(t *testing.T) {
 		"/api/config/apply",
 	}
 	for _, url := range targets {
-		rr := doJSONPost(r, url, map[string]any{"ids": []string{"t1"}, "url": "http://a"})
+		rr := doJSONPost(t, r, url, map[string]any{"ids": []string{"t1"}, "url": "http://a"})
 		if rr.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected 405 for %s in full mode with both disabled, got %d", url, rr.Code)
 		}
@@ -134,7 +136,7 @@ func TestWriteGuardFullMode_AllowsWhenOneEnabled(t *testing.T) {
 
 	// With download enabled, writes should pass the guard
 	// (they may still fail at the manager level due to missing state)
-	rr := doJSONPost(r, "/api/tasks/t1/retry", map[string]any{"url": "http://a"})
+	rr := doJSONPost(t, r, "/api/tasks/t1/retry", map[string]any{"url": "http://a"})
 	if rr.Code == http.StatusMethodNotAllowed {
 		t.Fatalf("expected writes to pass guard when download enabled, got 405")
 	}

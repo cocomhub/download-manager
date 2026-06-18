@@ -215,10 +215,10 @@ func TestExtractorInterface(t *testing.T) {
 	if e.Name() != "mock" {
 		t.Errorf("unexpected name: %s", e.Name())
 	}
-	if !e.Match(context.Background(), "http://example.com") {
+	if !e.Match(t.Context(), "http://example.com") {
 		t.Error("Match should return true")
 	}
-	if err := e.Extract(context.Background(), &download.Request{URL: "http://example.com"}); err != nil {
+	if err := e.Extract(t.Context(), &download.Request{URL: "http://example.com"}); err != nil {
 		t.Errorf("Extract should not error: %v", err)
 	}
 }
@@ -230,7 +230,7 @@ func TestTransportInterface(t *testing.T) {
 	if tr.Name() != "mock" {
 		t.Errorf("unexpected name: %s", tr.Name())
 	}
-	resp, err := tr.RoundTrip(context.Background(), &download.TransportRequest{URL: "http://example.com"})
+	resp, err := tr.RoundTrip(t.Context(), &download.TransportRequest{URL: "http://example.com"})
 	if err != nil {
 		t.Errorf("RoundTrip should not error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestTransportInterface(t *testing.T) {
 
 func TestProxySelectorInterface(t *testing.T) {
 	ps := &mockProxySelector{}
-	proxy, err := ps.Select(context.Background(), "http://example.com", nil)
+	proxy, err := ps.Select(t.Context(), "http://example.com", nil)
 	if err != nil {
 		t.Errorf("Select should not error: %v", err)
 	}
@@ -256,11 +256,11 @@ func TestProxySelectorInterface(t *testing.T) {
 
 func TestSelectorInterface(t *testing.T) {
 	s := &mockSelector{}
-	ext := s.MatchExtractor(context.Background(), "http://example.com", nil)
+	ext := s.MatchExtractor(t.Context(), "http://example.com", nil)
 	if ext != nil {
 		t.Errorf("expected nil extractor, got %+v", ext)
 	}
-	proxy, err := s.SelectProxy(context.Background(), "http://example.com", nil)
+	proxy, err := s.SelectProxy(t.Context(), "http://example.com", nil)
 	if err != nil {
 		t.Errorf("SelectProxy should not error: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestNewDownloader(t *testing.T) {
 
 func TestDownloaderInvalidRequestNil(t *testing.T) {
 	d := download.New()
-	err := d.Download(context.Background(), nil)
+	err := d.Download(t.Context(), nil)
 	if err == nil {
 		t.Error("Download with nil request should error")
 	}
@@ -353,7 +353,7 @@ func TestDownloaderInvalidRequestNil(t *testing.T) {
 
 func TestDownloaderInvalidRequestEmptyURL(t *testing.T) {
 	d := download.New()
-	err := d.Download(context.Background(), &download.Request{SavePath: "/tmp/file"})
+	err := d.Download(t.Context(), &download.Request{SavePath: "/tmp/file"})
 	if err == nil {
 		t.Error("Download with empty URL should error")
 	}
@@ -361,7 +361,7 @@ func TestDownloaderInvalidRequestEmptyURL(t *testing.T) {
 
 func TestDownloaderInvalidRequestEmptySavePath(t *testing.T) {
 	d := download.New()
-	err := d.Download(context.Background(), &download.Request{URL: "http://example.com"})
+	err := d.Download(t.Context(), &download.Request{URL: "http://example.com"})
 	if err == nil {
 		t.Error("Download with empty SavePath should error")
 	}
@@ -369,7 +369,7 @@ func TestDownloaderInvalidRequestEmptySavePath(t *testing.T) {
 
 func TestDownloaderNoExtractor(t *testing.T) {
 	d := download.New()
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -382,7 +382,7 @@ func TestDownloaderWithExtractor(t *testing.T) {
 	ex := &mockExtractor{}
 	sel := download.NewDefaultSelector()
 	d := download.New(download.WithExtractor(ex), download.WithSelector(sel))
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -419,7 +419,7 @@ func TestDefaultNilBeforeSet(t *testing.T) {
 
 func TestGetReturnsNoError(t *testing.T) {
 	// Get() now lazy-initializes, so it shouldn't return ErrNoDefaultDownloader
-	err := download.Get(context.Background(), "http://example.com/file", "/tmp/file")
+	err := download.Get(t.Context(), "http://example.com/file", "/tmp/file")
 	if err == download.ErrNoDefaultDownloader {
 		t.Errorf("Get() should not return ErrNoDefaultDownloader after lazy init")
 	}
@@ -436,7 +436,7 @@ func TestSetDefaultAndGet(t *testing.T) {
 		t.Error("Default() should return the set downloader")
 	}
 
-	err := download.Get(context.Background(), "http://example.com/file", "/tmp/file")
+	err := download.Get(t.Context(), "http://example.com/file", "/tmp/file")
 	if err != nil {
 		t.Errorf("Get() should not error: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestDownloaderRealDownload(t *testing.T) {
 	tr := download.NewStdlibTransport()
 	d := download.New(download.WithExtractor(ex), download.WithTransport(tr))
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      ts.URL,
 		SavePath: savePath,
 	})
@@ -489,7 +489,7 @@ func TestDownloaderWithHintExtractor(t *testing.T) {
 	)
 
 	// The mockExtractor.Match returns false, but hint-based match works by name
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 		Hint:     &download.DownloadHint{Extractor: "mock"},

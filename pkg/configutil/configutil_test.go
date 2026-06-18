@@ -68,6 +68,68 @@ func TestGetBool_StringConvertible(t *testing.T) {
 	}
 }
 
+func TestGetString(t *testing.T) {
+	tests := []struct {
+		name string
+		m    map[string]any
+		key  string
+		def  string
+		want string
+	}{
+		{
+			name: "key exists with string value",
+			m:    map[string]any{"name": "hello"},
+			key:  "name",
+			def:  "default",
+			want: "hello",
+		},
+		{
+			name: "key missing returns default",
+			m:    map[string]any{"name": "hello"},
+			key:  "missing",
+			def:  "fallback",
+			want: "fallback",
+		},
+		{
+			name: "key with non-string value returns default",
+			m:    map[string]any{"count": 42},
+			key:  "count",
+			def:  "default",
+			want: "default",
+		},
+		{
+			name: "nil value returns default",
+			m:    map[string]any{"name": nil},
+			key:  "name",
+			def:  "default",
+			want: "default",
+		},
+		{
+			name: "nil map returns default",
+			m:    nil,
+			key:  "anything",
+			def:  "default",
+			want: "default",
+		},
+		{
+			name: "empty string value returned correctly",
+			m:    map[string]any{"name": ""},
+			key:  "name",
+			def:  "default",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetString(tt.m, tt.key, tt.def)
+			if got != tt.want {
+				t.Errorf("GetString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetBool_StringNotConvertible_ReturnsDefault(t *testing.T) {
 	m := map[string]any{
 		"k": "nope",

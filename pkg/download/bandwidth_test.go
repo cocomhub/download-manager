@@ -4,7 +4,6 @@
 package download_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,14 +19,14 @@ func TestCheckHealthOK(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	err := download.CheckHealth(context.Background(), ts.URL+"/healthz", 5*time.Second)
+	err := download.CheckHealth(t.Context(), ts.URL+"/healthz", 5*time.Second)
 	if err != nil {
 		t.Errorf("expected nil, got %v", err)
 	}
 }
 
 func TestCheckHealthFail(t *testing.T) {
-	err := download.CheckHealth(context.Background(), "http://localhost:1/healthz", time.Second)
+	err := download.CheckHealth(t.Context(), "http://localhost:1/healthz", time.Second)
 	if err == nil {
 		t.Error("expected error for unreachable server")
 	}
@@ -39,7 +38,7 @@ func TestCheckHealthNon200(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	err := download.CheckHealth(context.Background(), ts.URL+"/healthz", 5*time.Second)
+	err := download.CheckHealth(t.Context(), ts.URL+"/healthz", 5*time.Second)
 	if err == nil {
 		t.Error("expected error for 503 status")
 	}
@@ -53,7 +52,7 @@ func TestCheckBandwidthBasic(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	bw, err := download.CheckBandwidth(context.Background(), ts.URL, 512*1024, 5*time.Second)
+	bw, err := download.CheckBandwidth(t.Context(), ts.URL, 512*1024, 5*time.Second)
 	if err != nil {
 		t.Fatalf("CheckBandwidth should not error: %v", err)
 	}

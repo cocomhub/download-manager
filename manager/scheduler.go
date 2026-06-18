@@ -301,8 +301,8 @@ func hasFiles(obj *model.DownloadObject) bool {
 	if obj == nil {
 		return false
 	}
-	obj.Lock()
-	defer obj.Unlock()
+	obj.RLock()
+	defer obj.RUnlock()
 	if obj.Extra == nil {
 		return false
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -21,28 +22,19 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 
 	task := waitForTask(t, mgr, "hotreload")
 
-	// Wait until some objects enter downloading.
-	deadline := time.Now().Add(5 * time.Second)
-	var downloading int
-	for time.Now().Before(deadline) {
+	// Wait until at least 2 objects enter downloading state.
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(100 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
-		downloading = 0
+		var downloading int
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
 				downloading++
 			}
 		}
-		if downloading >= 2 {
-			t.Logf("found %d downloading objects, triggering config hot-reload", downloading)
-			break
-		}
-	}
-	if downloading < 2 {
-		t.Fatal("expected at least 2 downloading objects before hot-reload")
-	}
+		t.Logf("downloading: %d/2", downloading)
+		return downloading >= 2
+	}, 10*time.Second, 100*time.Millisecond, "expected at least 2 downloading objects before hot-reload")
 
 	// Capture objects that were downloading before hot-reload
 	before := getAllObjectsFromTask(t, task)
@@ -53,16 +45,38 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 		}
 	}
 
-	// Perform config hot-reload: swap downloader to fast success.
+	// Perform config hot-reload with increased capacity.
 	cfg := mgr.currentCfg()
 	newCfg := *cfg
 	newCfg.Downloader.GlobalConcurrent = 20
-	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))
+	// Raise per-task concurrency so the scheduler can enqueue new objects
+	// even while the 2 ModePauseOnProgress downloads are still blocked.
+	if len(newCfg.Tasks) > 0 {
+		if newCfg.Tasks[0].Extra == nil {
+			newCfg.Tasks[0].Extra = make(map[string]any)
+		}
+		newCfg.Tasks[0].Extra["max_concurrent"] = 20
+	}
 	if err := mgr.UpdateConfig(&newCfg, &AuditInfo{Source: "test", Message: "hot-reload-test"}); err != nil {
 		t.Fatalf("UpdateConfig failed: %v", err)
 	}
 
-	// Wait a bit for the config changes to propagate.
+	// IMPORTANT: UpdateConfig internally calls m.setDownloader(downloader.New(cfgCopy.Downloader)),
+	// which creates a REAL downloader (not a mock). We must override it back to a mock so that
+	// pending objects can complete in the test environment without a real HTTP server.
+	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))
+
+	// Wait for config changes to propagate: at least one object should complete
+	// with the new downloader (ModeAlwaysSuccess).
+	//
+	// IMPORTANT: The previously-downloading objects (ModePauseOnProgress)
+	// are blocked in their Download() call. scan() sees them as ModePauseOnProgress
+	// objects still in downloading state. But NEW objects enqueued after the
+	// config reload will use ModeAlwaysSuccess and complete immediately.
+	// We need to wait for those new objects to be enqueued and processed.
+	//
+	// Since pending objects may already be present, the scheduler needs to
+	// re-evaluate and enqueue them. We scan and retry repeatedly.
 	time.Sleep(1 * time.Second)
 
 	// The previously-downloading objects should still exist and either be

@@ -270,13 +270,13 @@ func TestNewMockTask_Scrape_Noop(t *testing.T) {
 
 	var sc core.ScrapeCap = mockT
 
-	err := sc.Scrape(context.Background())
+	err := sc.Scrape(t.Context())
 	if err != nil {
 		t.Fatalf("Scrape() error = %v", err)
 	}
 
 	// Second scrape.
-	err = sc.Scrape(context.Background())
+	err = sc.Scrape(t.Context())
 	if err != nil {
 		t.Fatalf("Scrape() error = %v", err)
 	}
@@ -291,7 +291,7 @@ func TestNewMockTask_Scrape_Cancelled(t *testing.T) {
 	mockT := newMockTaskFromConfig(t, 2)
 	var sc core.ScrapeCap = mockT
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	err := sc.Scrape(ctx)
@@ -304,7 +304,7 @@ func TestNewMockTask_ResolveObject(t *testing.T) {
 	mockT := newMockTaskFromConfig(t, 1)
 
 	obj := &model.DownloadObject{URL: "http://example.com/test.bin"}
-	err := mockT.ResolveObject(context.Background(), obj)
+	err := mockT.ResolveObject(t.Context(), obj)
 	if err != nil {
 		t.Fatalf("ResolveObject() error = %v", err)
 	}

@@ -4,7 +4,6 @@
 package extractor_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -20,20 +19,20 @@ func TestHLSExtractorName(t *testing.T) {
 
 func TestHLSExtractorMatchM3U8(t *testing.T) {
 	ex := extractor.NewHLSExtractor()
-	if !ex.Match(context.Background(), "http://example.com/stream.m3u8") {
+	if !ex.Match(t.Context(), "http://example.com/stream.m3u8") {
 		t.Error("HLSExtractor should match .m3u8 URLs")
 	}
-	if !ex.Match(context.Background(), "http://example.com/playlist.M3U8") {
+	if !ex.Match(t.Context(), "http://example.com/playlist.M3U8") {
 		t.Error("HLSExtractor should match .M3U8 URLs (case-insensitive)")
 	}
-	if ex.Match(context.Background(), "http://example.com/file.mp4") {
+	if ex.Match(t.Context(), "http://example.com/file.mp4") {
 		t.Error("HLSExtractor should NOT match non-m3u8 URLs")
 	}
 }
 
 func TestHLSExtractorNoFFmpeg(t *testing.T) {
 	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("ffmpeg"))
-	err := ex.Extract(context.Background(), &download.Request{
+	err := ex.Extract(t.Context(), &download.Request{
 		URL:      "http://example.com/stream.m3u8",
 		SavePath: "/tmp/output.mp4",
 	})

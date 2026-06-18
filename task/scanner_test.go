@@ -4,7 +4,6 @@
 package task
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -54,7 +53,7 @@ func TestPagingScanner_Run_NoDriver(t *testing.T) {
 		buildPageURLFn: func(page int) string { return "" },
 	}
 	s := NewPagingScanner(bt, adapter)
-	if err := s.Run(context.Background()); err != nil {
+	if err := s.Run(t.Context()); err != nil {
 		t.Fatalf("expected nil error with no driver, got %v", err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -57,13 +58,16 @@ func TestUpdateConfig_LoadsMissingTasks(t *testing.T) {
 	}
 
 	// Increase wait and scan to let task loader pick up new tasks
-	time.Sleep(300 * time.Millisecond)
 	var count int
-	mgr.tasks.Range(func(key, value any) bool {
-		count++
-		return true
-	})
-	// We only verify UpdateConfig doesn't fail — task loading depends on
+	_ = assert.Eventually(t, func() bool {
+		count = 0
+		mgr.tasks.Range(func(key, value any) bool {
+			count++
+			return true
+		})
+		return count >= 2
+	}, 3*time.Second, 50*time.Millisecond)
+	// We only verify UpdateConfig doesn't fail -- task loading depends on
 	// many factors in the CI. The key test is that EventPublished fires.
 	t.Logf("tasks count after update: %d (may vary depending on task loader)", count)
 }

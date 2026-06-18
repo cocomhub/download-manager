@@ -11,6 +11,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestAPI_Pagination_Boundaries verifies edge cases for pagination query parameters.
@@ -34,21 +35,16 @@ func TestAPI_Pagination_Boundaries(t *testing.T) {
 			r := srv.Router()
 
 			startAPIManager(t, srv)
-			deadline := time.Now().Add(3 * time.Second)
-			for time.Now().Before(deadline) {
-				rr := doJSONGet(r, "/api/tasks")
-				var list []any
-				if err := json.Unmarshal(rr.Body.Bytes(), &struct{ Tasks *[]any }{Tasks: &list}); err == nil && len(list) > 0 {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+			assert.MustEventually(t, func() bool {
+				rr := doJSONGet(t, r, "/api/tasks/mock-page-edge")
+				return rr.Code == http.StatusOK
+			}, 3*time.Second, 50*time.Millisecond, "wait for pagination task to seed objects")
 
 			url := "/api/tasks/mock-page-edge"
 			if tt.query != "" {
 				url += "?" + tt.query
 			}
-			rr := doJSONGet(r, url)
+			rr := doJSONGet(t, r, url)
 
 			if rr.Code != tt.wantStatus {
 				t.Errorf("GET %s returned %d, want %d: %s", url, rr.Code, tt.wantStatus, rr.Body.String())
@@ -77,7 +73,7 @@ func TestAPI_TaskNotFound(t *testing.T) {
 
 	// GET /api/tasks/{id} — task endpoint returns JSON 404 for unknown task.
 	t.Run("/api/tasks/non-existent", func(t *testing.T) {
-		rr := doJSONGet(r, "/api/tasks/non-existent")
+		rr := doJSONGet(t, r, "/api/tasks/non-existent")
 		if rr.Code != http.StatusNotFound {
 			t.Logf("GET %s returned %d (acceptable if redirected): %s", "/api/tasks/non-existent", rr.Code, rr.Body.String())
 		}
@@ -97,7 +93,7 @@ func TestAPI_TaskNotFound(t *testing.T) {
 		r2 := srv2.Router()
 		startAPIManager(t, srv2)
 
-		rr := doJSONPost(r2, "/api/tasks/non-existent/cancel", nil)
+		rr := doJSONPost(t, r2, "/api/tasks/non-existent/cancel", nil)
 		if rr.Code != http.StatusNotFound && rr.Code != http.StatusBadRequest {
 			t.Errorf("POST cancel returned %d, expected 404/400: %s", rr.Code, rr.Body.String())
 		}
@@ -131,7 +127,7 @@ func TestAPI_WriteDisabled(t *testing.T) {
 
 	for _, ep := range writeEndpoints {
 		t.Run(ep.method+" "+ep.url, func(t *testing.T) {
-			rr := doJSONPost(r, ep.url, ep.body)
+			rr := doJSONPost(t, r, ep.url, ep.body)
 			if rr.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s returned %d, want 405: %s", ep.method, ep.url, rr.Code, rr.Body.String())
 			}
@@ -177,7 +173,7 @@ func TestAPI_Aggregate_Quota(t *testing.T) {
 	r := srv.Router()
 	done := startAPIManager(t, srv)
 
-	rr := doJSONGet(r, "/api/aggregate?limit=3&page=1")
+	rr := doJSONGet(t, r, "/api/aggregate?limit=3&page=1")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/aggregate returned %d, want 200", rr.Code)
 	}
@@ -204,7 +200,7 @@ func TestAPI_AllEndpointsErrorFormat(t *testing.T) {
 	r := srv.Router()
 	done := startAPIManager(t, srv)
 
-	rr := doJSONGet(r, "/api/tasks/mock-err/object/cancel")
+	rr := doJSONGet(t, r, "/api/tasks/mock-err/object/cancel")
 	if rr.Code != http.StatusMethodNotAllowed && rr.Code != http.StatusBadRequest && rr.Code != http.StatusNotFound {
 		t.Errorf("cancel object via GET returned %d, expected 4xx", rr.Code)
 	}

@@ -325,6 +325,129 @@ func TestLoadNoRuntime_DefaultsApplied(t *testing.T) {
 	}
 }
 
+func TestConfig_Clone(t *testing.T) {
+	// Set up a Config with all map/slice fields populated
+	cfg := &Config{
+		Server: Server{
+			HTTPPort:   8080,
+			WorkDir:    "/tmp/work",
+			Auth:       AuthConfig{Type: "token", Token: "secret"},
+			UIDefaults: UIDefaults{DefaultSaveDir: "/saves", WindowWidth: 1024, WindowHeight: 768},
+		},
+		Mongo: []MongoSource{{Name: "main", URI: "mongodb://localhost"}},
+		Downloader: Downloader{
+			Type:             "native",
+			GlobalConcurrent: 5,
+			Proxies:          []string{"http://proxy1", "http://proxy2"},
+			DomainLimits:     map[string]int{"example.com": 2, "test.org": 3},
+			FfmpegPath:       "/usr/bin/ffmpeg",
+			Filesystem:       DcFilesystem{RootDir: "/data", LogDir: "/logs", CacheDir: "/cache"},
+			HTTP:             DcHTTP{TimeoutSeconds: 600},
+			Proxy:            DcProxy{List: []string{"http://proxy1"}, Force: true, BandwidthPathSuffix: "/bw"},
+			Progress:         DcProgress{MinPercentStep: 0.5, MaxIntervalSeconds: 10},
+			FFmpeg:           DcFFmpeg{Path: "/usr/bin/ffmpeg", ExtraArgs: []string{"-v", "debug"}, HLSAutoMarkAsFail: true},
+		},
+		Contexts: map[string]Context{
+			"pool1": {
+				Storage: StorageConfig{
+					Type:   "mongo",
+					Config: map[string]string{"collection": "items", "database": "dm"},
+				},
+			},
+		},
+		Tasks: []Task{
+			{
+				ID:      "task1",
+				Type:    "tktube",
+				SaveDir: "/saves/tktube",
+				Storage: StorageConfig{
+					Type:   "file",
+					Config: map[string]string{"path": "/tmp/status.json"},
+				},
+				Extra: map[string]any{"max_concurrent": 3, "quality": "1080p"},
+			},
+		},
+	}
+
+	clone := cfg.Clone()
+	if clone == nil {
+		t.Fatal("Clone returned nil")
+	}
+
+	// Verify equality of scalar fields
+	if clone.Server.HTTPPort != cfg.Server.HTTPPort {
+		t.Errorf("HTTPPort = %d, want %d", clone.Server.HTTPPort, cfg.Server.HTTPPort)
+	}
+	if clone.Downloader.Type != cfg.Downloader.Type {
+		t.Errorf("Downloader.Type = %q, want %q", clone.Downloader.Type, cfg.Downloader.Type)
+	}
+	if len(clone.Tasks) != len(cfg.Tasks) {
+		t.Fatalf("len(Tasks) = %d, want %d", len(clone.Tasks), len(cfg.Tasks))
+	}
+
+	// ---- Mutate the original and verify clone is untouched ----
+
+	// Modify slice: Proxies
+	cfg.Downloader.Proxies[0] = "http://evil"
+	if clone.Downloader.Proxies[0] != "http://proxy1" {
+		t.Errorf("clone Proxies[0] mutated to %q", clone.Downloader.Proxies[0])
+	}
+
+	// Append to slice: Proxies
+	cfg.Downloader.Proxies = append(cfg.Downloader.Proxies, "http://evil2")
+	if len(clone.Downloader.Proxies) != 2 {
+		t.Errorf("clone Proxies length = %d, want 2", len(clone.Downloader.Proxies))
+	}
+
+	// Modify map: DomainLimits
+	cfg.Downloader.DomainLimits["new"] = 99
+	if _, exists := clone.Downloader.DomainLimits["new"]; exists {
+		t.Error("clone DomainLimits got new key from original")
+	}
+
+	// Modify Task Extra map
+	cfg.Tasks[0].Extra["new_key"] = "new_value"
+	if _, exists := clone.Tasks[0].Extra["new_key"]; exists {
+		t.Error("clone Tasks[0].Extra got new key from original")
+	}
+
+	// Modify Task Storage.Config map
+	cfg.Tasks[0].Storage.Config["path"] = "/evil/path"
+	if clone.Tasks[0].Storage.Config["path"] != "/tmp/status.json" {
+		t.Errorf("clone Storage.Config['path'] mutated to %q", clone.Tasks[0].Storage.Config["path"])
+	}
+
+	// Modify Context storage config
+	cfg.Contexts["pool1"].Storage.Config["collection"] = "hacked"
+	if clone.Contexts["pool1"].Storage.Config["collection"] != "items" {
+		t.Errorf("clone Contexts['pool1'].Storage.Config['collection'] mutated to %q",
+			clone.Contexts["pool1"].Storage.Config["collection"])
+	}
+
+	// Modify Mongo slice
+	cfg.Mongo[0].URI = "mongodb://evil"
+	if clone.Mongo[0].URI != "mongodb://localhost" {
+		t.Errorf("clone Mongo[0].URI mutated to %q", clone.Mongo[0].URI)
+	}
+
+	// Modify Proxy.List
+	cfg.Downloader.Proxy.List[0] = "http://evil"
+	if clone.Downloader.Proxy.List[0] != "http://proxy1" {
+		t.Errorf("clone Proxy.List[0] mutated to %q", clone.Downloader.Proxy.List[0])
+	}
+
+	// Modify FFmpeg.ExtraArgs
+	cfg.Downloader.FFmpeg.ExtraArgs[0] = "-evil"
+	if clone.Downloader.FFmpeg.ExtraArgs[0] != "-v" {
+		t.Errorf("clone FFmpeg.ExtraArgs[0] mutated to %q", clone.Downloader.FFmpeg.ExtraArgs[0])
+	}
+
+	// Test Clone on nil Config
+	if (*Config)(nil).Clone() != nil {
+		t.Error("nil Config.Clone() should return nil")
+	}
+}
+
 func TestConfig_DefaultHTTPPort(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}

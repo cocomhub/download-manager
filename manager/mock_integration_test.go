@@ -11,6 +11,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -78,28 +79,19 @@ func TestManagerWithMockTask_CancelDuringDownload(t *testing.T) {
 	// Wait until at least one object enters downloading state.
 	// ProcessTask sets StatusDownloading BEFORE calling dl.Download(),
 	// so we should see it in the task's object list quickly.
-	deadline := time.Now().Add(3 * time.Second)
 	var target string
-	for time.Now().Before(deadline) {
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(200 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
 				target = obj.URL
 				t.Logf("found downloading object: %s", obj.URL)
-				break
+				return true
 			}
 		}
-		if target != "" {
-			break
-		}
-	}
-
-	if target == "" {
-		t.Fatal("no object entered downloading state within timeout")
-	}
+		return false
+	}, 3*time.Second, 200*time.Millisecond, "no object entered downloading state within timeout")
 
 	// Cancel the downloading object.
 	t.Logf("cancelling object: %s", target)
@@ -163,15 +155,13 @@ func newMockManager(t *testing.T, taskID string, objectCount int, dl *mockdl.Moc
 // waitForTask polls until the task is registered.
 func waitForTask(t *testing.T, mgr *Manager, taskID string) core.Task {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if tsk, ok := mgr.getTask(taskID); ok {
-			return tsk
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("task %s not found within timeout", taskID)
-	return nil
+	var task core.Task
+	assert.MustEventually(t, func() bool {
+		var ok bool
+		task, ok = mgr.getTask(taskID)
+		return ok
+	}, 3*time.Second, 50*time.Millisecond, "wait for task %s", taskID)
+	return task
 }
 
 // startManager starts the manager in a goroutine and registers cleanup.
@@ -192,14 +182,11 @@ func startManager(t *testing.T, mgr *Manager) chan struct{} {
 }
 
 // waitForObjectsFinal polling loop that repeatedly scans until count objects
-// reach the target state, or timeout. Does NOT fail the test on timeout.
+// reach the target state, or timeout. Calls t.Fatal on timeout.
 func waitForObjectsFinal(t *testing.T, mgr *Manager, task core.Task, count int, target string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(300 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
 		var matched int
 		for _, obj := range all {
@@ -207,29 +194,8 @@ func waitForObjectsFinal(t *testing.T, mgr *Manager, task core.Task, count int, 
 				matched++
 			}
 		}
-		if matched >= count {
-			return
-		}
-	}
-
-	// Final scan + check (race-condition guard).
-	mgr.scan()
-	time.Sleep(200 * time.Millisecond)
-	all := getAllObjectsFromTask(t, task)
-	var matched int
-	for _, obj := range all {
-		if obj.GetStatus() == target {
-			matched++
-		}
-	}
-	if matched >= count {
-		return
-	}
-
-	t.Logf("waitForObjectsFinal: wanted %d×%s, got %d:", count, target, matched)
-	for _, obj := range all {
-		t.Logf("  %s status=%s", obj.URL, obj.GetStatus())
-	}
+		return matched >= count
+	}, timeout, 300*time.Millisecond, "waitForObjectsFinal: wanted %d×%s", count, target)
 }
 
 // getAllObjectsFromTask fetches all download objects from a task.

@@ -53,7 +53,7 @@ func TestNew_NativeOld(t *testing.T) {
 func TestNew_WithContext(t *testing.T) {
 	d := New(config.Downloader{Type: "native"})
 	if wc, ok := d.(interface{ SetContext(context.Context) }); ok {
-		wc.SetContext(context.Background())
+		wc.SetContext(t.Context())
 		// 不 panic 即可
 	} else {
 		t.Log("Downloader does not implement SetContext, skipping")

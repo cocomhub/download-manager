@@ -4,10 +4,13 @@
 package api
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestAPI_ConcurrentRequests verifies API layer correctness under concurrent requests.
@@ -15,7 +18,10 @@ func TestAPI_ConcurrentRequests(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t, "conc-test", 10, true)
 	r := srv.Router()
 	_ = startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond) // wait for loadTasks in manager goroutine
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for manager to load tasks")
 
 	var wg sync.WaitGroup
 	for range 20 {

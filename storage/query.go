@@ -58,6 +58,12 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
+
+	// Lock the object to safely read Metadata and Extra maps,
+	// which may be concurrently written by applySharedState (base_task.go).
+	obj.RLock()
+	defer obj.RUnlock()
+
 	if len(filter.Metadata) > 0 {
 		for key, want := range filter.Metadata {
 			if obj.Metadata == nil || obj.Metadata[key] != want {
@@ -187,7 +193,14 @@ func applyPagination(objects []*model.DownloadObject, query *core.StorageQuery) 
 }
 
 func metadataValue(obj *model.DownloadObject, key string) string {
-	if obj == nil || obj.Metadata == nil {
+	if obj == nil {
+		return ""
+	}
+	// Lock to safely read Metadata, which may be concurrently
+	// written by applySharedState (base_task.go).
+	obj.RLock()
+	defer obj.RUnlock()
+	if obj.Metadata == nil {
 		return ""
 	}
 	return obj.Metadata[key]
