@@ -4,7 +4,6 @@
 package downloader
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 )
@@ -282,9 +281,11 @@ func TestFunc_LogFileCreated(t *testing.T) {
 // 辅助
 // ================================================================
 
-func httpCodeName(code int) string {
-	if name := http.StatusText(code); name != "" {
-		return fmt.Sprintf("%d_%s", code, name)
-	}
-	return fmt.Sprintf("code_%d", code)
-}
+// httpCodeName 保留用于扩展测试（当前未使用，等待 HTTP 状态码矩阵扩展时启用）
+// var _ = httpCodeName
+// func httpCodeName(code int) string {
+// 	if name := http.StatusText(code); name != "" {
+// 		return fmt.Sprintf("%d_%s", code, name)
+// 	}
+// 	return fmt.Sprintf("code_%d", code)
+// }
