@@ -4,7 +4,6 @@
 package proxy_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download/proxy"
@@ -12,7 +11,7 @@ import (
 
 func TestTunnelProxySelectorNoInstances(t *testing.T) {
 	sel := proxy.NewTunnelProxySelector()
-	proxyURL, err := sel.Select(context.Background(), "http://example.com/file", nil)
+	proxyURL, err := sel.Select(t.Context(), "http://example.com/file", nil)
 	if err != nil {
 		t.Fatalf("Select with no instances should not error: %v", err)
 	}
@@ -25,7 +24,7 @@ func TestTunnelProxySelectorWithInstance(t *testing.T) {
 	sel := proxy.NewTunnelProxySelector(
 		proxy.WithTunnelInstance("http://localhost:18083", "0000000000000000000000000000000000000000000000000000000000000000"),
 	)
-	proxyURL, err := sel.Select(context.Background(), "http://example.com/file", nil)
+	proxyURL, err := sel.Select(t.Context(), "http://example.com/file", nil)
 	if err != nil {
 		t.Fatalf("Select should not error: %v", err)
 	}
@@ -43,7 +42,7 @@ func TestTunnelProxySelectorMultipleInstances(t *testing.T) {
 		proxy.WithTunnelInstance("http://sproxy1:18083", "key1"),
 		proxy.WithTunnelInstance("http://sproxy2:18083", "key2"),
 	)
-	proxyURL, err := sel.Select(context.Background(), "http://example.com/file", nil)
+	proxyURL, err := sel.Select(t.Context(), "http://example.com/file", nil)
 	if err != nil {
 		t.Fatalf("Select should not error: %v", err)
 	}

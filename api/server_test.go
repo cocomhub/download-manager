@@ -14,6 +14,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
 	_ "github.com/cocomhub/download-manager/task/mock" // register mock task type
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestAPI_TaskList verifies GET /api/tasks returns registered mock tasks.
@@ -22,9 +23,12 @@ func TestAPI_TaskList(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond) // wait for loadTasks in manager goroutine
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for manager to load tasks")
 
-	rr := doJSONGet(r, "/api/tasks")
+	rr := doJSONGet(t, r, "/api/tasks")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/tasks returned %d, want 200", rr.Code)
 	}
@@ -46,9 +50,12 @@ func TestAPI_TaskDetail(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-detail")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for task detail endpoint ready")
 
-	rr := doJSONGet(r, "/api/tasks/mock-detail")
+	rr := doJSONGet(t, r, "/api/tasks/mock-detail")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/tasks/mock-detail returned %d, want 200", rr.Code)
 	}
@@ -69,7 +76,7 @@ func TestAPI_TaskDetail_NotFound(t *testing.T) {
 	srv, _ := newAPIServerWithMock(t, "mock-404", 1, false)
 	r := srv.Router()
 
-	rr := doJSONGet(r, "/api/tasks/nonexistent")
+	rr := doJSONGet(t, r, "/api/tasks/nonexistent")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for unknown task, got %d", rr.Code)
 	}
@@ -89,9 +96,20 @@ func TestAPI_TaskDetail_WithPagination(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(500 * time.Millisecond) // wait for scan → seed → storage
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-page")
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		total, _ := result["total"].(float64)
+		return total >= 10
+	}, 3*time.Second, 50*time.Millisecond, "wait for 10 objects to be seeded")
 
-	rr := doJSONGet(r, "/api/tasks/mock-page?limit=3&page=1")
+	rr := doJSONGet(t, r, "/api/tasks/mock-page?limit=3&page=1")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/tasks/mock-page returned %d, want 200", rr.Code)
 	}
@@ -106,8 +124,9 @@ func TestAPI_TaskDetail_WithPagination(t *testing.T) {
 		t.Errorf("expected <= 3 objects with limit=3, got %d", len(objects))
 	}
 
-	if total, ok := result["total"].(float64); ok && total != 10 {
-		t.Errorf("total = %v, want 10", total)
+	total := result["total"].(float64)
+	if total != 10 {
+		t.Errorf("total = %v, want 10 (objects=%v)", total, len(objects))
 	}
 
 	_ = done
@@ -119,10 +138,13 @@ func TestAPI_CancelObject(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-cancel-api")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel api task ready")
 
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
-	rr := doJSONPost(r, "/api/tasks/mock-cancel-api/object/cancel", body)
+	rr := doJSONPost(t, r, "/api/tasks/mock-cancel-api/object/cancel", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("cancel object returned %d, want 200: %s", rr.Code, rr.Body.String())
 	}
@@ -136,9 +158,12 @@ func TestAPI_CancelTask(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-cancel-task")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel task ready")
 
-	rr := doJSONPost(r, "/api/tasks/mock-cancel-task/cancel", nil)
+	rr := doJSONPost(t, r, "/api/tasks/mock-cancel-task/cancel", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("cancel task returned %d, want 200: %s", rr.Code, rr.Body.String())
 	}
@@ -152,9 +177,12 @@ func TestAPI_Metrics(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/metrics")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for metrics endpoint ready")
 
-	rr := doJSONGet(r, "/api/metrics")
+	rr := doJSONGet(t, r, "/api/metrics")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/metrics returned %d, want 200", rr.Code)
 	}
@@ -173,9 +201,12 @@ func TestAPI_Aggregate(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/aggregate")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for aggregate endpoint ready")
 
-	rr := doJSONGet(r, "/api/aggregate")
+	rr := doJSONGet(t, r, "/api/aggregate")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/aggregate returned %d, want 200", rr.Code)
 	}
@@ -194,9 +225,12 @@ func TestAPI_Health(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/healthz")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for health endpoint ready")
 
-	rr := doJSONGet(r, "/api/healthz")
+	rr := doJSONGet(t, r, "/api/healthz")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/healthz returned %d, want 200", rr.Code)
 	}
@@ -219,7 +253,7 @@ func TestAPI_Config_Get(t *testing.T) {
 
 	done := startAPIManager(t, srv)
 
-	rr := doJSONGet(r, "/api/config/server")
+	rr := doJSONGet(t, r, "/api/config/server")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/config/server returned %d, want 200", rr.Code)
 	}
@@ -238,9 +272,12 @@ func TestAPI_Runtime(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/runtime")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for runtime endpoint ready")
 
-	rr := doJSONGet(r, "/api/runtime")
+	rr := doJSONGet(t, r, "/api/runtime")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/runtime returned %d, want 200", rr.Code)
 	}
@@ -259,9 +296,12 @@ func TestAPI_Downloads(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/downloads")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for downloads endpoint ready")
 
-	rr := doJSONGet(r, "/api/downloads")
+	rr := doJSONGet(t, r, "/api/downloads")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/downloads returned %d, want 200", rr.Code)
 	}
@@ -280,9 +320,12 @@ func TestAPI_Failures(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/metrics/failures")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for failures endpoint ready")
 
-	rr := doJSONGet(r, "/api/metrics/failures")
+	rr := doJSONGet(t, r, "/api/metrics/failures")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/metrics/failures returned %d, want 200", rr.Code)
 	}
@@ -376,7 +419,8 @@ func startAPIManager(t *testing.T, srv *Server) chan struct{} {
 	return done
 }
 
-func doJSONGet(router http.Handler, url string) *httptest.ResponseRecorder {
+func doJSONGet(t *testing.T, router http.Handler, url string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, url, nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)

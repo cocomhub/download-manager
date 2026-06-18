@@ -4,6 +4,7 @@
 package model
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -147,5 +148,93 @@ func TestNilSafety_AllAccessors(t *testing.T) {
 	_ = o.GetMetaDuration()
 	_ = o.GetMetaContentGroup()
 	_ = o.GetMetaTaskType()
+	_ = o.GetContentGroup()
+	_ = o.GetProgress()
 	// All should not panic
+}
+
+func TestGetProgress(t *testing.T) {
+	o := &DownloadObject{Progress: 42}
+	if got := o.GetProgress(); got != 42 {
+		t.Fatalf("GetProgress() = %d, want 42", got)
+	}
+
+	// Nil object returns 0
+	var nilObj *DownloadObject
+	if got := nilObj.GetProgress(); got != 0 {
+		t.Fatalf("nil GetProgress() = %d, want 0", got)
+	}
+
+	// Ensure threading safety: multiple goroutines can read concurrently
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			o.GetProgress()
+		})
+	}
+	wg.Wait()
+}
+
+func TestObjectLocking(t *testing.T) {
+	o := &DownloadObject{Progress: 100}
+
+	// Lock/Unlock basic contract (access field directly, not via GetProgress
+	// which itself acquires the lock, to avoid RWMutex non-reentrancy)
+	o.Lock()
+	if o.Progress != 100 {
+		t.Error("Progress inside Lock should still be accessible")
+	}
+	o.Unlock()
+
+	// RLock/RUnlock basic contract
+	o.RLock()
+	if o.Progress != 100 {
+		t.Error("Progress inside RLock should still be accessible")
+	}
+	o.RUnlock()
+
+	// Concurrent read locks should not block each other
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			o.RLock()
+			defer o.RUnlock()
+			_ = o.Progress
+		})
+	}
+	wg.Wait()
+}
+
+func TestGetSetContentGroup(t *testing.T) {
+	// Round-trip: set then get
+	o := &DownloadObject{}
+	o.SetContentGroup("GRP-001")
+	if got := o.GetContentGroup(); got != "GRP-001" {
+		t.Fatalf("GetContentGroup() = %q, want %q", got, "GRP-001")
+	}
+
+	// Overwrite
+	o.SetContentGroup("GRP-002")
+	if got := o.GetContentGroup(); got != "GRP-002" {
+		t.Fatalf("GetContentGroup() after overwrite = %q, want %q", got, "GRP-002")
+	}
+
+	// Empty value
+	o.SetContentGroup("")
+	if got := o.GetContentGroup(); got != "" {
+		t.Fatalf("GetContentGroup() after empty set = %q, want empty", got)
+	}
+
+	// Nil object
+	var nilObj *DownloadObject
+	nilObj.SetContentGroup("test") // should not panic
+	if got := nilObj.GetContentGroup(); got != "" {
+		t.Fatalf("nil GetContentGroup() = %q, want empty", got)
+	}
+
+	// Nil Extra returns empty
+	o2 := &DownloadObject{}
+	if got := o2.GetContentGroup(); got != "" {
+		t.Fatalf("empty object GetContentGroup() = %q, want empty", got)
+	}
 }

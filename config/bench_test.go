@@ -26,7 +26,7 @@ func BenchmarkValidateAndClamp(b *testing.B) {
 		TaskScan: TaskScan{Interval: 10},
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cfg.ValidateAndClamp()
 	}
 }
@@ -48,7 +48,7 @@ func BenchmarkClone(b *testing.B) {
 		},
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = cfg.Clone()
 	}
 }

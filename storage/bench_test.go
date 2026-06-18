@@ -24,7 +24,7 @@ func BenchmarkMemoryStorage_Search(b *testing.B) {
 		_ = s.Update(obj)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = s.Search(&core.StorageQuery{
 			Filter: core.StorageFilter{Statuses: []string{model.StatusPending}},
 		})
@@ -50,7 +50,7 @@ func BenchmarkMemoryStorage_FullScan(b *testing.B) {
 		_ = s.Update(obj)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = s.Search(&core.StorageQuery{
 			Filter: core.StorageFilter{
 				Statuses: []string{model.StatusCompleted},

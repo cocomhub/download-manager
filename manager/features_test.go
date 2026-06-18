@@ -4,11 +4,11 @@
 package manager
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 func TestFeaturesStatus_UIOnly(t *testing.T) {
@@ -22,12 +22,19 @@ func TestFeaturesStatus_UIOnly(t *testing.T) {
 		m.Start()
 		close(done)
 	}()
-	time.Sleep(150 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		select {
+		case <-m.Initialized():
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 50*time.Millisecond, "wait for manager initialization")
 	fs := m.FeaturesStatus()
 	if fs.Scheduler || fs.Workers {
 		t.Fatalf("expected scheduler=false, workers=false in ui mode, got scheduler=%v workers=%v", fs.Scheduler, fs.Workers)
 	}
-	m.Stop(context.Background())
+	m.Stop(t.Context())
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -46,12 +53,19 @@ func TestFeaturesStatus_Full(t *testing.T) {
 		m.Start()
 		close(done)
 	}()
-	time.Sleep(150 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		select {
+		case <-m.Initialized():
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 50*time.Millisecond, "wait for manager initialization")
 	fs := m.FeaturesStatus()
 	if !fs.Scheduler || !fs.Workers {
 		t.Fatalf("expected scheduler=true, workers=true in full mode, got scheduler=%v workers=%v", fs.Scheduler, fs.Workers)
 	}
-	m.Stop(context.Background())
+	m.Stop(t.Context())
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

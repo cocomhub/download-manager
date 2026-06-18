@@ -4,7 +4,6 @@
 package transport_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -20,7 +19,7 @@ func TestSproxyTransportName(t *testing.T) {
 
 func TestSproxyTransportRoundTripNoSproxy(t *testing.T) {
 	tr := transport.NewSproxyTunnelTransport("http://localhost:18083")
-	resp, err := tr.RoundTrip(context.Background(), &download.TransportRequest{
+	resp, err := tr.RoundTrip(t.Context(), &download.TransportRequest{
 		URL:    "http://example.com/file",
 		Method: "GET",
 	})
@@ -42,7 +41,7 @@ func TestSproxyTransportWithTunnelKey(t *testing.T) {
 
 func TestSproxyTransportHealthCheck(t *testing.T) {
 	tr := transport.NewSproxyTunnelTransport("http://localhost:18083")
-	err := tr.HealthCheck(context.Background())
+	err := tr.HealthCheck(t.Context())
 	if err == nil {
 		t.Skip("sproxy running, health check passed")
 	}

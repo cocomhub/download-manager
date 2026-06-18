@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -43,12 +44,9 @@ func TestShutdown_InFlightDownloads(t *testing.T) {
 	task := waitForTask(t, mgr, "shutdown-test")
 
 	// Wait until at least one object enters downloading state.
-	deadline := time.Now().Add(5 * time.Second)
 	var found int
-	for time.Now().Before(deadline) {
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(200 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
 		found = 0
 		for _, obj := range all {
@@ -56,14 +54,9 @@ func TestShutdown_InFlightDownloads(t *testing.T) {
 				found++
 			}
 		}
-		if found >= 1 {
-			t.Logf("found %d downloading objects, proceeding with Stop", found)
-			break
-		}
-	}
-	if found == 0 {
-		t.Fatal("no object entered downloading state within timeout")
-	}
+		t.Logf("downloading objects: %d", found)
+		return found >= 1
+	}, 10*time.Second, 200*time.Millisecond, "expected at least one object to enter downloading state")
 
 	// Call Stop — this should cancel the in-flight download and mark survivors.
 	stopOnce()

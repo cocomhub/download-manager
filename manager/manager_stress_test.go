@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -24,10 +25,13 @@ func TestManagerStartStop_GoroutineLeak(t *testing.T) {
 		})
 		go mgr.Start()
 		<-mgr.Initialized()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		mgr.Stop(ctx)
 		cancel()
-		time.Sleep(200 * time.Millisecond)
+		// Wait for goroutines to settle after Stop.
+		assert.MustEventually(t, func() bool {
+			return runtime.NumGoroutine() <= before+10
+		}, 3*time.Second, 50*time.Millisecond, "goroutines did not settle after Start/Stop cycle")
 	}
 
 	after := runtime.NumGoroutine()
@@ -50,6 +54,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 		mgr.scan()
 		mgr.AggregateObjects(1, 100, "", "created_at", "", nil)
 		mgr.GetHealthStatus()
+		// Brief interleave between concurrent operations.
 		time.Sleep(5 * time.Millisecond)
 	}
 }

@@ -75,7 +75,7 @@ func TestDriver_ColdStart_FullSuccess(t *testing.T) {
 		ProcessItems:    func(items any) ([]any, bool) { return nil, true },
 	}
 
-	result := driver.Scrape(context.Background(), "test-id", hooks, Options{})
+	result := driver.Scrape(t.Context(), "test-id", hooks, Options{})
 	if !result.AllSucceeded {
 		t.Fatal("Expected AllSucceeded=true")
 	}
@@ -101,7 +101,7 @@ func TestDriver_ColdStart_PartialFail_ProgressSaved(t *testing.T) {
 		ProcessItems:    func(items any) ([]any, bool) { return nil, false },
 	}
 
-	driver.Scrape(context.Background(), "test-id", hooks, Options{})
+	driver.Scrape(t.Context(), "test-id", hooks, Options{})
 	if tracker.IsFullSucceeded("test-id") {
 		t.Fatal("Expected NOT full_succeeded after failure")
 	}
@@ -133,7 +133,7 @@ func TestDriver_Incremental_FailDowngrade(t *testing.T) {
 		ProcessItems:    func(items any) ([]any, bool) { return nil, false },
 	}
 
-	driver.Scrape(context.Background(), "test-id", hooks, Options{})
+	driver.Scrape(t.Context(), "test-id", hooks, Options{})
 	if tracker.IsFullSucceeded("test-id") {
 		t.Fatal("Expected full_succeeded to be DELETED after incremental failure")
 	}
@@ -164,7 +164,7 @@ func TestDriver_Incremental_SuccessKeepsFullSucc(t *testing.T) {
 		ProcessItems:    func(items any) ([]any, bool) { return nil, true },
 	}
 
-	result := driver.Scrape(context.Background(), "test-id", hooks, Options{})
+	result := driver.Scrape(t.Context(), "test-id", hooks, Options{})
 	if !result.AllSucceeded {
 		t.Fatal("Expected AllSucceeded=true")
 	}
@@ -196,7 +196,7 @@ func TestDriver_ResumeFromProgress(t *testing.T) {
 		ProcessItems:    func(items any) ([]any, bool) { return nil, true },
 	}
 
-	driver.Scrape(context.Background(), "test-id", hooks, Options{})
+	driver.Scrape(t.Context(), "test-id", hooks, Options{})
 	if !tracker2.IsFullSucceeded("test-id") {
 		t.Fatal("Expected full_succeeded after resuming from progress and completing")
 	}

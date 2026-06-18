@@ -57,7 +57,7 @@ func TestDefaultPager_FullMode_AllSuccess(t *testing.T) {
 		{"c1", "c2"},
 	}
 	hooks := mockHooks(pages, 100) // never allKnown
-	ctx := context.Background()
+	ctx := t.Context()
 	p := NewDefaultPager()
 	result := p.Run(ctx, hooks, Options{Mode: ModeFull, StartPage: 1})
 
@@ -88,7 +88,7 @@ func TestDefaultPager_FullMode_PartialFail(t *testing.T) {
 		ParsePage:       func(html string) (any, error) { return []any{"x"}, nil },
 		ProcessItems:    func(items any) ([]any, bool) { return items.([]any), false },
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	p := NewDefaultPager()
 	result := p.Run(ctx, hooks, Options{Mode: ModeFull, StartPage: 1, MaxRetries: 3})
 
@@ -109,7 +109,7 @@ func TestDefaultPager_IncrementalMode_MaxEmpty(t *testing.T) {
 		ParsePage:       func(html string) (any, error) { pageIndex++; return []any{}, nil },
 		ProcessItems:    func(items any) ([]any, bool) { return nil, false },
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	p := NewDefaultPager()
 	result := p.Run(ctx, hooks, Options{Mode: ModeIncremental, StartPage: 1, MaxEmptyPages: 3})
 
@@ -123,7 +123,7 @@ func TestDefaultPager_IncrementalMode_MaxEmpty(t *testing.T) {
 }
 
 func TestDefaultPager_ContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // immediately cancelled
 
 	hooks := PageHooks{

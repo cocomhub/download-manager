@@ -4,7 +4,6 @@
 package extractor_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -20,14 +19,14 @@ func TestCompositeExtractorName(t *testing.T) {
 
 func TestCompositeExtractorMatchAlwaysFalse(t *testing.T) {
 	ex := extractor.NewCompositeExtractor()
-	if ex.Match(context.Background(), "http://example.com/file") {
+	if ex.Match(t.Context(), "http://example.com/file") {
 		t.Error("CompositeExtractor.Match should always return false")
 	}
 }
 
 func TestCompositeExtractorNoFiles(t *testing.T) {
 	ex := extractor.NewCompositeExtractor()
-	err := ex.Extract(context.Background(), &download.Request{
+	err := ex.Extract(t.Context(), &download.Request{
 		URL:      "http://example.com/page",
 		SavePath: "/tmp/output",
 		Metadata: map[string]string{},
@@ -39,7 +38,7 @@ func TestCompositeExtractorNoFiles(t *testing.T) {
 
 func TestCompositeExtractorEmptyFiles(t *testing.T) {
 	ex := extractor.NewCompositeExtractor()
-	err := ex.Extract(context.Background(), &download.Request{
+	err := ex.Extract(t.Context(), &download.Request{
 		URL:      "http://example.com/page",
 		SavePath: "/tmp/output",
 		Metadata: map[string]string{"files": "[]"},

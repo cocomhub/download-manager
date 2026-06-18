@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestAPI_ConfigHistory_Empty verifies GET /api/config/history returns a JSON array.
@@ -16,9 +18,12 @@ func TestAPI_ConfigHistory_Empty(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config endpoint ready")
 
-	rr := doJSONGet(r, "/api/config/history")
+	rr := doJSONGet(t, r, "/api/config/history")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /api/config/history returned %d, want 200", rr.Code)
 	}
@@ -38,9 +43,12 @@ func TestAPI_ConfigDiff_MissingParams(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/diff")
+		return rr.Code == http.StatusOK || rr.Code == http.StatusBadRequest
+	}, 3*time.Second, 50*time.Millisecond, "wait for config diff endpoint ready")
 
-	rr := doJSONGet(r, "/api/config/diff")
+	rr := doJSONGet(t, r, "/api/config/diff")
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest {
 		t.Fatalf("GET /api/config/diff returned %d, want 200 or 400", rr.Code)
 	}
@@ -61,9 +69,12 @@ func TestAPI_ConfigBackup_DeleteInvalid(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config after mock with writes")
 
-	rr := doJSONPost(r, "/api/config/delete", map[string]string{})
+	rr := doJSONPost(t, r, "/api/config/delete", map[string]string{})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty delete, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -86,9 +97,12 @@ func TestAPI_ConfigRollback_Invalid(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config after rollback mock")
 
-	rr := doJSONPost(r, "/api/config/rollback", map[string]string{})
+	rr := doJSONPost(t, r, "/api/config/rollback", map[string]string{})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty rollback, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -111,7 +125,10 @@ func TestAPI_ConfigApply_ValidYAML(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config before apply YAML")
 
 	body := map[string]string{
 		"yaml": `server:
@@ -119,7 +136,7 @@ func TestAPI_ConfigApply_ValidYAML(t *testing.T) {
   download_root_dir: /tmp/test
 `,
 	}
-	rr := doJSONPost(r, "/api/config/apply", body)
+	rr := doJSONPost(t, r, "/api/config/apply", body)
 	// This may succeed (200) or fail with a processing error — the important thing
 	// is that the handler processes the request and returns valid JSON.
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
@@ -136,16 +153,19 @@ func TestAPI_ConfigTagAndNote(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config before tag/note")
 
 	// Tag endpoint with empty body should return 400.
-	rr := doJSONPost(r, "/api/config/tag", map[string]string{})
+	rr := doJSONPost(t, r, "/api/config/tag", map[string]string{})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty tag, got %d: %s", rr.Code, rr.Body.String())
 	}
 
 	// Note endpoint with empty body should return 400.
-	rr = doJSONPost(r, "/api/config/note", map[string]string{})
+	rr = doJSONPost(t, r, "/api/config/note", map[string]string{})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty note, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -160,14 +180,17 @@ func TestAPI_ConfigServerUpdate(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config before server update")
 
 	body := map[string]any{
 		"downloader": map[string]any{
 			"global_concurrent": 10,
 		},
 	}
-	rr := doJSONPost(r, "/api/config/server", body)
+	rr := doJSONPost(t, r, "/api/config/server", body)
 	// Should be handled without panic — returns 200, 400, or 500.
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
 		t.Fatalf("config server update returned unexpected %d: %s", rr.Code, rr.Body.String())
@@ -183,12 +206,15 @@ func TestAPI_ConfigLogUpdate(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(200 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/history")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config before log update")
 
 	body := map[string]any{
 		"level": "debug",
 	}
-	rr := doJSONPost(r, "/api/config/log", body)
+	rr := doJSONPost(t, r, "/api/config/log", body)
 	// Should be handled without panic.
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
 		t.Fatalf("config log update returned unexpected %d: %s", rr.Code, rr.Body.String())

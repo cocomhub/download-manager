@@ -4,7 +4,6 @@
 package download
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +13,7 @@ import (
 
 func TestStaticProxySelectorNoProxies(t *testing.T) {
 	s := NewStaticProxySelector(nil)
-	proxy, err := s.Select(context.Background(), "http://example.com/file.zip", nil)
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -25,7 +24,7 @@ func TestStaticProxySelectorNoProxies(t *testing.T) {
 
 func TestStaticProxySelectorEmptyProxies(t *testing.T) {
 	s := NewStaticProxySelector([]string{})
-	proxy, err := s.Select(context.Background(), "http://example.com/file.zip", nil)
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestStaticProxySelectorEmptyProxies(t *testing.T) {
 func TestStaticProxySelectorWithForceProxy(t *testing.T) {
 	s := NewStaticProxySelector([]string{"http://127.0.0.1:1"})
 	s.forceProxy = true
-	proxy, err := s.Select(context.Background(), "http://example.com/file.zip", nil)
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err == nil {
 		t.Error("expected error when forceProxy and no proxy available")
 	}
@@ -52,7 +51,7 @@ func TestStaticProxySelectorCacheDir(t *testing.T) {
 	s := NewStaticProxySelector([]string{"http://127.0.0.1:1"})
 	s.forceProxy = true
 	s.cacheDir = cacheDir
-	_, err := s.Select(context.Background(), "http://example.com/file.zip", nil)
+	_, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err == nil {
 		t.Error("expected error when forceProxy and no proxy available")
 	}

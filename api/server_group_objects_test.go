@@ -12,6 +12,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 func TestGetGroupObjects_RequiresTaskScope(t *testing.T) {
@@ -39,7 +40,10 @@ func TestGetGroupObjects_SuccessPath(t *testing.T) {
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
-	time.Sleep(500 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-group-succ")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for group task to seed objects")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/groups/test-group-1/objects?task_id=mock-group-succ&task_type=mock", nil)
 	rr := httptest.NewRecorder()

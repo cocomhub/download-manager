@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // --- Health Status Tests ---
@@ -68,7 +70,12 @@ func TestGetHealthStatus_SchedulerHeartbeatRecent(t *testing.T) {
 	}
 	m.schedulerEnabled.Store(true)
 	m.schedulerHeartbeat.Store(time.Now())
-	time.Sleep(time.Millisecond) // ensure heartbeat is fresh
+
+	// Poll health status until scheduler shows "ok" with a fresh heartbeat.
+	assert.MustEventually(t, func() bool {
+		hs := m.GetHealthStatus()
+		return hs.Components["scheduler"].Status == "ok"
+	}, 3*time.Second, time.Millisecond, "scheduler heartbeat should be fresh")
 
 	hs := m.GetHealthStatus()
 	if hs.Components["scheduler"].Status != "ok" {

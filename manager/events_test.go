@@ -12,6 +12,8 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
+
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestEventBus_SubscribeAndReceive verifies basic pub/sub works.
@@ -310,9 +312,9 @@ func TestConcurrentPublish(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for done.Load() < int64(concurrent) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	assert.MustEventually(t, func() bool {
+		return done.Load() >= int64(concurrent)
+	}, 3*time.Second, 10*time.Millisecond, "wait for all concurrent publishes")
 
 	// Each subscriber should have exactly 'concurrent' events
 	for _, ch := range chs {

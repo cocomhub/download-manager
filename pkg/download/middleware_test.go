@@ -40,7 +40,7 @@ func TestMetricsMiddlewareRecords(t *testing.T) {
 		download.WithMetricRegistry(reg),
 	)
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -78,7 +78,7 @@ func TestMetricsMiddlewareRecordsFailure(t *testing.T) {
 		download.WithMetricRegistry(reg),
 	)
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -118,7 +118,7 @@ func TestCustomMiddleware(t *testing.T) {
 		download.WithMiddleware(customMW),
 	)
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -160,7 +160,7 @@ func TestMiddlewareChainOrder(t *testing.T) {
 		download.WithMiddleware(mw2),
 	)
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -200,7 +200,7 @@ func TestMetricsMiddlewareWithCustomMiddleware(t *testing.T) {
 		download.WithMiddleware(customMW),
 	)
 
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
@@ -245,7 +245,7 @@ func TestRuleSetExtractorHint(t *testing.T) {
 	// The URL matches *.m3u8 rule, which sets Extractor hint to "hls"
 	// Since "hls" extractor is not registered, DefaultSelector falls through
 	// to the registered extractors list and finds recordingExtractor
-	err := d.Download(context.Background(), &download.Request{
+	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/stream.m3u8",
 		SavePath: "/tmp/output.mp4",
 	})

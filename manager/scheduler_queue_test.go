@@ -9,6 +9,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
@@ -57,11 +58,8 @@ func TestScheduler_GlobalQueueFull(t *testing.T) {
 	task := waitForTask(t, mgr, "queue-full")
 
 	// Wait for progress: many objects should get enqueued.
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
+	assert.MustEventually(t, func() bool {
 		mgr.scan()
-		time.Sleep(200 * time.Millisecond)
-
 		all := getAllObjectsFromTask(t, task)
 		var downloading, completed, pending int
 		for _, obj := range all {
@@ -74,14 +72,9 @@ func TestScheduler_GlobalQueueFull(t *testing.T) {
 				pending++
 			}
 		}
-		t.Logf("downloading=%d completed=%d pending=%d", downloading, completed, pending)
-
-		// Check that no objects are lost: total processed + pending should equal total objects.
-		if pending+downloading+completed == 100 {
-			t.Log("all 100 objects accounted for")
-			break
-		}
-	}
+		t.Logf("scan: downloading=%d completed=%d pending=%d", downloading, completed, pending)
+		return pending+downloading+completed == 100
+	}, 8*time.Second, 200*time.Millisecond, "all 100 objects should be accounted for after scanning")
 
 	// Final verification: no objects should be lost.
 	all := getAllObjectsFromTask(t, task)

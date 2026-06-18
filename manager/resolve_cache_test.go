@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 func TestResolveCache_MarkResolved(t *testing.T) {
@@ -36,10 +38,9 @@ func TestResolveCache_IsExpired_AfterTTL(t *testing.T) {
 	// 使用极短 TTL 测试过期
 	c := NewResolveCache(50*time.Millisecond, 100)
 	c.MarkResolved("url1")
-	time.Sleep(100 * time.Millisecond)
-	if !c.IsExpired("url1") {
-		t.Error("expected entry to be expired after TTL")
-	}
+	assert.MustEventually(t, func() bool {
+		return c.IsExpired("url1")
+	}, 3*time.Second, 20*time.Millisecond, "wait for TTL expiry")
 }
 
 func TestResolveCache_Invalidate(t *testing.T) {
@@ -55,7 +56,9 @@ func TestResolveCache_EvictOnOverflow(t *testing.T) {
 	// 设置 maxSize=2，TTL 短，放 3 条后最早的应被清理
 	c := NewResolveCache(50*time.Millisecond, 2)
 	c.MarkResolved("url1")
-	time.Sleep(60 * time.Millisecond)
+	assert.MustEventually(t, func() bool {
+		return c.IsExpired("url1")
+	}, 3*time.Second, 20*time.Millisecond, "wait for url1 to expire")
 	// url1 已过期，但还未触发清理
 	c.MarkResolved("url2") // 触发 evict，清理 url1
 	c.MarkResolved("url3")
