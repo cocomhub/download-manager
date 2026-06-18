@@ -243,6 +243,13 @@ Progress(int), Metadata(map[string]string), Extra(map[string]any)
 ### Config 深拷贝
 始终使用 `cfg.Clone()` 而非手写 `make+copy`。`Clone()` 已处理所有 map/slice 字段（Tasks、Contexts、Proxies、DomainLimits、FFmpeg.ExtraArgs、Mongo）。不要用 `make+copy` 覆盖 `Clone()` 的结果——这会丢失深拷贝。
 
+### golangci-lint 比 go vet 严格 — CI 前建议本地运行 `make lint`
+CI 使用 golangci-lint v2（staticcheck + unused），比 `go vet` 检测更多问题：
+- `staticcheck SA1019` 检测 deprecated 导入 — `go vet` 不报
+- `unused` linter 检测未使用的顶层函数 — `go vet` 不报
+- 必须已废弃包的 import 行加 `//nolint:staticcheck`：`dlcore "pkg/path" //nolint:staticcheck`
+- 未使用的辅助函数要用 `var _ = fn` 抑制或直接删除
+
 ### dlcore → pkg/download 行为差异
 废弃的 `pkg/dlcore` 和新路径 `pkg/download` 存在以下已知差异，测试中需注意：
 

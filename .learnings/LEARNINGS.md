@@ -1361,3 +1361,108 @@ Comparator 构造时两种路径使用不同的 Type：
 - Tags: config, factory
 
 ---
+
+## [LRN-20260619-009] correction
+
+**Logged**: 2026-06-19T23:30:00Z
+**Priority**: high
+**Status**: pending
+**Area**: tests
+
+### Summary
+golangci-lint v2 使用 staticcheck 检测 deprecated 导入，比 `go vet` 更严格 — 必须加 `//nolint:staticcheck` 而非仅依赖 `go vet` 通过
+
+### Details
+CI 中的 golangci-lint (v2.12.2) 跑 staticcheck 检查，对 `import dlcore "pkg/dlcore"` 报 `SA1019: deprecated`。
+`go vet` 本地不报此警告（vet 不检查 deprecated 导入）。
+修复时尝试了多种 `//nolint` 注释格式：
+- `//nolint:staticcheck // comment`（同一行）✅
+- 在导入块上方单独写 `//nolint:staticcheck` ❌（golangci-lint 不认）
+
+正确格式：`dlcore "github.com/.../pkg/dlcore" //nolint:staticcheck`
+
+### Suggested Action
+测试文件中引入已废弃包时必须加 nolint 注解。如果多个文件都需要，考虑在包级加 `//nolint:staticcheck`。
+
+### Metadata
+- Source: error
+- Related Files: downloader/beacon_test.go
+- Tags: lint, golangci-lint, nolint, deprecated
+
+---
+
+## [LRN-20260619-010] insight
+
+**Logged**: 2026-06-19T23:30:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+`TestAPI_UndoCancelObject` 和 `TestAPI_UndoCancelObjectsBatch` 是已知 flaky 测试，CI 中偶发失败与本次提交无关
+
+### Details
+两测试均因 CancelObject 与 resolve worker 的时序竞争而失败：
+- `TestAPI_UndoCancelObject`: "object status is not cancelled"
+- `TestAPI_UndoCancelObjectsBatch`: MustEventually 超时
+
+本地 `-race` 连续 5 次运行均通过。说明 CI 环境压力更大，竞争窗口更长。
+CLAUDE.md 已有记录（`CancelObject 与 resolve worker 时序竞争`），但目前的轮询策略（3s 超时、50ms 间隔）在 CI 上仍不够。
+
+### Suggested Action
+PR 评审时可跳过这两个测试的重运行。长期需要增加轮询超时或优化 resolve worker 的写锁策略。
+
+### Metadata
+- Source: error
+- Related Files: api/server_retry_test.go
+- Tags: flaky, cancel, race_condition
+
+---
+
+## [LRN-20260619-011] insight
+
+**Logged**: 2026-06-19T23:30:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+golangci-lint 的 unused linter 检测到测试文件中未使用的辅助函数（`httpCodeName`），这在 `go vet` 中不会报错
+
+### Details
+`go vet` 不检查未使用的函数（top-level function），但 golangci-lint 的 `unused` linter 会。这导致 CI lint 通过但本地 vet 通过的情况。
+修复方式：删除未使用的函数。如果函数是为未来扩展编写，用注释解释并保留（隐式 `var _ = fn` 可满足 unused linter）。
+
+### Suggested Action
+测试文件提交前运行 `golangci-lint run`（不仅仅是 `go vet`）以确保 CI 通过。Windows 上可安装 golangci-lint 或在 CI 失败后再修复。
+
+### Metadata
+- Source: error
+- Related Files: downloader/adapter_functional_test.go
+- Tags: lint, unused, golangci-lint
+
+---
+
+## [LRN-20260619-012] best_practice
+
+**Logged**: 2026-06-19T23:30:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+在 `go test` 命令中使用 `-run 'TestName$'`（$ 结尾锚点）可精确匹配指定测试函数名，排除其子测试或名称相似的测试
+
+### Details
+CI 测试计划中有两个相似的测试函数 `TestAPI_UndoCancelObject` 和 `TestAPI_UndoCancelObjectsBatch`。
+调试单个测试时使用 `-run 'TestAPI_UndoCancelObject$'` 避免加载 `Batch` 版本。
+本地复现 flaky 测试时连续运行 5 次确认是预先存在的竞争，非本次提交引入。
+
+### Suggested Action
+调试 flaky 测试时使用 `for i in 1..N; do go test -race -count=1 -run 'TestName$' ./pkg/ 2>&1 | tail -1; done` 模式。
+
+### Metadata
+- Source: best_practice
+- Tags: testing, debugging, flaky
+
+---
