@@ -75,16 +75,18 @@ func TestAPI_RetryAllFailed(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-retry-all task objects to be ready")
 
 	// Cancel an object first to have something retriable.
+	// Must retry since resolve worker may reset object state or cancel finds
+	// the object in a non-cancellable state.
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
-	rr := doJSONPost(t, r, "/api/tasks/mock-retry-all/object/cancel", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("cancel object returned %d, want 200", rr.Code)
-	}
+	assert.MustEventually(t, func() bool {
+		rr := doJSONPost(t, r, "/api/tasks/mock-retry-all/object/cancel", body)
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel to succeed on retry-all")
 
 	// Retry all (no body / empty body).
-	rr = doJSONPost(t, r, "/api/tasks/mock-retry-all/retry", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("retry all returned %d, want 200: %s", rr.Code, rr.Body.String())
+	result := doJSONPost(t, r, "/api/tasks/mock-retry-all/retry", nil)
+	if result.Code != http.StatusOK {
+		t.Fatalf("retry all returned %d, want 200: %s", result.Code, result.Body.String())
 	}
 
 	_ = done
@@ -131,10 +133,10 @@ func TestAPI_UndoCancelObject(t *testing.T) {
 
 	// Cancel first.
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
-	rr := doJSONPost(t, r, "/api/tasks/mock-undo/object/cancel", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("cancel object returned %d, want 200", rr.Code)
-	}
+	assert.MustEventually(t, func() bool {
+		rr := doJSONPost(t, r, "/api/tasks/mock-undo/object/cancel", body)
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for initial cancel to succeed on mock-undo")
 
 	// Wait for the cancel to take effect (object status becomes cancelled).
 	// The cancel may race with a download in flight that overwrites status back
@@ -175,9 +177,9 @@ func TestAPI_UndoCancelObject(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
 
 	// Undo the cancel.
-	rr = doJSONPost(t, r, "/api/tasks/mock-undo/object/undo_cancel", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("undo cancel returned %d, want 200: %s", rr.Code, rr.Body.String())
+	undoResult := doJSONPost(t, r, "/api/tasks/mock-undo/object/undo_cancel", body)
+	if undoResult.Code != http.StatusOK {
+		t.Fatalf("undo cancel returned %d, want 200: %s", undoResult.Code, undoResult.Body.String())
 	}
 
 	_ = done

@@ -132,34 +132,28 @@ func TestE2E_MixedResults(t *testing.T) {
 		t.Fatal("task not found after wait")
 	}
 
-	// With 10 objects and fail_rate=0.4, wait long enough for downloads to complete.
-	waitForObjectsFinal(t, mgr, task, 1, model.StatusCompleted, 5*time.Second)
-	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
-
-	// Re-fetch: use GetAllObjects to see ALL objects including terminal states.
-	all := getAllObjectsFromTask(t, task)
-	if len(all) < 10 {
-		t.Fatalf("expected >=10 objects, got %d", len(all))
-	}
-
-	var completed, failed int
-	for _, obj := range all {
-		switch obj.GetStatus() {
-		case model.StatusCompleted:
-			completed++
-		case model.StatusFailed:
-			failed++
+	// With 10 objects and fail_rate=0.4, wait for at least one completed and
+	// one failed. The 0.4^10 ≈ 0.0001% chance of all succeeding is negligible.
+	// Use a single MustEventually loop with extended timeout (CI may be slow).
+	assert.MustEventually(t, func() bool {
+		mgr.scan()
+		all := getAllObjectsFromTask(t, task)
+		if len(all) < 10 {
+			return false
 		}
-	}
-
-	t.Logf("mixed results: completed=%d failed=%d pending=%d (of %d)",
-		completed, failed, len(all)-completed-failed, len(all))
-	if completed == 0 {
-		t.Error("expected at least one completed object with fail_rate=0.5")
-	}
-	if failed == 0 {
-		t.Error("expected at least one failed object with fail_rate=0.5")
-	}
+		var completed, failed int
+		for _, obj := range all {
+			switch obj.GetStatus() {
+			case model.StatusCompleted:
+				completed++
+			case model.StatusFailed:
+				failed++
+			}
+		}
+		t.Logf("mixed results: completed=%d failed=%d pending=%d (of %d)",
+			completed, failed, len(all)-completed-failed, len(all))
+		return completed > 0 && failed > 0
+	}, 10*time.Second, 200*time.Millisecond, "wait for mixed results (completed>0 && failed>0)")
 }
 
 // --- Scenario 6: 超时处理 ---

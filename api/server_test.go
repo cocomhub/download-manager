@@ -144,10 +144,10 @@ func TestAPI_CancelObject(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for cancel api task ready")
 
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
-	rr := doJSONPost(t, r, "/api/tasks/mock-cancel-api/object/cancel", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("cancel object returned %d, want 200: %s", rr.Code, rr.Body.String())
-	}
+	assert.MustEventually(t, func() bool {
+		rr := doJSONPost(t, r, "/api/tasks/mock-cancel-api/object/cancel", body)
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel to succeed on mock-cancel-api")
 
 	_ = done
 }
