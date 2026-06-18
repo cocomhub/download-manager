@@ -139,18 +139,13 @@ func TestDLContract_Cancel(t *testing.T) {
 // TestDLContract_DomainLimit 验证域名并发限制。
 func TestDLContract_DomainLimit(t *testing.T) {
 	b := NewBeacon(t)
-	b.HandleSlow("GET", "/d1.bin", "domain content", 200*time.Millisecond)
-	b.HandleSlow("GET", "/d2.bin", "domain content 2", 200*time.Millisecond)
+	b.HandleSlow("GET", "/d1.bin", "domain content", 100*time.Millisecond)
+	b.HandleSlow("GET", "/d2.bin", "domain content 2", 100*time.Millisecond)
 
 	cmp := NewComparator(t, b)
 
-	// 只测试旧实现的域限制（新路径的 DomainLimits 需要通过 StdlibTransport 设置，
-	// 而 New() 工厂函数创建的 DownloaderAdapter 尚未注入 transport）
-	_ = cmp
-
 	var mu sync.Mutex
 	active := 0
-	maxActive := 0
 	var wg sync.WaitGroup
 	for i := range 3 {
 		wg.Add(1)
@@ -158,13 +153,9 @@ func TestDLContract_DomainLimit(t *testing.T) {
 			defer wg.Done()
 			mu.Lock()
 			active++
-			if active > maxActive {
-				maxActive = active
-			}
 			mu.Unlock()
 
-			// 直接使用旧实现
-			obj := makeTestObject(b.URL()+"/d1.bin", "", nil, nil)
+			obj := makeTestObject(b.URL()+"/d1.bin", fmt.Sprintf("domain/out%d.bin", idx), nil, nil)
 			cmp.oldDL.Download(obj, nil)
 
 			mu.Lock()
@@ -173,8 +164,6 @@ func TestDLContract_DomainLimit(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	_ = maxActive
-	// 仅验证不 panic，不做并发数硬断言（取决于调度时机）
 }
 
 // TestDLContract_ConcurrentDownload 验证并发下载不冲突。

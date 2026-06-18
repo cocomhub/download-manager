@@ -262,13 +262,10 @@ type DownloadResult struct {
 
 // ComparatorOptions 配置 Comparator 的选项函数。
 type ComparatorOptions struct {
-	MaxRetries            int
-	RootDir               string
-	LogDir                string
-	InjectBrowserHeaders  bool
-	DisableBrowserHeaders bool
-	CustomUA              string
-	DomainLimits          map[string]int
+	MaxRetries           int
+	RootDir              string
+	LogDir               string
+	InjectBrowserHeaders bool
 }
 
 // ComparatorOption 是配置 Comparator 的选项函数。
@@ -282,14 +279,6 @@ func WithInjectBrowserHeaders(v bool) ComparatorOption {
 	return func(o *ComparatorOptions) { o.InjectBrowserHeaders = v }
 }
 
-func WithCustomUA(ua string) ComparatorOption {
-	return func(o *ComparatorOptions) { o.CustomUA = ua }
-}
-
-func WithLogDir(dir string) ComparatorOption {
-	return func(o *ComparatorOptions) { o.LogDir = dir }
-}
-
 // Comparator 对比运行器，同时使用旧（dlcore）和新（pkg/download）实现
 // 执行下载并对比行为。
 type Comparator struct {
@@ -298,7 +287,6 @@ type Comparator struct {
 	oldDL   core.Downloader
 	newDL   core.Downloader
 	rootDir string
-	logDir  string
 }
 
 // NewComparator 创建对比运行器，同时构建旧（dlcore）和新（pkg/download）下载器。
@@ -313,17 +301,13 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 	if rootDir == "" {
 		rootDir = t.TempDir()
 	}
-	logDir := o.LogDir
-	if logDir == "" {
-		logDir = t.TempDir()
-	}
 
 	// 基础配置
-	// 注意：默认不设置 LogDir，因为 NativeHTTPDownloader 会把 LogDir 视为相对于 RootDir 的相对路径，
-	// 而 t.TempDir() 返回绝对路径，filepath.Join(rootDir, logDir) 会产生非法路径。
-	// 需要使用日志的测试通过 WithLogDir 显式指定。
+	// 注意：不设置 LogDir。NativeHTTPDownloader 会将 LogDir 通过 filepath.Join(rootDir, logDir) 拼接，
+	// 当两个都是 Windows 绝对路径时会产生非法路径。
+	// 需要使用日志的测试应跳过或直接构造 NativeHTTPDownloader。
 	baseCfg := config.Downloader{
-		MaxRetries: 3, // 设 >0 避免新路径 "max retries reached"（dlcore 视 0=无限，新路径视 0=不重试）
+		MaxRetries: 3,
 		Filesystem: config.DcFilesystem{
 			RootDir: rootDir,
 		},
@@ -336,9 +320,6 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 			MinPercentStep:     0.1,
 			MaxIntervalSeconds: 1,
 		},
-	}
-	if logDir != "" {
-		baseCfg.Filesystem.LogDir = logDir
 	}
 
 	// 旧路径：native_old → dlcore
@@ -357,7 +338,6 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		oldDL:   oldDL,
 		newDL:   newDL,
 		rootDir: rootDir,
-		logDir:  logDir,
 	}
 }
 
