@@ -89,6 +89,45 @@ health check 在 5s 超时内未收到心跳 → workers 组件 503。
 `fail_rate=0.5` 时 10 个 objects 全部成功的概率为 `0.5^10 ≈ 0.1%`，在 CI 多平台运行时偶发。
 **修复**：`fail_rate=0.4`，将极端概率降低 10 倍（`0.4^10 ≈ 0.001%`）。
 
+### MemoryStorage.Search 不保证有序（2026-06-19）
+`MemoryStorage` 底层使用 `sync.Map`（或普通 map），遍历时**不保证返回顺序**。
+测试中不应按索引比对 `results[i].URL == wantURLs[i]`，应使用无序集合比较：
+```go
+got := make(map[string]bool, len(results))
+for _, r := range results { got[r.URL] = true }
+for _, want := range tt.wantURLs {
+    if !got[want] { t.Errorf("missing URL %q", want) }
+}
+```
+
+### GetHealthStatus workerCount 读取需加锁（2026-06-19）
+`manager/health.go:GetHealthStatus()` 读取 `m.workerCount` 时必须持 `m.mu` 锁。
+`Start()` 和 `adjustGlobalWorkers()` 写入该字段时都持锁，读方也必须对称加锁，否则 data race detector 会报警。
+```go
+m.mu.Lock()
+count := m.workerCount
+m.mu.Unlock()
+```
+
+### 共享 int 字段优先使用 atomic.Int64（2026-06-19）
+被多个 goroutine、跨多个文件读写的 `int` 字段，加锁保护容易遗漏。
+
+**决策树**：
+- 仅同一文件内 2-3 处访问 → `sync.Mutex` 足够
+- 跨 3+ 文件 / 5+ 访问点 → `atomic.Int64`（声明即安全，无遗漏风险）
+- 读路径是热点（health check、metrics）→ `atomic.Int64`（无锁竞争）
+
+**模式**：
+```go
+// 声明
+workerCount atomic.Int64
+// 写
+m.workerCount.Store(int64(newLimit))
+// 读（可封装给外部用）
+func (m *Manager) getWorkerCount() int { return int(m.workerCount.Load()) }
+// int64 ↔ int 转换注意类型
+if newLimit > int(m.workerCount.Load()) { ... }
+
 ## 架构概览
 
 单二进制，`main.go` → `manager.Manager` 编排全局流程。启动顺序：flag/env 解析 → YAML 配置加载 → 日志初始化 → flock 单实例锁 → goroutine 启动 Manager + HTTP server。

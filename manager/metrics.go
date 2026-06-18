@@ -60,7 +60,7 @@ func (m *Manager) CollectMetrics() map[string]any {
 
 	global := map[string]any{
 		"active_downloads": activeDownloads,
-		"worker_count":     m.workerCount,
+		"worker_count":     m.workerCount.Load(),
 		"scheduler":        schedulerStatus,
 		"total_downloads":  m.totalDownloads.Load(),
 		"subscriber_count": subCount,

@@ -947,3 +947,212 @@ task, _ := mgr.getTask("task-id")  // 获取 task 实例
 - Tags: testing, table_driven
 
 ---
+
+## [LRN-20260619-001] correction — MemoryStorage.Search 结果不保证有序
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: medium
+**Status**: promoted
+**Area**: tests
+
+### Summary
+`MemoryStorage.Search` 依赖 map 迭代，返回顺序不固定。测试中按索引比对 `results[i].URL == wantURLs[i]` 会偶发失败。
+
+### Details
+`factory_coverage_test.go` 的 Search 测试假设返回顺序与插入顺序一致，但 `MemoryStorage.Search` 遍历 `sync.Map`（底层是无序 hash map），导致：
+```
+result[0].URL = "http://c.com", want "http://a.com"
+```
+**修复**：改用无序集合比较：将结果 URL 放入 `map[string]bool`，逐一检查期望 URL 是否存在。
+
+### Promoted
+- CLAUDE.md（新增：`MemoryStorage.Search` 不保证有序）
+
+### Metadata
+- Source: error
+- Related Files: storage/factory_coverage_test.go, storage/factory.go
+- Tags: testing, storage, map_iteration_order
+
+---
+
+## [LRN-20260619-002] correction — workerCount 应使用 atomic.Int64 而非 int + m.mu 保护
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+`m.workerCount` 被多个 goroutine 读写（`GetHealthStatus`、`CollectMetrics`、`adjustGlobalWorkers`、`Start`、`UpdateConfig`），最初跨越 3 个文件（health.go、metrics.go、runtime_mgr.go+manager.go+scheduler.go）。先用 `m.mu` 加锁解决 data race 后，用户进一步指出应改用 `atomic.Int64`。
+
+### Details
+**第一轮修复**（加锁）：3 处读取加了 `m.mu.Lock()/Unlock()`，仍遗漏了 `metrics.go` 的一处。
+
+**第二轮修复**（atomic 化）：将 `workerCount` 从 `int` 改为 `atomic.Int64`（`manager.go:51`），所有 10 处读写全部改为原子操作：
+- 写（4 处）：`Store(int64(limit))`
+- 读（6 处）：`Load()`（3 处直接 + 3 处通过 `getWorkerCount()` 封装）
+
+**关键教训**：加锁是**临时止血**，原子类型是**根治**。`int` 字段跨 5 个文件、3 个 goroutine 路径共享时，锁保护遗漏几乎是必然的。`atomic.Int64` 声明即安全，每个读/写点都是显式的 `Load()/Store()`。
+
+### Resolution
+- **Resolved**: 2026-06-19T08:00:00Z
+- **Fix**: `int` → `atomic.Int64`，所有 10 处读写点统一改为原子操作
+
+### Promoted
+- CLAUDE.md（新增：shared int 字段优先考虑 atomic 类型）
+
+### Metadata
+- Source: correction
+- Related Files: manager/manager.go, manager/runtime_mgr.go, manager/scheduler.go, manager/health.go, manager/metrics.go, manager/worker_stop_test.go
+- Tags: data_race, atomic, concurrency, int_to_atomic
+- See Also: LRN-20260619-007
+
+---
+
+## [LRN-20260619-003] correction — mockdl 测试中 AlwaysSuccess URLRouting 重复模式可归并
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+`testutil/mockdl/downloader_test.go` 的 `TestMockDownloader_AlwaysSuccess` 和 `TestMockDownloader_AlwaysSuccess_FiresCallbacks` 本质是同一代码路径的不同验证维度，以及 `TestMockDownloader_FailURLs` 和 `TestMockDownloader_TimeoutURLs` 是同一路由机制的不同输入。
+
+### Details
+合并为两组表驱动测试后，减少了 50% 的文件行数且保持了同样的覆盖率。
+
+### Metadata
+- Related Files: testutil/mockdl/downloader_test.go
+- Tags: testing, table_driven, mockdl
+
+---
+
+## [LRN-20260619-004] best_practice — 多 agent 并行修改时的防冲突策略
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: config
+
+### Summary
+使用并行 agent 处理独立文件修改时，必须确保每个 agent 操作完全不相交的文件集。
+
+### Details
+本轮派发了 3 个并行 agent，分别操作：
+- Agent 1：`testutil/mockdl/` + 4 个 manager/pkg 文件（time.Sleep）
+- Agent 2：新建 `model/`/`storage/`/`configutil/`/`manager/` 的 `*_coverage_test.go`
+- Agent 3：`pkg/download/http_extractor_test.go`
+得益于文件无交集，3 个 agent 同时执行零冲突。**注意**：`manager/` 目录有 2 个 agent 同时修改（Agent 1 改 `manager/hot_reload_test.go` 等 3 文件，Agent 2 新建 `manager/config_mgr_coverage_test.go`）——属于不同文件，无冲突。
+
+### Metadata
+- Source: insight
+- Related Files: 多个 *_test.go
+- Tags: parallel_agents, orchestration, testing
+
+---
+
+## [LRN-20260619-005] best_practice — 第二轮覆盖率提升的关键模式
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+第二轮覆盖率提升覆盖了 config_mgr 的 8 个方法 + config_service 的 5 个工具函数 + model 的 MarshalJSON 边界情况。
+
+### Key Patterns
+1. **MarshalJSON nil receiver**：`(*DownloadObject)(nil).MarshalJSON()` 应返回 `[]byte("null")` 而不是 panic
+2. **MemoryStorage 并发路径**：多个 goroutine 同时调用 `Get/Update/Delete` 验证 `sync.RWMutex` 保护
+3. **ConfigService 方法**：需要 mock FileSystem 来测试文件读写路径
+4. **config_mgr 方法**：需要 Manager 完整启动 + mock task 才能调用
+
+### Metadata
+- Source: refactoring
+- Tags: testing, coverage
+
+---
+
+## [LRN-20260619-006] best_practice — progresslog flush 测试的纯时间等待模式
+
+**Logged**: 2026-06-19T07:00:00Z
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+`pkg/download/progresslog_test.go` 的 flush 测试本质上是等待时间流逝（`maxInterval > 0` 时触发 flush），不能使用 channel 通知或轮询条件来缩短等待——必须真等 60ms。
+
+### Details
+这种测试无法用 `MustEventually` 代替，因为触发条件是定时器到期。唯一可以优化的是将 `select { case <-time.After(...): }` 显式化，而非 `time.Sleep(...)`，使意图更清晰。
+
+### Metadata
+- Related Files: pkg/download/progresslog_test.go
+- Tags: testing, timing, progresslog
+
+---
+
+## [LRN-20260619-007] correction — 代码审查遗漏 metrics.go 的同系列 data race
+
+**Logged**: 2026-06-19T08:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+修复 `health.go` 的 `workerCount` data race 后，同系列问题在 `metrics.go:63` 处漏修。代码审查发现时才补上。
+
+### Details
+`GetHealthStatus()` 的 `workerCount` data race 修复后，紧跟着检查 `manager/metrics.go` 发现同样存在 `m.workerCount` 无锁读取。`CollectMetrics()` 被 API 调用触发，`adjustGlobalWorkers()` 被配置热加载触发，两者并发时触发 data race。
+
+**根因**：修复时只扫描了 `health.go` 的调用栈，没有 grep 全项目查 `workerCount` 的全部引用。修复后应 grep 全项目确认无其他遗漏。
+
+### Resolution
+- **Resolved**: 2026-06-19T08:00:00Z
+- **Fix**: 所有 6 处读取统一用 `m.getWorkerCount()` 封装方法
+
+### Metadata
+- Source: error
+- Related Files: manager/metrics.go, manager/health.go
+- Tags: data_race, regression_prevention, grep_all_refs
+- See Also: LRN-20260619-002
+
+---
+
+## [LRN-20260619-008] best_practice — 共享 int 字段的并发治理：先加锁止血，再 atomic 根治
+
+**Logged**: 2026-06-19T08:00:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: backend
+
+### Summary
+多 goroutine 共享的 `int` 字段，锁保护容易遗漏。`atomic.Int64` 从类型声明层面消除遗漏风险。
+
+### 决策树
+```
+共享 int 字段被多个 goroutine 读写？
+├── 仅同一文件内 2-3 处访问 → sync.Mutex 足够
+├── 跨 3+ 文件 / 5+ 访问点 → atomic.Int64（声明即安全）
+└── 读多写少 + 读路径是热点（health check、metrics 等高频调用）→ atomic.Int64（无锁竞争）
+```
+
+### 操作方法
+1. 声明：`workerCount atomic.Int64`
+2. 写：`m.workerCount.Store(int64(val))`
+3. 读：`m.workerCount.Load()`（返回 `int64`，需要 `int` 时 `int(m.workerCount.Load())`）
+4. 封装读方法供外部用：`func (m *Manager) getWorkerCount() int { return int(m.workerCount.Load()) }`
+
+### 注意事项
+- `atomic.Int64.Load()` 返回 `int64`，与 `int` 比较/运算时需要显式转换
+- `atomic.Int64` 是 struct 类型（含 `noCopy`），传值会编译错误，方法接收者必须是指针
+
+### Metadata
+- Source: refactoring
+- Related Files: manager/manager.go
+- Tags: concurrency, atomic, best_practice
+- See Also: LRN-20260619-002, LRN-20260619-007
+
+---
+
