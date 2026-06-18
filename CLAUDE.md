@@ -243,6 +243,35 @@ Progress(int), Metadata(map[string]string), Extra(map[string]any)
 ### Config 深拷贝
 始终使用 `cfg.Clone()` 而非手写 `make+copy`。`Clone()` 已处理所有 map/slice 字段（Tasks、Contexts、Proxies、DomainLimits、FFmpeg.ExtraArgs、Mongo）。不要用 `make+copy` 覆盖 `Clone()` 的结果——这会丢失深拷贝。
 
+### dlcore → pkg/download 行为差异
+废弃的 `pkg/dlcore` 和新路径 `pkg/download` 存在以下已知差异，测试中需注意：
+
+| 差异 | dlcore | pkg/download | 应对 |
+|---|---|---|---|
+| `maxRetries=0` | 无限重试 | 不重试 | Comparator 默认设 `MaxRetries=3`，永远不用 0 |
+| `Metadata["status"]` | 写入 `"completed"` | 不写入 | 不需要用 `CheckMetadata("status")` |
+| Content-Type text 检测 | text + .mp4 URL → ErrNoTry | 无此检测 | 测试中允许差异，不硬断言 |
+| 路径穿越保护 | ResolvePath 拒绝 ../ | 无此限制 | 测试中允许差异 |
+| 500 错误后重试 | 部分场景重试成功 | 行为不同 | 测试中不断言双方都成功 |
+
+### Comparator 构造要点
+- `NewComparator` 内部分别构造：旧 = Type `"native_old"`（dlcore），新 = Type `"native"`（pkg/download）
+- 默认不设 `LogDir` — NativeHTTPDownloader 用 `filepath.Join(rootDir, logDir)` 拼接路径时，Windows 双绝对路径会非法
+- 需要使用日志的测试通过 `WithLogDir(t.TempDir())` 显式传入
+- `maxRetries=0` 语义差异要求 Comparator 默认设 `MaxRetries=3`
+
+### MD5 测试：checksum 必须与内容匹配
+dlcore 下载后会做 `computeFileMD5` 校验，不匹配则截断重试（maxRetries=0 时无限）。
+```
+空内容 → base64: 1B2M2Y8AsgTpgAmY7PhCfg==
+"hello" → hex: 5d41402abc4b2a76b9719d911017c592
+```
+
+### Beacon 测试服务器注意事项
+- `HandleDynamic` 闭包捕获的 callCount 等变量在子测试间共享 → 每个子测试用独立 Beacon
+- `HandleSlow` delay 控制在 100-500ms
+- 所有 `http.Get` 返回值必须检查 error（go vet 要求）
+
 ### Manager.Start 无限循环中的同步
 `Start()` 末尾是 `for { select {} }`，defer 永远不会执行。`close(initializedCh)` 必须在 for 循环之前直接调用，不能使用 defer。
 
