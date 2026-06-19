@@ -284,15 +284,14 @@ dlcore 下载后会做 `computeFileMD5` 校验，不匹配则截断重试（maxR
 "skip-on-md5-match" → hex: e12ec28bfd43646f2e78ddbb11462149
 ```
 
-### ErrNoTry 双 sentinel
-dlcore 和 pkg/download 分属不同包，各自定义了 `ErrNoTry`。虽然字符串相同，但 `errors.Is` 按指针比较，所以必须同时检查两个 sentinel：
-```go
-oldIsNoTry := errors.Is(err, dlcore.ErrNoTry) || errors.Is(err, pkgdownload.ErrNoTry)
-```
-这在 `CheckError()`、`CheckErrNoTry()`、内联 Check 函数中都适用。
+### ErrNoTry 双 sentinel（已修复 2026-06-19）
+`pkg/dlcore.ErrNoTry` 已复用 `pkg/download.ErrNoTry`（`pkg/dlcore/client.go:37`），`errors.Is(err, dlcore.ErrNoTry)` 已能跨包匹配。
 
 ### dlcore-only 测试命名约定
 使用 `DlcoreOnlyRun` 方法并自动添加 `_[dlcore-only]` 子测试后缀，方便 grep 和 CI 过滤。对于需要精确 elapsed 计时的测试（如图片超时），可以直接调用 `cmp.oldDL.Download()` 并在注释中说明原因。
+
+### progress total=0 时双方行为一致
+dlcore 和 pkg/download 的 `progressReader` 在 `total=0` 时**都不**触发 Read-level 回调（都检查 `total > 0`），且下载完成后都强制设 `obj.SetProgress(100)`。这段无差异，不应列为 dlcore-only。
 
 ### ServerErrorRecovery 不能硬断言 CheckBothNil
 dlcore 收到 500 后直接返回 `"HTTP error: 500"` 错误（不自动重试），而 pkg/download 会重试并可能成功。
