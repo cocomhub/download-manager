@@ -20,8 +20,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	dlcore "github.com/cocomhub/download-manager/pkg/dlcore"        //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
-	pkgdownload "github.com/cocomhub/download-manager/pkg/download" // needed for ErrNoTry comparison (new path)
+	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
 )
 
 // ================================================================
@@ -460,10 +459,9 @@ func CheckError() Check {
 			return
 		}
 		// 都非 nil — 检查是否都为 ErrNoTry
-		// 注意：旧路径（dlcore）使用 dlcore.ErrNoTry，新路径（pkg/download）使用 pkgdownload.ErrNoTry
-		// 分别检查各自的 sentinel。
-		oldNoTry := errors.Is(old.Err, pkgdownload.ErrNoTry) || errors.Is(old.Err, dlcore.ErrNoTry)
-		newNoTry := errors.Is(new.Err, pkgdownload.ErrNoTry) || errors.Is(new.Err, dlcore.ErrNoTry)
+		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
+		oldNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
+		newNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
 		if oldNoTry != newNoTry {
 			t.Errorf("ErrNoTry mismatch: old.IsNoTry=%v, new.IsNoTry=%v (old=%v, new=%v)", oldNoTry, newNoTry, old.Err, new.Err)
 		}
@@ -556,9 +554,9 @@ func CheckBothNil() Check {
 func CheckErrNoTry() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
-		// 检查旧路径：可能是 dlcore.ErrNoTry 或 pkgdownload.ErrNoTry（旧路径 native.go 也使用 dlcore.ErrNoTry）
+		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
 		oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
-		newIsNoTry := errors.Is(new.Err, pkgdownload.ErrNoTry) || errors.Is(new.Err, dlcore.ErrNoTry)
+		newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
 		if !oldIsNoTry {
 			t.Errorf("old: expected ErrNoTry, got %v", old.Err)
 		}

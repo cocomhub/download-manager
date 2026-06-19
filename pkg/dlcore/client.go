@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cocomhub/download-manager/pkg/download"
+
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -32,7 +34,8 @@ var (
 )
 
 // ErrNoTry 表示无需继续重试的错误
-var ErrNoTry = errors.New("no try left")
+// 复用 pkg/download 的 sentinel，避免两套 ErrNoTry 导致 errors.Is 跨包不匹配
+var ErrNoTry = download.ErrNoTry
 
 // IsNoTry 判断错误是否属于无需重试类型
 func IsNoTry(err error) bool {

@@ -255,23 +255,25 @@ CI 使用 golangci-lint v2（staticcheck + unused），比 `go vet` 检测更多
 
 | 差异 | dlcore | pkg/download | 应对 | 测试 |
 |------|--------|-------------|------|------|
-| `maxRetries=0` | 无限重试 | 不重试 | `CheckBothNil` 会失败，用 `DlcoreOnlyRun` 单独测 dlcore | C7 dlcore-only |
-| `Metadata["status"]` | 写入 `"completed"` | 不写入 | `CheckMetadata("status")` 会失败 | G2 dlcore-only |
-| Content-Type text 检测 | text + .mp4/.jpg → ErrNoTry | **同样返回 ErrNoTry** ✅ 已对齐 | 可用 `CheckErrNoTry()` | D1/D2 双方一致 |
-| 路径穿越保护 | ResolvePath 拒绝 ../ | `ResolvePath` 同逻辑拒绝 | 可用 `CheckAnyError()` | F2 双方一致 |
-| Error sentinel | `dlcore.ErrNoTry` | `pkgdownload.ErrNoTry`（不同包） | Check 函数必须同时检查两个 sentinel | 基础设施层 |
-| 500 错误后重试 | 部分场景重试成功 | 行为不同 | 测试中不断言双方都成功；`CheckBothNil` 会失败 | — |
+| `maxRetries=0` | 无限重试 | 不重试 | 用 `DlcoreOnlyRun` 单独测 dlcore | C7 dlcore-only |
+| `Metadata["status"]` | 写入 `"completed"` | 不写入（adapter 有兼容 shim） | 外部无人消费此字段，安全保留 | G2 dlcore-only |
+| 500 错误后重试 | 部分场景直接返回 | 重试行为不同 | 测试中不断言双方都成功 | — |
 | 图片 URL 30s 超时 | `isImageURL` 触发 30s ctx 超时 | 无此逻辑 | dlcore-only 测试 | H5 |
-| huaacg.com 5s 超时 | 特殊 5s ctx + `ErrNoTry` | 无此逻辑 | dlcore-only 测试（**不可依赖外部网络**，用本地 beacon）| H6 |
-| progress 在 `total=0` 时 | `progressReader` 仍触发回调 | 不触发 | dlcore-only 测试 | J4 |
-| metadata 写入位置 | `req.Metadata` 直接写入 | `adapter.go` 通过 `OnMetadata` 回调写入 + `Result` 结构体 | `CheckMetadata` 对部分 key 仍可用 | — |
+| huaacg.com 5s 超时 | 特殊 5s ctx + `ErrNoTry` | 无此逻辑 | dlcore-only 测试 | H6 |
+| metadata 写入位置 | `req.Metadata` 直接写入 | `OnMetadata` 回调写入 + `Result` 结构体 | `CheckMetadata` 对部分 key 仍可用 | — |
+
+**已对齐的行为**（双方一致，无需差异处理）：
+- Content-Type text 检测 `text/html + .mp4/.jpg → ErrNoTry`
+- 路径穿越保护 `ResolvePath` 拒绝 `../`
+- progress 在 `total=0` 时双方都不触发 Read-level 回调（仅最终设 `progress=100`）
+- **Error sentinel**：`pkg/dlcore.ErrNoTry` 已复用 `pkg/download.ErrNoTry`（`pkg/dlcore/client.go:37`），`errors.Is(err, dlcore.ErrNoTry)` 跨包可用
 
 ### Comparator 构造要点
 - `NewComparator` 内部分别构造：旧 = Type `"native_old"`（dlcore），新 = Type `"native"`（pkg/download）
 - 默认不设 `LogDir` — NativeHTTPDownloader 用 `filepath.Join(rootDir, logDir)` 拼接路径时，Windows 双绝对路径会非法
 - 需要使用日志的测试通过 `WithLogDir(t.TempDir())` 显式传入
 - `maxRetries=0` 语义差异要求 Comparator 默认设 `MaxRetries=3`
-- `CheckErrNoTry` / `CheckError` 必须同时检查 `dlcore.ErrNoTry` 和 `pkgdownload.ErrNoTry`（两个不同的 sentinel）
+- `CheckErrNoTry` / `CheckError` 只需检查 `dlcore.ErrNoTry`（已复用 `pkg/download.ErrNoTry`）
 - `DlcoreOnlyRun` 的 checks 参数**必须使用 `Check` 类型**（`func(t, old, new *DownloadResult)`），不要自定义签名
 
 ### MD5 测试：checksum 必须与内容匹配

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
-	pkgdownload "github.com/cocomhub/download-manager/pkg/download"
 )
 
 // ================================================================
@@ -529,8 +528,8 @@ func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 	cmp.Run("fail-metadata", obj, nil,
 		func(t *testing.T, old, new *DownloadResult) {
 			t.Helper()
-			oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry) || errors.Is(old.Err, pkgdownload.ErrNoTry)
-			newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry) || errors.Is(new.Err, pkgdownload.ErrNoTry)
+			oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
+			newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
 			if !oldIsNoTry && !newIsNoTry {
 				t.Error("expected at least one side to return ErrNoTry")
 			}
