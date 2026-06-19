@@ -20,7 +20,8 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
+	dlcore "github.com/cocomhub/download-manager/pkg/dlcore"        //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
+	pkgdownload "github.com/cocomhub/download-manager/pkg/download" // needed for ErrNoTry comparison (new path)
 )
 
 // ================================================================
@@ -424,8 +425,10 @@ func CheckError() Check {
 			return
 		}
 		// 都非 nil — 检查是否都为 ErrNoTry
-		oldNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
-		newNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
+		// 注意：旧路径（dlcore）使用 dlcore.ErrNoTry，新路径（pkg/download）使用 pkgdownload.ErrNoTry
+		// 分别检查各自的 sentinel。
+		oldNoTry := errors.Is(old.Err, pkgdownload.ErrNoTry) || errors.Is(old.Err, dlcore.ErrNoTry)
+		newNoTry := errors.Is(new.Err, pkgdownload.ErrNoTry) || errors.Is(new.Err, dlcore.ErrNoTry)
 		if oldNoTry != newNoTry {
 			t.Errorf("ErrNoTry mismatch: old.IsNoTry=%v, new.IsNoTry=%v (old=%v, new=%v)", oldNoTry, newNoTry, old.Err, new.Err)
 		}
@@ -510,6 +513,51 @@ func CheckBothNil() Check {
 		}
 		if new.Err != nil {
 			t.Errorf("new: expected nil error, got %v", new.Err)
+		}
+	}
+}
+
+// CheckErrNoTry 验证双方错误都包含 ErrNoTry。
+func CheckErrNoTry() Check {
+	return func(t *testing.T, old, new *DownloadResult) {
+		t.Helper()
+		// 检查旧路径：可能是 dlcore.ErrNoTry 或 pkgdownload.ErrNoTry（旧路径 native.go 也使用 dlcore.ErrNoTry）
+		oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
+		newIsNoTry := errors.Is(new.Err, pkgdownload.ErrNoTry) || errors.Is(new.Err, dlcore.ErrNoTry)
+		if !oldIsNoTry {
+			t.Errorf("old: expected ErrNoTry, got %v", old.Err)
+		}
+		if !newIsNoTry {
+			t.Errorf("new: expected ErrNoTry, got %v", new.Err)
+		}
+	}
+}
+
+// CheckBothNoTry 验证双方都返回 ErrNoTry 且文件不存在。
+func CheckBothNoTry() Check {
+	base := CheckErrNoTry()
+	return func(t *testing.T, old, new *DownloadResult) {
+		base(t, old, new)
+		if len(old.FileContent) > 0 {
+			t.Errorf("old: expected no file on ErrNoTry, got %d bytes", len(old.FileContent))
+		}
+		if len(new.FileContent) > 0 {
+			t.Errorf("new: expected no file on ErrNoTry, got %d bytes", len(new.FileContent))
+		}
+	}
+}
+
+// CheckMetadataAbsent 验证指定 key 在双方 Metadata 中都不存在。
+func CheckMetadataAbsent(keys ...string) Check {
+	return func(t *testing.T, old, new *DownloadResult) {
+		t.Helper()
+		for _, key := range keys {
+			if _, ok := old.Obj.Metadata[key]; ok {
+				t.Errorf("old: Metadata[%q] should be absent, got %q", key, old.Obj.Metadata[key])
+			}
+			if _, ok := new.Obj.Metadata[key]; ok {
+				t.Errorf("new: Metadata[%q] should be absent, got %q", key, new.Obj.Metadata[key])
+			}
 		}
 	}
 }

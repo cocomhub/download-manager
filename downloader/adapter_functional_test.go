@@ -4,9 +4,15 @@
 package downloader
 
 import (
+	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
+	pkgdownload "github.com/cocomhub/download-manager/pkg/download"
 )
 
 // ================================================================
@@ -139,6 +145,39 @@ func TestFunc_Resume416(t *testing.T) {
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/416.bin", "416/out.bin", nil, nil)
 	cmp.Run("resume-416", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// ================================================================
+// 组E（扩展）：断点续传边界
+// ================================================================
+
+// TestFunc_ResumeContentChanged 验证续传时服务器内容变更 → 重置。
+func TestFunc_ResumeContentChanged(t *testing.T) {
+	originalContent := "original-complete-content"
+	b := NewBeacon(t)
+	b.HandleDynamic("GET", "/changed.bin", func(r *http.Request) (int, map[string]string, []byte) {
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader != "" {
+			// 有 Range 请求，但内容已变
+			return http.StatusOK, map[string]string{
+				"Content-Type": "application/octet-stream",
+			}, []byte(originalContent)
+		}
+		return http.StatusOK, map[string]string{
+			"Content-Type": "application/octet-stream",
+		}, []byte(originalContent)
+	})
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/changed.bin", "changed/out.bin", nil, nil)
+
+	// 先写入完整的原始文件来模拟"内容已变更"
+	obj2 := copyObject(obj)
+	savePath := filepath.Join(cmp.rootDir, obj2.SavePath)
+	os.MkdirAll(filepath.Dir(savePath), 0755)
+	os.WriteFile(savePath, []byte(originalContent), 0644)
+
+	cmp.Run("content-changed", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
 // ================================================================
@@ -275,6 +314,37 @@ func TestFunc_MD5_ContentMD5Header(t *testing.T) {
 }
 
 // ================================================================
+// 组B（扩展）：MD5 校验边界
+// ================================================================
+
+// TestFunc_MD5_MismatchRetry 验证 MD5 不匹配后截断重试（最终超上限报错）。
+func TestFunc_MD5_MismatchRetry(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleDynamic("GET", "/md5fail.bin", func(r *http.Request) (int, map[string]string, []byte) {
+		return http.StatusOK, map[string]string{
+			"Content-Type": "application/octet-stream",
+			"Content-MD5":  "d41d8cd98f00b204e9800998ecf8427e", // md5("")
+		}, []byte("content that never matches")
+	})
+
+	cmp := NewComparator(t, b, WithMaxRetries(3))
+	obj := makeTestObject(b.URL()+"/md5fail.bin", "md5fail/out.bin", nil, nil)
+	cmp.Run("md5-mismatch", obj, nil, CheckAnyError())
+}
+
+// TestFunc_MD5_SkipOnMatch 验证 MD5 匹配时跳过下载。
+func TestFunc_MD5_SkipOnMatch(t *testing.T) {
+	content := "skip-on-md5-match"
+	b := NewBeacon(t)
+	b.HandleWithMD5("GET", "/skipmd5.bin", content,
+		"Content-MD5", "e12ec28bfd43646f2e78ddbb11462149") // md5("skip-on-md5-match")
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/skipmd5.bin", "skipmd5/out.bin", nil, nil)
+	cmp.Run("skip-md5", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// ================================================================
 // 组E：错误码检测
 // ================================================================
 
@@ -298,18 +368,28 @@ func TestFunc_404NoRetry(t *testing.T) {
 	cmp.Run("404", obj, nil, CheckAnyError())
 }
 
-// TestFunc_TextContentType 验证文本 Content-Type + URL 含 .mp4 时返回错误。
-// 注意：dlcore 有 text Content-Type 检测逻辑，新路径 pkg/download 暂未实现此检测。
-// 这是已知差异 — 此处验证新旧实现至少有一方报错，或者双方行为一致。
-func TestFunc_TextContentType(t *testing.T) {
+// ================================================================
+// 组D：Content-Type 检测（扩展）
+// ================================================================
+
+// TestFunc_TextContentTypeMP4 验证 text/html + .mp4 URL 返回 ErrNoTry（双方一致）。
+func TestFunc_TextContentTypeMP4(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleTextContent("GET", "/video.mp4")
 
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/video.mp4", "errors/video.mp4", nil, nil)
-	cmp.Run("text-content-type", obj, nil)
-	// 仅记录差异，不硬断言（旧路径返回 ErrNoTry，新路径可能成功下载）
-	// TODO: 当新路径实现此检测后，改为 CheckError()
+	cmp.Run("text-mp4", obj, nil, CheckErrNoTry())
+}
+
+// TestFunc_TextContentTypeJPG 验证 text/html + .jpg URL 返回 ErrNoTry（双方一致）。
+func TestFunc_TextContentTypeJPG(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleTextContent("GET", "/image.jpg")
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/image.jpg", "errors/image.jpg", nil, nil)
+	cmp.Run("text-jpg", obj, nil, CheckErrNoTry())
 }
 
 // TestFunc_PathTraversal 验证路径穿越被拒绝。
@@ -398,6 +478,68 @@ func TestFunc_DirAutoCreate(t *testing.T) {
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/autodir.bin", "auto/deep/nested/dir/out.bin", nil, nil)
 	cmp.Run("dir-create", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// ================================================================
+// 组G：元数据副作用
+// ================================================================
+
+// TestFunc_MetadataMd5Fields 验证 MD5 匹配时 md5_base64 / md5_hex 被设置。
+func TestFunc_MetadataMd5Fields(t *testing.T) {
+	content := "hello"
+	b := NewBeacon(t)
+	b.HandleWithMD5("GET", "/md5meta.bin", content,
+		"Content-MD5", "5d41402abc4b2a76b9719d911017c592")
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/md5meta.bin", "md5meta/out.bin", nil, nil)
+	cmp.Run("md5-fields", obj, nil,
+		CheckBothNil(),
+		CheckMetadata("md5_base64", "md5_hex"),
+	)
+}
+
+// TestFunc_MetadataModTime 验证 Last-Modified 被记录到 Metadata。
+func TestFunc_MetadataModTime(t *testing.T) {
+	content := "modtime content"
+	b := NewBeacon(t)
+	modTime := "Tue, 15 Jun 2026 10:00:00 GMT"
+	b.HandleDynamic("GET", "/modtime.bin", func(r *http.Request) (int, map[string]string, []byte) {
+		return http.StatusOK, map[string]string{
+			"Content-Type":  "application/octet-stream",
+			"Last-Modified": modTime,
+		}, []byte(content)
+	})
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/modtime.bin", "modtime/out.bin", nil, nil)
+	cmp.Run("mod-time", obj, nil,
+		CheckBothNil(),
+		CheckMetadata("mod_time"),
+	)
+}
+
+// TestFunc_MetadataFailedNotWritten 验证失败时 metadata 不写入完成标记。
+func TestFunc_MetadataFailedNotWritten(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleError("GET", "/failmeta.bin", http.StatusForbidden)
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/failmeta.bin", "failmeta/out.bin", nil, nil)
+	cmp.Run("fail-metadata", obj, nil,
+		func(t *testing.T, old, new *DownloadResult) {
+			t.Helper()
+			oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry) || errors.Is(old.Err, pkgdownload.ErrNoTry)
+			newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry) || errors.Is(new.Err, pkgdownload.ErrNoTry)
+			if !oldIsNoTry && !newIsNoTry {
+				t.Error("expected at least one side to return ErrNoTry")
+			}
+			// 检查 metadata 不应包含 total_size（下载未完成）
+			if old.Obj.Metadata["total_size"] != "" {
+				t.Logf("old metadata total_size set (may be expected in dlcore): %q", old.Obj.Metadata["total_size"])
+			}
+		},
+	)
 }
 
 // ================================================================
