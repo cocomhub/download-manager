@@ -28,6 +28,7 @@ SUB_MODULE_DIRS := $(shell find . -name 'go.mod' \
 # CUSTOM VARIABLES
 # ═══════════════════════════════════════════════
 COVER_THRESHOLD ?= 40
+SONAR_PROJECT_KEY ?= cocomhub_download-manager
 SKIP_VERSION    ?= true
 CONFIG_FILE     ?= $(BUILD_DIR)/config.yaml
 GOTAGS          ?=
@@ -108,6 +109,20 @@ cover-check: test-cover
 		echo "OK: coverage $$total meets threshold $(COVER_THRESHOLD)%"; \
 	fi
 
+.PHONY: sonar-analyze
+sonar-analyze:
+	@if [ ! -f sonar-project.properties ]; then \
+		echo "missing sonar-project.properties"; exit 1; \
+	fi
+	sonar-scanner
+
+.PHONY: sonar-remediate
+sonar-remediate:
+	@if [ ! -f sonar-project.properties ]; then \
+		echo "missing sonar-project.properties"; exit 1; \
+	fi
+	sonar-scanner -Dsonar.remediation.projectKey=$(SONAR_PROJECT_KEY)
+
 .PHONY: vet
 vet:
 	$(RAW_GO) vet ./...
@@ -120,6 +135,16 @@ lint:
 bench: prepare
 	@mkdir -p $(BUILD_DIR)/bench
 	$(GO) test -bench=. -benchmem -count=5 -run=^$$ $(GOTAGS) ./... > $(BUILD_DIR)/bench/bench.txt
+
+.PHONY: bench-compare
+bench-compare:
+	@which benchstat > /dev/null 2>&1 || go install golang.org/x/perf/cmd/benchstat@latest
+	@if [ -f $(BUILD_DIR)/bench/bench.txt ] && [ -f $(BUILD_DIR)/bench/baseline.txt ]; then \
+		benchstat $(BUILD_DIR)/bench/baseline.txt $(BUILD_DIR)/bench/bench.txt; \
+	else \
+		echo "Need both bench.txt and baseline.txt to compare"; \
+		exit 1; \
+	fi
 
 .PHONY: check-loopback
 check-loopback:
@@ -192,6 +217,7 @@ help:
 	@echo "  vet             Run go vet"
 	@echo "  lint            Run golangci-lint"
 	@echo "  bench           Run benchmarks"
+	@echo "  bench-compare   Compare benchmark results with baseline"
 	@echo "  check-loopback  Check for unsafe listen addresses"
 	@echo "  gofix           Run go fix"
 	@echo "  addlicense      Add license headers"
@@ -200,6 +226,8 @@ help:
 	@echo "  test-all        Test all sub-modules"
 	@echo "  build-all       Build all sub-modules"
 	@echo "  check-ci        Full CI pipeline"
+	@echo "  sonar-analyze    Run SonarQube Cloud analysis"
+	@echo "  sonar-remediate  Run SonarQube Cloud remediation"
 	@echo ""
 	@echo "Custom targets:"
 	@echo "  all             vet test bench (quick check)"
