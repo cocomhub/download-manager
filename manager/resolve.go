@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -80,7 +81,21 @@ func (m *Manager) processResolve(req resolveRequest) {
 	}
 
 	m.resolveCache.MarkResolved(req.obj.URL)
-	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates
-	_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
+
+	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates。
+	//
+	// 使用 SetStatusUnlessCancelled 原子地检查对象是否已被 CancelObject() 取消，
+	// 在 b.mu 保护下完成读-检查-写，消除 TOCTOU 竞争窗口。
+	// 如果对象已被取消或任务不支持此守卫，则跳过更新。
+	if guard, ok := t.(core.TaskStatusGuarder); ok {
+		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusPending, nil) {
+			slog.Info("Resolve: object was cancelled, preserving cancelled status",
+				"task_id", req.taskID, "url", req.obj.URL)
+			m.resolveCache.Invalidate(req.obj.URL)
+			return
+		}
+	} else {
+		_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
+	}
 	slog.Debug("Resolve succeeded", "task_id", req.taskID, "url", req.obj.URL)
 }

@@ -123,6 +123,14 @@ type SharedRegistrySetter interface {
 	SetSharedRegistry(reg SharedRegistry)
 }
 
+// TaskStatusGuarder 任务可实现该接口以支持原子化的状态守卫更新。
+// SetStatusUnlessCancelled 在 b.mu 保护下检查对象未被取消后更新状态，
+// 用于解决 processResolve 与 CancelObject 之间的 TOCTOU 竞争。
+// 返回 true 表示状态已更新，false 表示对象已被取消（跳过更新）。
+type TaskStatusGuarder interface {
+	SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool
+}
+
 // EventType 定义事件类型
 type EventType string
 

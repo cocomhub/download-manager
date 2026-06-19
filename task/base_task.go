@@ -121,6 +121,11 @@ func (b *BaseTask) Close() error {
 func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.updateStatusLocked(obj, status, err)
+}
+
+// updateStatusLocked 是 UpdateStatus 的内部实现，调用者必须持有 b.mu。
+func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, err error) error {
 	obj.SetStatus(status)
 
 	if err != nil {
@@ -142,6 +147,26 @@ func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err er
 	b.objects = upsertRuntimeObject(b.objects, obj)
 	b.knownURLs = rememberRuntimeURLs(b.objects)
 	return storeErr
+}
+
+// SetStatusUnlessCancelled 原子地检查对象未被取消后更新状态。
+// 在 b.mu 保护下重新读取 storage，避免 processResolve 与 CancelObject 之间的 TOCTOU 竞争。
+// 如果对象已被取消，则跳过更新并返回 false。
+func (b *BaseTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.store != nil {
+		current, storeErr := b.store.Get(obj.URL)
+		if storeErr == nil && current != nil && current.GetStatus() == model.StatusCancelled {
+			b.logger.Info("SetStatusUnlessCancelled: object was cancelled, preserving status",
+				"url", obj.URL, "wanted_status", status)
+			return false
+		}
+	}
+
+	_ = b.updateStatusLocked(obj, status, err)
+	return true
 }
 
 // SetSharedRegistry sets the shared registry for cross-task deduplication.

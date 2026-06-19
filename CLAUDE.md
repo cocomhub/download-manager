@@ -303,9 +303,12 @@ dlcore 下载后会做 `computeFileMD5` 校验，不匹配则截断重试（maxR
 - `manager/aggregate.go`: `BackfillContentGroups` 写 Metadata（用 Lock）
 - `manager/manager.go`: `download()` 中的 Metadata/Extra 访问
 
-### CancelObject 与 resolve worker 时序竞争
-`CancelObject()` 把对象设为 cancelled 后，resolve worker 可能通过 `syncSharedToObjectLocked` 
-把 shared registry 中的旧状态写回（覆盖 cancel）。测试中任何 cancel 操作都需要轮询确认：
+### CancelObject 与 resolve worker 时序竞争（已修复 2026-06-19）
+
+**根源**：`processResolve` resolve 成功后无条件 `UpdateStatus(obj, StatusPending)`，无视对象是否已被 `CancelObject()` 取消。
+**修复**：在 `processResolve` 中覆盖 pending 前，从 storage 重新读取对象状态，若为 `cancelled` 则保留取消状态。
+
+**历史**：测试中任何 cancel 操作仍需轮询确认（resolve worker 竞争窗口已被消除，但下载器本身的异步取消仍有窗口）：
 
 ```go
 assert.MustEventually(t, func() bool {
