@@ -250,29 +250,57 @@ CI 使用 golangci-lint v2（staticcheck + unused），比 `go vet` 检测更多
 - 必须已废弃包的 import 行加 `//nolint:staticcheck`：`dlcore "pkg/path" //nolint:staticcheck`
 - 未使用的辅助函数要用 `var _ = fn` 抑制或直接删除
 
-### dlcore → pkg/download 行为差异
+### dlcore → pkg/download 行为差异（实测验证，2026-06-19 更新）
 废弃的 `pkg/dlcore` 和新路径 `pkg/download` 存在以下已知差异，测试中需注意：
 
-| 差异 | dlcore | pkg/download | 应对 |
-|---|---|---|---|
-| `maxRetries=0` | 无限重试 | 不重试 | Comparator 默认设 `MaxRetries=3`，永远不用 0 |
-| `Metadata["status"]` | 写入 `"completed"` | 不写入 | 不需要用 `CheckMetadata("status")` |
-| Content-Type text 检测 | text + .mp4 URL → ErrNoTry | 无此检测 | 测试中允许差异，不硬断言 |
-| 路径穿越保护 | ResolvePath 拒绝 ../ | 无此限制 | 测试中允许差异 |
-| 500 错误后重试 | 部分场景重试成功 | 行为不同 | 测试中不断言双方都成功 |
+| 差异 | dlcore | pkg/download | 应对 | 测试 |
+|------|--------|-------------|------|------|
+| `maxRetries=0` | 无限重试 | 不重试 | `CheckBothNil` 会失败，用 `DlcoreOnlyRun` 单独测 dlcore | C7 dlcore-only |
+| `Metadata["status"]` | 写入 `"completed"` | 不写入 | `CheckMetadata("status")` 会失败 | G2 dlcore-only |
+| Content-Type text 检测 | text + .mp4/.jpg → ErrNoTry | **同样返回 ErrNoTry** ✅ 已对齐 | 可用 `CheckErrNoTry()` | D1/D2 双方一致 |
+| 路径穿越保护 | ResolvePath 拒绝 ../ | `ResolvePath` 同逻辑拒绝 | 可用 `CheckAnyError()` | F2 双方一致 |
+| Error sentinel | `dlcore.ErrNoTry` | `pkgdownload.ErrNoTry`（不同包） | Check 函数必须同时检查两个 sentinel | 基础设施层 |
+| 500 错误后重试 | 部分场景重试成功 | 行为不同 | 测试中不断言双方都成功；`CheckBothNil` 会失败 | — |
+| 图片 URL 30s 超时 | `isImageURL` 触发 30s ctx 超时 | 无此逻辑 | dlcore-only 测试 | H5 |
+| huaacg.com 5s 超时 | 特殊 5s ctx + `ErrNoTry` | 无此逻辑 | dlcore-only 测试（**不可依赖外部网络**，用本地 beacon）| H6 |
+| progress 在 `total=0` 时 | `progressReader` 仍触发回调 | 不触发 | dlcore-only 测试 | J4 |
+| metadata 写入位置 | `req.Metadata` 直接写入 | `adapter.go` 通过 `OnMetadata` 回调写入 + `Result` 结构体 | `CheckMetadata` 对部分 key 仍可用 | — |
 
 ### Comparator 构造要点
 - `NewComparator` 内部分别构造：旧 = Type `"native_old"`（dlcore），新 = Type `"native"`（pkg/download）
 - 默认不设 `LogDir` — NativeHTTPDownloader 用 `filepath.Join(rootDir, logDir)` 拼接路径时，Windows 双绝对路径会非法
 - 需要使用日志的测试通过 `WithLogDir(t.TempDir())` 显式传入
 - `maxRetries=0` 语义差异要求 Comparator 默认设 `MaxRetries=3`
+- `CheckErrNoTry` / `CheckError` 必须同时检查 `dlcore.ErrNoTry` 和 `pkgdownload.ErrNoTry`（两个不同的 sentinel）
+- `DlcoreOnlyRun` 的 checks 参数**必须使用 `Check` 类型**（`func(t, old, new *DownloadResult)`），不要自定义签名
 
 ### MD5 测试：checksum 必须与内容匹配
 dlcore 下载后会做 `computeFileMD5` 校验，不匹配则截断重试（maxRetries=0 时无限）。
 ```
 空内容 → base64: 1B2M2Y8AsgTpgAmY7PhCfg==
 "hello" → hex: 5d41402abc4b2a76b9719d911017c592
+"skip-on-md5-match" → hex: e12ec28bfd43646f2e78ddbb11462149
 ```
+
+### ErrNoTry 双 sentinel
+dlcore 和 pkg/download 分属不同包，各自定义了 `ErrNoTry`。虽然字符串相同，但 `errors.Is` 按指针比较，所以必须同时检查两个 sentinel：
+```go
+oldIsNoTry := errors.Is(err, dlcore.ErrNoTry) || errors.Is(err, pkgdownload.ErrNoTry)
+```
+这在 `CheckError()`、`CheckErrNoTry()`、内联 Check 函数中都适用。
+
+### dlcore-only 测试命名约定
+使用 `DlcoreOnlyRun` 方法并自动添加 `_[dlcore-only]` 子测试后缀，方便 grep 和 CI 过滤。对于需要精确 elapsed 计时的测试（如图片超时），可以直接调用 `cmp.oldDL.Download()` 并在注释中说明原因。
+
+### ServerErrorRecovery 不能硬断言 CheckBothNil
+dlcore 收到 500 后直接返回 `"HTTP error: 500"` 错误（不自动重试），而 pkg/download 会重试并可能成功。
+所以 `TestE2E_ServerErrorRecovery` 只能做无断言运行（验证不 panic），不能加 `CheckBothNil()`。
+
+### 测试闭包捕获的僵尸变量
+`HandleDynamic` 闭包中如果声明 `callCount` 但仅用于 handler 内部，`cmp.Run` 会先后执行两个下载器（old + new），`callCount` 反映的是两者的混合计数。不用做断言依据，应删除或加注释说明。
+
+### 测试分组标记对齐
+`adapter_functional_test.go` 中的 Group B/D/E 分区标记容易混乱。MD5 相关的测试（组 D 原有 + 组 B 扩展）应放在同一区域，与断点续传（组 E）区分开。
 
 ### Beacon 测试服务器注意事项
 - `HandleDynamic` 闭包捕获的 callCount 等变量在子测试间共享 → 每个子测试用独立 Beacon

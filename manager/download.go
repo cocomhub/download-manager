@@ -174,10 +174,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			}
 
 			// 指数退避：2^(count-1) 秒，最大 3600 秒
-			backoff := time.Duration(1<<(count-1)) * time.Second
-			if backoff > time.Hour {
-				backoff = time.Hour
-			}
+			backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
 			slog.Warn("Composite download with empty file list, re-resolving",
 				"task_id", t.ID(), "url", obj.URL, "attempt", count, "backoff", backoff)
 
