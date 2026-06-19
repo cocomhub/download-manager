@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
 
@@ -83,15 +84,18 @@ func (m *Manager) processResolve(req resolveRequest) {
 
 	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates。
 	//
-	// 但需要检查对象是否已被 CancelObject() 取消：resolve 入队时保存的是对象指针，
-	// CancelObject 通过独立的 storage lookup 修改对象状态，不会修改已入队的 req.obj。
-	// 如果不检查就直接覆盖，会静默撤销用户的取消操作。
-	if current, err := t.Storage().Get(req.obj.URL); err == nil && current != nil && current.GetStatus() == model.StatusCancelled {
-		slog.Info("Resolve: object was cancelled, preserving cancelled status",
-			"task_id", req.taskID, "url", req.obj.URL)
-		m.resolveCache.Invalidate(req.obj.URL)
-		return
+	// 使用 SetStatusUnlessCancelled 原子地检查对象是否已被 CancelObject() 取消，
+	// 在 b.mu 保护下完成读-检查-写，消除 TOCTOU 竞争窗口。
+	// 如果对象已被取消或任务不支持此守卫，则跳过更新。
+	if guard, ok := t.(core.TaskStatusGuarder); ok {
+		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusPending, nil) {
+			slog.Info("Resolve: object was cancelled, preserving cancelled status",
+				"task_id", req.taskID, "url", req.obj.URL)
+			m.resolveCache.Invalidate(req.obj.URL)
+			return
+		}
+	} else {
+		_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
 	}
-	_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
 	slog.Debug("Resolve succeeded", "task_id", req.taskID, "url", req.obj.URL)
 }

@@ -29,13 +29,14 @@ func TestFailedCount_TypeAssertion(t *testing.T) {
 	mgr.failedCount.Store(url, "bad_string_value")
 
 	// The download should handle gracefully without panic.
-	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
+	// After max retries, the object is marked as failed_permanent by MarkAsFailed.
+	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailedPermanent, 5*time.Second)
 
-	// Verify the object reached a failed state without causing a panic.
+	// Verify the object reached a permanent-failure state without causing a panic.
 	all := getAllObjectsFromTask(t, task)
 	for _, obj := range all {
-		if obj.GetStatus() != model.StatusFailed {
-			t.Errorf("expected StatusFailed, got %s for %s", obj.GetStatus(), obj.URL)
+		if obj.GetStatus() != model.StatusFailedPermanent {
+			t.Errorf("expected StatusFailedPermanent, got %s for %s", obj.GetStatus(), obj.URL)
 		}
 	}
 
