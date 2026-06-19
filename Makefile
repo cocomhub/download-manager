@@ -136,6 +136,16 @@ bench: prepare
 	@mkdir -p $(BUILD_DIR)/bench
 	$(GO) test -bench=. -benchmem -count=5 -run=^$$ $(GOTAGS) ./... > $(BUILD_DIR)/bench/bench.txt
 
+.PHONY: bench-compare
+bench-compare:
+	@which benchstat > /dev/null 2>&1 || go install golang.org/x/perf/cmd/benchstat@latest
+	@if [ -f $(BUILD_DIR)/bench/bench.txt ] && [ -f $(BUILD_DIR)/bench/baseline.txt ]; then \
+		benchstat $(BUILD_DIR)/bench/baseline.txt $(BUILD_DIR)/bench/bench.txt; \
+	else \
+		echo "Need both bench.txt and baseline.txt to compare"; \
+		exit 1; \
+	fi
+
 .PHONY: check-loopback
 check-loopback:
 	@if grep -rn '0\.0\.0\.0' --include='*.go' . \
@@ -207,6 +217,7 @@ help:
 	@echo "  vet             Run go vet"
 	@echo "  lint            Run golangci-lint"
 	@echo "  bench           Run benchmarks"
+	@echo "  bench-compare   Compare benchmark results with baseline"
 	@echo "  check-loopback  Check for unsafe listen addresses"
 	@echo "  gofix           Run go fix"
 	@echo "  addlicense      Add license headers"

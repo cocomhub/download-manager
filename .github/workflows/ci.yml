@@ -9,8 +9,30 @@ env:
 on:
   push:
     branches: [dev, main, master, "release/**"]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'ROADMAP.md'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.notestignore'
+      - '.dockerignore'
+      - 'LICENSE'
   pull_request:
     branches: [dev, main, master]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'ROADMAP.md'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.notestignore'
+      - '.dockerignore'
+      - 'LICENSE'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
