@@ -322,6 +322,17 @@ assert.MustEventually(t, func() bool {
 ### 文件编码
 PowerShell 写入 Go 源码文件会默认使用 UTF-16 LE + BOM，导致 git 显示全文件变更。优先使用 bash `sed` 或 `Edit` 工具。
 修改前后运行 `go fmt` 可能导致 `Edit` 的 `old_string` 不匹配——先 `go fmt` 再读文件确认内容。
+**已知问题**：Edit 工具因 tab/空格 whitespace 不匹配失败（"String to replace not found in file"）。
+   - Go 源码使用 tab 缩进，复制代码时 tab 可能被转换为空格
+   - 使用 `sed -n 'N,Np' file | cat -A` 或 `| xxd` 确认实际 whitespace
+   - 难以确认时直接用 Bash `sed -i` 替换
+
+### 暂存测试验证预存失败的方法
+对偶发失败的测试，先 `git stash` 再运行，确认是否是预存问题：
+```bash
+git stash && go test -race -count=1 -run TestName ./pkg/ && git stash pop
+```
+如果 stash 后同样失败，则是预存问题，与当前改动无关。
 
 ## 执行偏好
 

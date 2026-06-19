@@ -36,30 +36,73 @@ diff --git a/manager/download.go b/manager/download.go
 
 ---
 
-## [ERR-20260614-002] go fmt 后 Edit 工具因格式变化失败
+## [ERR-20260614-002] Edit 工具因 tab/空格 whitespace 不匹配失败（重复发作）
 
 **Logged**: 2026-06-14T18:00:00Z
-**Priority**: medium
-**Status**: resolved
+**Priority**: high
+**Status**: pending
 **Area**: config
 
 ### Summary
-`go fmt` 修改了文件缩进（tab 对齐），导致后续 `Edit` 调用的 `old_string` 与文件实际内容不匹配。
+Edit 工具的 `old_string` 与文件实际 whitespace 不匹配导致 "String to replace not found in file"。Go 源码使用 tab 缩进，但复制/显示过程中 tab 被转换为空格。**已重复发作至少 3 次**（2026-06-14 go fmt，2026-06-19 多次 Edit）。
 
 ### Error
 Edit 工具返回 "String to replace not found in file"。
 
 ### Context
-- `runtime_mgr.go` 中 `adjustGlobalWorkers` 函数被 go fmt 重新格式化
-- `sed -n '34,45p' | cat -A` 显示实际缩进与预期不同
-- 修复：先 `go fmt` 再读文件确认内容
+首次发作（2026-06-14）：
+- `adjustGlobalWorkers` 被 go fmt 重新格式化后 tab 对齐改变
+- 修复：先 `go fmt` 再 Read 确认 → Edit
 
-### Resolution
-- **Resolved**: 2026-06-14T18:30:00Z
-- **Notes**: 工作流改为：go fmt → Read 确认 → Edit
+二次发作（2026-06-19）：
+- 目标文件: `downloader/adapter.go:157`, `pkg/download/http_extractor.go`, `manager/download.go`
+- 文件使用 tab，但提供的 old_string 用空格
+- 即使未运行 go fmt，复制 tab 缩进的代码时也会因显示转换而丢失 tab
+
+### Suggested Fix
+- 先 `sed -n 'N,Np' file | cat -A` 确认目标行的实际 whitespace
+- 确认 tab 后用包含真实 `\t` 的 old_string
+- 难以确认时直接用 Bash `sed -i` 替换
+- 在 CLAUDE.md 中补充"Edit 前用 cat -A 确认 whitespace"
 
 ### Metadata
-- Tags: gofmt, Edit, formatting
+- Reproducible: yes
+- Related Files: downloader/adapter.go, pkg/download/http_extractor.go, manager/download.go
+- Tags: g一番, Edit, formatting, whitespace, tab
+- See Also: ERR-20260619-003
+
+---
+
+## [ERR-20260619-003] Edit 工具因 tab/空格 whitespace 不匹配反复失败
+
+**Logged**: 2026-06-19T17:50:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: config
+
+### Summary
+多次 Edit 调用因 old_string 的 whitespace 与文件不匹配而失败。Go 源码使用 tab 缩进，但复制/显示过程中 tab 被转换为空格。是 ERR-20260614-002 的重复发作。
+
+### Error
+```
+String to replace not found in file.
+String: 		if r := req.Result; r != nil {
+```
+
+### Context
+- 目标文件: `downloader/adapter.go:157`, `pkg/download/http_extractor.go` 等多处
+- 使用 `sed -n 'N,Np' file | cat -A` 或 `| xxd` 可确认实际 whitespace
+- 问题根源：工具输入的 old_string 使用空格而文件使用 tab
+
+### Suggested Fix
+- 先用 `sed -n 'line,linep' file | cat -A` 确认目标行的实际 whitespace
+- 确认 tab 后用包含 `\t` 的 old_string
+- 难以确认时直接用 Bash `sed -i` 替换
+
+### Metadata
+- Reproducible: yes
+- Related Files: downloader/adapter.go, pkg/download/http_extractor.go, manager/download.go
+- See Also: ERR-20260614-002
 
 ---
 
