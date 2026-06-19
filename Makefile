@@ -28,6 +28,7 @@ SUB_MODULE_DIRS := $(shell find . -name 'go.mod' \
 # CUSTOM VARIABLES
 # ═══════════════════════════════════════════════
 COVER_THRESHOLD ?= 40
+SONAR_PROJECT_KEY ?= cocomhub_download-manager
 SKIP_VERSION    ?= true
 CONFIG_FILE     ?= $(BUILD_DIR)/config.yaml
 GOTAGS          ?=
@@ -107,6 +108,20 @@ cover-check: test-cover
 	else \
 		echo "OK: coverage $$total meets threshold $(COVER_THRESHOLD)%"; \
 	fi
+
+.PHONY: sonar-analyze
+sonar-analyze:
+	@if [ ! -f sonar-project.properties ]; then \
+		echo "missing sonar-project.properties"; exit 1; \
+	fi
+	sonar-scanner
+
+.PHONY: sonar-remediate
+sonar-remediate:
+	@if [ ! -f sonar-project.properties ]; then \
+		echo "missing sonar-project.properties"; exit 1; \
+	fi
+	sonar-scanner -Dsonar.remediation.projectKey=$(SONAR_PROJECT_KEY)
 
 .PHONY: vet
 vet:
@@ -200,6 +215,8 @@ help:
 	@echo "  test-all        Test all sub-modules"
 	@echo "  build-all       Build all sub-modules"
 	@echo "  check-ci        Full CI pipeline"
+	@echo "  sonar-analyze    Run SonarQube Cloud analysis"
+	@echo "  sonar-remediate  Run SonarQube Cloud remediation"
 	@echo ""
 	@echo "Custom targets:"
 	@echo "  all             vet test bench (quick check)"
