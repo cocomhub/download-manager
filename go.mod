@@ -3,7 +3,7 @@ module github.com/cocomhub/download-manager
 go 1.26
 
 require (
-	github.com/PuerkitoBio/goquery v1.11.0
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/cavaliergopher/grab/v3 v3.0.1
 	github.com/cocomhub/sproxy v0.0.0-20260605220945-c3f77b4f644b
 	github.com/dop251/goja v0.0.0-20251201205617-2bb4c724c0f9
@@ -28,11 +28,11 @@ require (
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 )
 
 // replace github.com/cocomhub/sproxy => ../sproxy
