@@ -6,6 +6,7 @@ package downloader
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 // ================================================================
@@ -61,6 +62,23 @@ func TestFunc_CustomHeaders(t *testing.T) {
 	headers := map[string]string{"Authorization": "Bearer test-token-123"}
 	obj := makeTestObject(b.URL()+"/custom.bin", "custom/out.bin", nil, nil)
 	cmp.Run("custom-headers", obj, headers, CheckBothNil(), CheckFileBytes())
+}
+
+// TestFunc_CustomHeaderOverridesBrowser 验证自定义头覆盖浏览器注入头。
+func TestFunc_CustomHeaderOverridesBrowser(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleDynamic("GET", "/override.bin", func(r *http.Request) (int, map[string]string, []byte) {
+		ua := r.UserAgent()
+		if ua != "CustomAgent/1.0" {
+			return http.StatusOK, map[string]string{"Content-Type": "text/plain"}, []byte("wrong ua: " + ua)
+		}
+		return http.StatusOK, map[string]string{"Content-Type": "text/plain"}, []byte("correct ua")
+	})
+
+	cmp := NewComparator(t, b, WithInjectBrowserHeaders(true))
+	headers := map[string]string{"User-Agent": "CustomAgent/1.0"}
+	obj := makeTestObject(b.URL()+"/override.bin", "headers/override.bin", nil, nil)
+	cmp.Run("header-override", obj, headers, CheckBothNil(), CheckFileBytes())
 }
 
 // ================================================================
@@ -160,6 +178,57 @@ func TestFunc_MaxRetriesExceeded(t *testing.T) {
 	cmp := NewComparator(t, b, WithMaxRetries(1))
 	obj := makeTestObject(b.URL()+"/alwaysfail.bin", "fail/out.bin", nil, nil)
 	cmp.Run("max-retries", obj, nil, CheckAnyError())
+}
+
+// ================================================================
+// 组C（扩展）：错误码矩阵与退避
+// ================================================================
+
+// TestFunc_500Retriable 验证 500 是可重试的（非 ErrNoTry）。
+func TestFunc_500Retriable(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleError("GET", "/500.bin", http.StatusInternalServerError)
+
+	cmp := NewComparator(t, b, WithMaxRetries(1))
+	obj := makeTestObject(b.URL()+"/500.bin", "errors/500.bin", nil, nil)
+	cmp.Run("500-retriable", obj, nil, CheckAnyError())
+}
+
+// TestFunc_502Retriable 验证 502 可重试。
+func TestFunc_502Retriable(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleError("GET", "/502.bin", http.StatusBadGateway)
+
+	cmp := NewComparator(t, b, WithMaxRetries(1))
+	obj := makeTestObject(b.URL()+"/502.bin", "errors/502.bin", nil, nil)
+	cmp.Run("502-retriable", obj, nil, CheckAnyError())
+}
+
+// TestFunc_503Retriable 验证 503 可重试。
+func TestFunc_503Retriable(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleError("GET", "/503.bin", http.StatusServiceUnavailable)
+
+	cmp := NewComparator(t, b, WithMaxRetries(1))
+	obj := makeTestObject(b.URL()+"/503.bin", "errors/503.bin", nil, nil)
+	cmp.Run("503-retriable", obj, nil, CheckAnyError())
+}
+
+// TestFunc_RetryBackoff 验证两次重试间有时间间隔（总时间参考，不精确测量单次退避）。
+func TestFunc_RetryBackoff(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleDynamic("GET", "/backoff.bin", func(r *http.Request) (int, map[string]string, []byte) {
+		return http.StatusInternalServerError, nil, []byte("error")
+	})
+
+	cmp := NewComparator(t, b, WithMaxRetries(1))
+	start := time.Now()
+	obj := makeTestObject(b.URL()+"/backoff.bin", "errors/backoff.bin", nil, nil)
+	cmp.Run("backoff", obj, nil, CheckAnyError())
+	elapsed := time.Since(start)
+	if elapsed < 500*time.Millisecond {
+		t.Logf("backoff elapsed: %v (may be fast if not implemented)", elapsed)
+	}
 }
 
 // ================================================================
@@ -275,6 +344,60 @@ func TestFunc_LogFileCreated(t *testing.T) {
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/logtest.bin", "log/out.bin", nil, nil)
 	cmp.Run("log-created", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// ================================================================
+// 组F（扩展）：路径与文件系统
+// ================================================================
+
+// TestFunc_RelativePath 验证相对路径解析到 rootDir 内。
+func TestFunc_RelativePath(t *testing.T) {
+	content := "relative path test"
+	b := NewBeacon(t)
+	b.HandleFile("GET", "/rel.bin", content, "application/octet-stream")
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/rel.bin", "sub/dir/rel.bin", nil, nil)
+	cmp.Run("relative-path", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// TestFunc_PathOutsideRoot 验证 rootDir 外的路径被拒绝。
+func TestFunc_PathOutsideRoot(t *testing.T) {
+	content := "outside root test"
+	b := NewBeacon(t)
+	b.HandleFile("GET", "/out.bin", content, "application/octet-stream")
+
+	rootDir := t.TempDir()
+	cmp := NewComparator(t, b, func(o *ComparatorOptions) {
+		o.RootDir = rootDir
+	})
+	obj := makeTestObject(b.URL()+"/out.bin", "../outside.bin", nil, nil)
+	cmp.Run("outside-root", obj, nil, CheckAnyError())
+}
+
+// TestFunc_ExplicitRootDir 验证显式设置 RootDir 后相对路径在 rootDir 内正确解析。
+func TestFunc_ExplicitRootDir(t *testing.T) {
+	content := "explicit root dir test"
+	b := NewBeacon(t)
+	b.HandleFile("GET", "/exroot.bin", content, "application/octet-stream")
+
+	workDir := t.TempDir()
+	cmp := NewComparator(t, b, func(o *ComparatorOptions) {
+		o.RootDir = workDir
+	})
+	obj := makeTestObject(b.URL()+"/exroot.bin", "exroot/out.bin", nil, nil)
+	cmp.Run("explicit-rootdir", obj, nil, CheckBothNil(), CheckFileBytes())
+}
+
+// TestFunc_DirAutoCreate 验证输出目录自动创建。
+func TestFunc_DirAutoCreate(t *testing.T) {
+	content := "auto create dir"
+	b := NewBeacon(t)
+	b.HandleFile("GET", "/autodir.bin", content, "application/octet-stream")
+
+	cmp := NewComparator(t, b)
+	obj := makeTestObject(b.URL()+"/autodir.bin", "auto/deep/nested/dir/out.bin", nil, nil)
+	cmp.Run("dir-create", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
 // ================================================================

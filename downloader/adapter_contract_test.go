@@ -5,6 +5,7 @@ package downloader
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -53,13 +54,24 @@ func TestDLContract_ProgressCalled(t *testing.T) {
 // TestDLContract_MetadataPopulated 验证下载完成后 Metadata 被正确填充。
 func TestDLContract_MetadataPopulated(t *testing.T) {
 	b := NewBeacon(t)
-	b.HandleFile("GET", "/meta.bin", "metadata test content", "application/octet-stream")
+	content := "metadata test content for exact size verification"
+	b.HandleFile("GET", "/meta.bin", content, "application/octet-stream")
 
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/meta.bin", "meta/out.bin", nil, nil)
 	cmp.Run("metadata", obj, nil,
 		CheckBothNil(),
 		CheckMetadata("total_size"),
+		func(t *testing.T, old, new *DownloadResult) {
+			t.Helper()
+			want := strconv.Itoa(len(content))
+			if old.Obj.Metadata["total_size"] != want {
+				t.Errorf("old Metadata[total_size]=%q, want %q", old.Obj.Metadata["total_size"], want)
+			}
+			if new.Obj.Metadata["total_size"] != want {
+				t.Errorf("new Metadata[total_size]=%q, want %q", new.Obj.Metadata["total_size"], want)
+			}
+		},
 	)
 }
 
