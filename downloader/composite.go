@@ -4,10 +4,14 @@
 package downloader
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
 )
+
+// ErrCompositeEmpty 表示复合下载的文件列表为空，需要重新触发 Scrape。
+var ErrCompositeEmpty = errors.New("composite: file list is empty, need re-scrape")
 
 // parseCompositeFiles 从 obj.Extra["files"] 解析文件列表。
 // 统一处理 []map[string]string (memory存储)、[]any (JSON反序列化) 和
@@ -32,12 +36,18 @@ func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
 					fileList = append(fileList, m)
 				}
 			}
+			if len(fileList) == 0 {
+				return nil, ErrCompositeEmpty
+			}
 			return fileList, nil
 		}
 	}
 
 	// Handle direct []map[string]string type
 	if files, ok := filesVal.([]map[string]string); ok {
+		if len(files) == 0 {
+			return nil, ErrCompositeEmpty
+		}
 		return files, nil
 	}
 
@@ -54,6 +64,9 @@ func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
 				}
 				fileList = append(fileList, m)
 			}
+		}
+		if len(fileList) == 0 {
+			return nil, ErrCompositeEmpty
 		}
 		return fileList, nil
 	}

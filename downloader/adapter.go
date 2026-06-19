@@ -173,6 +173,8 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		if r.ModTime != "" {
 			obj.Metadata["mod_time"] = r.ModTime
 		}
+		// TODO(MigrationCleanup): remove after dlcore deprecation — compatibility field
+		obj.Metadata["status"] = "completed"
 	}
 	obj.Unlock()
 
@@ -188,10 +190,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 	if err != nil {
 		return err
 	}
-
-	if len(fileList) == 0 {
-		return fmt.Errorf("adapter: composite download with empty file list")
-	}
+	// parseCompositeFiles already handles empty list — returns ErrCompositeEmpty
 
 	slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
 	for _, fileMap := range fileList {

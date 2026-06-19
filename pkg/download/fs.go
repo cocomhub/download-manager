@@ -35,6 +35,29 @@ func ResolvePath(rootDir, p string) (string, error) {
 	return rp, nil
 }
 
+// ResolvePathWithAllowList 在 ResolvePath 基础上增加白名单校验。
+// 当 allowPaths 非空时，解析后的路径必须位于至少一个白名单目录下。
+// 未配置白名单时行为与 ResolvePath 一致。
+func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (string, error) {
+	resolved, err := ResolvePath(rootDir, p)
+	if err != nil {
+		return "", err
+	}
+	if len(allowPaths) == 0 {
+		return resolved, nil
+	}
+	for _, ap := range allowPaths {
+		absAP, aErr := filepath.Abs(ap)
+		if aErr != nil {
+			continue
+		}
+		if strings.HasPrefix(resolved, absAP+string(filepath.Separator)) || resolved == absAP {
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf("path not in allowed list: %s", p)
+}
+
 // isWithinRoot 检查 p 是否在 rootDir 的安全范围内。
 func isWithinRoot(rootDir, p string) bool {
 	absRoot, err := filepath.Abs(rootDir)

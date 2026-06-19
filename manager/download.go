@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
 )
@@ -142,6 +143,62 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			return
 		}
+
+		// 复合下载空列表：重新 resolve 后放回 pending，让调度器重新调度
+		// 最多 10 次，指数退避最大 1h
+		if errors.Is(err, downloader.ErrCompositeEmpty) {
+			v, _ := m.compositeResolveCount.LoadOrStore(obj.URL, new(atomic.Int64))
+			counter, ok := v.(*atomic.Int64)
+			if !ok {
+				m.compositeResolveCount.Store(obj.URL, new(atomic.Int64))
+				raw, _ := m.compositeResolveCount.Load(obj.URL)
+				counter, ok = raw.(*atomic.Int64)
+				if !ok {
+					m.compositeResolveCount.Store(obj.URL, new(atomic.Int64))
+					counter = new(atomic.Int64)
+					m.compositeResolveCount.Store(obj.URL, counter)
+				}
+			}
+			count := counter.Add(1)
+			if count > 10 {
+				slog.Error("Composite resolve retry exhausted, marking as permanent failure",
+					"task_id", t.ID(), "url", obj.URL)
+				m.compositeResolveCount.Delete(obj.URL)
+				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
+				if ft, ok := t.(core.FailedTask); ok {
+					ft.MarkAsFailed(obj, err)
+				}
+				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+				return
+			}
+
+			// 指数退避：2^(count-1) 秒，最大 3600 秒
+			backoff := time.Duration(1<<(count-1)) * time.Second
+			if backoff > time.Hour {
+				backoff = time.Hour
+			}
+			slog.Warn("Composite download with empty file list, re-resolving",
+				"task_id", t.ID(), "url", obj.URL, "attempt", count, "backoff", backoff)
+
+			time.Sleep(backoff)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if resolveErr := t.ResolveObject(ctx, obj); resolveErr != nil {
+				slog.Error("Re-resolve after composite empty failed",
+					"task_id", t.ID(), "url", obj.URL, "error", resolveErr)
+			}
+			t.UpdateStatus(obj, model.StatusPending, nil)
+			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+			select {
+			case m.schedulerSignal <- struct{}{}:
+			default:
+			}
+			return
+		}
+
 		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
 		t.UpdateStatus(obj, model.StatusFailed, err)
 		mt := m.getOrCreateMetrics(t.ID())

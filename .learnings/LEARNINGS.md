@@ -1620,3 +1620,109 @@ Manager 的 `download()` 方法在失败计数超过 max retries 时调用 `ft.M
 - Tags: lint, errcheck, pattern
 
 ---
+
+## [LRN-20260619-026] correction — Edit 工具 old_string 匹配失败：Go tab 缩进（重复发作，见 ERR-20260614-002）
+
+**Logged**: 2026-06-19T17:50:00Z
+**Priority**: high
+**Status**: pending
+**Area**: config
+
+### Summary
+Go 源码使用 tab 缩进，Edit 工具的 `old_string` 必须使用 tab 而非空格。当 `old_string` 用空格而文件用 tab 时，Edit 返回 "String to replace not found in file"。本会话中多次出现。
+
+### Suggested Action
+- 使用 `sed -n 'line,linep' file | cat -A` 检查目标行的实际 whitespace
+- 或用 Bash `sed -i` 做替换
+
+### Metadata
+- Source: error
+- Related Files: pkg/download/http_extractor.go, downloader/adapter.go, manager/download.go
+- Tags: tool, edit, whitespace, go
+- See Also: ERR-20260614-002, ERR-20260619-003
+
+---
+
+## [LRN-20260619-027] correction — map[string]bool 改为 map[string]string 后查表语法变化
+
+**Logged**: 2026-06-19T17:51:00Z
+**Priority**: low
+**Status**: pending
+**Area**: backend
+
+### Summary
+`mediaExtensionSet` 从 `map[string]bool` 改为 `map[string]string`（记录期望 Content-Type 前缀）时，查表表达式 `mediaExtensionSet[ext]` 的语义从 `bool` 隐式真值检查变为 `string` 隐式非空检查。两者在 Go 中都合法，但语义含义不同，需用 `!= ""` 显式表达。
+
+### Details
+```go
+// Before: bool map — 检查 set membership
+var mediaExtensionSet = map[string]bool{".mp4": true}
+if mediaExtensionSet[ext] { ... }
+
+// After: string map — 检查 membership AND 取期望值
+var mediaExtensionSet = map[string]string{".mp4": "video/"}
+if mediaExtensionSet[ext] != "" { // 必须显式 != ""
+    expectedPrefix := mediaExtensionSet[ext]
+}
+```
+
+### Metadata
+- Source: code_review
+- Related Files: pkg/download/http_extractor.go
+- Tags: go, refactoring, type_change
+
+---
+
+## [LRN-20260619-028] correction — sync.Map.Load 直接赋值 *atomic.Int64 编译错误
+
+**Logged**: 2026-06-19T17:52:00Z
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+`sync.Map.Load` 返回 `any`，不能直接赋值给 `*atomic.Int64`。即使用了 `_, _` 忽略 ok 也不行——必须用 `v, ok := m.Load(k); counter, ok := v.(*atomic.Int64)` 模式。
+
+最安全的 fallback 模式：
+```go
+v, _ := m.LoadOrStore(key, new(atomic.Int64))
+counter, ok := v.(*atomic.Int64)
+if !ok {
+    fallback := new(atomic.Int64)
+    m.Store(key, fallback)
+    counter = fallback
+}
+count := counter.Add(1)
+```
+
+### Metadata
+- Source: error
+- Related Files: manager/download.go
+- Tags: go, sync.Map, type_assertion, atomic, concurrency
+- See Also: LRN-20260619-007
+
+---
+
+## [LRN-20260619-029] insight — TestScheduler_ConcurrentAccess data race 是预存问题
+
+**Logged**: 2026-06-19T17:53:00Z
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+`TestScheduler_ConcurrentAccess` 存在 Start/Stop 之间的 data race（resolve workers channel 被同时读/写），通过 `git stash` + 测试确认该 race 在当前 commit 就已经存在，与本次改动无关。写测试前应先用 stash 验证预存失败，避免被"我的改动破坏了已有测试"误导。
+
+### Details
+测试方法：
+1. `git stash` 恢复干净工作树
+2. 运行目标测试看是否失败
+3. `git stash pop` 恢复改动
+4. 如果 stash 后测试同样失败，则是预存问题
+
+### Metadata
+- Source: conversation
+- Related Files: manager/manager_stress_test.go, manager/resolve.go
+- Tags: testing, data_race, pre_existing
+
+---

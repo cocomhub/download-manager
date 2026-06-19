@@ -18,6 +18,18 @@ import (
 	"time"
 )
 
+// mediaExtensionSet 是预期为媒体文件的 URL 扩展名集合，用于 Content-Type 校验。
+// 当 URL 扩展名在此集合中但响应 Content-Type 不匹配期望类型时，报 ErrNoTry。
+var mediaExtensionSet = map[string]string{
+	".mp4":  "video/",
+	".jpg":  "image/",
+	".jpeg": "image/",
+	".png":  "image/",
+	".gif":  "image/",
+	".webp": "image/",
+	".bmp":  "image/",
+}
+
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
@@ -27,6 +39,7 @@ type HTTPExtractor struct {
 	rootDir    string
 	logDir     string
 	ua         string
+	allowPaths []string
 }
 
 // NewHTTPExtractor 创建并返回 HTTPExtractor 实例。
@@ -53,6 +66,9 @@ func (e *HTTPExtractor) SetTransport(t Transport) { e.transport = t }
 // SetSelector 注入 Selector 实例（实现 ExtractorWithSelector 接口）。
 func (e *HTTPExtractor) SetSelector(s Selector) { e.selector = s }
 
+// SetAllowPaths 设置下载路径白名单（可选）。
+func (e *HTTPExtractor) SetAllowPaths(paths []string) { e.allowPaths = paths }
+
 // Name 返回提取器名称。
 func (e *HTTPExtractor) Name() string { return "http" }
 
@@ -71,7 +87,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	rPath := req.SavePath
 	var err error
 	if e.rootDir != "" {
-		rPath, err = ResolvePath(e.rootDir, req.SavePath)
+		rPath, err = ResolvePathWithAllowList(e.rootDir, e.allowPaths, req.SavePath)
 		if err != nil {
 			return err
 		}
@@ -147,7 +163,11 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	}
 
 	// 重试循环
-	for attempt := 1; attempt <= e.maxRetries; attempt++ {
+	maxRetries := e.maxRetries
+	if maxRetries <= 0 {
+		maxRetries = 5 // 保底重试（与 Manager 层一致）
+	}
+	for attempt := 1; attempt <= maxRetries; attempt++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -327,6 +347,21 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			return false, fmt.Errorf("HTTP %d", tresp.StatusCode)
 		}
 		return false, fmt.Errorf("HTTP error: %d", tresp.StatusCode)
+	}
+
+	// Content-Type 严格校验：媒体扩展名必须返回匹配的 Content-Type 前缀
+	if ext := strings.ToLower(filepath.Ext(rawURL)); mediaExtensionSet[ext] != "" {
+		expectedPrefix := mediaExtensionSet[ext]
+		ct := tresp.Headers["Content-Type"]
+		if ct == "" {
+			ct = tresp.Headers["content-type"]
+		}
+		if !strings.HasPrefix(ct, expectedPrefix) {
+			if logWriter != nil {
+				fmt.Fprintf(logWriter, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
+			}
+			return false, fmt.Errorf("%w: invalid content type: expected %s*, got %s", ErrNoTry, expectedPrefix, ct)
+		}
 	}
 
 	// 如果请求了 Range 但服务器返回 200（而非 206），说明不支持断点续传

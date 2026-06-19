@@ -3,7 +3,22 @@
 
 package config
 
-import "reflect"
+import (
+	"reflect"
+)
+
+// stringSliceEqual 比较两个字符串切片是否相等（忽略 nil vs empty）。
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
 // Change represents a single configuration change between two Config values.
 type Change struct {
@@ -127,6 +142,9 @@ func (c Config) Diff(b Config) []Change {
 	}
 	if c.Downloader.Filesystem.CacheDir != b.Downloader.Filesystem.CacheDir {
 		changes = append(changes, Change{Path: "downloader.filesystem.cache_dir", A: c.Downloader.Filesystem.CacheDir, B: b.Downloader.Filesystem.CacheDir})
+	}
+	if !stringSliceEqual(c.Downloader.Filesystem.AllowPaths, b.Downloader.Filesystem.AllowPaths) {
+		changes = append(changes, Change{Path: "downloader.filesystem.allow_paths", A: c.Downloader.Filesystem.AllowPaths, B: b.Downloader.Filesystem.AllowPaths})
 	}
 	if c.Downloader.HTTP.TimeoutSeconds != b.Downloader.HTTP.TimeoutSeconds {
 		changes = append(changes, Change{Path: "downloader.http.timeout_seconds", A: c.Downloader.HTTP.TimeoutSeconds, B: b.Downloader.HTTP.TimeoutSeconds})

@@ -98,6 +98,9 @@ type Manager struct {
 	failureWriteIdx int // 环形缓冲区写入索引
 	maxFailures     int // 环形容量（默认 1000）
 
+	// Composite resolve retry tracking
+	compositeResolveCount sync.Map // URL -> *atomic.Int64 (retry count, max 10)
+
 	// Async resolve pool
 	resolveCache *ResolveCache
 	resolveQueue chan resolveRequest

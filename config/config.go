@@ -60,9 +60,10 @@ type MongoSource struct {
 }
 
 type DcFilesystem struct {
-	RootDir  string `yaml:"root_dir" json:"root_dir"`
-	LogDir   string `yaml:"log_dir" json:"log_dir"`
-	CacheDir string `yaml:"cache_dir" json:"cache_dir"`
+	RootDir    string   `yaml:"root_dir" json:"root_dir"`
+	LogDir     string   `yaml:"log_dir" json:"log_dir"`
+	CacheDir   string   `yaml:"cache_dir" json:"cache_dir"`
+	AllowPaths []string `yaml:"allow_paths" json:"allow_paths"`
 }
 
 type DcHTTP struct {
@@ -240,6 +241,10 @@ func (c *Config) Clone() *Config {
 	if c.Downloader.FFmpeg.ExtraArgs != nil {
 		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(c.Downloader.FFmpeg.ExtraArgs))
 		copy(cc.Downloader.FFmpeg.ExtraArgs, c.Downloader.FFmpeg.ExtraArgs)
+	}
+	if c.Downloader.Filesystem.AllowPaths != nil {
+		cc.Downloader.Filesystem.AllowPaths = make([]string, len(c.Downloader.Filesystem.AllowPaths))
+		copy(cc.Downloader.Filesystem.AllowPaths, c.Downloader.Filesystem.AllowPaths)
 	}
 	// MoveIfExists and ExternalHLSLog are plain structs — shallow copy is sufficient.
 

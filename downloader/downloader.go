@@ -52,6 +52,9 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	}
 
 	httpEx := download.NewHTTPExtractorWithConfig(cfg.MaxRetries, userAgent, cfg.Filesystem.RootDir, cfg.Filesystem.LogDir)
+	if len(cfg.Filesystem.AllowPaths) > 0 {
+		httpEx.SetAllowPaths(cfg.Filesystem.AllowPaths)
+	}
 	hlsEx := extractor.NewHLSExtractor(
 		extractor.WithFFmpegPath(cfg.FFmpeg.Path),
 		extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
