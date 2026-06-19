@@ -63,6 +63,7 @@ jobs:
         with:
           files: build/cover.out
           flags: unittests
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage artifact
@@ -112,6 +113,7 @@ jobs:
         with:
           files: build/cover.out
           flags: no_mongo
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       - name: Upload coverage artifact

@@ -80,7 +80,18 @@ func (m *Manager) processResolve(req resolveRequest) {
 	}
 
 	m.resolveCache.MarkResolved(req.obj.URL)
-	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates
+
+	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates。
+	//
+	// 但需要检查对象是否已被 CancelObject() 取消：resolve 入队时保存的是对象指针，
+	// CancelObject 通过独立的 storage lookup 修改对象状态，不会修改已入队的 req.obj。
+	// 如果不检查就直接覆盖，会静默撤销用户的取消操作。
+	if current, err := t.Storage().Get(req.obj.URL); err == nil && current != nil && current.GetStatus() == model.StatusCancelled {
+		slog.Info("Resolve: object was cancelled, preserving cancelled status",
+			"task_id", req.taskID, "url", req.obj.URL)
+		m.resolveCache.Invalidate(req.obj.URL)
+		return
+	}
 	_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
 	slog.Debug("Resolve succeeded", "task_id", req.taskID, "url", req.obj.URL)
 }
