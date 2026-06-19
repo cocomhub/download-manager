@@ -148,6 +148,34 @@ func TestDLContract_Cancel(t *testing.T) {
 	})
 }
 
+// TestDLContract_CancelNotFound 验证取消不存在的下载不 panic。
+func TestDLContract_CancelNotFound(t *testing.T) {
+	b := NewBeacon(t)
+	cmp := NewComparator(t, b)
+
+	t.Run("cancel_not_found_old", func(t *testing.T) {
+		if canceler, ok := cmp.oldDL.(interface{ Cancel(string) error }); ok {
+			err := canceler.Cancel("http://nonexistent.url/file.bin")
+			if err == nil {
+				t.Log("old: Cancel returned nil for nonexistent URL (acceptable)")
+			} else {
+				t.Logf("old: Cancel returned: %v", err)
+			}
+		}
+	})
+
+	t.Run("cancel_not_found_new", func(t *testing.T) {
+		if canceler, ok := cmp.newDL.(interface{ Cancel(string) error }); ok {
+			err := canceler.Cancel("http://nonexistent.url/file.bin")
+			if err == nil {
+				t.Log("new: Cancel returned nil for nonexistent URL (acceptable)")
+			} else {
+				t.Logf("new: Cancel returned: %v", err)
+			}
+		}
+	})
+}
+
 // TestDLContract_DomainLimit 验证域名并发限制。
 func TestDLContract_DomainLimit(t *testing.T) {
 	b := NewBeacon(t)

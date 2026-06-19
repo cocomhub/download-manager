@@ -378,6 +378,41 @@ func (c *Comparator) Run(name string, obj *model.DownloadObject, headers map[str
 	})
 }
 
+// DlcoreOnlyRun 仅运行旧实现（dlcore）的下载，记录新实现的参考行为。
+// name 是测试名，会自动添加 "[dlcore-only]" 后缀。
+// checks 使用既有 Check 类型，在内部将 newResult 作为第二个参数传入。
+func (c *Comparator) DlcoreOnlyRun(t *testing.T, name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
+	t.Run(name+"_[dlcore-only]", func(t *testing.T) {
+		// 运行旧实现
+		oldObj := copyObject(obj)
+		var oldResult DownloadResult
+		oldResult.Obj = oldObj
+		oldResult.Err = c.oldDL.Download(oldObj, headers)
+		collectFileResult(t, c.rootDir, &oldResult)
+		t.Logf("dlcore result: err=%v, size=%d, metadata=%v", oldResult.Err, oldResult.FileSize, oldResult.Obj.Metadata)
+
+		// 运行新实现记录参考
+		newObj := copyObject(obj)
+		var newResult DownloadResult
+		newResult.Obj = newObj
+		newResult.Err = c.newDL.Download(newObj, headers)
+		collectFileResult(t, c.rootDir, &newResult)
+		t.Logf("pkg/download reference: err=%v, size=%d, metadata=%v", newResult.Err, newResult.FileSize, newResult.Obj.Metadata)
+
+		// 执行 dlcore-only 断言
+		for i, check := range checks {
+			if check == nil {
+				continue
+			}
+			check(t, &oldResult, &newResult)
+			if t.Failed() {
+				t.Logf("dlcore-only check %d/%d failed", i+1, len(checks))
+				return
+			}
+		}
+	})
+}
+
 // copyObject 深度拷贝 DownloadObject 用于隔离测试。
 func copyObject(src *model.DownloadObject) *model.DownloadObject {
 	dst := &model.DownloadObject{
