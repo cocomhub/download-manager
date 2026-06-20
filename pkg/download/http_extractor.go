@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,10 +42,21 @@ type HTTPExtractor struct {
 	ua          string
 	allowPaths  []string
 	browserHdrs bool
+	cancels     sync.Map // map[string]context.CancelFunc
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
 func (e *HTTPExtractor) SetBrowserHeaders(v bool) { e.browserHdrs = v }
+
+// Cancel 实现 Canceller 接口，按 URL 取消正在进行的下载。
+func (e *HTTPExtractor) Cancel(url string) error {
+	if v, ok := e.cancels.LoadAndDelete(url); ok {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+	}
+	return nil
+}
 
 // NewHTTPExtractor 创建并返回 HTTPExtractor 实例。
 func NewHTTPExtractor() *HTTPExtractor {
@@ -88,6 +100,12 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 		return fmt.Errorf("http: transport not set, call SetTransport before Extract")
 	}
 
+	// 创建 per-URL 可取消的 context，支持按 URL 精确取消
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer e.cancels.Delete(req.URL)
+	defer dlCancel()
+	e.cancels.Store(req.URL, dlCancel)
+
 	rPath := req.SavePath
 	var err error
 	if e.rootDir != "" {
@@ -105,7 +123,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	// 选择代理
 	proxyURL := ""
 	if e.selector != nil {
-		proxyURL, err = e.selector.SelectProxy(ctx, req.URL, req.Hint)
+		proxyURL, err = e.selector.SelectProxy(dlCtx, req.URL, req.Hint)
 		if err != nil {
 			slog.Warn("Proxy selection failed, falling back to direct", "url", req.URL, "error", err)
 		}
@@ -173,13 +191,13 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	}
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-dlCtx.Done():
+			return dlCtx.Err()
 		default:
 		}
 
 		var success bool
-		success, err = e.tryDownload(ctx, rPath, req.URL, proxyURL, startOffset, req)
+		success, err = e.tryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req)
 		if err == nil && success {
 			return nil
 		}
