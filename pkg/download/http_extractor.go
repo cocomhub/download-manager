@@ -33,14 +33,18 @@ var mediaExtensionSet = map[string]string{
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
-	transport  Transport
-	selector   Selector
-	maxRetries int
-	rootDir    string
-	logDir     string
-	ua         string
-	allowPaths []string
+	transport    Transport
+	selector     Selector
+	maxRetries   int
+	rootDir      string
+	logDir       string
+	ua           string
+	allowPaths   []string
+	browserHdrs  bool
 }
+
+// SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
+func (e *HTTPExtractor) SetBrowserHeaders(v bool) { e.browserHdrs = v }
 
 // NewHTTPExtractor 创建并返回 HTTPExtractor 实例。
 func NewHTTPExtractor() *HTTPExtractor {
@@ -533,10 +537,30 @@ func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {
 		h["User-Agent"] = e.ua
 	}
 
+	// 注入 Chrome 风格浏览器标头（除非禁用），然后在最后用 req.Headers 覆盖
+	if e.browserHdrs {
+		browser := map[string]string{
+			"Accept":          "*/*",
+			"Cache-Control":   "no-cache",
+			"Pragma":          "no-cache",
+			"Priority":        "i",
+			"Sec-Ch-Ua":       `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"Sec-Ch-Ua-Mobile": "?0",
+			"Sec-Ch-Ua-Platform": `"macOS"`,
+			"Sec-Fetch-Dest":  "video",
+			"Sec-Fetch-Mode":  "no-cors",
+			"Sec-Fetch-Site":  "same-origin",
+		}
+		for k, v := range browser {
+			if _, exists := h[k]; !exists {
+				h[k] = v
+			}
+		}
+	}
+
 	// 如果之前有 ETag 记录，设置 If-None-Match 条件请求头
 	if req.Metadata != nil {
 		if etag := req.Metadata["etag"]; etag != "" {
-			// 避免覆盖用户明确设置的头
 			if _, has := h["If-None-Match"]; !has {
 				h["If-None-Match"] = etag
 			}
