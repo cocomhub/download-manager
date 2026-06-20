@@ -54,7 +54,7 @@ func TestHTTPExtractorCancel(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Cancel via the URL-based cancel method
-	if canceller, ok := interface{}(ext).(download.Canceller); ok {
+	if canceller, ok := any(ext).(download.Canceller); ok {
 		err := canceller.Cancel(ts.URL)
 		t.Logf("Cancel returned: %v", err)
 	} else {
@@ -76,7 +76,7 @@ func TestHTTPExtractorCancel(t *testing.T) {
 func TestHTTPExtractorCancelNotFound(t *testing.T) {
 	ext := download.NewHTTPExtractor()
 
-	if canceller, ok := interface{}(ext).(download.Canceller); ok {
+	if canceller, ok := any(ext).(download.Canceller); ok {
 		err := canceller.Cancel("http://nonexistent.url/file.bin")
 		t.Logf("Cancel returned for non-existent URL: %v", err)
 	} else {
