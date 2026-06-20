@@ -250,23 +250,35 @@ CI 使用 golangci-lint v2（staticcheck + unused），比 `go vet` 检测更多
 - 必须已废弃包的 import 行加 `//nolint:staticcheck`：`dlcore "pkg/path" //nolint:staticcheck`
 - 未使用的辅助函数要用 `var _ = fn` 抑制或直接删除
 
-### dlcore → pkg/download 行为差异（实测验证，2026-06-19 更新）
-废弃的 `pkg/dlcore` 和新路径 `pkg/download` 存在以下已知差异，测试中需注意：
+### dlcore → pkg/download 行为差异（实测验证，2026-06-20 更新）
+废弃的 `pkg/dlcore` 和新路径 `pkg/download` 经 6 项修复后核心路径已对齐。
+
+**已知差异（双方行为不同）：**
 
 | 差异 | dlcore | pkg/download | 应对 | 测试 |
 |------|--------|-------------|------|------|
-| `maxRetries=0` | 无限重试 | 不重试 | 用 `DlcoreOnlyRun` 单独测 dlcore | C7 dlcore-only |
-| `Metadata["status"]` | 写入 `"completed"` | 不写入（adapter 有兼容 shim） | 外部无人消费此字段，安全保留 | G2 dlcore-only |
-| 500 错误后重试 | 部分场景直接返回 | 重试行为不同 | 测试中不断言双方都成功 | — |
-| 图片 URL 30s 超时 | `isImageURL` 触发 30s ctx 超时 | 无此逻辑 | dlcore-only 测试 | H5 |
-| huaacg.com 5s 超时 | 特殊 5s ctx + `ErrNoTry` | 无此逻辑 | dlcore-only 测试 | H6 |
-| metadata 写入位置 | `req.Metadata` 直接写入 | `OnMetadata` 回调写入 + `Result` 结构体 | `CheckMetadata` 对部分 key 仍可用 | — |
+| `maxRetries=0` | 无限重试 | 钳位到 5 | 用 `DlcoreOnlyRun` 单独测 dlcore | C7 dlcore-only |
+| `Metadata["status"]` | 写入 `"completed"` | 不写入（adapter 有兼容 shim） | 外部无人消费，安全保留 | G2 dlcore-only |
+| 500 错误后重试 | 不自动重试 | 自动重试 | 测试中不断言双方都成功 | — |
+| 图片 URL 30s 超时 | `isImageURL` 触发 30s ctx | 无此逻辑，由 http.Client.Timeout 统一控制 | dlcore-only 测试 | H5 |
+| huaacg.com 5s 超时 | 硬编码域名检测 + `ErrNoTry` | 无此逻辑 | dlcore-only 测试 | H6 |
+| metadata 写入位置 | `req.Metadata` 直接写 map | `OnMetadata` 回调 + `Result` 结构体 | `CheckMetadata` 对部分 key 仍可用 | — |
 
-**已对齐的行为**（双方一致，无需差异处理）：
-- Content-Type text 检测 `text/html + .mp4/.jpg → ErrNoTry`
-- 路径穿越保护 `ResolvePath` 拒绝 `../`
-- progress 在 `total=0` 时双方都不触发 Read-level 回调（仅最终设 `progress=100`）
-- **Error sentinel**：`pkg/dlcore.ErrNoTry` 已复用 `pkg/download.ErrNoTry`（`pkg/dlcore/client.go:37`），`errors.Is(err, dlcore.ErrNoTry)` 跨包可用
+**已对齐的行为（经 6 项修复后双方一致）：**
+- Content-Type text 检测 `text/html + .mp4/.jpg → ErrNoTry`（含查询参数 URL）
+- 浏览器标头注入（`SetBrowserHeaders(true)` 注入完整 Chromium 标头集）
+- 弱 ETag 支持 `W/"32hex"` 提取 MD5
+- 续传内容变更检测 `totalSize < startOffset` → 重置下载
+- **Error sentinel**：`pkg/dlcore.ErrNoTry` 已复用 `pkg/download.ErrNoTry`
+- HTTPExtractor 支持按 URL 精确取消（`Canceller` 接口）
+- `ResponseCheck` 可插拔钩子系统替代硬编码检测
+
+**pkg/download 独有的增强（dlcore 没有的）：**
+- ETag + If-None-Match 条件请求（304 跳过未变更文件）
+- `Transport` 接口抽象（可替换传输层）
+- `OnMetadata` 回调（crash-safe 元数据持久化）
+- `DownloadResult` 结构体（结构化结果替代 Metadata map 解析）
+- `ComposeProgress` 组合回调（可插拔进度日志）
 
 ### Comparator 构造要点
 - `NewComparator` 内部分别构造：旧 = Type `"native_old"`（dlcore），新 = Type `"native"`（pkg/download）
