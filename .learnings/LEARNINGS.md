@@ -1919,3 +1919,163 @@ dlcore 对 500 直接返回错误（不自动重试），`CheckBothNil()` 会失
 - Source: error
 - Related Files: downloader/adapter_functional_test.go
 - Tags: golangci-lint, import_management, windows
+
+---
+
+## [LRN-20260620-001] correction — `filepath.Ext(rawURL)` 在含查询参数 URL 上返回错误扩展名
+
+**Logged**: 2026-06-20T08:30:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: tests
+
+### Summary
+`filepath.Ext("https://example.com/video.mp4?token=abc")` 返回 `".mp4?token=abc"` 而非 `".mp4"`，导致 Content-Type 校验在不含查询参数时工作正常、含查询参数时静默跳过。
+
+### Details
+pkg/download 在 Content-Type 校验中使用 `filepath.Ext(rawURL)`，当 URL 含查询参数时获取到错误的扩展名（包含 `?token=abc`），`mediaExtensionSet` 查表失败，校验被绕过。测试 `TestHTTPExtractorContentTypeWithQuery` 用 text/html + .mp4 URL 验证此 bug——text/html 被错误地下载成功。
+
+修复：先 `url.Parse(rawURL)` 再取 `filepath.Ext(parsed.Path)`。
+
+### Resolution
+- **Resolved**: 2026-06-20
+- **Commit**: 1d88dc3
+
+### Metadata
+- Source: error
+- Related Files: pkg/download/http_extractor.go
+- Tags: url_parsing, content_type, bug
+- Pattern-Key: hardened.filepath_ext_query_params
+
+---
+
+## [LRN-20260620-002] best_practice — 浏览器标头注入用 map 预定义 + req.Headers 覆盖
+
+**Logged**: 2026-06-20T08:45:00Z
+**Priority**: medium
+**Status**: resolved
+**Area**: backend
+
+### Summary
+在 `buildHeaders` 中注入 Chrome 风格浏览器标头时，用 map 预定义全部标头，再被 `req.Headers` 覆盖。比 dlcore 的 `Header.Set()` 顺序更清晰。
+
+### Details
+dlcore 的 `addBrowserLikeHeaders` 先逐个 `Set` 浏览器标头，再逐个 `Set` 自定义头。pkg/download 的 `buildHeaders` 先用 `maps.Copy(h, req.Headers)` 放自定义头，再用预定义 map 放浏览器标头（仅当 key 不存在时写入）。效果相同（自定义头覆盖浏览器头），但实现更简洁。
+
+### Resolution
+- **Resolved**: 2026-06-20
+- **Commit**: d5f4b9d
+
+### Metadata
+- Source: conversation
+- Related Files: pkg/download/http_extractor.go
+- Tags: headers, browser_emulation, design
+
+---
+
+## [LRN-20260620-003] knowledge_gap — CPU 热点测试不要用 `for i < b.N`，用 `b.Loop()`
+
+**Logged**: 2026-06-20T09:00:00Z
+**Priority**: low
+**Status**: pending
+**Area**: tests
+
+### Summary
+本次修复过程中 Cancel 测试使用 5s SlowServer，初始版本用 for 循环 `time.Sleep(delay/1024)` 导致 httptest.Server 在连接关闭后仍阻塞。改用 `select { case <-r.Context().Done(): ... }` 解决问题。
+
+### Details
+不是直接的 `b.Loop()` 问题，而是 `time.Sleep` 循环在 context 取消后不会自动退出。慢速 server 的合理实现是阻塞在 `r.Context().Done()` 上，而非用 for 循环 + time.Sleep 模拟延迟。
+
+### Metadata
+- Source: error
+- Related Files: pkg/download/http_extractor_cancel_test.go
+- Tags: testing, cancellation, slow_server
+
+---
+
+## [LRN-20260620-004] best_practice — Cancel 实现：per-URL dlCtx + LoadAndDelete
+
+**Logged**: 2026-06-20T09:15:00Z
+**Priority**: medium
+**Status**: resolved
+**Area**: backend
+
+### Summary
+HTTPExtractor 的 Cancel 使用 `sync.Map` 存储 `context.CancelFunc`，在 `Extract` 入口创建 `dlCtx` 并向下传递给 tryDownload 和 transport，实现按 URL 精确取消。
+
+### Details
+关键设计点：
+1. `defer dlCancel()` + `defer e.cancels.Delete(req.URL)`：确保 Extract 返回时无论如何都清理
+2. `dlCtx` 代替 `ctx` 向下传播到 retry loop 和 transport.RoundTrip
+3. `LoadAndDelete` 原子操作，比 dlcore 的 `Load` + 手动 `Delete` 更安全
+4. 不存在 URL 时返回 nil（不报错），与 dlcore 的 error 不同
+
+测试中 SlowServer 必须阻塞在 `r.Context().Done()` 上而不是 sleep 循环，否则 Cancel 无法及时中断 io.Copy。
+
+### Resolution
+- **Resolved**: 2026-06-20
+- **Commit**: b827a43
+
+### Metadata
+- Source: conversation
+- Related Files: pkg/download/http_extractor.go
+- Tags: cancellation, concurrency, context
+- Pattern-Key: hardened.cancel_with_dlctx
+
+---
+
+## [LRN-20260620-005] correction — ResponseCheck 插入位置在 Content-Type 校验后、Range 回退前
+
+**Logged**: 2026-06-20T09:30:00Z
+**Priority**: medium
+**Status**: resolved
+**Area**: backend
+
+### Summary
+ResponseCheck 钩子的插入点选在 Content-Type 校验之后、Range 回退逻辑之前，确保所有 HTTP 响应层面的校验都能在写文件之前拦截。
+
+### Details
+dlcore 的 tk 检测位于 Content-Type 校验之前。pkg/download 的 ResponseCheck 在 Content-Type 校验之后，主要考虑：
+1. Content-Type 校验是通用逻辑，应优先于领域特定检查
+2. ResponseCheck 在 Content-Type 确认有效后再检查更合理
+3. 日志记录顺序：Content-Type 错误先记录，ResponseCheck 拒绝后记录
+
+### Resolution
+- **Resolved**: 2026-06-20
+- **Commit**: 5cb3e5a
+
+### Metadata
+- Source: conversation
+- Related Files: pkg/download/http_extractor.go
+- Tags: hooks, validation, design
+- Pattern-Key: design.response_check_position
+
+---
+
+## [LRN-20260620-006] error — sed -i 插入多行代码时 \n 转义问题
+
+**Logged**: 2026-06-20T09:45:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: config
+
+### Summary
+用 `sed -i` 插入包含 `\n` 的 Go 代码时，`\n` 在 Git Bash 的 sed 中不被正确处理，导致代码中出现 literal newline inside string 编译错误。
+
+### Details
+执行 `sed -i '... fmt.Fprintf(..., "Response check failed: %v\n", err)'` 时，`\n` 在 Git Bash sed 中被解析为 `\` + `n` 而非换行转义。最终代码中出现 `"Response check failed: %v"` 后 literal newline 再 `", err)`，Go 编译器报 "newline in string"。
+
+修复：只能删除损坏行后用 Edit 工具重新插入，或避免在 sed 替换字符串中包含 `\n`。
+
+### Resolution
+- **Resolved**: 2026-06-20
+- **Note**: 这是重复发作的 Windows + sed 问题。Edit 工具在 Go 源码上更可靠。
+
+### Metadata
+- Source: error
+- Related Files: pkg/download/http_extractor.go
+- Tags: sed, windows, escaping
+- Recurrence-Count: 3
+- First-Seen: 2026-06-14
+- Last-Seen: 2026-06-20
+- See Also: ERR-20260614-002
