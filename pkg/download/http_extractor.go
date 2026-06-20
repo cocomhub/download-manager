@@ -350,7 +350,12 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 
 	// Content-Type 严格校验：媒体扩展名必须返回匹配的 Content-Type 前缀
-	if ext := strings.ToLower(filepath.Ext(rawURL)); mediaExtensionSet[ext] != "" {
+	// 使用 url.Parse 后的 Path 取扩展名，避免查询参数（?token=abc）干扰
+	mediaExt := ""
+	if parsedURL, parseErr := url.Parse(rawURL); parseErr == nil {
+		mediaExt = strings.ToLower(filepath.Ext(parsedURL.Path))
+	}
+	if ext := mediaExt; mediaExtensionSet[ext] != "" {
 		expectedPrefix := mediaExtensionSet[ext]
 		ct := tresp.Headers["Content-Type"]
 		if ct == "" {
