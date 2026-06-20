@@ -31,22 +31,33 @@ var mediaExtensionSet = map[string]string{
 	".bmp":  "image/",
 }
 
+// ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
+// 返回 error 则终止下载（ErrNoTry 表示永久终止，其他 error 可重试）。
+type ResponseCheck func(req *Request, tresp *TransportResponse) error
+
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
-	transport   Transport
-	selector    Selector
-	maxRetries  int
-	rootDir     string
-	logDir      string
-	ua          string
-	allowPaths  []string
-	browserHdrs bool
-	cancels     sync.Map // map[string]context.CancelFunc
+	transport      Transport
+	selector       Selector
+	maxRetries     int
+	rootDir        string
+	logDir         string
+	ua             string
+	allowPaths     []string
+	browserHdrs    bool
+	cancels        sync.Map // map[string]context.CancelFunc
+	responseChecks []ResponseCheck
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
 func (e *HTTPExtractor) SetBrowserHeaders(v bool) { e.browserHdrs = v }
+
+// AddResponseCheck 注册一个响应校验函数，在每次下载拿到响应后执行。
+// 多个 check 按注册顺序执行，任一返回 error 则终止下载。
+func (e *HTTPExtractor) AddResponseCheck(fn ResponseCheck) {
+	e.responseChecks = append(e.responseChecks, fn)
+}
 
 // Cancel 实现 Canceller 接口，按 URL 取消正在进行的下载。
 func (e *HTTPExtractor) Cancel(url string) error {
@@ -388,6 +399,16 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 				fmt.Fprintf(logWriter, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
 			}
 			return false, fmt.Errorf("%w: invalid content type: expected %s*, got %s", ErrNoTry, expectedPrefix, ct)
+		}
+	}
+
+	// 响应校验钩子：注册的 ResponseCheck 按顺序执行，任一返回 error 则终止下载
+	for _, check := range e.responseChecks {
+		if err := check(req, tresp); err != nil {
+			if logWriter != nil {
+				fmt.Fprintf(logWriter, "Response check failed: %v\n", err)
+			}
+			return false, err
 		}
 	}
 
