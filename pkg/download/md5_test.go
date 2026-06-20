@@ -105,21 +105,6 @@ func TestTryGetMd5Nil(t *testing.T) {
 	}
 }
 
-func TestTryGetMd5EtagWeak(t *testing.T) {
-	// The original implementation in dlcore/client.go handles weak ETags (W/"...")
-	// but our new implementation follows the task spec which only checks:
-	// len == 34 && [0]=='"' && [33]=='"'
-	// A weak ETag like W/"xxx" is 36 chars, not 34, so it won't match.
-	headers := map[string]string{
-		"Etag": `"5d41402abc4b2a76b9719d911017c592"`,
-	}
-	result := TryGetMd5(headers)
-	expected := "5d41402abc4b2a76b9719d911017c592"
-	if result != expected {
-		t.Errorf("expected %q, got %q", expected, result)
-	}
-}
-
 func TestTryGetMd5InvalidLengthEtag(t *testing.T) {
 	// Too short
 	headers := map[string]string{

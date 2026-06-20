@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"strings"
 )
 
 // ComputeFileMD5 计算文件的 MD5 校验值，返回 Base64 和十六进制两种格式。
@@ -45,6 +46,10 @@ func TryGetMd5(headers map[string]string) string {
 	}
 	if etag := headers["Etag"]; len(etag) == 34 && etag[0] == '"' && etag[33] == '"' {
 		return etag[1:33]
+	}
+	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
+	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
+		return etag[3:35]
 	}
 	if x := headers["Content-MD5"]; len(x) == 32 {
 		return x
