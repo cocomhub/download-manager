@@ -33,14 +33,14 @@ var mediaExtensionSet = map[string]string{
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
-	transport    Transport
-	selector     Selector
-	maxRetries   int
-	rootDir      string
-	logDir       string
-	ua           string
-	allowPaths   []string
-	browserHdrs  bool
+	transport   Transport
+	selector    Selector
+	maxRetries  int
+	rootDir     string
+	logDir      string
+	ua          string
+	allowPaths  []string
+	browserHdrs bool
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
@@ -392,6 +392,12 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			}
 		}
 	}
+	// 断点续传时检测服务器内容是否已变更：如果服务器返回的完整内容比本地已有文件还小，
+	// 说明文件已被替换/截断，必须重置 offset 重新下载完整内容。
+	if startOffset > 0 && totalSize > 0 && totalSize < startOffset {
+		slog.Info("Server content changed during resume, restarting download", "file", rPath, "serverSize", totalSize, "localSize", startOffset)
+		return false, nil
+	}
 	if startOffset > 0 && totalSize > 0 {
 		totalSize += startOffset
 	}
@@ -540,16 +546,16 @@ func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {
 	// 注入 Chrome 风格浏览器标头（除非禁用），然后在最后用 req.Headers 覆盖
 	if e.browserHdrs {
 		browser := map[string]string{
-			"Accept":          "*/*",
-			"Cache-Control":   "no-cache",
-			"Pragma":          "no-cache",
-			"Priority":        "i",
-			"Sec-Ch-Ua":       `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
-			"Sec-Ch-Ua-Mobile": "?0",
+			"Accept":             "*/*",
+			"Cache-Control":      "no-cache",
+			"Pragma":             "no-cache",
+			"Priority":           "i",
+			"Sec-Ch-Ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"Sec-Ch-Ua-Mobile":   "?0",
 			"Sec-Ch-Ua-Platform": `"macOS"`,
-			"Sec-Fetch-Dest":  "video",
-			"Sec-Fetch-Mode":  "no-cors",
-			"Sec-Fetch-Site":  "same-origin",
+			"Sec-Fetch-Dest":     "video",
+			"Sec-Fetch-Mode":     "no-cors",
+			"Sec-Fetch-Site":     "same-origin",
 		}
 		for k, v := range browser {
 			if _, exists := h[k]; !exists {
