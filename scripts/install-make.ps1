@@ -13,10 +13,9 @@ if ($makeCheck) {
 }
 
 if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host "Chocolatey not found. Installing Chocolatey..."
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    Write-Host "Chocolatey not found. Please install Chocolatey manually from https://chocolatey.org/install"
+    Write-Host "Then run this script again."
+    exit 1
 }
 
 choco install make -y --no-progress
