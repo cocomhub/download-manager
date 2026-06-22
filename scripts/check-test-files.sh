@@ -15,7 +15,7 @@ if [[ -f "$IGNORE_FILE" ]; then
   while IFS= read -r line || [[ -n "$line" ]; do
     line="${line%%#*}"
     line="$(echo "$line" | xargs)"
-    [[ -z "$line" ] && continue
+    [[ -z "$line" ]] && continue
     EXCLUDE_ARGS+=(-not -path "./$line")
   done < "$IGNORE_FILE"
 fi
@@ -26,7 +26,7 @@ missing_list=""
 
 for pkg in "$@"; do
   pkg="${pkg%/}"
-  [[ -z "$pkg" ] || [ "$pkg" = "." ] || [[ ! -d "$pkg" ] && continue
+  [[ -z "$pkg" ]] || [[ "$pkg" = "." ]] || [[ ! -d "$pkg" ]] && continue
 
   test_files=$(find "$pkg" -maxdepth 1 -name '*_test.go' -print -quit 2>/dev/null)
   if [[ -n "$test_files" ]; then
@@ -35,7 +35,7 @@ for pkg in "$@"; do
 
   if [ ${#EXCLUDE_ARGS[@]} -gt 0 ]; then
     excluded_file=$(find "$pkg" -maxdepth 0 "${EXCLUDE_ARGS[@]}" -print -quit 2>/dev/null)
-    [[ -z "$excluded_file" ] || continue
+    [[ -z "$excluded_file" ]] || continue
   fi
 
   echo "FAIL: $pkg has no test files" >&2
