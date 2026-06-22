@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	downloadURL = flag.String("url", "", "URL to download")
-	tunnelURL   = flag.String("tunnel", "http://129.226.212.209:18082", "Tunnel URL")
-	proxyURL    = flag.String("proxy", "http://129.226.212.209:18081", "Proxy URL")
-	cookie      = flag.String("cookie", "", "Cookie string")
+	downloadURL  = flag.String("url", "", "URL to download")
+	tunnelURL    = flag.String("tunnel", "", "Tunnel URL（默认空，需运行时传入）")
+	proxyURL     = flag.String("proxy", "", "Proxy URL（默认空，需运行时传入）")
+	tunnelSecret = flag.String("tunnel_key", "", "Tunnel key（默认空，需运行时传入）")
+	cookie       = flag.String("cookie", "", "Cookie string")
 )
 
 func main() {
@@ -76,13 +77,13 @@ func httpGet(url string) error {
 			header[k] = req.Header.Get(k)
 		}
 		body, err := tunnel.TunnelRequest(&tunnel.SclientConfig{
-			ServerURL:        "http://129.226.212.209:18082",
+			ServerURL:        *tunnelURL,
 			UploadEndpoint:   "/upload",
 			DownloadEndpoint: "/download",
 			DeleteEndpoint:   "/delete",
 			CheckMD5:         false,
 			Timeout:          30,
-			TunnelKey:        "7693db0059a3c14fd6bfec175c8e2d1d3d821a414aab77c467df06aefb70e3b7",
+			TunnelKey:        *tunnelSecret,
 			TunnelEndpoint:   "/tunnel",
 		}, "GET", url, header, "", false, false)
 		if err != nil {

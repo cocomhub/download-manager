@@ -431,7 +431,11 @@ func (t *Task) getPostsPage(ctx context.Context, page int) ([]vikPost, error) {
 		"user_id":    t.userID,
 	}
 	data, _ := json.Marshal(body)
-	url := "http://129.226.212.209:18082/www.vikacg.com/api/vikacg/v1/getPosts"
+	scraperURL := config.GetServerConfig().ScraperURL
+	if scraperURL == "" {
+		scraperURL = "http://localhost:18082"
+	}
+	url := scraperURL + "/www.vikacg.com/api/vikacg/v1/getPosts"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err

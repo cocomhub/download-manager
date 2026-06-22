@@ -40,10 +40,14 @@ func ScraperNative(url string, cookie string) (string, error) {
 	if err == nil {
 		return body, nil
 	}
+	scraperURL := config.GetServerConfig().ScraperURL
+	if scraperURL == "" {
+		scraperURL = "http://localhost:18082"
+	}
 	if !strings.Contains(url, ":18082") {
 		url = strings.TrimPrefix(url, "http://")
 		url = strings.TrimPrefix(url, "https://")
-		url = "http://129.226.212.209:18082/" + url
+		url = scraperURL + "/" + url
 	}
 	return doScraperNative(url, cookie)
 }
@@ -72,19 +76,28 @@ func doScraperNative(url string, cookie string) (string, error) {
 		req.Header.Set("cookie", cookie)
 	}
 
+	sc := config.GetServerConfig()
 	if len(url) > 0 && !strings.Contains(url, "hanime1.me") {
 		header := make(map[string]string)
 		for k := range req.Header {
 			header[k] = req.Header.Get(k)
 		}
+		scraperURL := sc.ScraperURL
+		if scraperURL == "" {
+			scraperURL = "http://localhost:18082"
+		}
+		tunnelKey := sc.ScraperTunnelKey
+		if tunnelKey == "" {
+			slog.Warn("ScraperTunnelKey not configured, tunnel may fail")
+		}
 		return tunnel.TunnelRequest(&tunnel.SclientConfig{
-			ServerURL:        "http://129.226.212.209:18082",
+			ServerURL:        scraperURL,
 			UploadEndpoint:   "/upload",
 			DownloadEndpoint: "/download",
 			DeleteEndpoint:   "/delete",
 			CheckMD5:         false,
 			Timeout:          30,
-			TunnelKey:        "7693db0059a3c14fd6bfec175c8e2d1d3d821a414aab77c467df06aefb70e3b7",
+			TunnelKey:        tunnelKey,
 			TunnelEndpoint:   "/tunnel",
 		}, "GET", url, header, "", false, false)
 	}

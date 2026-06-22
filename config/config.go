@@ -42,16 +42,18 @@ type Runtime struct {
 }
 
 type Server struct {
-	HTTPPort        int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
-	UIOnlyPort      int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
-	WorkDir         string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
-	LockFile        string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
-	UIOnlyLockFile  string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
-	ScraperPath     string     `yaml:"scraper_path" json:"scraper_path"`
-	DownloadRootDir string     `yaml:"download_root_dir" json:"download_root_dir"` // Root directory for downloads
-	FilesDir        string     `yaml:"files_dir" json:"files_dir"`                 // Root directory for HTTP /files/ serving
-	Auth            AuthConfig `yaml:"auth" json:"auth"`
-	UIDefaults      UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
+	HTTPPort         int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
+	UIOnlyPort       int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
+	WorkDir          string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
+	LockFile         string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
+	UIOnlyLockFile   string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
+	ScraperPath      string     `yaml:"scraper_path" json:"scraper_path"`
+	ScraperURL       string     `yaml:"scraper_url" json:"scraper_url"`               // Scraper tunnel server URL (e.g. http://host:18082)
+	ScraperTunnelKey string     `yaml:"scraper_tunnel_key" json:"scraper_tunnel_key"` // Scraper tunnel auth key
+	DownloadRootDir  string     `yaml:"download_root_dir" json:"download_root_dir"`   // Root directory for downloads
+	FilesDir         string     `yaml:"files_dir" json:"files_dir"`                   // Root directory for HTTP /files/ serving
+	Auth             AuthConfig `yaml:"auth" json:"auth"`
+	UIDefaults       UIDefaults `yaml:"ui_defaults" json:"ui_defaults"`
 }
 
 type MongoSource struct {
