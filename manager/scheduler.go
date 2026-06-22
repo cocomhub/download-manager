@@ -115,6 +115,15 @@ func (m *Manager) Stop(ctx context.Context) {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		}
+		// Clean up downloadingObj and activeDownloads — the defer in download()
+		// may never run for items still in the queue when the worker picks
+		// stopChan over the buffered channel.
+		m.downloadingObj.Delete(key)
+		m.mu.Lock()
+		if obj != nil && m.activeDownloads[obj.TaskID] > 0 {
+			m.activeDownloads[obj.TaskID]--
+		}
+		m.mu.Unlock()
 		return true
 	})
 }
