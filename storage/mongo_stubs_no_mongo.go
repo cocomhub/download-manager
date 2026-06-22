@@ -11,5 +11,5 @@ func InitMongoClients(configs []struct{ Name, URI string }) error {
 }
 
 // CloseAllMongoClients is a no-op stub when built without mongo support.
-func CloseAllMongoClients() {
+func CloseAllMongoClients() { //nolint:unused // intentional stub for no_mongo build tag
 }

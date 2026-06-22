@@ -442,7 +442,7 @@ func (d *M3U8Downloader) ConvertToMP4(ctx context.Context, localM3U8Path string)
 	args = append(args, d.Config.OutputFile)
 
 	// 执行ffmpeg
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...) //nolint:gosec // ffmpeg lookup via PATH is standard
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -140,7 +140,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 
 	args = append(args, "-O", req.SavePath, targetURL)
 
-	cmd := exec.CommandContext(ctx, "wget", args...)
+	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
 	e.active.Store(req.URL, cmd)
 
 	stderr, err := cmd.StderrPipe()

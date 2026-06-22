@@ -11,7 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand" //nolint:gosec // mock downloader for tests, not crypto
 	"sync"
 	"time"
 

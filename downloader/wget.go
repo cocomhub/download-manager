@@ -199,7 +199,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 
 	args = append(args, "-O", subObj.SavePath, url)
 
-	cmd := exec.Command("wget", args...)
+	cmd := exec.Command("wget", args...) //nolint:gosec // wget lookup via PATH is standard
 	cmd.Env = env
 	d.active.Store(subObj.URL, cmd)
 
