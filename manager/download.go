@@ -325,7 +325,7 @@ func (m *Manager) RetryObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
 
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 
 	obj, err := m.getTaskObject(t, url)
@@ -360,7 +360,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 	t, ok := m.getTask(taskID)
 
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 
 	objs, err := m.collectTaskObjects(t, &core.StorageQuery{

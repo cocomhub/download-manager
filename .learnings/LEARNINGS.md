@@ -2079,3 +2079,125 @@ dlcore 的 tk 检测位于 Content-Type 校验之前。pkg/download 的 Response
 - First-Seen: 2026-06-14
 - Last-Seen: 2026-06-20
 - See Also: ERR-20260614-002
+
+---
+
+## [LRN-20260622-001] correction — Agent 常量提取可能丢失原始值，必须人工验证常量值
+
+**Logged**: 2026-06-22T16:00:00Z
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+并行 agent 在将 `"img.arco-image-img, img.render-arco-image"` 提取为常量时，错误地将常量值设为 `"arcoImageSelector"`（变量名本身），而非原始 CSS 选择器字符串。导致 `doc.Find("arcoImageSelector")` 匹配 `<arcoImageSelector>` 标签而非实际图片元素。
+
+### Details
+```go
+// Agent 错误输出：
+const arcoImageSelector = "arcoImageSelector"  // ❌ 值是变量名，非原始字符串
+doc.Find("arcoImageSelector")                   // ❌ 单引号包裹的是字面量
+
+// 正确应为：
+const arcoImageSelector = "img.arco-image-img, img.render-arco-image"  // ✅ 原始 CSS 选择器
+doc.Find(arcoImageSelector)  // ✅ 变量引用
+```
+
+代码审查发现此 bug 后在 fixup commit 中修正。3 处引用全部写错（`doc.Find` 2处 + `contentSel.Find` 1处）。
+
+### Suggested Action
+Agent 执行常量提取后，必须人工验证：
+1. 常量值是否等于原始字符串（而非变量名）
+2. 引用处是 `variableName` 而非 `"variableName"`
+3. `go build` 能通过的假设不可靠（裸值类型相同，编译无误）
+
+### Metadata
+- Source: code_review
+- Related Files: task/vikacg/task.go
+- Tags: agent, constant_extraction, code_review
+- Pattern-Key: review.verify_constant_value
+- Recurrence-Count: 1
+- **Promoted**: CLAUDE.md
+
+---
+
+## [LRN-20260622-002] correction — Shell `[` → `[[` 自动替换后必须检查闭合括号
+
+**Logged**: 2026-06-22T16:05:00Z
+**Priority**: medium
+**Status**: pending
+**Area**: config
+
+### Summary
+用 sed 批量替换 `[ expr ]` → `[[ expr ]]` 时，3 处替换生成了 `[[ -z "$line" ]`（缺少一个 `]]`），导致 shell 语法错误，脚本完全不可用。
+
+### Details
+```bash
+# 错误的替换结果：
+[[ -z "$line" ] && continue      # ❌ 缺少闭合 ]]
+[[ -z "$pkg" ] || ... || ... ]]  # ❌ 混合语法
+
+# 正确：
+[[ -z "$line" ]] && continue     # ✅
+[[ -z "$pkg" ]] || ...           # ✅
+```
+
+每次替换后应立即运行 `bash -n script.sh` 检查语法。或逐个替换而非批量。
+
+### Suggested Action
+Shell 脚本批量替换后运行 `bash -n` 语法检查：
+```bash
+bash -n scripts/check-test-files.sh  # 无输出 = 语法正确
+```
+
+### Metadata
+- Source: code_review
+- Related Files: scripts/check-test-files.sh
+- Tags: shell, sed, syntax
+- Pattern-Key: review.shell_syntax_after_batch_replace
+- Recurrence-Count: 1
+- **Promoted**: CLAUDE.md
+
+---
+
+## [LRN-20260622-003] best_practice — 新增配置字段必须同步更新 5 个位置
+
+**Logged**: 2026-06-22T16:10:00Z
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+新增 `Server.ScraperURL` 和 `Server.ScraperTunnelKey` 字段时，只修改了 struct 定义（`config/config.go`）、init 默认值（`config/global.go`）和应用代码（`downloader/scraper.go`、`task/vikacg/task.go`），但遗漏了 `config/config_diff.go` 的 `Diff()` 方法。
+
+### Details
+```go
+// ❌ 遗漏：config_diff.go 中未比较新字段
+// Diff() 方法比较了 HTTPPort、WorkDir、LockFile、ScraperPath 等，
+// 但缺少 ScraperURL 和 ScraperTunnelKey
+
+// ✅ 新增字段后必须更新：
+// 1. config/config.go — struct 定义
+// 2. config/global.go — init() 默认值
+// 3. config/config_diff.go — Diff() 方法
+// 4. config/config.go — Clone() 方法（含 map/slice 深拷贝时）
+```
+
+同时要注意：`Clone()` 中的深拷贝对 string 字段不需要特殊处理（string 是值类型），所以新字段不需要改 Clone()，但 map/slice 字段必须。
+
+### Suggested Action
+新增配置字段后，执行以下 checklist：
+1. `config.go`: struct 字段 + yaml/json tag
+2. `config.go`: `ValidateAndClamp()` 默认值（如有需要）
+3. `config.go`: `Clone()` 深拷贝（仅 map/slice 字段）
+4. `config_diff.go`: `Diff()` 比较逻辑
+5. `global.go`: `init()` 默认值
+6. grep 全项目搜索旧模式确认无遗漏
+
+### Metadata
+- Source: code_review
+- Related Files: config/config.go, config/config_diff.go, config/global.go
+- Tags: config, diff, field_add, checklist
+- Pattern-Key: config.add_field_checklist
+- Recurrence-Count: 1
+- **Promoted**: CLAUDE.md

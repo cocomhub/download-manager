@@ -28,6 +28,9 @@ import (
 
 const TaskType = "vikacg"
 
+// arcoImageSelector is the CSS selector for Arco Design system images on vikacg.com.
+const arcoImageSelector = "img.arco-image-img, img.render-arco-image"
+
 func init() {
 	task.Register(TaskType, func(cfg *config.Task, opts task.Options) (core.Task, error) {
 		return NewTask(cfg, opts)
@@ -201,7 +204,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		})
 	}
 	images := make([]string, 0, 16)
-	doc.Find("img.arco-image-img, img.render-arco-image").Each(func(i int, s *goquery.Selection) {
+	doc.Find(arcoImageSelector).Each(func(i int, s *goquery.Selection) {
 		src := strings.TrimSpace(s.AttrOr("src", ""))
 		if src != "" {
 			images = append(images, src)
@@ -227,7 +230,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 	})
 	contentSel := doc.Find(".prose").First()
 	contentSel.Find("script, style, noscript").Remove()
-	contentSel.Find("img.arco-image-img, img.render-arco-image").Remove()
+	contentSel.Find(arcoImageSelector).Remove()
 	contentSel.Find("img").Each(func(i int, s *goquery.Selection) {
 		src := strings.TrimSpace(s.AttrOr("src", ""))
 		if src == "" {
@@ -344,7 +347,7 @@ func (t *Task) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 			}
 		}
 	}
-	doc.Find("img.arco-image-img, img.render-arco-image").Each(func(i int, s *goquery.Selection) {
+	doc.Find(arcoImageSelector).Each(func(i int, s *goquery.Selection) {
 		s.Remove()
 	})
 	doc.Find("img").Each(func(i int, s *goquery.Selection) {
@@ -431,7 +434,11 @@ func (t *Task) getPostsPage(ctx context.Context, page int) ([]vikPost, error) {
 		"user_id":    t.userID,
 	}
 	data, _ := json.Marshal(body)
-	url := "http://129.226.212.209:18082/www.vikacg.com/api/vikacg/v1/getPosts"
+	scraperURL := config.GetServerConfig().ScraperURL
+	if scraperURL == "" {
+		scraperURL = "http://localhost:18082"
+	}
+	url := scraperURL + "/www.vikacg.com/api/vikacg/v1/getPosts"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, err

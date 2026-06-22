@@ -375,6 +375,29 @@ git stash && go test -race -count=1 -run TestName ./pkg/ && git stash pop
 ```
 如果 stash 后同样失败，则是预存问题，与当前改动无关。
 
+### Agent 常量提取后必须人工验证常量值
+并行 agent 在提取重复字符串为常量时，可能将常量值错误设为变量名本身（而非原始字符串）。
+每次 agent 提取常量后，必须人工确认：
+1. **常量值**等于原始字符串（`const X = "original value"` 而非 `const X = "X"`）
+2. **引用处**是 `variableName` （无引号）而非 `"variableName"`
+3. 这种 bug 无法通过 `go build` 检测（裸值类型相同，编译无误）
+
+### 新增配置字段 checklist
+新增 `config.Server` struct 字段后，必须同步检查：
+1. `config/config.go` — struct 字段 + yaml/json tag
+2. `config/config.go` — `ValidateAndClamp()` 默认值（如有需要）
+3. `config/config.go` — `Clone()` 深拷贝（仅 map/slice 字段）
+4. `config/config_diff.go` — `Diff()` 比较逻辑
+5. `config/global.go` — `init()` 默认值
+6. `grep` 全项目搜索旧字段名确认无遗漏引用点
+
+### Shell 脚本批量替换后运行 `bash -n` 语法检查
+`sed` 批量替换 `[` → `[[` 后可能产生 `[[ expr ]` 缺少闭合括号的语法错误。
+每次批量替换后运行：
+```bash
+bash -n scripts/*.sh  # 无输出 = 语法正确
+```
+
 ## 执行偏好
 
 - **子代理开发**：多步骤实现计划优先使用 `subagent-driven-development` 技能，禁用 worktree，直接在当前分支开发。

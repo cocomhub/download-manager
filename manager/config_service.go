@@ -86,7 +86,7 @@ func (cs *ConfigService) ListConfigBackups() ([]map[string]string, error) {
 				"filename": name,
 				"path":     filepath.Join(dir, name),
 			}
-			metaPath := filepath.Join(dir, name+".meta.json")
+			metaPath := filepath.Join(dir, name+metaJSONSuffix)
 			if data, err := os.ReadFile(metaPath); err == nil {
 				item["meta"] = string(data)
 			}
@@ -102,7 +102,7 @@ func (cs *ConfigService) ListConfigBackups() ([]map[string]string, error) {
 func (cs *ConfigService) DeleteConfigBackup(filename string) error {
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
 	path := filepath.Join(dir, filename)
-	meta := path + ".meta.json"
+	meta := path + metaJSONSuffix
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("failed to delete backup: %w", err)
 	}
@@ -208,7 +208,7 @@ func (cs *ConfigService) AddConfigTag(filename, tag string) error {
 		return fmt.Errorf("tag is empty")
 	}
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+".meta.json")
+	meta := filepath.Join(dir, filename+metaJSONSuffix)
 	var obj struct {
 		Tags  []string `json:"tags"`
 		Notes []struct {
@@ -236,7 +236,7 @@ func (cs *ConfigService) AddConfigNote(filename, message, author string) error {
 		return fmt.Errorf("message is empty")
 	}
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+".meta.json")
+	meta := filepath.Join(dir, filename+metaJSONSuffix)
 	var obj struct {
 		Tags  []string `json:"tags"`
 		Notes []struct {

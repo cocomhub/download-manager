@@ -22,6 +22,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	fieldMetadataTitle = "metadata.title"
+	opRegex            = "$regex"
+	opOptions          = "$options"
+)
+
 // Global map to hold clients, keyed by source name
 var mongoClients = make(map[string]*mongo.Client)
 var mongoIndexOnce sync.Map
@@ -240,7 +246,7 @@ func (s *MongoStorage) ensureIndexes() error {
 			Options: options.Index().SetName("task_date_desc"),
 		},
 		{
-			Keys:    bson.D{{Key: "metadata.title", Value: 1}},
+			Keys:    bson.D{{Key: fieldMetadataTitle, Value: 1}},
 			Options: options.Index().SetName("title_lookup"),
 		},
 	}
@@ -271,9 +277,9 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	if query.Filter.Search != "" {
 		pattern := regexp.QuoteMeta(query.Filter.Search)
 		filter["$or"] = bson.A{
-			bson.M{"url": bson.M{"$regex": pattern, "$options": "i"}},
-			bson.M{"metadata.title": bson.M{"$regex": pattern, "$options": "i"}},
-			bson.M{"extra.tags": bson.M{"$regex": pattern, "$options": "i"}},
+			bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
+			bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
+			bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
 		}
 	}
 	return filter
@@ -328,7 +334,7 @@ func mongoSortField(field string) string {
 	case "date":
 		return "metadata.date"
 	case "name":
-		return "metadata.title"
+		return fieldMetadataTitle
 	case "duration":
 		return "metadata.duration"
 	case "status":

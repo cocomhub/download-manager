@@ -36,7 +36,7 @@ func (m *Manager) getTaskObject(t core.Task, url string) (*model.DownloadObject,
 func (m *Manager) CancelTask(taskID string) error {
 	t, ok := m.getTask(taskID)
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 	objs, err := m.collectTaskObjects(t, &core.StorageQuery{}, 200)
 	if err != nil {
@@ -87,7 +87,7 @@ func (m *Manager) CancelTasks(ids []string) map[string]string {
 func (m *Manager) CancelObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 	obj, err := m.getTaskObject(t, url)
 	if err != nil {
@@ -127,7 +127,7 @@ func (m *Manager) CancelObject(taskID, url string) error {
 func (m *Manager) UndoCancelObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 	obj, err := m.getTaskObject(t, url)
 	if err != nil {
@@ -156,7 +156,7 @@ func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 	t, ok := m.getTask(taskID)
 
 	if !ok {
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("%w", errTaskNotFound)
 	}
 
 	if st, ok := t.(interface {

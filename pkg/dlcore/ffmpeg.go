@@ -35,7 +35,7 @@ func isImageURL(u string) bool {
 func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error {
 	slog.Info("hls_auto_mark_as_fail", "status", c.hlsAutoMarkAsFail)
 	if c.hlsAutoMarkAsFail {
-		return fmt.Errorf("hls auto mark as fail: %w", ErrNoTry)
+		return fmt.Errorf("hls auto mark as fail (path check): %w", ErrNoTry)
 	}
 	rPath := req.SavePath
 	if c.rootDir != "" {
@@ -125,7 +125,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 			if _, err := os.Stat(candidate); err == nil {
 				slog.Info("file already exists, moving into place", "path", candidate)
 				if err := os.Rename(candidate, rPath); err != nil {
-					return fmt.Errorf("hls auto mark as fail: %w", ErrNoTry)
+					return fmt.Errorf("hls auto mark as fail (process error): %w", ErrNoTry)
 				}
 				if req.TrackProgress && req.OnProgress != nil {
 					req.OnProgress(100, 0, 0)
@@ -151,7 +151,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 				defer hlsFile.Close()
 				fmt.Fprintf(hlsFile, "m3u8d -o '%s' -i '%s'\n", req.URL, newSavePath)
 			}
-			return fmt.Errorf("hls auto mark as fail: %w", ErrNoTry)
+			return fmt.Errorf("hls auto mark as fail (exit code): %w", ErrNoTry)
 		}
 	}
 

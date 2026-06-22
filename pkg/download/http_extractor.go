@@ -21,14 +21,19 @@ import (
 
 // mediaExtensionSet 是预期为媒体文件的 URL 扩展名集合，用于 Content-Type 校验。
 // 当 URL 扩展名在此集合中但响应 Content-Type 不匹配期望类型时，报 ErrNoTry。
+const (
+	mimePrefixVideo = "video/"
+	mimePrefixImage = "image/"
+)
+
 var mediaExtensionSet = map[string]string{
-	".mp4":  "video/",
-	".jpg":  "image/",
-	".jpeg": "image/",
-	".png":  "image/",
-	".gif":  "image/",
-	".webp": "image/",
-	".bmp":  "image/",
+	".mp4":  mimePrefixVideo,
+	".jpg":  mimePrefixImage,
+	".jpeg": mimePrefixImage,
+	".png":  mimePrefixImage,
+	".gif":  mimePrefixImage,
+	".webp": mimePrefixImage,
+	".bmp":  mimePrefixImage,
 }
 
 // ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
