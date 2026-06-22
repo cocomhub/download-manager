@@ -21,7 +21,7 @@ func main() {
 	inputURL := flag.String("i", "", "输入m3u8 URL (必需)")
 	outputFile := flag.String("o", "output.mp4", "输出文件")
 	userAgent := flag.String("user_agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36", "User-Agent头")
-	cookie := flag.String("cookie", "_ga_2JNTSFQYRQ=GS2.1.s1764609591$o18$g0$t1764609591$j60$l0$h0; _tea_utm_cache_10000007=undefined; XSRF-TOKEN=eyJpdiI6IjlrQlB2RFZ3SHBBT3pnSGJUSk9OV1E9PSIsInZhbHVlIjoiRmFPVUpxV1kzdzVZQitWU0d4aWZhajlMYmJHblBza1JVbEUwZUQ0c1wveTFUN0hpN0puakRPeFRYME01XC8wclJvIiwibWFjIjoiYTk4ZWJlYWE3NDQzMDUyZThkMDY2OGRhMDZkNzZiMWUyZjUxOWY5N2M1YzNjMTIxMTYzZmYzNjY2MjNlNTMwZCJ9; hanime1_session=eyJpdiI6InV3XC8wWDJCaVZUOEFPT0FucjdnTEJnPT0iLCJ2YWx1ZSI6IjEwZ2tCYXVaWkp3YjZJSFJQWkVlTGg0bDFzOWlpcVJiKzRnejNIcW9yVXpvRG56aVVhNE8zS01GdjJhQW9cL3pBIiwibWFjIjoiMWVlNjY2NGFmN2YyNWVkYWM3ODUzMDU5ZjFmZDJlYTkwY2ZmMTBjZDRjODMzNjI1MzAyMjAwNDUwOTA1N2FlYiJ9; cf_clearance=P6KqMwE1ji00QyF2vdR4Z_EAY3OccC2WNwjtyw6Kr_g-1773458141-1.2.1.1-Vp0gKqNZMDUoeeAZRRMFwq4lwvuyqU9pn6OKKzv4WIyN3ERYeUsbaH9FKmNS3e0DwM96YvpRDAA1WNG2vXWWtGRfy3bV4JBrqnlqH68SowyCPj8sdspeSnQWIDcwnExZ4PUNKPiVFhRdTuD0aBiHVvGOnda4WJ8pSBUlqHWReMD9el1kwVyIImBhvoy9aaw4Dg8vbdA5v8Eua2HcV9foiLlYNi6J2d33l5yL44Ds6sZix.rLfQ8ICYfyDy20z_Jl; _ga=GA1.2.176626291.1755302898; _gid=GA1.2.1408776748.1773458148; _gat_gtag_UA_125786247_2=1", "自定义Cookie，格式: 'Cookie1=Value1; Cookie2=Value2'")
+	cookie := flag.String("cookie", "", "自定义Cookie，格式: 'Cookie1=Value1; Cookie2=Value2'（默认空，需运行时传入）")
 	headers := flag.String("headers", "", "自定义请求头，格式: 'Header1: Value1; Header2: Value2'")
 	concurrency := flag.Int("c", 4, "并发下载数")
 	maxRetries := flag.Int("retry", 3, "失败重试次数")
