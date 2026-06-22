@@ -46,8 +46,18 @@ func NewDownloaderAdapter(dl *download.Downloader) *DownloaderAdapter {
 
 // SetMetadataFlusher 设置一个回调，在每次 OnMetadata 写入 obj.Metadata 后调用，
 // 用于立即持久化（避免 crash 窗口）。
+// 必须在 Download 前调用，不可并发调用。
 func (a *DownloaderAdapter) SetMetadataFlusher(fn func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.metadataFlusher = fn
+}
+
+// getMetadataFlusher 返回 metadataFlusher（线程安全，与 SetMetadataFlusher 互斥）。
+func (a *DownloaderAdapter) getMetadataFlusher() func() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.metadataFlusher
 }
 
 // Name 返回适配器名称（保持与旧 NativeHTTPDownloader 兼容）。
@@ -136,8 +146,8 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 			}
 			obj.Metadata[key] = value
 			obj.Unlock()
-			if a.metadataFlusher != nil {
-				a.metadataFlusher()
+			if a.getMetadataFlusher() != nil {
+				a.getMetadataFlusher()()
 			}
 		},
 	}
@@ -240,8 +250,8 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 				}
 				obj.Metadata[prefix+key] = value
 				obj.Unlock()
-				if a.metadataFlusher != nil {
-					a.metadataFlusher()
+				if a.getMetadataFlusher() != nil {
+					a.getMetadataFlusher()()
 				}
 			},
 		}
