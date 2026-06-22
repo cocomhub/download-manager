@@ -11,8 +11,8 @@ set -euo pipefail
 IGNORE_FILE=".notestignore"
 
 EXCLUDE_ARGS=()
-if [[ -f "$IGNORE_FILE" ]; then
-  while IFS= read -r line || [[ -n "$line" ]; do
+if [[ -f "$IGNORE_FILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"
     line="$(echo "$line" | xargs)"
     [[ -z "$line" ]] && continue
@@ -29,7 +29,7 @@ for pkg in "$@"; do
   [[ -z "$pkg" ]] || [[ "$pkg" = "." ]] || [[ ! -d "$pkg" ]] && continue
 
   test_files=$(find "$pkg" -maxdepth 1 -name '*_test.go' -print -quit 2>/dev/null)
-  if [[ -n "$test_files" ]; then
+  if [[ -n "$test_files" ]]; then
     continue
   fi
 
