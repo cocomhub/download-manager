@@ -84,7 +84,7 @@ func (m *Manager) applyTaskRuntime(newCfg *config.Config) {
 func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval *int, audit *AuditInfo) (map[string]bool, error) {
 	t, ok := m.getTask(taskID)
 	if !ok {
-		return nil, fmt.Errorf("task not found")
+		return nil, fmt.Errorf("%w", errTaskNotFound)
 	}
 	result := map[string]bool{"concurrency": false, "refresh_interval": false}
 	if concurrency != nil {

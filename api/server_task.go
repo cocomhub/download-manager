@@ -17,7 +17,7 @@ import (
 
 // getRuntime returns the current runtime mode and feature status.
 func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(hdrContentType, "application/json")
 	cfg := s.mgr.GetConfig()
 	if cfg == nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -40,7 +40,7 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 
 // healthHandler returns the health status of the manager.
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(hdrContentType, "application/json")
 	status := s.mgr.GetHealthStatus()
 	if status.Status == "error" {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -234,7 +234,7 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req TaskConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	audit := &manager.AuditInfo{
@@ -267,7 +267,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req TaskConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	audit := &manager.AuditInfo{
@@ -297,7 +297,7 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 
 	var req ReorderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if t.ID == "" || t.Type == "" {
@@ -357,7 +357,7 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	}
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("Invalid request body: %v", err))
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	cur := s.mgr.GetConfig()

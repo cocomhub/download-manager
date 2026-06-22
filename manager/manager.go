@@ -403,7 +403,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 	}
 
 	if !ok {
-		return nil, fmt.Errorf("task not found")
+		return nil, fmt.Errorf("%w", errTaskNotFound)
 	}
 
 	result := map[string]any{
