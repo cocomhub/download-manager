@@ -23,6 +23,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+// baseURL is the root URL for hanime1.me API requests.
+const baseURL = "https://hanime1.me"
+
+// titleWithVidFmt formats a title with video ID in brackets: [vid] title.
+const titleWithVidFmt = "[%s] %s"
+
 const (
 	TaskType = "hanime"
 )
@@ -151,7 +157,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 			return
 		}
 		if strings.HasPrefix(href, "/") {
-			href = "https://hanime1.me" + href
+			href = baseURL + href
 		}
 		title := strings.TrimSpace(s.Find(".title, .card-title, h3, .name").First().Text())
 		if title == "" {
@@ -162,7 +168,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 		title = strings.ReplaceAll(title, "/", "／")
 		title = strings.TrimRight(title, ".")
 		vid := extractVideoIDFromURL(href)
-		title = fmt.Sprintf("[%s] %s", vid, title)
+		title = fmt.Sprintf(titleWithVidFmt, vid, title)
 		thumb := strings.TrimSpace(s.Find("img").First().AttrOr("src", ""))
 		items = append(items, hanimeItem{href: href, title: title, thumbURL: thumb})
 	})
@@ -173,13 +179,13 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 				return
 			}
 			if strings.HasPrefix(h, "/") {
-				h = "https://hanime1.me" + h
+				h = baseURL + h
 			}
 			title := strings.TrimSpace(s.Find(".title, .card-title, h3, .name").First().Text())
 			title = strings.ReplaceAll(title, "/", "／")
 			title = strings.TrimRight(title, ".")
 			vid := extractVideoIDFromURL(h)
-			title = fmt.Sprintf("[%s] %s", vid, title)
+			title = fmt.Sprintf(titleWithVidFmt, vid, title)
 			thumb := strings.TrimSpace(s.Parent().Find("img").First().AttrOr("src", ""))
 			items = append(items, hanimeItem{href: h, title: title, thumbURL: thumb})
 		})
@@ -191,7 +197,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 				return
 			}
 			if strings.HasPrefix(h, "/") {
-				h = "https://hanime1.me" + h
+				h = baseURL + h
 			}
 			title := strings.TrimSpace(s.Find(".title, .home-rows-videos-title").First().Text())
 			if title == "" {
@@ -200,7 +206,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 			title = strings.ReplaceAll(title, "/", "／")
 			title = strings.TrimRight(title, ".")
 			vid := extractVideoIDFromURL(h)
-			title = fmt.Sprintf("[%s] %s", vid, title)
+			title = fmt.Sprintf(titleWithVidFmt, vid, title)
 			thumb := strings.TrimSpace(s.Find("img").First().AttrOr("src", ""))
 			items = append(items, hanimeItem{href: h, title: title, thumbURL: thumb})
 		})
@@ -281,7 +287,7 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		title = strings.TrimSpace(doc.Find("h1, .title, .video-title").First().Text())
 	}
 	vid := extractVideoIDFromURL(pageURL)
-	info.title = fmt.Sprintf("[%s] %s", vid, title)
+	info.title = fmt.Sprintf(titleWithVidFmt, vid, title)
 	info.title = strings.ReplaceAll(info.title, "/", "／")
 	info.title = strings.TrimRight(info.title, ".")
 	// 作者/厂牌

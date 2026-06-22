@@ -28,6 +28,9 @@ import (
 
 const TaskType = "vikacg"
 
+// arcoImageSelector is the CSS selector for Arco Design system images on vikacg.com.
+const arcoImageSelector = "arcoImageSelector"
+
 func init() {
 	task.Register(TaskType, func(cfg *config.Task, opts task.Options) (core.Task, error) {
 		return NewTask(cfg, opts)
@@ -201,7 +204,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		})
 	}
 	images := make([]string, 0, 16)
-	doc.Find("img.arco-image-img, img.render-arco-image").Each(func(i int, s *goquery.Selection) {
+	doc.Find("arcoImageSelector").Each(func(i int, s *goquery.Selection) {
 		src := strings.TrimSpace(s.AttrOr("src", ""))
 		if src != "" {
 			images = append(images, src)
@@ -227,7 +230,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 	})
 	contentSel := doc.Find(".prose").First()
 	contentSel.Find("script, style, noscript").Remove()
-	contentSel.Find("img.arco-image-img, img.render-arco-image").Remove()
+	contentSel.Find("arcoImageSelector").Remove()
 	contentSel.Find("img").Each(func(i int, s *goquery.Selection) {
 		src := strings.TrimSpace(s.AttrOr("src", ""))
 		if src == "" {
@@ -344,7 +347,7 @@ func (t *Task) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 			}
 		}
 	}
-	doc.Find("img.arco-image-img, img.render-arco-image").Each(func(i int, s *goquery.Selection) {
+	doc.Find("arcoImageSelector").Each(func(i int, s *goquery.Selection) {
 		s.Remove()
 	})
 	doc.Find("img").Each(func(i int, s *goquery.Selection) {

@@ -19,6 +19,8 @@ import (
 	"time"
 )
 
+const truncateLogMsg = "\tTruncating existing file."
+
 // Handler 定义 URL 匹配与下载能力。
 // 实现方通过 Match 判定是否能处理该 URL，通过 Download 执行下载。
 type Handler interface {
@@ -232,12 +234,12 @@ startDownload:
 				return nil
 			}
 			fmt.Fprintf(f, "MD5 check failed: want %s, got %s\n"+
-				"\tTruncating existing file.\n",
+				truncateLogMsg+"\n",
 				wantMd5, base64MD5)
 			startOffset = 0
 		} else if contentLength > 0 && contentLength < startOffset {
 			fmt.Fprintf(f, "Server responded with 416 Range Not Satisfiable, but file size does not match existing content.\n"+
-				"\tTruncating existing file.\n")
+				truncateLogMsg+"\n")
 			startOffset = 0
 		} else {
 			resp.Body.Close()
@@ -269,7 +271,7 @@ startDownload:
 
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		fmt.Fprintf(f, "Server responded with 416 Range Not Satisfiable, but file size does not match existing content.\n"+
-			"\tTruncating existing file.\n")
+			truncateLogMsg+"\n")
 		startOffset = 0
 		resp.Body.Close()
 		cleanupDL()
@@ -384,7 +386,7 @@ startDownload:
 		}
 		if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
 			fmt.Fprintf(f, "MD5 check failed: want %s, got %s (hex: %s)\n"+
-				"\tTruncating existing file.\n",
+				truncateLogMsg+"\n",
 				wantMd5, base64MD5, hexMD5)
 			startOffset = 0
 			resp.Body.Close()

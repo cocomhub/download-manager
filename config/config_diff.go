@@ -7,6 +7,11 @@ import (
 	"reflect"
 )
 
+const (
+	taskConfigPathPrefix = "tasks."
+	redactedLabel        = "(redacted)"
+)
+
 // stringSliceEqual 比较两个字符串切片是否相等（忽略 nil vs empty）。
 func stringSliceEqual(a, b []string) bool {
 	if len(a) != len(b) {
@@ -65,10 +70,10 @@ func (c Config) Diff(b Config) []Change {
 		changes = append(changes, Change{Path: "server.auth.username", A: c.Server.Auth.Username, B: b.Server.Auth.Username})
 	}
 	if c.Server.Auth.Password != b.Server.Auth.Password {
-		changes = append(changes, Change{Path: "server.auth.password", A: "(redacted)", B: "(redacted)"})
+		changes = append(changes, Change{Path: "server.auth.password", A: redactedLabel, B: redactedLabel})
 	}
 	if c.Server.Auth.Token != b.Server.Auth.Token {
-		changes = append(changes, Change{Path: "server.auth.token", A: "(redacted)", B: "(redacted)"})
+		changes = append(changes, Change{Path: "server.auth.token", A: redactedLabel, B: redactedLabel})
 	}
 	if c.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
 		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: c.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})
@@ -215,30 +220,30 @@ func (c Config) Diff(b Config) []Change {
 	for _, ta := range c.Tasks {
 		j := taskIndex(b.Tasks, ta.ID)
 		if j == -1 {
-			changes = append(changes, Change{Path: "tasks." + ta.ID, A: "present", B: "removed"})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID, A: "present", B: "removed"})
 			continue
 		}
 		tb := b.Tasks[j]
 		if ta.Type != tb.Type {
-			changes = append(changes, Change{Path: "tasks." + ta.ID + ".type", A: ta.Type, B: tb.Type})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".type", A: ta.Type, B: tb.Type})
 		}
 		if ta.SaveDir != tb.SaveDir {
-			changes = append(changes, Change{Path: "tasks." + ta.ID + ".save_dir", A: ta.SaveDir, B: tb.SaveDir})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".save_dir", A: ta.SaveDir, B: tb.SaveDir})
 		}
 		if ta.Storage.Type != tb.Storage.Type || !reflect.DeepEqual(ta.Storage.Config, tb.Storage.Config) {
-			changes = append(changes, Change{Path: "tasks." + ta.ID + ".storage", A: ta.Storage, B: tb.Storage})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".storage", A: ta.Storage, B: tb.Storage})
 		}
 		if ta.StorageContext != tb.StorageContext {
-			changes = append(changes, Change{Path: "tasks." + ta.ID + ".storage_context", A: ta.StorageContext, B: tb.StorageContext})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".storage_context", A: ta.StorageContext, B: tb.StorageContext})
 		}
 		if !reflect.DeepEqual(ta.Extra, tb.Extra) {
-			changes = append(changes, Change{Path: "tasks." + ta.ID + ".extra", A: ta.Extra, B: tb.Extra})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".extra", A: ta.Extra, B: tb.Extra})
 		}
 	}
 	for _, tb := range b.Tasks {
 		i := taskIndex(c.Tasks, tb.ID)
 		if i == -1 {
-			changes = append(changes, Change{Path: "tasks." + tb.ID, A: "removed", B: "present"})
+			changes = append(changes, Change{Path: taskConfigPathPrefix + tb.ID, A: "removed", B: "present"})
 		}
 	}
 	return changes
