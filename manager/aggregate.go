@@ -154,7 +154,7 @@ func metadataContentGroup(obj *model.DownloadObject) string {
 	if obj == nil || obj.Metadata == nil {
 		return ""
 	}
-	return strings.TrimSpace(obj.Metadata["content_group"])
+	return strings.TrimSpace(obj.Metadata[model.MetadataKeyContentGroup])
 }
 
 func metadataTaskType(obj *model.DownloadObject) string {
@@ -172,7 +172,7 @@ func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
 	if t == nil || obj == nil || t.Type() != core.TaskTypeTktube {
 		return 0
 	}
-	hq, c := titlegroup.TKTVariantFlags(obj.Metadata["title"])
+	hq, c := titlegroup.TKTVariantFlags(obj.Metadata[model.MetadataKeyTitle])
 	switch {
 	case hq && c:
 		return 4
@@ -218,9 +218,9 @@ func (m *Manager) BackfillContentGroups() {
 				obj.Metadata = make(map[string]string)
 			}
 			dirty := false
-			newGroup := titlegroup.TKTContentGroupKey(obj.Metadata["title"], obj.URL)
-			if obj.Metadata["content_group"] != newGroup {
-				obj.Metadata["content_group"] = newGroup
+			newGroup := titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
+			if obj.Metadata[model.MetadataKeyContentGroup] != newGroup {
+				obj.Metadata[model.MetadataKeyContentGroup] = newGroup
 				dirty = true
 			}
 			if obj.Metadata["task_type"] != taskType {

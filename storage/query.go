@@ -79,7 +79,7 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if strings.Contains(strings.ToLower(obj.URL), search) {
 		return true
 	}
-	if obj.Metadata != nil && strings.Contains(strings.ToLower(obj.Metadata["title"]), search) {
+	if obj.Metadata != nil && strings.Contains(strings.ToLower(obj.Metadata[model.MetadataKeyTitle]), search) {
 		return true
 	}
 	return extraTagsContain(obj.Extra, search)

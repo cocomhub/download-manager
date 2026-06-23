@@ -50,8 +50,8 @@ func TestFileStorage_RoundTrip(t *testing.T) {
 	if got.Status != obj.Status {
 		t.Fatalf("Status = %q, want %q", got.Status, obj.Status)
 	}
-	if got.Metadata["title"] != "Test File" {
-		t.Fatalf("Metadata title = %q, want %q", got.Metadata["title"], "Test File")
+	if got.Metadata[model.MetadataKeyTitle] != "Test File" {
+		t.Fatalf("Metadata title = %q, want %q", got.Metadata[model.MetadataKeyTitle], "Test File")
 	}
 }
 

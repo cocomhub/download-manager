@@ -87,8 +87,8 @@ func TestMockRule_GenerateObjects_WithSlugs(t *testing.T) {
 		if obj.URL != expectedURLs[i] {
 			t.Errorf("objects[%d].URL = %q, want %q", i, obj.URL, expectedURLs[i])
 		}
-		if obj.Metadata["content_group"] != "test-show" {
-			t.Errorf("objects[%d].Metadata content_group = %q, want %q", i, obj.Metadata["content_group"], "test-show")
+		if obj.Metadata[model.MetadataKeyContentGroup] != "test-show" {
+			t.Errorf("objects[%d].Metadata content_group = %q, want %q", i, obj.Metadata[model.MetadataKeyContentGroup], "test-show")
 		}
 	}
 }

@@ -131,8 +131,8 @@ func TestBackwardCompat_MetadataDirectAccess(t *testing.T) {
 	// Ensure old code reading Metadata["title"] directly still works
 	o := &DownloadObject{}
 	o.SetMetaTitle("Legacy")
-	if o.Metadata["title"] != "Legacy" {
-		t.Fatalf("expected Metadata title = 'Legacy', got %q", o.Metadata["title"])
+	if o.Metadata[MetadataKeyTitle] != "Legacy" {
+		t.Fatalf("expected Metadata title = 'Legacy', got %q", o.Metadata[MetadataKeyTitle])
 	}
 }
 

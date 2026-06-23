@@ -42,7 +42,7 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		UIDefaults config.UIDefaults `json:"ui_defaults"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	cur := s.mgr.GetConfig()
@@ -74,7 +74,7 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		Source:  "api/config/server",
 		Message: "server config updated",
 	}); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update server config: %v", err))
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to update server config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -90,11 +90,11 @@ func (s *Server) getLogConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateLogConfig(w http.ResponseWriter, r *http.Request) {
 	var newLog logutil.LogConfig
 	if err := json.NewDecoder(r.Body).Decode(&newLog); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if err := s.mgr.UpdateLogConfig(newLog); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update log config: %v", err))
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to update log config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -110,7 +110,7 @@ func (s *Server) listConfigHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rollbackConfig(w http.ResponseWriter, r *http.Request) {
 	var req RollbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if err := s.mgr.RollbackConfig(req.Filename, &manager.AuditInfo{
@@ -153,7 +153,7 @@ func (s *Server) addConfigTag(w http.ResponseWriter, r *http.Request) {
 		Tag      string `json:"tag"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" || req.Tag == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if err := s.mgr.AddConfigTag(req.Filename, req.Tag); err != nil {
@@ -171,7 +171,7 @@ func (s *Server) addConfigNote(w http.ResponseWriter, r *http.Request) {
 		Author   string `json:"author"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" || req.Message == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if err := s.mgr.AddConfigNote(req.Filename, req.Message, req.Author); err != nil {
@@ -187,7 +187,7 @@ func (s *Server) deleteConfigBackup(w http.ResponseWriter, r *http.Request) {
 		Filename string `json:"filename"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if err := s.mgr.DeleteConfigBackup(req.Filename); err != nil {
@@ -206,7 +206,7 @@ func (s *Server) applyConfigYAML(w http.ResponseWriter, r *http.Request) {
 		AuditMessage string `json:"audit_message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.YAML) == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "Invalid request body")
 		return
 	}
 	var cfg config.Config
@@ -220,7 +220,7 @@ func (s *Server) applyConfigYAML(w http.ResponseWriter, r *http.Request) {
 		Source:  coalesce(req.AuditSource, "api/config/apply"),
 		Message: coalesce(req.AuditMessage, "apply YAML"),
 	}); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to apply config: %v", err))
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to apply config: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

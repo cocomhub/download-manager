@@ -118,8 +118,8 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 
 	m.BackfillContentGroups()
 
-	want := titlegroup.TKTContentGroupKey(obj.Metadata["title"], obj.URL)
-	got := store.m[obj.URL].Metadata["content_group"]
+	want := titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
+	got := store.m[obj.URL].Metadata[model.MetadataKeyContentGroup]
 	if got != want {
 		t.Fatalf("expect corrected content_group %q, got %q", want, got)
 	}

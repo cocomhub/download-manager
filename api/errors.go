@@ -3,8 +3,12 @@
 
 package api
 
-// Common API error format strings.
+// Common API error format strings and constants.
 const (
-	errFmtInvalidBody = "Invalid request body: %v"
-	hdrContentType    = "Content-Type"
+	errFmtInvalidBody     = "Invalid request body: %v"
+	hdrContentType        = "Content-Type"
+	hdrCacheControl       = "Cache-Control"
+	hdrNoCache            = "no-cache"
+	errCodeInvalidRequest = "invalid_request"
+	errCodeUpdateFailed   = "update_failed"
 )
