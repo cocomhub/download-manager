@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -17,7 +17,7 @@ func TestDownload_ExhaustsMaxRetries(t *testing.T) {
 	_ = startManager(t, mgr)
 	task := waitForTask(t, mgr, "task-maxretry")
 
-	// Wait for the object to be processed — it should go through all retries
+	// Wait for the object to be processed 鈥?it should go through all retries
 	// MaxRetries is 2 in newMockManager, so after 2 failures it should be permanent
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailedPermanent, 10*time.Second)
 }

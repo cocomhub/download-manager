@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -12,8 +12,7 @@ const (
 	redactedLabel        = "(redacted)"
 )
 
-// stringSliceEqual 比较两个字符串切片是否相等（忽略 nil vs empty）。
-func stringSliceEqual(a, b []string) bool {
+// stringSliceEqual 姣旇緝涓や釜瀛楃涓插垏鐗囨槸鍚︾浉绛夛紙蹇界暐 nil vs empty锛夈€?func stringSliceEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

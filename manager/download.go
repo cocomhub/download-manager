@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -17,9 +17,7 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// isCancelled 从 storage 重新读取对象状态检查是否已取消，
-// 避免 download() 中的本地指针（obj）可能在 CancelObject 修改 storage 后变为 stale。
-func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
+// isCancelled 浠?storage 閲嶆柊璇诲彇瀵硅薄鐘舵€佹鏌ユ槸鍚﹀凡鍙栨秷锛?// 閬垮厤 download() 涓殑鏈湴鎸囬拡锛坥bj锛夊彲鑳藉湪 CancelObject 淇敼 storage 鍚庡彉涓?stale銆?func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
 	if obj.GetStatus() == model.StatusCancelled {
 		return true
 	}
@@ -54,25 +52,24 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		// Broadcast task update on finish
 		m.BroadcastTaskUpdate(t.ID())
 
-		// 通知调度器：可能有新槽位可用
+		// 閫氱煡璋冨害鍣細鍙兘鏈夋柊妲戒綅鍙敤
 		select {
 		case m.schedulerSignal <- struct{}{}:
 		default:
 		}
 	}()
 
-	// Check if manager is stopping — avoids overwriting status set by Stop()
+	// Check if manager is stopping 鈥?avoids overwriting status set by Stop()
 	select {
 	case <-m.stopChan:
-		slog.Info("Download skipped — manager stopping", "url", obj.URL)
+		slog.Info("Download skipped 鈥?manager stopping", "url", obj.URL)
 		return
 	default:
 	}
 
-	// 定期清理小对象 tracker，防止内存泄漏
-	defer m.soTracker.Delete(obj.URL)
+	// 瀹氭湡娓呯悊灏忓璞?tracker锛岄槻姝㈠唴瀛樻硠婕?	defer m.soTracker.Delete(obj.URL)
 
-	// 检查 resolve 是否过期，过期则重新 resolve
+	// 妫€鏌?resolve 鏄惁杩囨湡锛岃繃鏈熷垯閲嶆柊 resolve
 	if m.resolveCache.IsExpired(obj.URL) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -85,7 +82,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		slog.Debug("Download: re-resolved expired object", "task_id", t.ID(), "url", obj.URL)
 	}
 
-	// 发起小对象下载（不阻塞主体下载）
+	// 鍙戣捣灏忓璞′笅杞斤紙涓嶉樆濉炰富浣撲笅杞斤級
 	m.enqueueSmallObjects(t, obj)
 
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
@@ -124,13 +121,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	}()
 
 	// Propagate context to downloader if supported
-	if nd, ok := dl.(core.DownloaderWithContext); ok {
+	if nd, ok := dl.(core.ContextInjecter); ok {
 		nd.SetContext(dlCtx)
 	}
 
-	// 设置 metadata flusher：在 Extractor 提取到 ETag/checksum 后立即持久化到存储，
-	// 避免进程崩溃时丢失元数据导致下次必须重新下载。
-	if mf, ok := dl.(interface{ SetMetadataFlusher(func()) }); ok {
+	// 璁剧疆 metadata flusher锛氬湪 Extractor 鎻愬彇鍒?ETag/checksum 鍚庣珛鍗虫寔涔呭寲鍒板瓨鍌紝
+	// 閬垮厤杩涚▼宕╂簝鏃朵涪澶卞厓鏁版嵁瀵艰嚧涓嬫蹇呴』閲嶆柊涓嬭浇銆?	if mf, ok := dl.(interface{ SetMetadataFlusher(func()) }); ok {
 		mf.SetMetadataFlusher(func() {
 			st := t.Storage()
 			if st == nil {
@@ -149,7 +145,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			}
 		})
 	} else {
-		slog.Warn("Metadata flush not supported — crash may lose ETag/checksum",
+		slog.Warn("Metadata flush not supported 鈥?crash may lose ETag/checksum",
 			"task_id", t.ID(), "url", obj.URL)
 	}
 
@@ -161,8 +157,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			return
 		}
 
-		// 复合下载空列表：重新 resolve 后放回 pending，让调度器重新调度
-		// 最多 10 次，指数退避最大 1h
+		// 澶嶅悎涓嬭浇绌哄垪琛細閲嶆柊 resolve 鍚庢斁鍥?pending锛岃璋冨害鍣ㄩ噸鏂拌皟搴?		// 鏈€澶?10 娆★紝鎸囨暟閫€閬挎渶澶?1h
 		if errors.Is(err, downloader.ErrCompositeEmpty) {
 			v, _ := m.compositeResolveCount.LoadOrStore(obj.URL, new(atomic.Int64))
 			counter, ok := v.(*atomic.Int64)
@@ -182,7 +177,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 					"task_id", t.ID(), "url", obj.URL)
 				m.compositeResolveCount.Delete(obj.URL)
 				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
-				if ft, ok := t.(core.FailedTask); ok {
+				if ft, ok := t.(core.FailedTaskMarker); ok {
 					ft.MarkAsFailed(obj, err)
 				}
 				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -190,8 +185,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 				return
 			}
 
-			// 指数退避：2^(count-1) 秒，最大 3600 秒
-			backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
+			// 鎸囨暟閫€閬匡細2^(count-1) 绉掞紝鏈€澶?3600 绉?			backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
 			slog.Warn("Composite download with empty file list, re-resolving",
 				"task_id", t.ID(), "url", obj.URL, "attempt", count, "backoff", backoff)
 
@@ -220,7 +214,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		mt.lastActive.Store(time.Now().Unix())
 
 		if download.IsNoTry(err) {
-			if ft, ok := t.(core.FailedTask); ok {
+			if ft, ok := t.(core.FailedTaskMarker); ok {
 				ft.MarkAsFailed(obj, err)
 			}
 		}
@@ -253,7 +247,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			maxRetries = 5
 		}
 		if c >= int64(maxRetries) {
-			if ft, ok := t.(core.FailedTask); ok {
+			if ft, ok := t.(core.FailedTaskMarker); ok {
 				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
 		}
@@ -262,7 +256,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		isPermanent := download.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
 		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
 	} else {
-		// 等待小对象完成后再标记 Completed
+		// 绛夊緟灏忓璞″畬鎴愬悗鍐嶆爣璁?Completed
 		if soTracker := m.soTrackerForObj(obj.URL); soTracker != nil {
 			errs := soTracker.WaitAll(5 * time.Minute)
 			for _, e := range errs {
@@ -273,8 +267,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			m.soTracker.Delete(obj.URL)
 		}
 
-		// 检查是否已被取消（CancelObject 可能已在别的 goroutine 中修改了 storage）
-		if m.isCancelled(t, obj) {
+		// 妫€鏌ユ槸鍚﹀凡琚彇娑堬紙CancelObject 鍙兘宸插湪鍒殑 goroutine 涓慨鏀逛簡 storage锛?		if m.isCancelled(t, obj) {
 			slog.Info("Download: object was cancelled before completion, preserving cancelled status",
 				"task_id", t.ID(), "url", obj.URL)
 			m.failedCount.Delete(obj.URL)
@@ -307,8 +300,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 }
 
-// soTrackerForObj 返回指定对象的小对象 tracker（如果存在）。
-func (m *Manager) soTrackerForObj(url string) *objectTracker {
+// soTrackerForObj 杩斿洖鎸囧畾瀵硅薄鐨勫皬瀵硅薄 tracker锛堝鏋滃瓨鍦級銆?func (m *Manager) soTrackerForObj(url string) *objectTracker {
 	if v, ok := m.soTracker.Load(url); ok {
 		return v.(*objectTracker)
 	}
@@ -333,8 +325,7 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 	})
 }
 
-// getOrCreateMetrics 返回 taskID 对应的 taskMetrics，不存在时新建。
-func (m *Manager) getOrCreateMetrics(taskID string) *taskMetrics {
+// getOrCreateMetrics 杩斿洖 taskID 瀵瑰簲鐨?taskMetrics锛屼笉瀛樺湪鏃舵柊寤恒€?func (m *Manager) getOrCreateMetrics(taskID string) *taskMetrics {
 	if v, ok := m.metrics.Load(taskID); ok {
 		return v.(*taskMetrics)
 	}
@@ -404,7 +395,7 @@ func (m *Manager) RetryAllFailed(taskID string) error {
 		count++
 	}
 	if count > 0 {
-		// 通知调度器：不要直接调用 processTask，会绕过 processingTask 守卫
+		// 閫氱煡璋冨害鍣細涓嶈鐩存帴璋冪敤 processTask锛屼細缁曡繃 processingTask 瀹堝崼
 		select {
 		case m.schedulerSignal <- struct{}{}:
 		default:

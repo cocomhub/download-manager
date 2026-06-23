@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download_test
@@ -15,7 +15,7 @@ import (
 // TestHTTPExtractorContentTypeWithQuery verifies that Content-Type validation
 // correctly extracts the file extension from the URL path, ignoring query parameters.
 func TestHTTPExtractorContentTypeWithQuery(t *testing.T) {
-	// Server returns text/html for a .mp4 URL — should trigger Content-Type check
+	// Server returns text/html for a .mp4 URL 鈥?should trigger Content-Type check
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)

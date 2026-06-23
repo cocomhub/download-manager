@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -137,7 +137,7 @@ func TestAPI_ConfigApply_ValidYAML(t *testing.T) {
 `,
 	}
 	rr := doJSONPost(t, r, "/api/config/apply", body)
-	// This may succeed (200) or fail with a processing error — the important thing
+	// This may succeed (200) or fail with a processing error 鈥?the important thing
 	// is that the handler processes the request and returns valid JSON.
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
 		t.Fatalf("config apply returned unexpected %d: %s", rr.Code, rr.Body.String())
@@ -191,7 +191,7 @@ func TestAPI_ConfigServerUpdate(t *testing.T) {
 		},
 	}
 	rr := doJSONPost(t, r, "/api/config/server", body)
-	// Should be handled without panic — returns 200, 400, or 500.
+	// Should be handled without panic 鈥?returns 200, 400, or 500.
 	if rr.Code != http.StatusOK && rr.Code != http.StatusBadRequest && rr.Code != http.StatusInternalServerError {
 		t.Fatalf("config server update returned unexpected %d: %s", rr.Code, rr.Body.String())
 	}

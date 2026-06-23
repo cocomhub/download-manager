@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -23,7 +23,7 @@ func TestRace_ActiveDownloadsNegative(t *testing.T) {
 	task := waitForTask(t, mgr, "race-ad")
 
 	// Wait until at least 2 objects enter downloading state (limited by
-	// small-object workers — ModePauseOnProgress blocks workers, so only
+	// small-object workers 鈥?ModePauseOnProgress blocks workers, so only
 	// 2 can be downloading at a time).
 	var downloading int
 	assert.MustEventually(t, func() bool {

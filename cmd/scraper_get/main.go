@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -18,9 +18,9 @@ import (
 
 var (
 	downloadURL  = flag.String("url", "", "URL to download")
-	tunnelURL    = flag.String("tunnel", "", "Tunnel URL（默认空，需运行时传入）")
-	proxyURL     = flag.String("proxy", "", "Proxy URL（默认空，需运行时传入）")
-	tunnelSecret = flag.String("tunnel_key", "", "Tunnel key（默认空，需运行时传入）")
+	tunnelURL    = flag.String("tunnel", "", "Tunnel URL锛堥粯璁ょ┖锛岄渶杩愯鏃朵紶鍏ワ級")
+	proxyURL     = flag.String("proxy", "", "Proxy URL锛堥粯璁ょ┖锛岄渶杩愯鏃朵紶鍏ワ級")
+	tunnelSecret = flag.String("tunnel_key", "", "Tunnel key锛堥粯璁ょ┖锛岄渶杩愯鏃朵紶鍏ワ級")
 	cookie       = flag.String("cookie", "", "Cookie string")
 )
 

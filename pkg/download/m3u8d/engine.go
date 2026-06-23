@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package m3u8d
@@ -21,12 +21,9 @@ import (
 	"time"
 )
 
-var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
+var ErrNotEnoughFiles = errors.New("m3u8鏂囦欢涓寘鍚殑璧勬簮鏁伴噺涓嶈冻")
 
-// M3U8DEngine 是 m3u8 下载引擎，支持 http.Client 注入。
-// 单文件下载（m3u8 解析、密钥下载等）使用注入的 client；
-// 并发 TS 分片下载仍使用 grab 的独立 client。
-type M3U8DEngine struct {
+// M3U8DEngine 鏄?m3u8 涓嬭浇寮曟搸锛屾敮鎸?http.Client 娉ㄥ叆銆?// 鍗曟枃浠朵笅杞斤紙m3u8 瑙ｆ瀽銆佸瘑閽ヤ笅杞界瓑锛変娇鐢ㄦ敞鍏ョ殑 client锛?// 骞跺彂 TS 鍒嗙墖涓嬭浇浠嶄娇鐢?grab 鐨勭嫭绔?client銆?type M3U8DEngine struct {
 	Config        *DownloadConfig
 	client        *http.Client
 	baseURL       *url.URL
@@ -36,12 +33,10 @@ type M3U8DEngine struct {
 	totalFiles    int
 }
 
-// NewM3U8DEngine 创建 M3U8DEngine 实例。
-// httpClient 为可选的 HTTP 客户端；传 nil 时使用默认 client（超时由 cfg.Timeout 决定）。
-func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine, error) {
+// NewM3U8DEngine 鍒涘缓 M3U8DEngine 瀹炰緥銆?// httpClient 涓哄彲閫夌殑 HTTP 瀹㈡埛绔紱浼?nil 鏃朵娇鐢ㄩ粯璁?client锛堣秴鏃剁敱 cfg.Timeout 鍐冲畾锛夈€?func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine, error) {
 	parsedURL, err := url.Parse(cfg.InputURL)
 	if err != nil {
-		return nil, fmt.Errorf("无效的URL: %v", err)
+		return nil, fmt.Errorf("鏃犳晥鐨刄RL: %v", err)
 	}
 
 	base64URL := base64.URLEncoding.EncodeToString([]byte(parsedURL.String()))
@@ -51,7 +46,7 @@ func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine,
 	}
 
 	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
-		return nil, fmt.Errorf("无法创建工作目录: %v", err)
+		return nil, fmt.Errorf("鏃犳硶鍒涘缓宸ヤ綔鐩綍: %v", err)
 	}
 
 	if httpClient == nil {
@@ -68,29 +63,28 @@ func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine,
 	}, nil
 }
 
-// DownloadAll 下载 m3u8 及其所有分片，返回本地 m3u8 文件路径。
-func (d *M3U8DEngine) DownloadAll(ctx context.Context) (string, error) {
+// DownloadAll 涓嬭浇 m3u8 鍙婂叾鎵€鏈夊垎鐗囷紝杩斿洖鏈湴 m3u8 鏂囦欢璺緞銆?func (d *M3U8DEngine) DownloadAll(ctx context.Context) (string, error) {
 	if d.Config.Verbose {
-		fmt.Printf("开始下载: %s\n", d.Config.InputURL)
-		fmt.Printf("工作目录: %s\n", d.Config.WorkDir)
+		fmt.Printf("寮€濮嬩笅杞? %s\n", d.Config.InputURL)
+		fmt.Printf("宸ヤ綔鐩綍: %s\n", d.Config.WorkDir)
 	}
 
 	mainM3U8Path := filepath.Join(d.Config.WorkDir, "master.m3u8")
 	tasks, err := d.parseM3U8(ctx, d.Config.InputURL, mainM3U8Path, 0)
 	if err != nil {
-		return "", fmt.Errorf("解析m3u8失败: %v", err)
+		return "", fmt.Errorf("瑙ｆ瀽m3u8澶辫触: %v", err)
 	}
 
 	d.totalFiles = len(tasks)
 	if d.Config.Verbose {
-		fmt.Printf("发现 %d 个资源需要下载\n", d.totalFiles)
+		fmt.Printf("鍙戠幇 %d 涓祫婧愰渶瑕佷笅杞絓n", d.totalFiles)
 	}
 
 	if d.totalFiles < 10 {
 		return mainM3U8Path, ErrNotEnoughFiles
 	}
 
-	// 并发下载（最多重试一次）
+	// 骞跺彂涓嬭浇锛堟渶澶氶噸璇曚竴娆★級
 	const maxAttempts = 2
 	var lastErr error
 	for range maxAttempts {
@@ -102,16 +96,15 @@ func (d *M3U8DEngine) DownloadAll(ctx context.Context) (string, error) {
 		break
 	}
 	if lastErr != nil {
-		return "", fmt.Errorf("下载失败: %v", lastErr)
+		return "", fmt.Errorf("涓嬭浇澶辫触: %v", lastErr)
 	}
 
 	return mainM3U8Path, nil
 }
 
-// ConvertToMP4 使用 ffmpeg 将本地 m3u8 转换为 MP4。
-func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) error {
+// ConvertToMP4 浣跨敤 ffmpeg 灏嗘湰鍦?m3u8 杞崲涓?MP4銆?func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) error {
 	if d.Config.Verbose {
-		fmt.Printf("开始转码: %s -> %s\n", localM3U8Path, d.Config.OutputFile)
+		fmt.Printf("寮€濮嬭浆鐮? %s -> %s\n", localM3U8Path, d.Config.OutputFile)
 	}
 
 	// Sanitize headers to prevent argv injection
@@ -137,26 +130,24 @@ func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) er
 	cmd.Stderr = os.Stderr
 
 	if d.Config.Verbose {
-		fmt.Printf("执行命令: ffmpeg %s\n", strings.Join(args, " "))
+		fmt.Printf("鎵ц鍛戒护: ffmpeg %s\n", strings.Join(args, " "))
 	}
 
 	return cmd.Run()
 }
 
-// Cleanup 清理工作目录。若 KeepFiles 为 true 则不删除。
-func (d *M3U8DEngine) Cleanup() error {
+// Cleanup 娓呯悊宸ヤ綔鐩綍銆傝嫢 KeepFiles 涓?true 鍒欎笉鍒犻櫎銆?func (d *M3U8DEngine) Cleanup() error {
 	if d.Config.KeepFiles {
-		fmt.Printf("文件保留在: %s\n", d.Config.WorkDir)
+		fmt.Printf("鏂囦欢淇濈暀鍦? %s\n", d.Config.WorkDir)
 		return nil
 	}
 	return os.RemoveAll(d.Config.WorkDir)
 }
 
-// downloadFile 下载单个文件，使用注入的 http.Client。
-func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath string) error {
+// downloadFile 涓嬭浇鍗曚釜鏂囦欢锛屼娇鐢ㄦ敞鍏ョ殑 http.Client銆?func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath string) error {
 	if d.isAlreadyDownloaded(fileURL) {
 		if d.Config.Verbose {
-			fmt.Printf("文件已存在: %s\n", filepath.Base(localPath))
+			fmt.Printf("鏂囦欢宸插瓨鍦? %s\n", filepath.Base(localPath))
 		}
 		return nil
 	}
@@ -195,8 +186,7 @@ func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath strin
 	return nil
 }
 
-// downloadFileWithRetry 下载单个文件，支持指数退避重试。
-func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localPath string) error {
+// downloadFileWithRetry 涓嬭浇鍗曚釜鏂囦欢锛屾敮鎸佹寚鏁伴€€閬块噸璇曘€?func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localPath string) error {
 	var lastErr error
 
 	for i := 0; i <= d.Config.MaxRetries; i++ {
@@ -208,7 +198,7 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 
 		if i > 0 {
 			if d.Config.Verbose {
-				fmt.Printf("重试 %d/%d: %s\n", i, d.Config.MaxRetries, filepath.Base(localPath))
+				fmt.Printf("閲嶈瘯 %d/%d: %s\n", i, d.Config.MaxRetries, filepath.Base(localPath))
 			}
 			time.Sleep(time.Duration(i*i) * time.Second)
 		}
@@ -221,17 +211,16 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 		return nil
 	}
 
-	return fmt.Errorf("下载失败: %v", lastErr)
+	return fmt.Errorf("涓嬭浇澶辫触: %v", lastErr)
 }
 
-// parseM3U8 递归解析 m3u8 文件，收集所有下载任务。
-func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, level int) ([]DownloadTask, error) {
+// parseM3U8 閫掑綊瑙ｆ瀽 m3u8 鏂囦欢锛屾敹闆嗘墍鏈変笅杞戒换鍔°€?func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, level int) ([]DownloadTask, error) {
 	if d.Config.Verbose {
-		fmt.Printf("[L%d] 解析: %s\n", level, m3u8URL)
+		fmt.Printf("[L%d] 瑙ｆ瀽: %s\n", level, m3u8URL)
 	}
 
 	if err := d.downloadFileWithRetry(ctx, m3u8URL, localPath); err != nil {
-		return nil, fmt.Errorf("无法下载m3u8: %v", err)
+		return nil, fmt.Errorf("鏃犳硶涓嬭浇m3u8: %v", err)
 	}
 
 	content, err := os.ReadFile(localPath)
@@ -339,7 +328,7 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	return tasks, nil
 }
 
-// 辅助函数
+// 杈呭姪鍑芥暟
 
 func (d *M3U8DEngine) isAlreadyDownloaded(url string) bool {
 	d.mu.RLock()
@@ -353,8 +342,7 @@ func (d *M3U8DEngine) markAsDownloaded(url string) {
 	d.downloaded[url] = true
 }
 
-// extractKeyURL 从 EXT-X-KEY 行中提取密钥 URL。
-func extractKeyURL(line string) (string, bool) {
+// extractKeyURL 浠?EXT-X-KEY 琛屼腑鎻愬彇瀵嗛挜 URL銆?func extractKeyURL(line string) (string, bool) {
 	re := regexp.MustCompile(`URI="([^"]+)"`)
 	matches := re.FindStringSubmatch(line)
 	if len(matches) > 1 {
@@ -363,8 +351,7 @@ func extractKeyURL(line string) (string, bool) {
 	return "", false
 }
 
-// resolveURL 将相对 URL 解析为绝对 URL。
-func resolveURL(base *url.URL, ref string) string {
+// resolveURL 灏嗙浉瀵?URL 瑙ｆ瀽涓虹粷瀵?URL銆?func resolveURL(base *url.URL, ref string) string {
 	if ref == "" {
 		return ""
 	}

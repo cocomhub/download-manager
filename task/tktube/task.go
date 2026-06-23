@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package tktube
@@ -236,16 +236,15 @@ func (t *Task) parseTotalPages(html string) int {
 	return lastPage
 }
 
-// SmallObjects implements core.SmallObjectCap.
-// 返回与主对象关联的小对象（preview 视频 + cover 缩略图）。
-func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
+// SmallObjects implements core.SmallObjectProvider.
+// 杩斿洖涓庝富瀵硅薄鍏宠仈鐨勫皬瀵硅薄锛坧review 瑙嗛 + cover 缂╃暐鍥撅級銆?func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 	if obj == nil || obj.Extra == nil || obj.Metadata == nil {
 		return nil
 	}
 
 	var items []core.SmallObjectInfo
 
-	// Preview 视频
+	// Preview 瑙嗛
 	if previewURL, ok := obj.Extra["preview_url"].(string); ok && previewURL != "" {
 		baseName := strings.ReplaceAll(obj.Metadata[model.MetadataKeyTitle], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_preview.mp4")
@@ -256,8 +255,7 @@ func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 		})
 	}
 
-	// Cover 缩略图
-	if thumbURL, ok := obj.Extra["thumb_url"].(string); ok && thumbURL != "" {
+	// Cover 缂╃暐鍥?	if thumbURL, ok := obj.Extra["thumb_url"].(string); ok && thumbURL != "" {
 		baseName := strings.ReplaceAll(obj.Metadata[model.MetadataKeyTitle], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_thumb.jpg")
 		items = append(items, core.SmallObjectInfo{

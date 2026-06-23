@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -146,7 +146,7 @@ func TestValidateAndClamp_MissingContextDoesNotPanic(t *testing.T) {
 
 func TestValidateAndClamp_NoContextsIsNoOp(t *testing.T) {
 	// Backward compatibility: existing config with inline storage but no contexts block
-	// must work identically — Storage should remain unchanged.
+	// must work identically 鈥?Storage should remain unchanged.
 	cfg := &Config{
 		Tasks: []Task{
 			{

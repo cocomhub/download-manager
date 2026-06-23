@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -11,21 +11,19 @@ import (
 	"github.com/cocomhub/download-manager/core"
 )
 
-// ComponentHealth 描述单个组件的健康状态
-type ComponentHealth struct {
+// ComponentHealth 鎻忚堪鍗曚釜缁勪欢鐨勫仴搴风姸鎬?type ComponentHealth struct {
 	Status   string `json:"status"` // "ok" | "error" | "stopped"
 	Detail   string `json:"detail,omitempty"`
 	LastBeat string `json:"last_heartbeat,omitempty"` // RFC3339
 }
 
-// HealthStatus 描述整体健康状态
-type HealthStatus struct {
+// HealthStatus 鎻忚堪鏁翠綋鍋ュ悍鐘舵€?type HealthStatus struct {
 	Status     string                     `json:"status"` // "ok" | "degraded" | "error"
 	Uptime     string                     `json:"uptime"`
 	Components map[string]ComponentHealth `json:"components"`
 }
 
-// GetHealthStatus 收集各组件健康状态并返回整体评估
+// GetHealthStatus 鏀堕泦鍚勭粍浠跺仴搴风姸鎬佸苟杩斿洖鏁翠綋璇勪及
 func (m *Manager) GetHealthStatus() HealthStatus {
 	const heartbeatTimeout = 5 * time.Second
 	hs := HealthStatus{

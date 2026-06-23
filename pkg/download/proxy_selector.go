@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -16,9 +16,7 @@ import (
 	"time"
 )
 
-// StaticProxySelector 是静态代理列表的选择器实现。
-// 它使用文件缓存 + 直连探测 + 带宽评分来选择最佳代理。
-type StaticProxySelector struct {
+// StaticProxySelector 鏄潤鎬佷唬鐞嗗垪琛ㄧ殑閫夋嫨鍣ㄥ疄鐜般€?// 瀹冧娇鐢ㄦ枃浠剁紦瀛?+ 鐩磋繛鎺㈡祴 + 甯﹀璇勫垎鏉ラ€夋嫨鏈€浣充唬鐞嗐€?type StaticProxySelector struct {
 	proxies          []string
 	forceProxy       bool
 	cacheDir         string
@@ -27,11 +25,8 @@ type StaticProxySelector struct {
 	bandwidthSuffix  string
 }
 
-// NewStaticProxySelector 创建基于静态代理列表的选择器。
-// 默认值：
-//   - 决策缓存 TTL：1 秒
-//   - 探测超时：3 秒
-//   - 带宽路径后缀："/bandwidth"
+// NewStaticProxySelector 鍒涘缓鍩轰簬闈欐€佷唬鐞嗗垪琛ㄧ殑閫夋嫨鍣ㄣ€?// 榛樿鍊硷細
+//   - 鍐崇瓥缂撳瓨 TTL锛? 绉?//   - 鎺㈡祴瓒呮椂锛? 绉?//   - 甯﹀璺緞鍚庣紑锛?/bandwidth"
 func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 	return &StaticProxySelector{
 		proxies:          proxies,
@@ -41,28 +36,23 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 	}
 }
 
-// WithForceProxy 设置是否强制使用代理（跳过直连探测）。
-func (s *StaticProxySelector) WithForceProxy(v bool) *StaticProxySelector {
+// WithForceProxy 璁剧疆鏄惁寮哄埗浣跨敤浠ｇ悊锛堣烦杩囩洿杩炴帰娴嬶級銆?func (s *StaticProxySelector) WithForceProxy(v bool) *StaticProxySelector {
 	s.forceProxy = v
 	return s
 }
 
-// WithCache 设置代理决策缓存目录和 TTL（天数）。
-func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelector {
+// WithCache 璁剧疆浠ｇ悊鍐崇瓥缂撳瓨鐩綍鍜?TTL锛堝ぉ鏁帮級銆?func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelector {
 	s.cacheDir = dir
 	s.decisionCacheTTL = ttl
 	return s
 }
 
-// WithProbe 设置直连探测超时（秒）。
-func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
+// WithProbe 璁剧疆鐩磋繛鎺㈡祴瓒呮椂锛堢锛夈€?func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
 	s.probeTimeout = timeout
 	return s
 }
 
-// Select 实现 ProxySelector 接口。
-// 返回空字符串表示直连（不使用代理）。
-func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
+// Select 瀹炵幇 ProxySelector 鎺ュ彛銆?// 杩斿洖绌哄瓧绗︿覆琛ㄧず鐩磋繛锛堜笉浣跨敤浠ｇ悊锛夈€?func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
 	if len(s.proxies) == 0 {
 		return "", nil
 	}
@@ -83,8 +73,7 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	}
 	cachePath := filepath.Join(cacheBase, domain)
 
-	// 检查缓存
-	if info, err := os.Stat(cachePath); err == nil {
+	// 妫€鏌ョ紦瀛?	if info, err := os.Stat(cachePath); err == nil {
 		ttl := s.decisionCacheTTL
 		if ttl <= 0 {
 			ttl = 1
@@ -101,7 +90,7 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 		}
 	}
 
-	// 直连探测
+	// 鐩磋繛鎺㈡祴
 	if !s.forceProxy {
 		if checkDirect(ctx, targetURL, s.probeTimeout) {
 			_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
@@ -113,8 +102,7 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	return s.selectBestProxy(ctx, cachePath)
 }
 
-// selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
-func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
+// selectBestProxy 鎵ц甯﹀鎵弿锛岄€夊嚭鏈€浣充唬鐞嗗苟鍐欏叆缂撳瓨銆?func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
 	bestProxy := ""
 	minBandwidth := 999999.0
 	for _, p := range s.proxies {
@@ -132,8 +120,7 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 	return "", fmt.Errorf("no suitable proxy found")
 }
 
-// checkDirect 检测是否可直接访问目标 URL。返回 true 表示可直连。
-func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
+// checkDirect 妫€娴嬫槸鍚﹀彲鐩存帴璁块棶鐩爣 URL銆傝繑鍥?true 琛ㄧず鍙洿杩炪€?func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	if timeoutSecs <= 0 {
 		timeoutSecs = 3
 	}
@@ -150,8 +137,7 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
-func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
+// getProxyBandwidth 鏌ヨ浠ｇ悊鐨勫甫瀹藉€硷紙鏁板€艰秺灏忚秺濂斤級锛屽け璐ユ椂杩斿洖 999999銆?func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
 		suffix = "/bandwidth"
 	}

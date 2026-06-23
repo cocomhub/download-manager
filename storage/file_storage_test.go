@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package storage
@@ -135,7 +135,7 @@ func TestFileStorage_ForceFlush(t *testing.T) {
 		t.Fatal("flush file not found on disk")
 	}
 
-	// Reload from disk — create new FileStorage pointing to same path
+	// Reload from disk 鈥?create new FileStorage pointing to same path
 	fs2, err := NewFileStorage(map[string]string{"path": path})
 	if err != nil {
 		t.Fatalf("NewFileStorage reload failed: %v", err)

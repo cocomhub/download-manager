@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -11,9 +11,7 @@ import (
 	"time"
 )
 
-// CheckBandwidth 探测目标 URL 的带宽（字节/秒）。
-// 下载一定字节后计算下载速率。
-func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout time.Duration) (float64, error) {
+// CheckBandwidth 鎺㈡祴鐩爣 URL 鐨勫甫瀹斤紙瀛楄妭/绉掞級銆?// 涓嬭浇涓€瀹氬瓧鑺傚悗璁＄畻涓嬭浇閫熺巼銆?func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout time.Duration) (float64, error) {
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -49,9 +47,7 @@ func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout t
 	return float64(total) / elapsed.Seconds(), nil
 }
 
-// CheckHealth 检查代理/隧道节点是否健康。
-// 向 url 发 GET 请求，返回 200 OK 时表示健康。
-func CheckHealth(ctx context.Context, url string, timeout time.Duration) error {
+// CheckHealth 妫€鏌ヤ唬鐞?闅ч亾鑺傜偣鏄惁鍋ュ悍銆?// 鍚?url 鍙?GET 璇锋眰锛岃繑鍥?200 OK 鏃惰〃绀哄仴搴枫€?func CheckHealth(ctx context.Context, url string, timeout time.Duration) error {
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

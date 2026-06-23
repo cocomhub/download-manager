@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package extractor
@@ -18,18 +18,15 @@ import (
 // compile-time interface check
 var _ download.Extractor = (*CompositeExtractor)(nil)
 
-// CompositeExtractor 处理复合下载请求。
-// 从 req.Metadata["files"] 读取 []map[string]string 格式的文件列表，
-// 对每个文件通过注入的 Downloader 执行下载。
-type CompositeExtractor struct {
+// CompositeExtractor 澶勭悊澶嶅悎涓嬭浇璇锋眰銆?// 浠?req.Metadata["files"] 璇诲彇 []map[string]string 鏍煎紡鐨勬枃浠跺垪琛紝
+// 瀵规瘡涓枃浠堕€氳繃娉ㄥ叆鐨?Downloader 鎵ц涓嬭浇銆?type CompositeExtractor struct {
 	selector   download.Selector
 	transport  download.Transport
 	extractors []download.Extractor
 	downloader *download.Downloader
 }
 
-// NewCompositeExtractor 创建 CompositeExtractor 实例。
-func NewCompositeExtractor() *CompositeExtractor {
+// NewCompositeExtractor 鍒涘缓 CompositeExtractor 瀹炰緥銆?func NewCompositeExtractor() *CompositeExtractor {
 	return &CompositeExtractor{}
 }
 
@@ -40,13 +37,11 @@ func (e *CompositeExtractor) Match(ctx context.Context, url string) bool { retur
 func (e *CompositeExtractor) SetSelector(s download.Selector)   { e.selector = s }
 func (e *CompositeExtractor) SetTransport(t download.Transport) { e.transport = t }
 
-// AddExtractor 向 CompositeExtractor 注册一个 Extractor（用于子下载）。
-func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
+// AddExtractor 鍚?CompositeExtractor 娉ㄥ唽涓€涓?Extractor锛堢敤浜庡瓙涓嬭浇锛夈€?func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
 	e.extractors = append(e.extractors, ex)
 }
 
-// parseFiles 从 req.Metadata["files"] 解析文件列表。
-// 支持 JSON 字符串 ("[{\"url\":\"...\",\"path\":\"...\",\"type\":\"video\"}]")
+// parseFiles 浠?req.Metadata["files"] 瑙ｆ瀽鏂囦欢鍒楄〃銆?// 鏀寔 JSON 瀛楃涓?("[{\"url\":\"...\",\"path\":\"...\",\"type\":\"video\"}]")
 func parseFiles(metadata map[string]string) ([]map[string]string, error) {
 	filesJSON, ok := metadata["files"]
 	if !ok || filesJSON == "" {
@@ -62,11 +57,9 @@ func parseFiles(metadata map[string]string) ([]map[string]string, error) {
 	return fileList, nil
 }
 
-// Extract 执行复合下载：
-//  1. 从 req.Metadata["files"] 解析文件列表
-//  2. 对每个文件，构建子 Request 并调用 Downloader.Download
-//  3. 汇总进度
-func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request) error {
+// Extract 鎵ц澶嶅悎涓嬭浇锛?//  1. 浠?req.Metadata["files"] 瑙ｆ瀽鏂囦欢鍒楄〃
+//  2. 瀵规瘡涓枃浠讹紝鏋勫缓瀛?Request 骞惰皟鐢?Downloader.Download
+//  3. 姹囨€昏繘搴?func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request) error {
 	fileList, err := parseFiles(req.Metadata)
 	if err != nil {
 		return err
@@ -74,7 +67,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 
 	slog.Info("Starting composite download", "count", len(fileList), "url", req.URL)
 
-	// 构建子 Downloader，注入 Selector、Transport 和 Extractor
+	// 鏋勫缓瀛?Downloader锛屾敞鍏?Selector銆乀ransport 鍜?Extractor
 	var totalDownloaded int64
 	dl := e.downloader
 	if dl == nil {
@@ -100,13 +93,13 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 			continue
 		}
 
-		// 创建目录
+		// 鍒涘缓鐩綍
 		dir := filepath.Dir(subPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("composite: failed to create directory %s: %w", dir, err)
 		}
 
-		// 跟踪进度：仅 video 类型或只有一个文件时
+		// 璺熻釜杩涘害锛氫粎 video 绫诲瀷鎴栧彧鏈変竴涓枃浠舵椂
 		trackProgress := (fType == "video" || len(fileList) == 1)
 
 		subReq := &download.Request{
@@ -120,7 +113,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 			return fmt.Errorf("composite: sub-download failed (%s): %w", subURL, err)
 		}
 
-		// 累计已下载字节数
+		// 绱宸蹭笅杞藉瓧鑺傛暟
 		if info, statErr := os.Stat(subPath); statErr == nil {
 			totalDownloaded += info.Size()
 		}

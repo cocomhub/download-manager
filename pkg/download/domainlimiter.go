@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -8,17 +8,14 @@ import (
 	"sync"
 )
 
-// DomainLimiter 提供基于域名的并发连接数限制。
-// 每个域名独立计数，超过限制的 acquire 会阻塞直到有释放信号。
-type DomainLimiter struct {
+// DomainLimiter 鎻愪緵鍩轰簬鍩熷悕鐨勫苟鍙戣繛鎺ユ暟闄愬埗銆?// 姣忎釜鍩熷悕鐙珛璁℃暟锛岃秴杩囬檺鍒剁殑 acquire 浼氶樆濉炵洿鍒版湁閲婃斁淇″彿銆?type DomainLimiter struct {
 	mu    sync.Mutex
 	cond  *sync.Cond
 	limit map[string]int
 	cur   map[string]int
 }
 
-// NewDomainLimiter 创建并返回一个新的 DomainLimiter 实例。
-func NewDomainLimiter() *DomainLimiter {
+// NewDomainLimiter 鍒涘缓骞惰繑鍥炰竴涓柊鐨?DomainLimiter 瀹炰緥銆?func NewDomainLimiter() *DomainLimiter {
 	d := &DomainLimiter{
 		limit: make(map[string]int),
 		cur:   make(map[string]int),
@@ -27,9 +24,7 @@ func NewDomainLimiter() *DomainLimiter {
 	return d
 }
 
-// Set 设置指定主机的最大并发连接数。
-// 如果 max <= 0，会被钳位为 1。
-func (d *DomainLimiter) Set(host string, max int) {
+// Set 璁剧疆鎸囧畾涓绘満鐨勬渶澶у苟鍙戣繛鎺ユ暟銆?// 濡傛灉 max <= 0锛屼細琚挸浣嶄负 1銆?func (d *DomainLimiter) Set(host string, max int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if max <= 0 {
@@ -39,10 +34,7 @@ func (d *DomainLimiter) Set(host string, max int) {
 	d.cond.Broadcast()
 }
 
-// Acquire 尝试获取一个域的连接槽位。
-// 如果当前连接数已达到限制，会阻塞直到有释放信号或超过限制变更。
-// rawURL 可以是完整的 URL，内部会解析出 host。
-func (d *DomainLimiter) Acquire(rawURL string) {
+// Acquire 灏濊瘯鑾峰彇涓€涓煙鐨勮繛鎺ユЫ浣嶃€?// 濡傛灉褰撳墠杩炴帴鏁板凡杈惧埌闄愬埗锛屼細闃诲鐩村埌鏈夐噴鏀句俊鍙锋垨瓒呰繃闄愬埗鍙樻洿銆?// rawURL 鍙互鏄畬鏁寸殑 URL锛屽唴閮ㄤ細瑙ｆ瀽鍑?host銆?func (d *DomainLimiter) Acquire(rawURL string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return
@@ -56,8 +48,7 @@ func (d *DomainLimiter) Acquire(rawURL string) {
 	d.mu.Unlock()
 }
 
-// Release 释放一个域的连接槽位，唤醒等待者。
-func (d *DomainLimiter) Release(rawURL string) {
+// Release 閲婃斁涓€涓煙鐨勮繛鎺ユЫ浣嶏紝鍞ら啋绛夊緟鑰呫€?func (d *DomainLimiter) Release(rawURL string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return

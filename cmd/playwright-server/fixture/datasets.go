@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package fixture
@@ -23,7 +23,7 @@ func workDir(mgr *manager.Manager) string {
 	return mgr.GetConfig().Server.WorkDir
 }
 
-// loadFull: 4 default tasks — 41 objects total
+// loadFull: 4 default tasks 鈥?41 objects total
 func loadFull(mgr *manager.Manager) error {
 	cur := mgr.GetConfig()
 	cur.Tasks = []config.Task{

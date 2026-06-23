@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -93,7 +93,7 @@ func TestCalcSchedulerWeights_QueueDepth(t *testing.T) {
 	}
 	m.tasks.Store("task-deep", &mockSchedTask{conc: 8})
 
-	// Fill queue with 16 items (queue depth 16 → weight 1 + 16/8 = 3)
+	// Fill queue with 16 items (queue depth 16 鈫?weight 1 + 16/8 = 3)
 	ch := m.getTaskQueue("task-deep")
 	for range 16 {
 		ch <- &downloadRequest{}
@@ -155,7 +155,7 @@ func TestCalcSchedulerWeights_Capped(t *testing.T) {
 	}
 	m.tasks.Store("task-big", &mockSchedTask{conc: 100})
 
-	// Fill queue with 200 items (queue depth 200 → weight 1 + 200/8 = 26, capped at 8)
+	// Fill queue with 200 items (queue depth 200 鈫?weight 1 + 200/8 = 26, capped at 8)
 	ch := m.getTaskQueue("task-big")
 	for range 200 {
 		ch <- &downloadRequest{}
@@ -186,7 +186,7 @@ func TestSchedulerSignal_NonBlocking(t *testing.T) {
 	case m.schedulerSignal <- struct{}{}:
 		t.Fatal("second signal should not succeed (buffer already full)")
 	default:
-		// Expected — buffered(1) channel is full
+		// Expected 鈥?buffered(1) channel is full
 	}
 }
 
@@ -216,7 +216,7 @@ func TestDrainOnce_DrainsTaskQueues(t *testing.T) {
 	})
 	_ = m.calcSchedulerWeights()
 	// Store weights directly via the scheduler's approach: we call drainOnce which reads from taskQueues
-	// Need to call drainOnce — but it's a closure. Let's test the effect instead.
+	// Need to call drainOnce 鈥?but it's a closure. Let's test the effect instead.
 
 	// Simulate the scheduler logic: store weights and call drainOnce
 	m.schedulerHeartbeat.Store(time.Now())
@@ -283,7 +283,7 @@ func (m *mockSchedTask) ResolveObject(ctx context.Context, obj *model.DownloadOb
 }
 func (m *mockSchedTask) Close() error { return nil }
 
-// schedulerDrain extracts the drainOnce logic for testing — processes one round.
+// schedulerDrain extracts the drainOnce logic for testing 鈥?processes one round.
 func (m *Manager) schedulerDrain() {
 	const maxSchedulerWeight = 8
 	ids := make([]string, 0, 64)

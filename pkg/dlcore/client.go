@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -33,11 +33,9 @@ var (
 	DefaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
-// ErrNoTry 表示无需继续重试的错误
-// 复用 pkg/download 的 sentinel，避免两套 ErrNoTry 导致 errors.Is 跨包不匹配
-var ErrNoTry = download.ErrNoTry
+// ErrNoTry 琛ㄧず鏃犻渶缁х画閲嶈瘯鐨勯敊璇?// 澶嶇敤 pkg/download 鐨?sentinel锛岄伩鍏嶄袱濂?ErrNoTry 瀵艰嚧 errors.Is 璺ㄥ寘涓嶅尮閰?var ErrNoTry = download.ErrNoTry
 
-// IsNoTry 判断错误是否属于无需重试类型
+// IsNoTry 鍒ゆ柇閿欒鏄惁灞炰簬鏃犻渶閲嶈瘯绫诲瀷
 func IsNoTry(err error) bool {
 	return errors.Is(err, ErrNoTry)
 }
@@ -96,8 +94,7 @@ func NewClient(opts ...Option) *Client {
 	for _, o := range opts {
 		o(cl)
 	}
-	// 向后兼容：如果未注入 ProxySelector，从旧字段构造默认实现
-	if cl.proxySelector == nil {
+	// 鍚戝悗鍏煎锛氬鏋滄湭娉ㄥ叆 ProxySelector锛屼粠鏃у瓧娈垫瀯閫犻粯璁ゅ疄鐜?	if cl.proxySelector == nil {
 		ps := NewProxySelector(cl.proxies).
 			WithForceProxy(cl.forceProxy).
 			WithCache(cl.cacheDir, cl.proxyDecisionTTLSecs).
@@ -105,11 +102,11 @@ func NewClient(opts ...Option) *Client {
 			WithBandwidthSuffix(cl.bandwidthPathSuffix)
 		cl.proxySelector = ps
 	}
-	if hwc, ok := cl.defaultHandler.(HandlerWithClient); ok {
+	if hwc, ok := cl.defaultHandler.(ClientInjecter); ok {
 		hwc.SetClient(cl)
 	}
 	for _, rh := range handlers {
-		if hwc, ok := rh.handler.(HandlerWithClient); ok {
+		if hwc, ok := rh.handler.(ClientInjecter); ok {
 			hwc.SetClient(cl)
 		}
 	}
@@ -137,7 +134,7 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		return fmt.Errorf("invalid request: missing URL or SavePath")
 	}
 
-	// 图片类型 URL 自动设置较短超时，避免长时间挂起
+	// 鍥剧墖绫诲瀷 URL 鑷姩璁剧疆杈冪煭瓒呮椂锛岄伩鍏嶉暱鏃堕棿鎸傝捣
 	if isImageURL(req.URL) {
 		timeout := 30 * time.Second
 		if strings.Contains(req.URL, "huaacg.com") {
@@ -162,17 +159,15 @@ func (c *Client) Download(ctx context.Context, req *Request) (err error) {
 		return nil
 	}
 
-	// Handler 分发：遍历全局注册表，匹配时使用对应 Handler
-	// 无匹配时使用默认 HTTP 下载处理器
-	handler := matchHandler(req.URL)
+	// Handler 鍒嗗彂锛氶亶鍘嗗叏灞€娉ㄥ唽琛紝鍖归厤鏃朵娇鐢ㄥ搴?Handler
+	// 鏃犲尮閰嶆椂浣跨敤榛樿 HTTP 涓嬭浇澶勭悊鍣?	handler := matchHandler(req.URL)
 	if handler == nil {
 		handler = c.defaultHandler
 	}
 	return handler.Download(ctx, req)
 }
 
-// progressReader 包装器用于跟踪下载进度
-type progressReader struct {
+// progressReader 鍖呰鍣ㄧ敤浜庤窡韪笅杞借繘搴?type progressReader struct {
 	reader     io.Reader
 	total      int64
 	downloaded int64
@@ -246,7 +241,7 @@ func (d *DomainLimiter) Release(raw string) {
 }
 
 func (c *Client) addBrowserLikeHeaders(req *Request, hreq *http.Request) {
-	// 设置请求头模拟浏览器行为
+	// 璁剧疆璇锋眰澶存ā鎷熸祻瑙堝櫒琛屼负
 	if !c.disableInjectBrowserLikeHeaders {
 		hreq.Header.Set("accept", "*/*")
 		hreq.Header.Set("cache-control", "no-cache")
@@ -267,7 +262,7 @@ func (c *Client) addBrowserLikeHeaders(req *Request, hreq *http.Request) {
 		}
 	}
 
-	// 添加自定义请求头
+	// 娣诲姞鑷畾涔夎姹傚ご
 	for k, v := range req.Headers {
 		hreq.Header.Set(k, v)
 	}

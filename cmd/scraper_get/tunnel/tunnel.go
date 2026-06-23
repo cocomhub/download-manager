@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package tunnel
@@ -33,7 +33,7 @@ type SclientConfig struct {
 func TunnelRequest(cfg *SclientConfig, method, targetURL string, headers map[string]string, body string, showHeaders, verbose bool) (string, error) {
 	c, err := NewClient(cfg.TunnelKey, strings.TrimRight(cfg.ServerURL, "/")+cfg.TunnelEndpoint, time.Duration(cfg.Timeout)*time.Second)
 	if err != nil {
-		return "", fmt.Errorf("创建 tunnel 客户端失败: %w", err)
+		return "", fmt.Errorf("鍒涘缓 tunnel 瀹㈡埛绔け璐? %w", err)
 	}
 	req := &Request{
 		Method:  method,
@@ -43,15 +43,15 @@ func TunnelRequest(cfg *SclientConfig, method, targetURL string, headers map[str
 	}
 	if verbose {
 		payloadJSON, _ := json.Marshal(req)
-		fmt.Fprintf(os.Stderr, "[请求载荷] %s\n", string(payloadJSON))
+		fmt.Fprintf(os.Stderr, "[璇锋眰杞借嵎] %s\n", string(payloadJSON))
 		fmt.Fprintf(os.Stderr, "[Tunnel] POST %s => %s\n", c.TunnelURL, req.URL)
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("tunnel 请求失败: %w", err)
+		return "", fmt.Errorf("tunnel 璇锋眰澶辫触: %w", err)
 	}
 	if verbose {
-		fmt.Fprintf(os.Stderr, "[响应状态] %d\n", resp.Status)
+		fmt.Fprintf(os.Stderr, "[鍝嶅簲鐘舵€乚 %d\n", resp.Status)
 	}
 	if showHeaders {
 		for k, v := range resp.Headers {
@@ -61,7 +61,7 @@ func TunnelRequest(cfg *SclientConfig, method, targetURL string, headers map[str
 	}
 	bodyBytes, err := DecodeBody(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("解码响应体失败: %w", err)
+		return "", fmt.Errorf("瑙ｇ爜鍝嶅簲浣撳け璐? %w", err)
 	}
 	return string(bodyBytes), nil
 }

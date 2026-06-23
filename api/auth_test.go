@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -20,7 +20,7 @@ func newTestManager(cfg *config.Config) *manager.Manager {
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	// Note: no t.Parallel() here — t.Setenv is incompatible with parallel tests.
+	// Note: no t.Parallel() here 鈥?t.Setenv is incompatible with parallel tests.
 	// Subtests inherit the env vars set at parent level.
 
 	// Clear env vars that could pollute test results.

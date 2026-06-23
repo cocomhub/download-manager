@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -12,7 +12,7 @@ const (
 	metricsLabelFailures  = "failures"
 )
 
-// CollectMetrics 收集当前所有任务和全局的运行时指标
+// CollectMetrics 鏀堕泦褰撳墠鎵€鏈変换鍔″拰鍏ㄥ眬鐨勮繍琛屾椂鎸囨爣
 func (m *Manager) CollectMetrics() map[string]any {
 	taskMetricsMap := make(map[string]any)
 
@@ -20,16 +20,14 @@ func (m *Manager) CollectMetrics() map[string]any {
 		id := key.(string)
 		mt := value.(*taskMetrics)
 
-		// 获取活跃下载数
-		m.mu.Lock()
+		// 鑾峰彇娲昏穬涓嬭浇鏁?		m.mu.Lock()
 		active := m.activeDownloads[id]
 		m.mu.Unlock()
 
-		// 获取队列深度
+		// 鑾峰彇闃熷垪娣卞害
 		q := m.getTaskQueue(id)
 
-		// 获取并发度
-		concurrency := 2 // default
+		// 鑾峰彇骞跺彂搴?		concurrency := 2 // default
 		if t, ok := m.getTask(id); ok {
 			concurrency = t.Concurrency()
 		}
@@ -78,8 +76,7 @@ func (m *Manager) CollectMetrics() map[string]any {
 	}
 }
 
-// recordFailure 记录一条失败记录到环形缓冲区
-func (m *Manager) recordFailure(taskID, url, errStr string, attempt int, permanent bool) {
+// recordFailure 璁板綍涓€鏉″け璐ヨ褰曞埌鐜舰缂撳啿鍖?func (m *Manager) recordFailure(taskID, url, errStr string, attempt int, permanent bool) {
 	m.failureMu.Lock()
 	defer m.failureMu.Unlock()
 
@@ -95,7 +92,7 @@ func (m *Manager) recordFailure(taskID, url, errStr string, attempt int, permane
 	m.failureWriteIdx++
 }
 
-// GetFailures 查询失败记录列表
+// GetFailures 鏌ヨ澶辫触璁板綍鍒楄〃
 func (m *Manager) GetFailures(taskID string, limit int) map[string]any {
 	if limit <= 0 || limit > 200 {
 		limit = 200

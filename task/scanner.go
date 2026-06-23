@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package task
@@ -12,15 +12,15 @@ import (
 )
 
 // PagingScanner wraps scrape.Driver + SiteAdapter + BaseTask into a unified
-// scrape → build → persist pipeline, replacing the per-task pagination boilerplate.
+// scrape 鈫?build 鈫?persist pipeline, replacing the per-task pagination boilerplate.
 //
 // Lifecycle:
 //
 //	PagingScanner.Run(ctx)
-//	  → driver.Scrape() with PageHooks from adapter
-//	    → per page: adapter.ParsePage → adapter.ItemsToURLs → ProcessNewURLs
-//	      → per new URL: adapter.BuildObject → CheckAndRestoreStatus → PersistTaskObject
-//	  → RememberRuntimeObject for each built object
+//	  鈫?driver.Scrape() with PageHooks from adapter
+//	    鈫?per page: adapter.ParsePage 鈫?adapter.ItemsToURLs 鈫?ProcessNewURLs
+//	      鈫?per new URL: adapter.BuildObject 鈫?CheckAndRestoreStatus 鈫?PersistTaskObject
+//	  鈫?RememberRuntimeObject for each built object
 type PagingScanner struct {
 	driver  *scrape.Driver
 	adapter SiteAdapter

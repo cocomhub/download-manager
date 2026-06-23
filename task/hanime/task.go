@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package hanime
@@ -50,7 +50,7 @@ var _ core.Task = (*Task)(nil)
 
 func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	extra := cfg.Extra
-	genre := configutil.GetString(extra, "genre", "裏番")
+	genre := configutil.GetString(extra, "genre", "瑁忕暘")
 	if configutil.GetBool(extra, "save_dir_add_genre", false) && genre != "" {
 		cfg.SaveDir = filepath.Join(cfg.SaveDir, genre)
 	}
@@ -165,7 +165,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 			alt := strings.TrimSpace(img.AttrOr("alt", ""))
 			title = alt
 		}
-		title = strings.ReplaceAll(title, "/", "／")
+		title = strings.ReplaceAll(title, "/", "锛?)
 		title = strings.TrimRight(title, ".")
 		vid := extractVideoIDFromURL(href)
 		title = fmt.Sprintf(titleWithVidFmt, vid, title)
@@ -182,7 +182,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 				h = baseURL + h
 			}
 			title := strings.TrimSpace(s.Find(".title, .card-title, h3, .name").First().Text())
-			title = strings.ReplaceAll(title, "/", "／")
+			title = strings.ReplaceAll(title, "/", "锛?)
 			title = strings.TrimRight(title, ".")
 			vid := extractVideoIDFromURL(h)
 			title = fmt.Sprintf(titleWithVidFmt, vid, title)
@@ -203,7 +203,7 @@ func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 			if title == "" {
 				title = strings.TrimSpace(s.AttrOr("title", ""))
 			}
-			title = strings.ReplaceAll(title, "/", "／")
+			title = strings.ReplaceAll(title, "/", "锛?)
 			title = strings.TrimRight(title, ".")
 			vid := extractVideoIDFromURL(h)
 			title = fmt.Sprintf(titleWithVidFmt, vid, title)
@@ -278,7 +278,7 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		return nil, err
 	}
 	info := &hanimeDetail{}
-	// 标题
+	// 鏍囬
 	title := strings.TrimSpace(doc.Find("#shareBtn-title").First().Text())
 	if title == "" {
 		title = strings.TrimSpace(doc.Find("meta[property='og:title']").AttrOr("content", ""))
@@ -288,15 +288,15 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 	}
 	vid := extractVideoIDFromURL(pageURL)
 	info.title = fmt.Sprintf(titleWithVidFmt, vid, title)
-	info.title = strings.ReplaceAll(info.title, "/", "／")
+	info.title = strings.ReplaceAll(info.title, "/", "锛?)
 	info.title = strings.TrimRight(info.title, ".")
-	// 作者/厂牌
+	// 浣滆€?鍘傜墝
 	info.artist = strings.TrimSpace(doc.Find("#video-artist-name").First().Text())
-	// 详情描述（视频详情面板中的文本）
+	// 璇︽儏鎻忚堪锛堣棰戣鎯呴潰鏉夸腑鐨勬枃鏈級
 	detailLines := make([]string, 0, 4)
 	doc.Find(".video-details-wrapper .video-description-panel").First().Find("*").Each(func(i int, s *goquery.Selection) {
 		v := strings.TrimSpace(s.Text())
-		if strings.Contains(v, "觀看次數") && len(v) > 10 {
+		if strings.Contains(v, "瑙€鐪嬫鏁?) && len(v) > 10 {
 			info.date = strings.TrimSpace(v[len(v)-10:])
 			return
 		}
@@ -305,28 +305,26 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		}
 	})
 	if len(detailLines) == 0 {
-		// 回退：直接读取描述文本块
+		// 鍥為€€锛氱洿鎺ヨ鍙栨弿杩版枃鏈潡
 		desc := strings.TrimSpace(doc.Find(".video-details-wrapper .video-caption-text").First().Text())
 		if desc != "" {
 			detailLines = append(detailLines, desc)
 		}
 	}
 	info.details = strings.Join(detailLines, "\n")
-	// 封面图
-	info.imageURL = strings.TrimSpace(doc.Find("meta[property='og:image']").AttrOr("content", ""))
+	// 灏侀潰鍥?	info.imageURL = strings.TrimSpace(doc.Find("meta[property='og:image']").AttrOr("content", ""))
 	if info.imageURL == "" {
 		poster := strings.TrimSpace(doc.Find("video").First().AttrOr("poster", ""))
 		info.imageURL = poster
 	}
-	// 标签
+	// 鏍囩
 	doc.Find(".tags a, .video-tags a").Each(func(i int, s *goquery.Selection) {
 		v := strings.TrimSpace(s.Text())
 		if v != "" {
 			info.tags = append(info.tags, v)
 		}
 	})
-	// 若新站点结构（video-tags-wrapper）
-	if len(info.tags) == 0 {
+	// 鑻ユ柊绔欑偣缁撴瀯锛坴ideo-tags-wrapper锛?	if len(info.tags) == 0 {
 		doc.Find(".video-tags-wrapper .single-video-tag a").Each(func(i int, s *goquery.Selection) {
 			txt := strings.TrimSpace(s.Text())
 			if txt == "" {
@@ -335,13 +333,13 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 			if idx := strings.Index(txt, "("); idx > 0 {
 				txt = strings.TrimSpace(txt[:idx])
 			}
-			txt = strings.TrimSpace(strings.TrimSuffix(txt, " ")) // 去掉NBSP
+			txt = strings.TrimSpace(strings.TrimSuffix(txt, "聽")) // 鍘绘帀NBSP
 			if txt != "" {
 				info.tags = append(info.tags, txt)
 			}
 		})
 	}
-	// 播放列表（相关视频）
+	// 鎾斁鍒楄〃锛堢浉鍏宠棰戯級
 	doc.Find("#video-playlist-wrapper .related-watch-wrap, #playlist-scroll .related-watch-wrap").Each(func(i int, s *goquery.Selection) {
 		href := strings.TrimSpace(s.Find("a.overlay").AttrOr("href", ""))
 		if href == "" {
@@ -357,10 +355,10 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		if title == "" {
 			title = strings.TrimSpace(s.Find("img[alt]").First().AttrOr("alt", ""))
 		}
-		title = strings.ReplaceAll(title, "/", "／")
+		title = strings.ReplaceAll(title, "/", "锛?)
 		title = strings.TrimRight(title, ".")
 		thumb := ""
-		// 第二张图通常是缩略图
+		// 绗簩寮犲浘閫氬父鏄缉鐣ュ浘
 		images := s.Find("img")
 		if images.Length() > 1 {
 			thumb = strings.TrimSpace(images.Eq(1).AttrOr("src", ""))
@@ -418,13 +416,13 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 		return err
 	}
 	baseName := info.title
-	baseName = strings.ReplaceAll(baseName, "/", "／")
+	baseName = strings.ReplaceAll(baseName, "/", "锛?)
 	baseName = strings.TrimRight(baseName, ".")
 	videoPath := filepath.Join(t.SaveDir(), baseName+".mp4")
 	thumbPath := filepath.Join(t.SaveDir(), baseName+"_thumbnail.jpg")
 	coverPath := filepath.Join(t.SaveDir(), baseName+"_cover.jpg")
 	files := []map[string]string{}
-	// 封面
+	// 灏侀潰
 	if info.imageURL != "" {
 		files = append(files, map[string]string{
 			"url":  info.imageURL,
@@ -432,8 +430,7 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 			"type": "image",
 		})
 	}
-	// 缩略图（来自搜索项的 thumb_url）
-	if tu, ok := obj.Extra["thumb_url"].(string); ok && tu != "" {
+	// 缂╃暐鍥撅紙鏉ヨ嚜鎼滅储椤圭殑 thumb_url锛?	if tu, ok := obj.Extra["thumb_url"].(string); ok && tu != "" {
 		files = append(files, map[string]string{
 			"url":  tu,
 			"path": thumbPath,
@@ -486,7 +483,7 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 }
 
 func extractVideoIDFromURL(u string) string {
-	// 期望形式 https://hanime1.me/watch?v=404480
+	// 鏈熸湜褰㈠紡 https://hanime1.me/watch?v=404480
 	if u == "" {
 		return ""
 	}
@@ -502,8 +499,7 @@ func extractVideoIDFromURL(u string) string {
 			}
 		}
 	}
-	// 兜底：提取末尾数字序列
-	re := regexp.MustCompile(`(\d{3,})`)
+	// 鍏滃簳锛氭彁鍙栨湯灏炬暟瀛楀簭鍒?	re := regexp.MustCompile(`(\d{3,})`)
 	if m := re.FindStringSubmatch(u); len(m) >= 2 {
 		return m[1]
 	}

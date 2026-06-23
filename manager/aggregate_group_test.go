@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -22,7 +22,7 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	// Group A: one HQ and one C
 	o1 := &model.DownloadObject{
 		TaskID: "t1", URL: "u1",
-		Metadata: map[string]string{"title": "【高画质】CLUB-100", "content_group": "CLUB-100", "date": "2024-01-01"},
+		Metadata: map[string]string{"title": "銆愰珮鐢昏川銆慍LUB-100", "content_group": "CLUB-100", "date": "2024-01-01"},
 		Extra:    map[string]any{},
 	}
 	o2 := &model.DownloadObject{
@@ -143,8 +143,8 @@ func TestAggregateByContent_UnknownKeysStaySeparated(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "随机标题甲",
-			"content_group": "unknown+随机标题甲",
+			"title":         "闅忔満鏍囬鐢?,
+			"content_group": "unknown+闅忔満鏍囬鐢?,
 			"date":          "2024-01-01",
 		},
 		Extra: map[string]any{},
@@ -153,8 +153,8 @@ func TestAggregateByContent_UnknownKeysStaySeparated(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u2",
 		Metadata: map[string]string{
-			"title":         "随机标题乙",
-			"content_group": "unknown+随机标题乙",
+			"title":         "闅忔満鏍囬涔?,
+			"content_group": "unknown+闅忔満鏍囬涔?,
 			"date":          "2024-01-02",
 		},
 		Extra: map[string]any{},

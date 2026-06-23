@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package extractor
@@ -15,8 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// HLSMode 表示 HLS 下载模式。
-type HLSMode string
+// HLSMode 琛ㄧず HLS 涓嬭浇妯″紡銆?type HLSMode string
 
 const (
 	HLSModeFFmpeg HLSMode = "ffmpeg"
@@ -26,16 +25,14 @@ const (
 // compile-time interface check
 var _ download.Extractor = (*HLSExtractor)(nil)
 
-// HLSExtractor 处理 HLS (m3u8) 流媒体下载。
-type HLSExtractor struct {
+// HLSExtractor 澶勭悊 HLS (m3u8) 娴佸獟浣撲笅杞姐€?type HLSExtractor struct {
 	mode       HLSMode
 	ffmpegPath string
 	ffmpegArgs []string
 	userAgent  string
 }
 
-// NewHLSExtractor 创建 HLSExtractor。
-func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
+// NewHLSExtractor 鍒涘缓 HLSExtractor銆?func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
 	e := &HLSExtractor{
 		mode:       HLSModeFFmpeg,
 		ffmpegPath: "ffmpeg",
@@ -48,22 +45,17 @@ func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
 	return e
 }
 
-// HLSOption 是 HLSExtractor 的配置函数。
-type HLSOption func(*HLSExtractor)
+// HLSOption 鏄?HLSExtractor 鐨勯厤缃嚱鏁般€?type HLSOption func(*HLSExtractor)
 
-// WithHLSMode 设置 HLS 下载模式（ffmpeg / m3u8d）。
-func WithHLSMode(mode string) HLSOption {
+// WithHLSMode 璁剧疆 HLS 涓嬭浇妯″紡锛坒fmpeg / m3u8d锛夈€?func WithHLSMode(mode string) HLSOption {
 	return func(e *HLSExtractor) { e.mode = HLSMode(mode) }
 }
 
-// WithFFmpegPath 设置 ffmpeg 可执行文件路径。
-func WithFFmpegPath(path string) HLSOption { return func(e *HLSExtractor) { e.ffmpegPath = path } }
+// WithFFmpegPath 璁剧疆 ffmpeg 鍙墽琛屾枃浠惰矾寰勩€?func WithFFmpegPath(path string) HLSOption { return func(e *HLSExtractor) { e.ffmpegPath = path } }
 
-// WithFFmpegArgs 设置 ffmpeg 额外参数。
-func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.ffmpegArgs = args } }
+// WithFFmpegArgs 璁剧疆 ffmpeg 棰濆鍙傛暟銆?func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.ffmpegArgs = args } }
 
-// WithHLSUserAgent 设置自定义 User-Agent。
-func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.userAgent = ua } }
+// WithHLSUserAgent 璁剧疆鑷畾涔?User-Agent銆?func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.userAgent = ua } }
 
 // SetTransport is a no-op: HLSExtractor downloads via ffmpeg exec or m3u8d,
 // not through a Go Transport. Implemented for download.TransportSetter interface.
@@ -71,13 +63,11 @@ func (e *HLSExtractor) SetTransport(_ download.Transport) {}
 
 func (e *HLSExtractor) Name() string { return "hls" }
 
-// Match 判断 URL 是否为 .m3u8 后缀（不区分大小写）。
-func (e *HLSExtractor) Match(_ context.Context, url string) bool {
+// Match 鍒ゆ柇 URL 鏄惁涓?.m3u8 鍚庣紑锛堜笉鍖哄垎澶у皬鍐欙級銆?func (e *HLSExtractor) Match(_ context.Context, url string) bool {
 	return strings.Contains(strings.ToLower(url), ".m3u8")
 }
 
-// Extract 根据模式选择 HLS 下载方式。
-func (e *HLSExtractor) Extract(ctx context.Context, req *download.Request) error {
+// Extract 鏍规嵁妯″紡閫夋嫨 HLS 涓嬭浇鏂瑰紡銆?func (e *HLSExtractor) Extract(ctx context.Context, req *download.Request) error {
 	switch e.mode {
 	case HLSModeFFmpeg:
 		return e.downloadWithFFmpeg(ctx, req)
@@ -168,8 +158,7 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 	}
 
 	if req.OnProgress != nil {
-		// 用实际文件大小填充 downloaded 与 total，避免传零值。
-		var size int64
+		// 鐢ㄥ疄闄呮枃浠跺ぇ灏忓～鍏?downloaded 涓?total锛岄伩鍏嶄紶闆跺€笺€?		var size int64
 		if info, err := os.Stat(rPath); err == nil {
 			size = info.Size()
 		}

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -24,7 +24,7 @@ func TestAPI_RetryObject(t *testing.T) {
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-retry-obj task objects to be ready")
 
 	// Cancel an object first so there's something to retry.
-	// The cancel may race with resolve worker writing back pending — retry until it sticks.
+	// The cancel may race with resolve worker writing back pending 鈥?retry until it sticks.
 	body := map[string]string{"url": "http://mock-download/file-0.bin"}
 	assert.MustEventually(t, func() bool {
 		rr := doJSONPost(t, r, "/api/tasks/mock-retry-obj/object/cancel", body)
@@ -285,7 +285,7 @@ func TestAPI_CancelObjectsBatch(t *testing.T) {
 		return rr.Code == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "wait for mock-cancel-batch task objects to be ready")
 
-	// Cancel objects via batch endpoint — race with resolve worker may
+	// Cancel objects via batch endpoint 鈥?race with resolve worker may
 	// cause cancel to fail (object not found/not downloading), retry.
 	assert.MustEventually(t, func() bool {
 		rr := doJSONPost(t, r, "/api/tasks/mock-cancel-batch/object/cancel_batch", map[string][]string{

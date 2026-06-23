@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -22,6 +22,8 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
 )
+
+const logTimestampFmt = "20060102150405"
 
 type WgetDownloader struct {
 	logDir        string
@@ -148,7 +150,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	var f *os.File
 	var logFile string
 	if d.logDir != "" {
-		logFile = filepath.Join(d.logDir, filepath.Base(subObj.SavePath)+"."+time.Now().Format("20060102150405")+".wget.log")
+		logFile = filepath.Join(d.logDir, filepath.Base(subObj.SavePath)+"."+time.Now().Format(logTimestampFmt)+".wget.log")
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {

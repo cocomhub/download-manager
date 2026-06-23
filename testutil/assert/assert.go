@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package assert provides test assertion helpers, including Eventually/MustEventually
@@ -13,7 +13,7 @@ import (
 // Eventually polls fn until it returns true or timeout elapses.
 // It returns true if fn returned true within the timeout, false otherwise.
 // If t is provided, it calls t.Helper() for better error reporting,
-// but does NOT fail the test — the caller decides what to do on timeout.
+// but does NOT fail the test 鈥?the caller decides what to do on timeout.
 func Eventually(t testing.TB, fn func() bool, timeout, interval time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

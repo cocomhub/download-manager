@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -16,7 +16,7 @@ import (
 )
 
 // TestManagerWithMockTask verifies the full lifecycle with a mock task:
-// Start → loadTasks → processTask → download → complete.
+// Start 鈫?loadTasks 鈫?processTask 鈫?download 鈫?complete.
 func TestManagerWithMockTask(t *testing.T) {
 	mgr, _ := newMockManager(t, "mock-e2e", 3, mockdl.New(mockdl.ModeAlwaysSuccess))
 	_ = startManager(t, mgr)
@@ -195,7 +195,7 @@ func waitForObjectsFinal(t *testing.T, mgr *Manager, task core.Task, count int, 
 			}
 		}
 		return matched >= count
-	}, timeout, 300*time.Millisecond, "waitForObjectsFinal: wanted %d×%s", count, target)
+	}, timeout, 300*time.Millisecond, "waitForObjectsFinal: wanted %d脳%s", count, target)
 }
 
 // getAllObjectsFromTask fetches all download objects from a task.

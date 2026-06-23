@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -19,48 +19,39 @@ import (
 	"time"
 )
 
+const logTimestampFmt = "20060102150405"
+
 const truncateLogMsg = "\tTruncating existing file."
 
-// Handler 定义 URL 匹配与下载能力。
-// 实现方通过 Match 判定是否能处理该 URL，通过 Download 执行下载。
-type Handler interface {
-	// Match 判断此 Handler 是否能处理该 URL
+// Handler 瀹氫箟 URL 鍖归厤涓庝笅杞借兘鍔涖€?// 瀹炵幇鏂归€氳繃 Match 鍒ゅ畾鏄惁鑳藉鐞嗚 URL锛岄€氳繃 Download 鎵ц涓嬭浇銆?type Handler interface {
+	// Match 鍒ゆ柇姝?Handler 鏄惁鑳藉鐞嗚 URL
 	Match(url string) bool
-	// Download 执行下载
+	// Download 鎵ц涓嬭浇
 	Download(ctx context.Context, req *Request) error
-	// Name 返回处理器名称（用于日志/监控）
-	Name() string
+	// Name 杩斿洖澶勭悊鍣ㄥ悕绉帮紙鐢ㄤ簬鏃ュ織/鐩戞帶锛?	Name() string
 }
 
-// HandlerWithClient 表示 Handler 需要在初始化后注入 Client 引用。
-// 当 Handler 需要访问 Client 配置时（代理、日志路径等）应实现此接口。
-type HandlerWithClient interface {
+// ClientInjecter 琛ㄧず Handler 闇€瑕佸湪鍒濆鍖栧悗娉ㄥ叆 Client 寮曠敤銆?// 褰?Handler 闇€瑕佽闂?Client 閰嶇疆鏃讹紙浠ｇ悊銆佹棩蹇楄矾寰勭瓑锛夊簲瀹炵幇姝ゆ帴鍙ｃ€?type ClientInjecter interface {
 	SetClient(*Client)
 }
 
-// registeredHandler 已注册的 handler 条目
+// registeredHandler 宸叉敞鍐岀殑 handler 鏉＄洰
 type registeredHandler struct {
 	name    string
 	handler Handler
 }
 
-// handlers 全局注册表，按注册顺序存储
-var handlers []registeredHandler
+// handlers 鍏ㄥ眬娉ㄥ唽琛紝鎸夋敞鍐岄『搴忓瓨鍌?var handlers []registeredHandler
 
 func init() {
 	RegisterHandler("ffmpeg", &ffmpegHandler{})
 }
 
-// RegisterHandler 注册 Handler 到全局注册表。
-// 后注册的 handler 匹配优先级更高（插入到列表头部）。
-// 由各 handler 的 init() 函数调用。
-func RegisterHandler(name string, h Handler) {
+// RegisterHandler 娉ㄥ唽 Handler 鍒板叏灞€娉ㄥ唽琛ㄣ€?// 鍚庢敞鍐岀殑 handler 鍖归厤浼樺厛绾ф洿楂橈紙鎻掑叆鍒板垪琛ㄥご閮級銆?// 鐢卞悇 handler 鐨?init() 鍑芥暟璋冪敤銆?func RegisterHandler(name string, h Handler) {
 	handlers = append([]registeredHandler{{name: name, handler: h}}, handlers...)
 }
 
-// matchHandler 遍历全局注册表，返回第一个 Match(url) 为 true 的 Handler。
-// 没有任何 handler 匹配时返回 nil。
-func matchHandler(url string) Handler {
+// matchHandler 閬嶅巻鍏ㄥ眬娉ㄥ唽琛紝杩斿洖绗竴涓?Match(url) 涓?true 鐨?Handler銆?// 娌℃湁浠讳綍 handler 鍖归厤鏃惰繑鍥?nil銆?func matchHandler(url string) Handler {
 	for _, rh := range handlers {
 		if rh.handler.Match(url) {
 			return rh.handler
@@ -69,11 +60,9 @@ func matchHandler(url string) Handler {
 	return nil
 }
 
-// ---- HTTP 默认下载处理器 ----
+// ---- HTTP 榛樿涓嬭浇澶勭悊鍣?----
 
-// httpHandler 是默认的 HTTP 下载处理器，处理常规文件下载。
-// Match 始终返回 false，仅在无其他 handler 匹配时作为兜底使用。
-type httpHandler struct {
+// httpHandler 鏄粯璁ょ殑 HTTP 涓嬭浇澶勭悊鍣紝澶勭悊甯歌鏂囦欢涓嬭浇銆?// Match 濮嬬粓杩斿洖 false锛屼粎鍦ㄦ棤鍏朵粬 handler 鍖归厤鏃朵綔涓哄厹搴曚娇鐢ㄣ€?type httpHandler struct {
 	client *Client
 }
 
@@ -92,13 +81,13 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 		}
 	}
 
-	// 确保目录存在
+	// 纭繚鐩綍瀛樺湪
 	dir := filepath.Dir(rPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// 准备日志文件
+	// 鍑嗗鏃ュ織鏂囦欢
 	var logFile string
 	var f = io.Discard
 	if c.logDir != "" {
@@ -110,7 +99,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 			}
 		}
 		logFile = filepath.Join(c.logDir, logFileName+"."+
-			time.Now().Format("20060102150405")+".native.log")
+			time.Now().Format(logTimestampFmt)+".native.log")
 		ff, err := os.Create(logFile)
 		if err != nil {
 			slog.Warn("Failed to create log file", "file", logFile, "error", err)
@@ -122,7 +111,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 
 	fmt.Fprintf(f, "\n\nSave file to %s\n\n", rPath)
 
-	// 确定代理设置
+	// 纭畾浠ｇ悊璁剧疆
 	proxyURL := ""
 	if c.proxySelector != nil {
 		proxyURL, err = c.determineProxy(req)
@@ -141,7 +130,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 		slog.Info("Using proxy", "url", urlStr, "proxy", proxyURL)
 	}
 
-	// 检查文件是否存在以支持断点续传
+	// 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦ㄤ互鏀寔鏂偣缁紶
 	var startOffset int64 = 0
 	fileInfo, err := os.Stat(rPath)
 	if err == nil && fileInfo.Size() > 0 {
@@ -183,12 +172,11 @@ startDownload:
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// 设置请求头模拟浏览器行为
+	// 璁剧疆璇锋眰澶存ā鎷熸祻瑙堝櫒琛屼负
 	c.addBrowserLikeHeaders(req, hreq)
 
 	var resp *http.Response
-	// 设置 Range 头支持断点续传
-	if startOffset > 0 {
+	// 璁剧疆 Range 澶存敮鎸佹柇鐐圭画浼?	if startOffset > 0 {
 		nreq := hreq.Clone(dctx)
 		printRequestHeaders(f, nreq)
 		resp, err = client.Do(nreq)
@@ -288,8 +276,7 @@ startDownload:
 		return fmt.Errorf("%w: invalid content type: %s", ErrNoTry, resp.Header.Get("Content-Type"))
 	}
 
-	// 处理断点续传的响应
-	if startOffset > 0 && resp.StatusCode == 200 && resp.Header.Get("Content-Range") == "" {
+	// 澶勭悊鏂偣缁紶鐨勫搷搴?	if startOffset > 0 && resp.StatusCode == 200 && resp.Header.Get("Content-Range") == "" {
 		fmt.Fprintf(f, "Server doesn't support resume, restarting download\n")
 		slog.Info("Server doesn't support resume, restarting download")
 		startOffset = 0
@@ -298,8 +285,7 @@ startDownload:
 		goto startDownload
 	}
 
-	// 获取文件总大小用于进度计算
-	var totalSize int64
+	// 鑾峰彇鏂囦欢鎬诲ぇ灏忕敤浜庤繘搴﹁绠?	var totalSize int64
 	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
 		parts := strings.Split(contentRange, "/")
 		if len(parts) == 2 {
@@ -312,7 +298,7 @@ startDownload:
 		}
 	}
 
-	// 打开文件用于写入
+	// 鎵撳紑鏂囦欢鐢ㄤ簬鍐欏叆
 	fileFlags := os.O_CREATE | os.O_WRONLY
 	if startOffset > 0 {
 		fileFlags |= os.O_APPEND
@@ -333,8 +319,7 @@ startDownload:
 		}
 	}
 
-	// 创建进度跟踪器
-	var reader io.Reader = resp.Body
+	// 鍒涘缓杩涘害璺熻釜鍣?	var reader io.Reader = resp.Body
 	if req.TrackProgress && req.OnProgress != nil && totalSize > 0 {
 		lastProgress := 0.0
 		lastDownloaded := startOffset
@@ -421,11 +406,9 @@ startDownload:
 	return nil
 }
 
-// ---- FFmpeg HLS 下载处理器 ----
+// ---- FFmpeg HLS 涓嬭浇澶勭悊鍣?----
 
-// ffmpegHandler 使用 ffmpeg 下载 HLS (m3u8) 流。
-// 注册到全局 handler 注册表中，用于匹配 .m3u8 URL。
-type ffmpegHandler struct {
+// ffmpegHandler 浣跨敤 ffmpeg 涓嬭浇 HLS (m3u8) 娴併€?// 娉ㄥ唽鍒板叏灞€ handler 娉ㄥ唽琛ㄤ腑锛岀敤浜庡尮閰?.m3u8 URL銆?type ffmpegHandler struct {
 	client *Client
 }
 
@@ -443,8 +426,7 @@ func (h *ffmpegHandler) Download(ctx context.Context, req *Request) error {
 	return h.client.downloadHLSWithFFmpeg(ctx, req)
 }
 
-// computeFileMD5 计算文件的MD5校验值，返回Base64和十六进制两种格式
-func computeFileMD5(filePath string) (string, string, error) {
+// computeFileMD5 璁＄畻鏂囦欢鐨凪D5鏍￠獙鍊硷紝杩斿洖Base64鍜屽崄鍏繘鍒朵袱绉嶆牸寮?func computeFileMD5(filePath string) (string, string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", "", err

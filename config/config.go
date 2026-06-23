@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -248,7 +248,7 @@ func (c *Config) Clone() *Config {
 		cc.Downloader.Filesystem.AllowPaths = make([]string, len(c.Downloader.Filesystem.AllowPaths))
 		copy(cc.Downloader.Filesystem.AllowPaths, c.Downloader.Filesystem.AllowPaths)
 	}
-	// MoveIfExists and ExternalHLSLog are plain structs — shallow copy is sufficient.
+	// MoveIfExists and ExternalHLSLog are plain structs 鈥?shallow copy is sufficient.
 
 	// Deep-cache Mongo (simple struct slice, no maps)
 	if c.Mongo != nil {

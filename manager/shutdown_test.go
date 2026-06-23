@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -58,7 +58,7 @@ func TestShutdown_InFlightDownloads(t *testing.T) {
 		return found >= 1
 	}, 10*time.Second, 200*time.Millisecond, "expected at least one object to enter downloading state")
 
-	// Call Stop — this should cancel the in-flight download and mark survivors.
+	// Call Stop 鈥?this should cancel the in-flight download and mark survivors.
 	stopOnce()
 
 	// Verify: downloadingObj should be empty (all cleaned up).
@@ -87,13 +87,13 @@ func TestShutdown_InFlightDownloads(t *testing.T) {
 		status := obj.GetStatus()
 		switch status {
 		case model.StatusDownloading:
-			// Should have been caught by Stop() survivor marking — but download defer
+			// Should have been caught by Stop() survivor marking 鈥?but download defer
 			// already transitioned it to failed via context cancel. Either is OK.
 			t.Errorf("unexpected downloading state after Stop for %s", obj.URL)
 		case model.StatusFailed, model.StatusCancelled:
-			// Terminal state from shutdown — correct.
+			// Terminal state from shutdown 鈥?correct.
 		case model.StatusPending:
-			// Was never picked up — correct, it wasn't in downloadingObj.
+			// Was never picked up 鈥?correct, it wasn't in downloadingObj.
 		default:
 			t.Errorf("unexpected status %s for %s after shutdown", status, obj.URL)
 		}

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -110,7 +110,7 @@ func TestGetHealthStatus_OverallDegraded(t *testing.T) {
 	}
 	m.schedulerEnabled.Store(true)
 	m.schedulerHeartbeat.Store(time.Now())
-	// Worker not set — overall stays ok since workers are disabled
+	// Worker not set 鈥?overall stays ok since workers are disabled
 
 	hs := m.GetHealthStatus()
 	if hs.Status != "ok" {

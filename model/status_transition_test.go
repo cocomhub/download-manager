@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package model
@@ -36,25 +36,25 @@ func TestStatusTransitions_Valid(t *testing.T) {
 		to   string
 	}{
 		// Core lifecycle
-		{"pending → resolving", StatusPending, StatusResolving},
-		{"resolving → pending", StatusResolving, StatusPending},
-		{"pending → downloading", StatusPending, StatusDownloading},
-		{"downloading → completed", StatusDownloading, StatusCompleted},
-		{"downloading → failed", StatusDownloading, StatusFailed},
-		{"downloading → cancelled", StatusDownloading, StatusCancelled},
+		{"pending 鈫?resolving", StatusPending, StatusResolving},
+		{"resolving 鈫?pending", StatusResolving, StatusPending},
+		{"pending 鈫?downloading", StatusPending, StatusDownloading},
+		{"downloading 鈫?completed", StatusDownloading, StatusCompleted},
+		{"downloading 鈫?failed", StatusDownloading, StatusFailed},
+		{"downloading 鈫?cancelled", StatusDownloading, StatusCancelled},
 
 		// Retry paths
-		{"failed → pending", StatusFailed, StatusPending},
-		{"failed_permanent → pending", StatusFailedPermanent, StatusPending},
-		{"cancelled → pending", StatusCancelled, StatusPending},
-		{"completed → pending", StatusCompleted, StatusPending},
+		{"failed 鈫?pending", StatusFailed, StatusPending},
+		{"failed_permanent 鈫?pending", StatusFailedPermanent, StatusPending},
+		{"cancelled 鈫?pending", StatusCancelled, StatusPending},
+		{"completed 鈫?pending", StatusCompleted, StatusPending},
 
 		// No-op / same-status transitions (idempotent)
-		{"pending → pending", StatusPending, StatusPending},
-		{"completed → completed", StatusCompleted, StatusCompleted},
-		{"cancelled → cancelled", StatusCancelled, StatusCancelled},
-		{"failed → failed", StatusFailed, StatusFailed},
-		{"downloading → downloading", StatusDownloading, StatusDownloading},
+		{"pending 鈫?pending", StatusPending, StatusPending},
+		{"completed 鈫?completed", StatusCompleted, StatusCompleted},
+		{"cancelled 鈫?cancelled", StatusCancelled, StatusCancelled},
+		{"failed 鈫?failed", StatusFailed, StatusFailed},
+		{"downloading 鈫?downloading", StatusDownloading, StatusDownloading},
 	}
 
 	for _, tt := range tests {
@@ -82,7 +82,7 @@ func TestStatus_ProgressResetOnRetry(t *testing.T) {
 	obj.SetProgress(75)
 	obj.SetStatus(StatusFailed)
 
-	// Simulate retry: failed → pending
+	// Simulate retry: failed 鈫?pending
 	obj.SetStatus(StatusPending)
 	obj.SetProgress(0)
 

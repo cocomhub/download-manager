@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -121,9 +121,9 @@ func defaultConfig() Config {
 
 // applyViperEnvOverrides handles DM_* environment variable overrides.
 // Currently supported env vars:
-//   - DM_RUN_MODE   → runtime.mode
-//   - DM_HTTP_PORT  → server.http_port
-//   - DM_UI_ONLY    → sets runtime.mode=ui (legacy)
+//   - DM_RUN_MODE   鈫?runtime.mode
+//   - DM_HTTP_PORT  鈫?server.http_port
+//   - DM_UI_ONLY    鈫?sets runtime.mode=ui (legacy)
 //
 // Note: uses os.Getenv directly instead of viper.BindEnv because the
 // config struct is still unmarshalled via yaml.Unmarshal (not viper.Unmarshal).
@@ -147,7 +147,7 @@ func applyViperEnvOverrides(cfg *Config, configFile string) {
 		}
 	}
 
-	// Legacy DM_UI_ONLY — only applies when DM_RUN_MODE is not set.
+	// Legacy DM_UI_ONLY 鈥?only applies when DM_RUN_MODE is not set.
 	if uiOnly := os.Getenv("DM_UI_ONLY"); uiOnly != "" && os.Getenv("DM_RUN_MODE") == "" {
 		switch uiOnly {
 		case "1", "true", "TRUE", "True", "yes", "Y", "y":

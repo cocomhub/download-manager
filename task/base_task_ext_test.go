@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package task_test
@@ -25,7 +25,7 @@ func TestCheckAndRestoreStatus_SharedRegistryFirst(t *testing.T) {
 		Status: model.StatusPending,
 	}
 
-	// Object doesn't exist anywhere yet — should stay pending.
+	// Object doesn't exist anywhere yet 鈥?should stay pending.
 	bt.CheckAndRestoreStatus(obj)
 	if obj.GetStatus() != model.StatusPending {
 		t.Errorf("expected pending, got %s", obj.GetStatus())
@@ -92,7 +92,7 @@ func TestCheckRestoreCompleted_IgnoresNonCompleted(t *testing.T) {
 		Status: model.StatusFailed,
 	})
 
-	// Should NOT restore — obj stays pending
+	// Should NOT restore 鈥?obj stays pending
 	bt.CheckRestoreCompleted(obj)
 	if obj.GetStatus() != model.StatusPending {
 		t.Errorf("expected pending (non-completed not restored), got %s", obj.GetStatus())

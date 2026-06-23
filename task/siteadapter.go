@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package task
@@ -23,14 +23,14 @@ type SiteAdapter interface {
 	RunScraper(url string) (string, error)
 
 	// ParseTotalPages extracts total page count from the first page content.
-	// Returns ≤ 0 when unknown (e.g. API-driven pagination without total).
+	// Returns 鈮?0 when unknown (e.g. API-driven pagination without total).
 	ParseTotalPages(html string) int
 
 	// ParsePage extracts structured items from page content.
 	// The return value is a site-specific slice (e.g. []videoItem, []hanimeItem).
 	ParsePage(html string) (any, error)
 
-	// --- Item → DownloadObject conversion ---
+	// --- Item 鈫?DownloadObject conversion ---
 
 	// ItemsToURLs extracts dedup-required URLs from parsed items, preserving order.
 	// The returned slice must have the same length as the number of items.
@@ -44,7 +44,7 @@ type SiteAdapter interface {
 	// --- Detail resolution (optional) ---
 
 	// ResolveDetail fetches and populates detailed fields on obj.
-	// For tasks where list page ≡ detail page (e.g. vikacg), return nil.
+	// For tasks where list page 鈮?detail page (e.g. vikacg), return nil.
 	// Return an error when the object should be skipped.
 	ResolveDetail(obj *model.DownloadObject) error
 

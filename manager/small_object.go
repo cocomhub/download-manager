@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -15,15 +15,13 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// --- objectTracker 追踪单个 DownloadObject 的所有下载项完成状态 ---
+// --- objectTracker 杩借釜鍗曚釜 DownloadObject 鐨勬墍鏈変笅杞介」瀹屾垚鐘舵€?---
 
 type objectTracker struct {
 	mu    sync.Mutex
-	total int // 总下载项数（小对象数）
-	done  int // 已完成数
+	total int // 鎬讳笅杞介」鏁帮紙灏忓璞℃暟锛?	done  int // 宸插畬鎴愭暟
 	errs  []error
-	ch    chan struct{} // 全部完成时关闭
-}
+	ch    chan struct{} // 鍏ㄩ儴瀹屾垚鏃跺叧闂?}
 
 func newObjectTracker(total int) *objectTracker {
 	return &objectTracker{total: total, ch: make(chan struct{})}
@@ -41,9 +39,7 @@ func (t *objectTracker) MarkDone(err error) {
 	}
 }
 
-// WaitAll 等待所有小对象完成，返回遇到的错误列表。
-// timeout 为最大等待时间，超时时返回已收集的错误。
-func (t *objectTracker) WaitAll(timeout time.Duration) []error {
+// WaitAll 绛夊緟鎵€鏈夊皬瀵硅薄瀹屾垚锛岃繑鍥為亣鍒扮殑閿欒鍒楄〃銆?// timeout 涓烘渶澶х瓑寰呮椂闂达紝瓒呮椂鏃惰繑鍥炲凡鏀堕泦鐨勯敊璇€?func (t *objectTracker) WaitAll(timeout time.Duration) []error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
@@ -64,10 +60,9 @@ type smallObjectRequest struct {
 	tracker   *objectTracker
 }
 
-// --- Manager 小对象调度 ---
+// --- Manager 灏忓璞¤皟搴?---
 
-// StartSmallObjectWorkers 启动小对象下载 worker 协程池。
-func (m *Manager) StartSmallObjectWorkers(n int) {
+// StartSmallObjectWorkers 鍚姩灏忓璞′笅杞?worker 鍗忕▼姹犮€?func (m *Manager) StartSmallObjectWorkers(n int) {
 	if n <= 0 {
 		n = 2
 	}
@@ -80,8 +75,7 @@ func (m *Manager) StartSmallObjectWorkers(n int) {
 	slog.Info("Small-object workers started", "count", n)
 }
 
-// StopSmallObjectWorkers 停止小对象下载 worker 协程池。
-func (m *Manager) StopSmallObjectWorkers() {
+// StopSmallObjectWorkers 鍋滄灏忓璞′笅杞?worker 鍗忕▼姹犮€?func (m *Manager) StopSmallObjectWorkers() {
 	if m.soStop == nil {
 		return
 	}
@@ -89,9 +83,8 @@ func (m *Manager) StopSmallObjectWorkers() {
 	m.soWg.Wait()
 }
 
-// enqueueSmallObjects 检查 task 是否实现了 SmallObjectCap，有则入队。
-func (m *Manager) enqueueSmallObjects(t core.Task, obj *model.DownloadObject) *objectTracker {
-	soc, ok := t.(core.SmallObjectCap)
+// enqueueSmallObjects 妫€鏌?task 鏄惁瀹炵幇浜?SmallObjectCap锛屾湁鍒欏叆闃熴€?func (m *Manager) enqueueSmallObjects(t core.Task, obj *model.DownloadObject) *objectTracker {
+	soc, ok := t.(core.SmallObjectProvider)
 	if !ok {
 		return nil
 	}
@@ -114,7 +107,7 @@ func (m *Manager) enqueueSmallObjects(t core.Task, obj *model.DownloadObject) *o
 		}:
 		default:
 			slog.Warn("Small-object queue full, dropping", "task_id", t.ID(), "url", obj.URL, "rel", info.Rel)
-			tracker.MarkDone(nil) // 不阻塞主流程
+			tracker.MarkDone(nil) // 涓嶉樆濉炰富娴佺▼
 		}
 	}
 	return tracker
@@ -137,8 +130,7 @@ func (m *Manager) processSO(req smallObjectRequest) {
 	slog.Debug("Downloading small object", "task_id", req.taskID,
 		"parent_url", req.parentObj.URL, "url", req.info.URL, "rel", req.info.Rel)
 
-	// 小对象重试：最多 3 次，指数退避
-	const maxAttempts = 3
+	// 灏忓璞￠噸璇曪細鏈€澶?3 娆★紝鎸囨暟閫€閬?	const maxAttempts = 3
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		dlCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -162,7 +154,7 @@ func (m *Manager) processSO(req smallObjectRequest) {
 			"url", req.info.URL, "rel", req.info.Rel, "error", err)
 	}
 
-	// 下载成功后将路径写回 parentObj.Extra，供前端读取
+	// 涓嬭浇鎴愬姛鍚庡皢璺緞鍐欏洖 parentObj.Extra锛屼緵鍓嶇璇诲彇
 	if err == nil {
 		switch rel := req.info.Rel; rel {
 		case "cover", "thumb":

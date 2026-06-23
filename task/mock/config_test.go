@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package mock
@@ -268,7 +268,7 @@ func TestNewMockTask_Scrape_Noop(t *testing.T) {
 	_, _ = mockT.GetDownloadObjects()
 	objs1 := mockT.GetAllObjects(true)
 
-	var sc core.ScrapeCap = mockT
+	var sc core.Scraper = mockT
 
 	err := sc.Scrape(t.Context())
 	if err != nil {
@@ -289,7 +289,7 @@ func TestNewMockTask_Scrape_Noop(t *testing.T) {
 
 func TestNewMockTask_Scrape_Cancelled(t *testing.T) {
 	mockT := newMockTaskFromConfig(t, 2)
-	var sc core.ScrapeCap = mockT
+	var sc core.Scraper = mockT
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

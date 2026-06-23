@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -11,14 +11,12 @@ import (
 	"time"
 )
 
-// StdlibTransport 是基于标准库 net/http 的 Transport 实现。
-type StdlibTransport struct {
+// StdlibTransport 鏄熀浜庢爣鍑嗗簱 net/http 鐨?Transport 瀹炵幇銆?type StdlibTransport struct {
 	client   *http.Client
 	dLimiter *DomainLimiter
 }
 
-// NewStdlibTransport 创建并返回一个 StdlibTransport 实例。
-func NewStdlibTransport() *StdlibTransport {
+// NewStdlibTransport 鍒涘缓骞惰繑鍥炰竴涓?StdlibTransport 瀹炰緥銆?func NewStdlibTransport() *StdlibTransport {
 	return &StdlibTransport{
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -31,11 +29,9 @@ func NewStdlibTransport() *StdlibTransport {
 	}
 }
 
-// Name 返回传输层的名称。
-func (t *StdlibTransport) Name() string { return "stdlib" }
+// Name 杩斿洖浼犺緭灞傜殑鍚嶇О銆?func (t *StdlibTransport) Name() string { return "stdlib" }
 
-// RoundTrip 实现 Transport 接口，执行一次 HTTP 往返。
-func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
+// RoundTrip 瀹炵幇 Transport 鎺ュ彛锛屾墽琛屼竴娆?HTTP 寰€杩斻€?func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
 	targetURL := treq.URL
 	if treq.ProxyURL != "" {
 		targetURL = strings.TrimPrefix(targetURL, "http://")
@@ -81,8 +77,7 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 	}, nil
 }
 
-// SetDomainLimits 设置域名并发限制。
-func (t *StdlibTransport) SetDomainLimits(limits map[string]int) {
+// SetDomainLimits 璁剧疆鍩熷悕骞跺彂闄愬埗銆?func (t *StdlibTransport) SetDomainLimits(limits map[string]int) {
 	for domain, limit := range limits {
 		t.dLimiter.Set(domain, limit)
 	}

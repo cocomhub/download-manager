@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -24,20 +24,16 @@ import (
 )
 
 // ================================================================
-// Beacon: 可编程 HTTP 测试服务器
-// ================================================================
+// Beacon: 鍙紪绋?HTTP 娴嬭瘯鏈嶅姟鍣?// ================================================================
 
-// beaconHandler 定义单个端点的响应行为
-type beaconHandler struct {
+// beaconHandler 瀹氫箟鍗曚釜绔偣鐨勫搷搴旇涓?type beaconHandler struct {
 	statusCode int
 	headers    map[string]string
 	bodyFunc   func(r *http.Request) (int, map[string]string, []byte)
 	body       []byte
 }
 
-// Beacon 是一个基于 httptest.Server 的可编程 HTTP 服务器。
-// 支持注册预配置的处理器，自动记录所有收到的请求。
-type Beacon struct {
+// Beacon 鏄竴涓熀浜?httptest.Server 鐨勫彲缂栫▼ HTTP 鏈嶅姟鍣ㄣ€?// 鏀寔娉ㄥ唽棰勯厤缃殑澶勭悊鍣紝鑷姩璁板綍鎵€鏈夋敹鍒扮殑璇锋眰銆?type Beacon struct {
 	t        *testing.T
 	srv      *httptest.Server
 	mu       sync.Mutex
@@ -45,8 +41,7 @@ type Beacon struct {
 	requests []*http.Request
 }
 
-// NewBeacon 创建并启动一个测试 HTTP 服务器。
-func NewBeacon(t *testing.T) *Beacon {
+// NewBeacon 鍒涘缓骞跺惎鍔ㄤ竴涓祴璇?HTTP 鏈嶅姟鍣ㄣ€?func NewBeacon(t *testing.T) *Beacon {
 	t.Helper()
 	b := &Beacon{
 		t:        t,
@@ -57,15 +52,14 @@ func NewBeacon(t *testing.T) *Beacon {
 	return b
 }
 
-// ServeHTTP 实现 http.Handler。
-func (b *Beacon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 记录请求
+// ServeHTTP 瀹炵幇 http.Handler銆?func (b *Beacon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 璁板綍璇锋眰
 	reqCopy := r.Clone(context.Background())
 	b.mu.Lock()
 	b.requests = append(b.requests, reqCopy)
 	b.mu.Unlock()
 
-	// 匹配 handler
+	// 鍖归厤 handler
 	key := r.Method + " " + r.URL.Path
 	b.mu.Lock()
 	h, ok := b.handlers[key]
@@ -76,8 +70,7 @@ func (b *Beacon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 动态响应
-	if h.bodyFunc != nil {
+	// 鍔ㄦ€佸搷搴?	if h.bodyFunc != nil {
 		code, headers, body := h.bodyFunc(r)
 		for k, v := range headers {
 			w.Header().Set(k, v)
@@ -89,8 +82,7 @@ func (b *Beacon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 静态响应
-	for k, v := range h.headers {
+	// 闈欐€佸搷搴?	for k, v := range h.headers {
 		w.Header().Set(k, v)
 	}
 	w.WriteHeader(h.statusCode)
@@ -99,21 +91,17 @@ func (b *Beacon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// URL 返回服务器基础 URL。
-func (b *Beacon) URL() string { return b.srv.URL }
+// URL 杩斿洖鏈嶅姟鍣ㄥ熀纭€ URL銆?func (b *Beacon) URL() string { return b.srv.URL }
 
-// Close 关闭服务器。
-func (b *Beacon) Close() { b.srv.Close() }
+// Close 鍏抽棴鏈嶅姟鍣ㄣ€?func (b *Beacon) Close() { b.srv.Close() }
 
-// Reset 清空请求记录。
-func (b *Beacon) Reset() {
+// Reset 娓呯┖璇锋眰璁板綍銆?func (b *Beacon) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.requests = nil
 }
 
-// Requests 返回所有收到的请求的副本。
-func (b *Beacon) Requests() []*http.Request {
+// Requests 杩斿洖鎵€鏈夋敹鍒扮殑璇锋眰鐨勫壇鏈€?func (b *Beacon) Requests() []*http.Request {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	result := make([]*http.Request, len(b.requests))
@@ -123,17 +111,14 @@ func (b *Beacon) Requests() []*http.Request {
 	return result
 }
 
-// RequestCount 返回收到的请求数量。
-func (b *Beacon) RequestCount() int {
+// RequestCount 杩斿洖鏀跺埌鐨勮姹傛暟閲忋€?func (b *Beacon) RequestCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.requests)
 }
 
-// —————— Handler 工厂 ——————
-
-// HandleFile 注册返回固定内容的 200 OK。
-func (b *Beacon) HandleFile(method, path, content, contentType string) {
+// 鈥斺€斺€斺€斺€斺€?Handler 宸ュ巶 鈥斺€斺€斺€斺€斺€?
+// HandleFile 娉ㄥ唽杩斿洖鍥哄畾鍐呭鐨?200 OK銆?func (b *Beacon) HandleFile(method, path, content, contentType string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[method+" "+path] = beaconHandler{
@@ -146,8 +131,7 @@ func (b *Beacon) HandleFile(method, path, content, contentType string) {
 	}
 }
 
-// HandleRangeContent 注册支持 Range 请求的文件处理器。
-func (b *Beacon) HandleRangeContent(method, path, content string) {
+// HandleRangeContent 娉ㄥ唽鏀寔 Range 璇锋眰鐨勬枃浠跺鐞嗗櫒銆?func (b *Beacon) HandleRangeContent(method, path, content string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	data := []byte(content)
@@ -161,7 +145,7 @@ func (b *Beacon) HandleRangeContent(method, path, content string) {
 					"Accept-Ranges":  "bytes",
 				}, data
 			}
-			// 解析 "bytes=N-"
+			// 瑙ｆ瀽 "bytes=N-"
 			var start int
 			if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-", &start); err != nil || start >= len(data) {
 				return http.StatusRequestedRangeNotSatisfiable, map[string]string{
@@ -179,8 +163,7 @@ func (b *Beacon) HandleRangeContent(method, path, content string) {
 	}
 }
 
-// HandleError 注册返回指定状态码的错误处理器。
-func (b *Beacon) HandleError(method, path string, statusCode int) {
+// HandleError 娉ㄥ唽杩斿洖鎸囧畾鐘舵€佺爜鐨勯敊璇鐞嗗櫒銆?func (b *Beacon) HandleError(method, path string, statusCode int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[method+" "+path] = beaconHandler{
@@ -189,8 +172,7 @@ func (b *Beacon) HandleError(method, path string, statusCode int) {
 	}
 }
 
-// HandleWithMD5 注册带 MD5 响应头的文件处理器。
-// md5Source: "X-Amz-Meta-Md5chksum" / "Etag" / "Content-MD5"
+// HandleWithMD5 娉ㄥ唽甯?MD5 鍝嶅簲澶寸殑鏂囦欢澶勭悊鍣ㄣ€?// md5Source: "X-Amz-Meta-Md5chksum" / "Etag" / "Content-MD5"
 func (b *Beacon) HandleWithMD5(method, path, content, md5Header, md5Value string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -205,8 +187,7 @@ func (b *Beacon) HandleWithMD5(method, path, content, md5Header, md5Value string
 	}
 }
 
-// HandleTextContent 注册返回 text/html 的处理器，用于测试 Content-Type 检测。
-func (b *Beacon) HandleTextContent(method, path string) {
+// HandleTextContent 娉ㄥ唽杩斿洖 text/html 鐨勫鐞嗗櫒锛岀敤浜庢祴璇?Content-Type 妫€娴嬨€?func (b *Beacon) HandleTextContent(method, path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	body := []byte("<html><body>not a video</body></html>")
@@ -220,8 +201,7 @@ func (b *Beacon) HandleTextContent(method, path string) {
 	}
 }
 
-// HandleSlow 注册有延迟的处理器。
-func (b *Beacon) HandleSlow(method, path, content string, delay time.Duration) {
+// HandleSlow 娉ㄥ唽鏈夊欢杩熺殑澶勭悊鍣ㄣ€?func (b *Beacon) HandleSlow(method, path, content string, delay time.Duration) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[method+" "+path] = beaconHandler{
@@ -235,8 +215,7 @@ func (b *Beacon) HandleSlow(method, path, content string, delay time.Duration) {
 	}
 }
 
-// HandleDynamic 注册一个自定义 bodyFunc 处理器。
-func (b *Beacon) HandleDynamic(method, path string, fn func(r *http.Request) (int, map[string]string, []byte)) {
+// HandleDynamic 娉ㄥ唽涓€涓嚜瀹氫箟 bodyFunc 澶勭悊鍣ㄣ€?func (b *Beacon) HandleDynamic(method, path string, fn func(r *http.Request) (int, map[string]string, []byte)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[method+" "+path] = beaconHandler{
@@ -245,11 +224,10 @@ func (b *Beacon) HandleDynamic(method, path string, fn func(r *http.Request) (in
 }
 
 // ================================================================
-// DownloadResult: 一次下载的记录结果
+// DownloadResult: 涓€娆′笅杞界殑璁板綍缁撴灉
 // ================================================================
 
-// DownloadResult 记录一次下载的结果，包括错误、对象状态和文件内容。
-type DownloadResult struct {
+// DownloadResult 璁板綍涓€娆′笅杞界殑缁撴灉锛屽寘鎷敊璇€佸璞＄姸鎬佸拰鏂囦欢鍐呭銆?type DownloadResult struct {
 	Err         error
 	Obj         *model.DownloadObject
 	FileContent []byte
@@ -257,19 +235,17 @@ type DownloadResult struct {
 }
 
 // ================================================================
-// Comparator: 双实现对比运行器
+// Comparator: 鍙屽疄鐜板姣旇繍琛屽櫒
 // ================================================================
 
-// ComparatorOptions 配置 Comparator 的选项函数。
-type ComparatorOptions struct {
+// ComparatorOptions 閰嶇疆 Comparator 鐨勯€夐」鍑芥暟銆?type ComparatorOptions struct {
 	MaxRetries           int
 	RootDir              string
 	LogDir               string
 	InjectBrowserHeaders bool
 }
 
-// ComparatorOption 是配置 Comparator 的选项函数。
-type ComparatorOption func(*ComparatorOptions)
+// ComparatorOption 鏄厤缃?Comparator 鐨勯€夐」鍑芥暟銆?type ComparatorOption func(*ComparatorOptions)
 
 func WithMaxRetries(n int) ComparatorOption {
 	return func(o *ComparatorOptions) { o.MaxRetries = n }
@@ -279,9 +255,7 @@ func WithInjectBrowserHeaders(v bool) ComparatorOption {
 	return func(o *ComparatorOptions) { o.InjectBrowserHeaders = v }
 }
 
-// Comparator 对比运行器，同时使用旧（dlcore）和新（pkg/download）实现
-// 执行下载并对比行为。
-type Comparator struct {
+// Comparator 瀵规瘮杩愯鍣紝鍚屾椂浣跨敤鏃э紙dlcore锛夊拰鏂帮紙pkg/download锛夊疄鐜?// 鎵ц涓嬭浇骞跺姣旇涓恒€?type Comparator struct {
 	t       *testing.T
 	beacon  *Beacon
 	oldDL   core.Downloader
@@ -289,8 +263,7 @@ type Comparator struct {
 	rootDir string
 }
 
-// NewComparator 创建对比运行器，同时构建旧（dlcore）和新（pkg/download）下载器。
-func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comparator {
+// NewComparator 鍒涘缓瀵规瘮杩愯鍣紝鍚屾椂鏋勫缓鏃э紙dlcore锛夊拰鏂帮紙pkg/download锛変笅杞藉櫒銆?func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comparator {
 	t.Helper()
 	var o ComparatorOptions
 	for _, opt := range opts {
@@ -302,11 +275,8 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		rootDir = t.TempDir()
 	}
 
-	// 基础配置
-	// 注意：不设置 LogDir。NativeHTTPDownloader 会将 LogDir 通过 filepath.Join(rootDir, logDir) 拼接，
-	// 当两个都是 Windows 绝对路径时会产生非法路径。
-	// 需要使用日志的测试应跳过或直接构造 NativeHTTPDownloader。
-	baseCfg := config.Downloader{
+	// 鍩虹閰嶇疆
+	// 娉ㄦ剰锛氫笉璁剧疆 LogDir銆侼ativeHTTPDownloader 浼氬皢 LogDir 閫氳繃 filepath.Join(rootDir, logDir) 鎷兼帴锛?	// 褰撲袱涓兘鏄?Windows 缁濆璺緞鏃朵細浜х敓闈炴硶璺緞銆?	// 闇€瑕佷娇鐢ㄦ棩蹇楃殑娴嬭瘯搴旇烦杩囨垨鐩存帴鏋勯€?NativeHTTPDownloader銆?	baseCfg := config.Downloader{
 		MaxRetries: 3,
 		Filesystem: config.DcFilesystem{
 			RootDir: rootDir,
@@ -322,12 +292,12 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		},
 	}
 
-	// 旧路径：native_old → dlcore
+	// 鏃ц矾寰勶細native_old 鈫?dlcore
 	cfgOld := baseCfg
 	cfgOld.Type = "native_old"
 	oldDL := NewNativeHTTPDownloader(cfgOld)
 
-	// 新路径：native → pkg/download → DownloaderAdapter
+	// 鏂拌矾寰勶細native 鈫?pkg/download 鈫?DownloaderAdapter
 	cfgNew := baseCfg
 	cfgNew.Type = "native"
 	newDL := New(cfgNew)
@@ -341,29 +311,24 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 	}
 }
 
-// Check 是对比断言函数。
-type Check func(t *testing.T, old, new *DownloadResult)
+// Check 鏄姣旀柇瑷€鍑芥暟銆?type Check func(t *testing.T, old, new *DownloadResult)
 
-// Run 用旧实现和新实现分别执行下载，然后运行所有 check 断言。
-func (c *Comparator) Run(name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
+// Run 鐢ㄦ棫瀹炵幇鍜屾柊瀹炵幇鍒嗗埆鎵ц涓嬭浇锛岀劧鍚庤繍琛屾墍鏈?check 鏂█銆?func (c *Comparator) Run(name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
 	c.t.Run(name, func(t *testing.T) {
-		// 为每个实现创建独立的 obj 副本，避免共享状态
-		oldObj := copyObject(obj)
+		// 涓烘瘡涓疄鐜板垱寤虹嫭绔嬬殑 obj 鍓湰锛岄伩鍏嶅叡浜姸鎬?		oldObj := copyObject(obj)
 		newObj := copyObject(obj)
 
-		// 运行旧实现
-		var oldResult DownloadResult
+		// 杩愯鏃у疄鐜?		var oldResult DownloadResult
 		oldResult.Obj = oldObj
 		oldResult.Err = c.oldDL.Download(oldObj, headers)
 		collectFileResult(t, c.rootDir, &oldResult)
 
-		// 运行新实现
-		var newResult DownloadResult
+		// 杩愯鏂板疄鐜?		var newResult DownloadResult
 		newResult.Obj = newObj
 		newResult.Err = c.newDL.Download(newObj, headers)
 		collectFileResult(t, c.rootDir, &newResult)
 
-		// 执行所有断言
+		// 鎵ц鎵€鏈夋柇瑷€
 		for i, check := range checks {
 			if check == nil {
 				continue
@@ -377,28 +342,23 @@ func (c *Comparator) Run(name string, obj *model.DownloadObject, headers map[str
 	})
 }
 
-// DlcoreOnlyRun 仅运行旧实现（dlcore）的下载，记录新实现的参考行为。
-// name 是测试名，会自动添加 "[dlcore-only]" 后缀。
-// checks 使用既有 Check 类型，在内部将 newResult 作为第二个参数传入。
-func (c *Comparator) DlcoreOnlyRun(t *testing.T, name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
+// DlcoreOnlyRun 浠呰繍琛屾棫瀹炵幇锛坉lcore锛夌殑涓嬭浇锛岃褰曟柊瀹炵幇鐨勫弬鑰冭涓恒€?// name 鏄祴璇曞悕锛屼細鑷姩娣诲姞 "[dlcore-only]" 鍚庣紑銆?// checks 浣跨敤鏃㈡湁 Check 绫诲瀷锛屽湪鍐呴儴灏?newResult 浣滀负绗簩涓弬鏁颁紶鍏ャ€?func (c *Comparator) DlcoreOnlyRun(t *testing.T, name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
 	t.Run(name+"_[dlcore-only]", func(t *testing.T) {
-		// 运行旧实现
-		oldObj := copyObject(obj)
+		// 杩愯鏃у疄鐜?		oldObj := copyObject(obj)
 		var oldResult DownloadResult
 		oldResult.Obj = oldObj
 		oldResult.Err = c.oldDL.Download(oldObj, headers)
 		collectFileResult(t, c.rootDir, &oldResult)
 		t.Logf("dlcore result: err=%v, size=%d, metadata=%v", oldResult.Err, oldResult.FileSize, oldResult.Obj.Metadata)
 
-		// 运行新实现记录参考
-		newObj := copyObject(obj)
+		// 杩愯鏂板疄鐜拌褰曞弬鑰?		newObj := copyObject(obj)
 		var newResult DownloadResult
 		newResult.Obj = newObj
 		newResult.Err = c.newDL.Download(newObj, headers)
 		collectFileResult(t, c.rootDir, &newResult)
 		t.Logf("pkg/download reference: err=%v, size=%d, metadata=%v", newResult.Err, newResult.FileSize, newResult.Obj.Metadata)
 
-		// 执行 dlcore-only 断言
+		// 鎵ц dlcore-only 鏂█
 		for i, check := range checks {
 			if check == nil {
 				continue
@@ -412,8 +372,7 @@ func (c *Comparator) DlcoreOnlyRun(t *testing.T, name string, obj *model.Downloa
 	})
 }
 
-// copyObject 深度拷贝 DownloadObject 用于隔离测试。
-func copyObject(src *model.DownloadObject) *model.DownloadObject {
+// copyObject 娣卞害鎷疯礉 DownloadObject 鐢ㄤ簬闅旂娴嬭瘯銆?func copyObject(src *model.DownloadObject) *model.DownloadObject {
 	dst := &model.DownloadObject{
 		TaskID:   src.TaskID,
 		URL:      src.URL,
@@ -432,8 +391,7 @@ func copyObject(src *model.DownloadObject) *model.DownloadObject {
 	return dst
 }
 
-// collectFileResult 读取下载后的文件内容。
-func collectFileResult(t *testing.T, rootDir string, r *DownloadResult) {
+// collectFileResult 璇诲彇涓嬭浇鍚庣殑鏂囦欢鍐呭銆?func collectFileResult(t *testing.T, rootDir string, r *DownloadResult) {
 	t.Helper()
 	path := filepath.Join(rootDir, r.Obj.SavePath)
 	data, err := os.ReadFile(path)
@@ -444,11 +402,10 @@ func collectFileResult(t *testing.T, rootDir string, r *DownloadResult) {
 }
 
 // ================================================================
-// 预置 Check 函数
+// 棰勭疆 Check 鍑芥暟
 // ================================================================
 
-// CheckError 验证错误类型一致（都 nil / 都 ErrNoTry / 都非 nil）。
-func CheckError() Check {
+// CheckError 楠岃瘉閿欒绫诲瀷涓€鑷达紙閮?nil / 閮?ErrNoTry / 閮介潪 nil锛夈€?func CheckError() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if (old.Err == nil) != (new.Err == nil) {
@@ -458,8 +415,8 @@ func CheckError() Check {
 		if old.Err == nil {
 			return
 		}
-		// 都非 nil — 检查是否都为 ErrNoTry
-		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
+		// 閮介潪 nil 鈥?妫€鏌ユ槸鍚﹂兘涓?ErrNoTry
+		// dlcore.ErrNoTry 宸插鐢?pkg/download.ErrNoTry锛屽悓涓€ sentinel
 		oldNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
 		newNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
 		if oldNoTry != newNoTry {
@@ -468,8 +425,7 @@ func CheckError() Check {
 	}
 }
 
-// CheckFileBytes 验证文件内容完全一致。
-func CheckFileBytes() Check {
+// CheckFileBytes 楠岃瘉鏂囦欢鍐呭瀹屽叏涓€鑷淬€?func CheckFileBytes() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if len(old.FileContent) == 0 && len(new.FileContent) == 0 {
@@ -483,8 +439,7 @@ func CheckFileBytes() Check {
 	}
 }
 
-// CheckFileSize 验证文件大小一致。
-func CheckFileSize() Check {
+// CheckFileSize 楠岃瘉鏂囦欢澶у皬涓€鑷淬€?func CheckFileSize() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if old.FileSize != new.FileSize {
@@ -493,15 +448,14 @@ func CheckFileSize() Check {
 	}
 }
 
-// CheckMetadata 验证指定 key 在 Metadata 中存在且值一致。
-func CheckMetadata(keys ...string) Check {
+// CheckMetadata 楠岃瘉鎸囧畾 key 鍦?Metadata 涓瓨鍦ㄤ笖鍊间竴鑷淬€?func CheckMetadata(keys ...string) Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		for _, key := range keys {
 			oldVal, oldOK := old.Obj.Metadata[key]
 			newVal, newOK := new.Obj.Metadata[key]
 			if !oldOK && !newOK {
-				continue // 双方都没有，允许
+				continue // 鍙屾柟閮芥病鏈夛紝鍏佽
 			}
 			if oldVal != newVal {
 				t.Errorf("Metadata[%q] mismatch: old=%q, new=%q", key, oldVal, newVal)
@@ -510,8 +464,7 @@ func CheckMetadata(keys ...string) Check {
 	}
 }
 
-// CheckProgressEnd 验证最终进度为 100。
-func CheckProgressEnd() Check {
+// CheckProgressEnd 楠岃瘉鏈€缁堣繘搴︿负 100銆?func CheckProgressEnd() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if old.Obj.Progress != new.Obj.Progress {
@@ -524,8 +477,7 @@ func CheckProgressEnd() Check {
 	}
 }
 
-// CheckAnyError 验证新旧都返回 error（不要求具体 error 一致）。
-func CheckAnyError() Check {
+// CheckAnyError 楠岃瘉鏂版棫閮借繑鍥?error锛堜笉瑕佹眰鍏蜂綋 error 涓€鑷达級銆?func CheckAnyError() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if old.Err == nil {
@@ -537,8 +489,7 @@ func CheckAnyError() Check {
 	}
 }
 
-// CheckBothNil 验证新旧都返回 nil error（都成功）。
-func CheckBothNil() Check {
+// CheckBothNil 楠岃瘉鏂版棫閮借繑鍥?nil error锛堥兘鎴愬姛锛夈€?func CheckBothNil() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		if old.Err != nil {
@@ -550,11 +501,10 @@ func CheckBothNil() Check {
 	}
 }
 
-// CheckErrNoTry 验证双方错误都包含 ErrNoTry。
-func CheckErrNoTry() Check {
+// CheckErrNoTry 楠岃瘉鍙屾柟閿欒閮藉寘鍚?ErrNoTry銆?func CheckErrNoTry() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
-		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
+		// dlcore.ErrNoTry 宸插鐢?pkg/download.ErrNoTry锛屽悓涓€ sentinel
 		oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
 		newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
 		if !oldIsNoTry {
@@ -566,8 +516,7 @@ func CheckErrNoTry() Check {
 	}
 }
 
-// CheckBothNoTry 验证双方都返回 ErrNoTry 且文件不存在。
-func CheckBothNoTry() Check {
+// CheckBothNoTry 楠岃瘉鍙屾柟閮借繑鍥?ErrNoTry 涓旀枃浠朵笉瀛樺湪銆?func CheckBothNoTry() Check {
 	base := CheckErrNoTry()
 	return func(t *testing.T, old, new *DownloadResult) {
 		base(t, old, new)
@@ -580,8 +529,7 @@ func CheckBothNoTry() Check {
 	}
 }
 
-// CheckMetadataAbsent 验证指定 key 在双方 Metadata 中都不存在。
-func CheckMetadataAbsent(keys ...string) Check {
+// CheckMetadataAbsent 楠岃瘉鎸囧畾 key 鍦ㄥ弻鏂?Metadata 涓兘涓嶅瓨鍦ㄣ€?func CheckMetadataAbsent(keys ...string) Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
 		for _, key := range keys {
@@ -596,11 +544,10 @@ func CheckMetadataAbsent(keys ...string) Check {
 }
 
 // ================================================================
-// 测试对象工厂
+// 娴嬭瘯瀵硅薄宸ュ巶
 // ================================================================
 
-// makeTestObject 创建测试用 DownloadObject。
-func makeTestObject(url, savePath string, metadata map[string]string, extra map[string]any) *model.DownloadObject {
+// makeTestObject 鍒涘缓娴嬭瘯鐢?DownloadObject銆?func makeTestObject(url, savePath string, metadata map[string]string, extra map[string]any) *model.DownloadObject {
 	obj := &model.DownloadObject{
 		TaskID:   "test-task",
 		URL:      url,
@@ -615,7 +562,7 @@ func makeTestObject(url, savePath string, metadata map[string]string, extra map[
 }
 
 // ================================================================
-// Beacon 自测
+// Beacon 鑷祴
 // ================================================================
 
 func TestBeacon_Basic(t *testing.T) {
@@ -641,7 +588,7 @@ func TestBeacon_Range(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleRangeContent("GET", "/file.bin", "0123456789")
 
-	// 无 Range 请求
+	// 鏃?Range 璇锋眰
 	resp, _ := http.Get(b.URL() + "/file.bin")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -649,7 +596,7 @@ func TestBeacon_Range(t *testing.T) {
 		t.Errorf("full content: got %q", string(body))
 	}
 
-	// Range 请求
+	// Range 璇锋眰
 	req, _ := http.NewRequest("GET", b.URL()+"/file.bin", nil)
 	req.Header.Set("Range", "bytes=5-")
 	resp, _ = http.DefaultClient.Do(req)

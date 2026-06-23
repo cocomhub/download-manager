@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -12,8 +12,7 @@ import (
 	"strings"
 )
 
-// ComputeFileMD5 计算文件的 MD5 校验值，返回 Base64 和十六进制两种格式。
-func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
+// ComputeFileMD5 璁＄畻鏂囦欢鐨?MD5 鏍￠獙鍊硷紝杩斿洖 Base64 鍜屽崄鍏繘鍒朵袱绉嶆牸寮忋€?func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", "", err
@@ -30,13 +29,9 @@ func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
 	return base64.StdEncoding.EncodeToString(hashBytes), hex.EncodeToString(hashBytes), nil
 }
 
-// TryGetMd5 尝试从响应头中提取 MD5 值。按以下顺序尝试：
-//  1. X-Amz-Meta-Md5chksum（24 字符 Base64）
-//  2. Etag（格式 "32hex"，长度为 34，去除引号）
-//  3. Content-MD5（32 字符 hex）
-//
-// 所有条件不满足时返回空字符串。
-func TryGetMd5(headers map[string]string) string {
+// TryGetMd5 灏濊瘯浠庡搷搴斿ご涓彁鍙?MD5 鍊笺€傛寜浠ヤ笅椤哄簭灏濊瘯锛?//  1. X-Amz-Meta-Md5chksum锛?4 瀛楃 Base64锛?//  2. Etag锛堟牸寮?"32hex"锛岄暱搴︿负 34锛屽幓闄ゅ紩鍙凤級
+//  3. Content-MD5锛?2 瀛楃 hex锛?//
+// 鎵€鏈夋潯浠朵笉婊¤冻鏃惰繑鍥炵┖瀛楃涓层€?func TryGetMd5(headers map[string]string) string {
 	if headers == nil {
 		return ""
 	}
@@ -47,14 +42,13 @@ func TryGetMd5(headers map[string]string) string {
 	if etag := headers["Etag"]; len(etag) == 34 && etag[0] == '"' && etag[33] == '"' {
 		return etag[1:33]
 	}
-	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
-	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
+	// 寮?ETag 鏀寔锛氬鐞?W/"32hex" 鏍煎紡锛?6 瀛楃锛?	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
 		return etag[3:35]
 	}
 	if x := headers["Content-MD5"]; len(x) == 32 {
 		return x
 	}
-	// Go 标准库 canonical 将 Content-MD5 转为 Content-Md5
+	// Go 鏍囧噯搴?canonical 灏?Content-MD5 杞负 Content-Md5
 	if x := headers["Content-Md5"]; len(x) == 32 {
 		return x
 	}

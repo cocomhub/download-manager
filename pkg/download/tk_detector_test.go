@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download_test
@@ -21,7 +21,7 @@ func TestTkDetector(t *testing.T) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", "146")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("x")) // won't get to write — ErrNoTry before copy
+		_, _ = w.Write([]byte("x")) // won't get to write 鈥?ErrNoTry before copy
 	}))
 	defer ts.Close()
 

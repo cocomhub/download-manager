@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package transport
@@ -20,10 +20,8 @@ import (
 // compile-time interface checks
 var _ download.Transport = (*SproxyTunnelTransport)(nil)
 
-// SproxyTunnelTransport 通过 sproxy 传输数据。
-// 支持两种模式：
-//   - 加密隧道模式（配置 TunnelKey）：使用 tunnel.Client 做 AES-256-GCM 加密隧道
-//   - HTTP 代理模式（无 TunnelKey）：通过 sproxy 的 HTTP 代理转发
+// SproxyTunnelTransport 閫氳繃 sproxy 浼犺緭鏁版嵁銆?// 鏀寔涓ょ妯″紡锛?//   - 鍔犲瘑闅ч亾妯″紡锛堥厤缃?TunnelKey锛夛細浣跨敤 tunnel.Client 鍋?AES-256-GCM 鍔犲瘑闅ч亾
+//   - HTTP 浠ｇ悊妯″紡锛堟棤 TunnelKey锛夛細閫氳繃 sproxy 鐨?HTTP 浠ｇ悊杞彂
 type SproxyTunnelTransport struct {
 	serverURL string
 	client    *http.Client
@@ -32,9 +30,7 @@ type SproxyTunnelTransport struct {
 	logger    *slog.Logger
 }
 
-// NewSproxyTunnelTransport 创建 SproxyTunnelTransport。
-// serverURL 为 sproxy 服务地址，如 "http://localhost:18083"。
-func NewSproxyTunnelTransport(serverURL string, opts ...SproxyOption) *SproxyTunnelTransport {
+// NewSproxyTunnelTransport 鍒涘缓 SproxyTunnelTransport銆?// serverURL 涓?sproxy 鏈嶅姟鍦板潃锛屽 "http://localhost:18083"銆?func NewSproxyTunnelTransport(serverURL string, opts ...SproxyOption) *SproxyTunnelTransport {
 	serverURL = strings.TrimRight(serverURL, "/")
 	baseClient := &http.Client{
 		Timeout: 600 * time.Second,
@@ -56,11 +52,9 @@ func NewSproxyTunnelTransport(serverURL string, opts ...SproxyOption) *SproxyTun
 	return t
 }
 
-// SproxyOption 配置 SproxyTunnelTransport。
-type SproxyOption func(*SproxyTunnelTransport)
+// SproxyOption 閰嶇疆 SproxyTunnelTransport銆?type SproxyOption func(*SproxyTunnelTransport)
 
-// WithSproxyTunnelKey 设置隧道密钥（AES-256-GCM，64 hex chars）。
-func WithSproxyTunnelKey(key string) SproxyOption {
+// WithSproxyTunnelKey 璁剧疆闅ч亾瀵嗛挜锛圓ES-256-GCM锛?4 hex chars锛夈€?func WithSproxyTunnelKey(key string) SproxyOption {
 	return func(t *SproxyTunnelTransport) {
 		tc, err := tunnel.NewClient(key, t.serverURL+"/tunnel", 600*time.Second, t.logger)
 		if err != nil {
@@ -72,16 +66,13 @@ func WithSproxyTunnelKey(key string) SproxyOption {
 	}
 }
 
-// WithSproxyHTTPClient 设置自定义 HTTP 客户端。
-func WithSproxyHTTPClient(c *http.Client) SproxyOption {
+// WithSproxyHTTPClient 璁剧疆鑷畾涔?HTTP 瀹㈡埛绔€?func WithSproxyHTTPClient(c *http.Client) SproxyOption {
 	return func(t *SproxyTunnelTransport) { t.client = c }
 }
 
 func (t *SproxyTunnelTransport) Name() string { return "sproxy" }
 
-// isSafeTargetURL 验证目标 URL 是否安全（防止 SSRF）。
-// 拒绝私有 IP、回环地址、link-local 地址和非 http/https scheme。
-func isSafeTargetURL(rawURL string) error {
+// isSafeTargetURL 楠岃瘉鐩爣 URL 鏄惁瀹夊叏锛堥槻姝?SSRF锛夈€?// 鎷掔粷绉佹湁 IP銆佸洖鐜湴鍧€銆乴ink-local 鍦板潃鍜岄潪 http/https scheme銆?func isSafeTargetURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
@@ -105,16 +96,14 @@ func isSafeTargetURL(rawURL string) error {
 	return nil
 }
 
-// RoundTrip 实现 download.Transport 接口。
-func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+// RoundTrip 瀹炵幇 download.Transport 鎺ュ彛銆?func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
 	if t.useTunnel && t.tunnelCl != nil {
 		return t.roundTripViaTunnel(ctx, treq)
 	}
 	return t.roundTripViaProxy(ctx, treq)
 }
 
-// roundTripViaProxy 通过 sproxy HTTP 代理转发（非加密）。
-func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+// roundTripViaProxy 閫氳繃 sproxy HTTP 浠ｇ悊杞彂锛堥潪鍔犲瘑锛夈€?func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
 	if err := isSafeTargetURL(treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
@@ -153,8 +142,7 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 	}, nil
 }
 
-// roundTripViaTunnel 通过 sproxy 加密隧道转发请求。
-func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
+// roundTripViaTunnel 閫氳繃 sproxy 鍔犲瘑闅ч亾杞彂璇锋眰銆?func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
 	if err := isSafeTargetURL(treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
@@ -188,8 +176,7 @@ func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *do
 	}, nil
 }
 
-// HealthCheck 检查 sproxy 服务是否健康。
-func (t *SproxyTunnelTransport) HealthCheck(ctx context.Context) error {
+// HealthCheck 妫€鏌?sproxy 鏈嶅姟鏄惁鍋ュ悍銆?func (t *SproxyTunnelTransport) HealthCheck(ctx context.Context) error {
 	healthURL := t.serverURL + "/healthz"
 	hreq, err := http.NewRequestWithContext(ctx, "GET", healthURL, nil)
 	if err != nil {

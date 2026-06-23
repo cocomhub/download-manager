@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -17,7 +17,7 @@ import (
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
 
-// --- Scenario 1: 完整下载生命周期 ---
+// --- Scenario 1: 瀹屾暣涓嬭浇鐢熷懡鍛ㄦ湡 ---
 
 // TestE2E_DownloadLifecycle verifies the full lifecycle with an httptest file server.
 func TestE2E_DownloadLifecycle(t *testing.T) {
@@ -45,7 +45,7 @@ func TestE2E_DownloadLifecycle(t *testing.T) {
 	}
 }
 
-// --- Scenario 2: 重试机制 ---
+// --- Scenario 2: 閲嶈瘯鏈哄埗 ---
 
 // TestE2E_RetryFailedObjects verifies that failed objects can be retried.
 func TestE2E_RetryFailedObjects(t *testing.T) {
@@ -67,7 +67,7 @@ func TestE2E_RetryFailedObjects(t *testing.T) {
 	waitForObjectsFinal(t, mgr, task, 2, model.StatusCompleted, 5*time.Second)
 }
 
-// --- Scenario 3: 下载过程中取消 ---
+// --- Scenario 3: 涓嬭浇杩囩▼涓彇娑?---
 
 // TestE2E_CancelDuringDownload verifies cancel of an in-flight download.
 func TestE2E_CancelDuringDownload(t *testing.T) {
@@ -92,7 +92,7 @@ func TestE2E_CancelDuringDownload(t *testing.T) {
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusCancelled, 5*time.Second)
 }
 
-// --- Scenario 4: 任务级取消 ---
+// --- Scenario 4: 浠诲姟绾у彇娑?---
 
 // TestE2E_CancelAllObjects verifies that cancelling a task cancels all objects.
 func TestE2E_CancelAllObjects(t *testing.T) {
@@ -114,7 +114,7 @@ func TestE2E_CancelAllObjects(t *testing.T) {
 	waitForObjectsFinal(t, mgr, task, 4, model.StatusCancelled, 5*time.Second)
 }
 
-// --- Scenario 5: 混合进度 - 部分完成、部分失败 ---
+// --- Scenario 5: 娣峰悎杩涘害 - 閮ㄥ垎瀹屾垚銆侀儴鍒嗗け璐?---
 
 // TestE2E_MixedResults verifies that with mixed success/fail behavior,
 // some objects complete and others fail.
@@ -133,7 +133,7 @@ func TestE2E_MixedResults(t *testing.T) {
 	}
 
 	// With 10 objects and fail_rate=0.4, wait for at least one completed and
-	// one failed. The 0.4^10 ≈ 0.0001% chance of all succeeding is negligible.
+	// one failed. The 0.4^10 鈮?0.0001% chance of all succeeding is negligible.
 	// Use a single MustEventually loop with extended timeout (CI may be slow).
 	assert.MustEventually(t, func() bool {
 		mgr.scan()
@@ -156,7 +156,7 @@ func TestE2E_MixedResults(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond, "wait for mixed results (completed>0 && failed>0)")
 }
 
-// --- Scenario 6: 超时处理 ---
+// --- Scenario 6: 瓒呮椂澶勭悊 ---
 
 // TestE2E_TimeoutHandling verifies that a timing-out download
 // results in a failed object.
@@ -182,7 +182,7 @@ func TestE2E_TimeoutHandling(t *testing.T) {
 	// inside timeout(), where ctx is dlCtx from SetContext(dlCtx).
 	waitForDownloading(t, mgr, task, 5*time.Second)
 
-	// Stop the manager — closes m.stopChan, triggers dlCancel() in the
+	// Stop the manager 鈥?closes m.stopChan, triggers dlCancel() in the
 	// download goroutine, cancelling dlCtx. The mock's timeout() unblocks
 	// and sets StatusFailed on the object.
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -195,7 +195,7 @@ func TestE2E_TimeoutHandling(t *testing.T) {
 	waitForObjectsFinal(t, mgr, task, 1, model.StatusFailed, 5*time.Second)
 }
 
-// --- Scenario 7: 暂停后中断 ---
+// --- Scenario 7: 鏆傚仠鍚庝腑鏂?---
 
 // TestE2E_PauseThenCancel verifies cancellation during a paused download.
 func TestE2E_PauseThenCancel(t *testing.T) {
@@ -230,7 +230,7 @@ func TestE2E_PauseThenCancel(t *testing.T) {
 	}, 5*time.Second, 200*time.Millisecond, "expected object %s to be cancelled", target)
 }
 
-// --- Scenario 8: 通过 HTTP test server 验证完整下载 ---
+// --- Scenario 8: 閫氳繃 HTTP test server 楠岃瘉瀹屾暣涓嬭浇 ---
 
 // TestE2E_WithHTTPServer verifies the download pipeline.
 func TestE2E_WithHTTPServer(t *testing.T) {
@@ -323,7 +323,7 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 
 	var taskA, taskB any
 
-	// Wait for both tasks to make progress — the scheduler should
+	// Wait for both tasks to make progress 鈥?the scheduler should
 	// have started processing objects from both tasks.
 	_ = assert.Eventually(t, func() bool {
 		gotA, ok := mgr.tasks.Load("task-a")
@@ -377,7 +377,7 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 		}
 	}
 	if processed == 0 {
-		t.Log("no objects processed yet — concurrency may be blocked, but not a hard failure")
+		t.Log("no objects processed yet 鈥?concurrency may be blocked, but not a hard failure")
 	}
 }
 

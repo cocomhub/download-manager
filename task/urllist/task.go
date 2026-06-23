@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package urllist
@@ -111,7 +111,7 @@ func (t *Task) Type() string {
 	return TaskType
 }
 
-// Scrape implements core.ScrapeCap as a no-op — urllist's URL set is fixed at
+// Scrape implements core.Scraper as a no-op 鈥?urllist's URL set is fixed at
 // construction time and does not need page scraping.
 func (t *Task) Scrape(ctx context.Context) error {
 	return nil
@@ -128,7 +128,6 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 }
 
 // ResolveObject implements core.Task.ResolveObject.
-// urllist 的 URL 本身就是可下载目标，无需 resolve。
-func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+// urllist 鐨?URL 鏈韩灏辨槸鍙笅杞界洰鏍囷紝鏃犻渶 resolve銆?func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
 	return nil
 }

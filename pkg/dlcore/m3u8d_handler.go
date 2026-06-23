@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -12,8 +12,7 @@ import (
 	m3u8dlib "github.com/cocomhub/download-manager/pkg/m3u8d"
 )
 
-// m3u8dHandler 使用 m3u8d 库下载 HLS (m3u8) 流。
-type m3u8dHandler struct{}
+// m3u8dHandler 浣跨敤 m3u8d 搴撲笅杞?HLS (m3u8) 娴併€?type m3u8dHandler struct{}
 
 func (h *m3u8dHandler) Match(url string) bool {
 	return strings.Contains(strings.ToLower(url), ".m3u8")
@@ -63,7 +62,7 @@ func (h *m3u8dHandler) Download(ctx context.Context, req *Request) error {
 	return nil
 }
 
-// init 自动注册 m3u8d handler，优先级高于 ffmpeg handler
+// init 鑷姩娉ㄥ唽 m3u8d handler锛屼紭鍏堢骇楂樹簬 ffmpeg handler
 func init() {
 	RegisterHandler("m3u8d", &m3u8dHandler{})
 }

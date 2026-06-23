@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -12,27 +12,24 @@ import (
 )
 
 // ================================================================
-// 契约级测试 — core.Downloader 接口的通用契约
+// 濂戠害绾ф祴璇?鈥?core.Downloader 鎺ュ彛鐨勯€氱敤濂戠害
 // ================================================================
 
-// TestDLContract_EmptyURL 验证空 URL 返回错误。
-func TestDLContract_EmptyURL(t *testing.T) {
+// TestDLContract_EmptyURL 楠岃瘉绌?URL 杩斿洖閿欒銆?func TestDLContract_EmptyURL(t *testing.T) {
 	b := NewBeacon(t)
 	cmp := NewComparator(t, b)
 	obj := makeTestObject("", "out/file.txt", nil, nil)
 	cmp.Run("empty-url", obj, nil, CheckAnyError())
 }
 
-// TestDLContract_EmptySavePath 验证空 SavePath 返回错误。
-func TestDLContract_EmptySavePath(t *testing.T) {
+// TestDLContract_EmptySavePath 楠岃瘉绌?SavePath 杩斿洖閿欒銆?func TestDLContract_EmptySavePath(t *testing.T) {
 	b := NewBeacon(t)
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/f.txt", "", nil, nil)
 	cmp.Run("empty-savepath", obj, nil, CheckAnyError())
 }
 
-// TestDLContract_Success 验证正常下载。
-func TestDLContract_Success(t *testing.T) {
+// TestDLContract_Success 楠岃瘉姝ｅ父涓嬭浇銆?func TestDLContract_Success(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/hello.txt", "Hello, World!", "text/plain")
 
@@ -41,8 +38,7 @@ func TestDLContract_Success(t *testing.T) {
 	cmp.Run("success", obj, nil, CheckBothNil(), CheckFileBytes(), CheckFileSize())
 }
 
-// TestDLContract_ProgressCalled 验证进度回调被触发。
-func TestDLContract_ProgressCalled(t *testing.T) {
+// TestDLContract_ProgressCalled 楠岃瘉杩涘害鍥炶皟琚Е鍙戙€?func TestDLContract_ProgressCalled(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/data.bin", "some test data here for progress checking", "application/octet-stream")
 
@@ -51,8 +47,7 @@ func TestDLContract_ProgressCalled(t *testing.T) {
 	cmp.Run("progress", obj, nil, CheckBothNil(), CheckProgressEnd())
 }
 
-// TestDLContract_MetadataPopulated 验证下载完成后 Metadata 被正确填充。
-func TestDLContract_MetadataPopulated(t *testing.T) {
+// TestDLContract_MetadataPopulated 楠岃瘉涓嬭浇瀹屾垚鍚?Metadata 琚纭～鍏呫€?func TestDLContract_MetadataPopulated(t *testing.T) {
 	b := NewBeacon(t)
 	content := "metadata test content for exact size verification"
 	b.HandleFile("GET", "/meta.bin", content, "application/octet-stream")
@@ -75,8 +70,7 @@ func TestDLContract_MetadataPopulated(t *testing.T) {
 	)
 }
 
-// TestDLContract_NoSideEffect 验证输入参数未被意外修改（URL、SavePath）。
-func TestDLContract_NoSideEffect(t *testing.T) {
+// TestDLContract_NoSideEffect 楠岃瘉杈撳叆鍙傛暟鏈鎰忓淇敼锛圲RL銆丼avePath锛夈€?func TestDLContract_NoSideEffect(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/nse.dat", "no side effect test", "application/octet-stream")
 
@@ -87,8 +81,7 @@ func TestDLContract_NoSideEffect(t *testing.T) {
 
 	cmp.Run("no-side-effect", obj, nil, CheckBothNil(), CheckFileBytes())
 
-	// 额外验证入参未被修改（注意 Metadata 是被有意修改的，不在此检查范围内）
-	if obj.URL != origURL {
+	// 棰濆楠岃瘉鍏ュ弬鏈淇敼锛堟敞鎰?Metadata 鏄鏈夋剰淇敼鐨勶紝涓嶅湪姝ゆ鏌ヨ寖鍥村唴锛?	if obj.URL != origURL {
 		t.Errorf("URL was modified: %q -> %q", origURL, obj.URL)
 	}
 	if obj.SavePath != origSavePath {
@@ -96,8 +89,7 @@ func TestDLContract_NoSideEffect(t *testing.T) {
 	}
 }
 
-// TestDLContract_Cancel 验证下载过程中的取消行为。
-func TestDLContract_Cancel(t *testing.T) {
+// TestDLContract_Cancel 楠岃瘉涓嬭浇杩囩▼涓殑鍙栨秷琛屼负銆?func TestDLContract_Cancel(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleSlow("GET", "/slow.bin", "slow content to cancel", 5*time.Second)
 
@@ -148,8 +140,7 @@ func TestDLContract_Cancel(t *testing.T) {
 	})
 }
 
-// TestDLContract_CancelNotFound 验证取消不存在的下载不 panic。
-func TestDLContract_CancelNotFound(t *testing.T) {
+// TestDLContract_CancelNotFound 楠岃瘉鍙栨秷涓嶅瓨鍦ㄧ殑涓嬭浇涓?panic銆?func TestDLContract_CancelNotFound(t *testing.T) {
 	b := NewBeacon(t)
 	cmp := NewComparator(t, b)
 
@@ -176,8 +167,7 @@ func TestDLContract_CancelNotFound(t *testing.T) {
 	})
 }
 
-// TestDLContract_DomainLimit 验证域名并发限制。
-func TestDLContract_DomainLimit(t *testing.T) {
+// TestDLContract_DomainLimit 楠岃瘉鍩熷悕骞跺彂闄愬埗銆?func TestDLContract_DomainLimit(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleSlow("GET", "/d1.bin", "domain content", 100*time.Millisecond)
 	b.HandleSlow("GET", "/d2.bin", "domain content 2", 100*time.Millisecond)
@@ -206,8 +196,7 @@ func TestDLContract_DomainLimit(t *testing.T) {
 	wg.Wait()
 }
 
-// TestDLContract_ConcurrentDownload 验证并发下载不冲突。
-func TestDLContract_ConcurrentDownload(t *testing.T) {
+// TestDLContract_ConcurrentDownload 楠岃瘉骞跺彂涓嬭浇涓嶅啿绐併€?func TestDLContract_ConcurrentDownload(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/a.txt", "file A", "text/plain")
 	b.HandleFile("GET", "/b.txt", "file B", "text/plain")

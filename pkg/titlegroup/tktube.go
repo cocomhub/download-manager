@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package titlegroup
@@ -10,23 +10,19 @@ import (
 
 var tktRegex = regexp.MustCompile(`([A-Z]+-\d{2,5})(?:C)?\b`)
 
-// TKTGroupNameFromTitle 从标题解析 tktube 分组名。
-//
-// 规则：
-// 1) 去除开头的全角括号标签，例如 "【高画质】"；
-// 2) 匹配正则 `([A-Z]+-\d{2,5})(?:C)?\b`，捕获组1作为结果（去除可选后缀 C）；
-// 3) 结果统一转为大写；不匹配则返回空串。
-//
-// 示例：s
+// TKTGroupNameFromTitle 浠庢爣棰樿В鏋?tktube 鍒嗙粍鍚嶃€?//
+// 瑙勫垯锛?// 1) 鍘婚櫎寮€澶寸殑鍏ㄨ鎷彿鏍囩锛屼緥濡?"銆愰珮鐢昏川銆?锛?// 2) 鍖归厤姝ｅ垯 `([A-Z]+-\d{2,5})(?:C)?\b`锛屾崟鑾风粍1浣滀负缁撴灉锛堝幓闄ゅ彲閫夊悗缂€ C锛夛紱
+// 3) 缁撴灉缁熶竴杞负澶у啓锛涗笉鍖归厤鍒欒繑鍥炵┖涓层€?//
+// 绀轰緥锛歴
 // - "CLUB-100"        -> "CLUB-100"
 // - "CLUB-100C"       -> "CLUB-100"
-// - "【高画质】CLUB-100"  -> "CLUB-100"
-// - "【高画质】CLUB-100C" -> "CLUB-100"
+// - "銆愰珮鐢昏川銆慍LUB-100"  -> "CLUB-100"
+// - "銆愰珮鐢昏川銆慍LUB-100C" -> "CLUB-100"
 func TKTGroupNameFromTitle(title string) string {
 	t := strings.TrimSpace(title)
-	if strings.HasPrefix(t, "【") {
-		if idx := strings.Index(t, "】"); idx > 0 {
-			t = strings.TrimSpace(t[idx+len("】"):])
+	if strings.HasPrefix(t, "銆?) {
+		if idx := strings.Index(t, "銆?); idx > 0 {
+			t = strings.TrimSpace(t[idx+len("銆?):])
 		}
 	}
 	t = strings.ToUpper(t)

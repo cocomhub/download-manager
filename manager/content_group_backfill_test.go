@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -97,7 +97,7 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 		TaskID: "t1",
 		URL:    "https://example.com/video/1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100C",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100C",
 			"content_group": "WRONG-GROUP",
 			"task_type":     core.TaskTypeHanime,
 		},

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -66,12 +66,12 @@ func TestAPI_Pagination_Boundaries(t *testing.T) {
 
 // TestAPI_TaskNotFound verifies 404 response format for non-existent tasks.
 func TestAPI_TaskNotFound(t *testing.T) {
-	// GET（读操作）使用 writeEnabled=false server
+	// GET锛堣鎿嶄綔锛変娇鐢?writeEnabled=false server
 	srv, _ := newAPIServerWithMock(t, "mock-404", 1, false)
 	r := srv.Router()
 	startAPIManager(t, srv)
 
-	// GET /api/tasks/{id} — task endpoint returns JSON 404 for unknown task.
+	// GET /api/tasks/{id} 鈥?task endpoint returns JSON 404 for unknown task.
 	t.Run("/api/tasks/non-existent", func(t *testing.T) {
 		rr := doJSONGet(t, r, "/api/tasks/non-existent")
 		if rr.Code != http.StatusNotFound {
@@ -86,8 +86,8 @@ func TestAPI_TaskNotFound(t *testing.T) {
 		}
 	})
 
-	// POST /api/tasks/{id}/cancel — cancel on non-existent task returns JSON 404.
-	// 使用 writeEnabled=true 避免 write middleware 拦截
+	// POST /api/tasks/{id}/cancel 鈥?cancel on non-existent task returns JSON 404.
+	// 浣跨敤 writeEnabled=true 閬垮厤 write middleware 鎷︽埅
 	t.Run("/api/tasks/non-existent/cancel (POST)", func(t *testing.T) {
 		srv2, _ := newAPIServerWithMock(t, "mock-404-cancel", 1, true)
 		r2 := srv2.Router()

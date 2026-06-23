@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -11,19 +11,14 @@ import (
 	"time"
 )
 
-// ProgressReport 是单次进度快照的值对象，包含计算格式化日志行所需的全部字段。
-type ProgressReport struct {
-	Timestamp  time.Time     // 该次回调的时间戳
-	Progress   float64       // 0-100 的完成百分比
-	Downloaded int64         // 已下载字节数
-	Total      int64         // 总字节数（保证 >0）
-	Speed      float64       // 自上次回调以来的平均速度（bytes/s）
-	Elapsed    time.Duration // 自首次回调以来的已用时间
-	ETA        time.Duration // 预计剩余时间（当 Speed=0 时为 0）
-}
+// ProgressReport 鏄崟娆¤繘搴﹀揩鐓х殑鍊煎璞★紝鍖呭惈璁＄畻鏍煎紡鍖栨棩蹇楄鎵€闇€鐨勫叏閮ㄥ瓧娈点€?type ProgressReport struct {
+	Timestamp  time.Time     // 璇ユ鍥炶皟鐨勬椂闂存埑
+	Progress   float64       // 0-100 鐨勫畬鎴愮櫨鍒嗘瘮
+	Downloaded int64         // 宸蹭笅杞藉瓧鑺傛暟
+	Total      int64         // 鎬诲瓧鑺傛暟锛堜繚璇?>0锛?	Speed      float64       // 鑷笂娆″洖璋冧互鏉ョ殑骞冲潎閫熷害锛坆ytes/s锛?	Elapsed    time.Duration // 鑷娆″洖璋冧互鏉ョ殑宸茬敤鏃堕棿
+	ETA        time.Duration // 棰勮鍓╀綑鏃堕棿锛堝綋 Speed=0 鏃朵负 0锛?}
 
-// ProgressLogOption 配置 NewProgressLogCallback 的行为。
-type ProgressLogOption func(*progressLogConfig)
+// ProgressLogOption 閰嶇疆 NewProgressLogCallback 鐨勮涓恒€?type ProgressLogOption func(*progressLogConfig)
 
 type progressLogConfig struct {
 	w           io.Writer
@@ -41,16 +36,13 @@ func defaultConfig() *progressLogConfig {
 	}
 }
 
-// WithLogWriter 设置进度日志的输出目标。默认 io.Discard。
-func WithLogWriter(w io.Writer) ProgressLogOption {
+// WithLogWriter 璁剧疆杩涘害鏃ュ織鐨勮緭鍑虹洰鏍囥€傞粯璁?io.Discard銆?func WithLogWriter(w io.Writer) ProgressLogOption {
 	return func(c *progressLogConfig) {
 		c.w = w
 	}
 }
 
-// WithMinPercentStep 设置触发日志写入的最小进度百分比变化。默认 0.5。
-// 设为 0 表示每次回调都写入。
-func WithMinPercentStep(step float64) ProgressLogOption {
+// WithMinPercentStep 璁剧疆瑙﹀彂鏃ュ織鍐欏叆鐨勬渶灏忚繘搴︾櫨鍒嗘瘮鍙樺寲銆傞粯璁?0.5銆?// 璁句负 0 琛ㄧず姣忔鍥炶皟閮藉啓鍏ャ€?func WithMinPercentStep(step float64) ProgressLogOption {
 	return func(c *progressLogConfig) {
 		if step < 0 {
 			step = 0
@@ -59,9 +51,7 @@ func WithMinPercentStep(step float64) ProgressLogOption {
 	}
 }
 
-// WithMaxInterval 设置两次日志写入之间的最大间隔。默认 10s。
-// 即使进度变化未达到最小步长，超过此间隔也会强制写入。
-func WithMaxInterval(d time.Duration) ProgressLogOption {
+// WithMaxInterval 璁剧疆涓ゆ鏃ュ織鍐欏叆涔嬮棿鐨勬渶澶ч棿闅斻€傞粯璁?10s銆?// 鍗充娇杩涘害鍙樺寲鏈揪鍒版渶灏忔闀匡紝瓒呰繃姝ら棿闅斾篃浼氬己鍒跺啓鍏ャ€?func WithMaxInterval(d time.Duration) ProgressLogOption {
 	return func(c *progressLogConfig) {
 		if d <= 0 {
 			d = time.Second
@@ -70,20 +60,15 @@ func WithMaxInterval(d time.Duration) ProgressLogOption {
 	}
 }
 
-// WithProgressFormatter 设置自定义日志格式化函数。默认使用 defaultProgressFormatter。
-func WithProgressFormatter(fn func(io.Writer, ProgressReport)) ProgressLogOption {
+// WithProgressFormatter 璁剧疆鑷畾涔夋棩蹇楁牸寮忓寲鍑芥暟銆傞粯璁や娇鐢?defaultProgressFormatter銆?func WithProgressFormatter(fn func(io.Writer, ProgressReport)) ProgressLogOption {
 	return func(c *progressLogConfig) {
 		c.formatter = fn
 	}
 }
 
-// NewProgressLogCallback 创建一个带节流的进度日志回调。
-//
-// 返回的函数签名与 Request.OnProgress 一致，可直接使用或通过 ComposeProgress 与现有回调组合。
-// 首次调用无条件写入起点日志；后续调用在进度变化超过 minStep 或距离上次写入超过 maxInterval 时写入。
-//
-// 使用方法：
-//
+// NewProgressLogCallback 鍒涘缓涓€涓甫鑺傛祦鐨勮繘搴︽棩蹇楀洖璋冦€?//
+// 杩斿洖鐨勫嚱鏁扮鍚嶄笌 Request.OnProgress 涓€鑷达紝鍙洿鎺ヤ娇鐢ㄦ垨閫氳繃 ComposeProgress 涓庣幇鏈夊洖璋冪粍鍚堛€?// 棣栨璋冪敤鏃犳潯浠跺啓鍏ヨ捣鐐规棩蹇楋紱鍚庣画璋冪敤鍦ㄨ繘搴﹀彉鍖栬秴杩?minStep 鎴栬窛绂讳笂娆″啓鍏ヨ秴杩?maxInterval 鏃跺啓鍏ャ€?//
+// 浣跨敤鏂规硶锛?//
 //	req.OnProgress = NewProgressLogCallback(
 //	    WithLogWriter(logFile),
 //	    WithMinPercentStep(0.5),
@@ -100,8 +85,7 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 	var (
 		initialTime   = time.Now()
 		lastTime      = initialTime
-		lastProgress  = -1.0 // 确保第一次调用一定写入
-		lastBytes     int64
+		lastProgress  = -1.0 // 纭繚绗竴娆¤皟鐢ㄤ竴瀹氬啓鍏?		lastBytes     int64
 		firstCallDone bool
 		mu            sync.Mutex
 	)
@@ -115,7 +99,7 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 
 		mu.Lock()
 
-		// 计算速度（保护除零）
+		// 璁＄畻閫熷害锛堜繚鎶ら櫎闆讹級
 		var speed float64
 		elapsed := now.Sub(lastTime).Seconds()
 		if elapsed > 0 {
@@ -134,7 +118,7 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 			report.ETA = time.Duration(float64(total-downloaded)/speed) * time.Second
 		}
 
-		// 首次调用或满足节流条件时写入
+		// 棣栨璋冪敤鎴栨弧瓒宠妭娴佹潯浠舵椂鍐欏叆
 		deltaPct := progress - lastProgress
 		timeSinceLastWrite := now.Sub(lastTime)
 
@@ -152,18 +136,14 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 	}
 }
 
-// defaultProgressFormatter 是默认的进度日志格式化函数。
-// 输出格式：
-//
+// defaultProgressFormatter 鏄粯璁ょ殑杩涘害鏃ュ織鏍煎紡鍖栧嚱鏁般€?// 杈撳嚭鏍煎紡锛?//
 //	2026-06-10T12:00:01.000000000Z Progress:  0.000%  0.00 B/s expected time: --.- s
 func defaultProgressFormatter(w io.Writer, r ProgressReport) {
-	// 时间戳
-	ts := r.Timestamp.Format(time.RFC3339Nano)
+	// 鏃堕棿鎴?	ts := r.Timestamp.Format(time.RFC3339Nano)
 
-	// 百分比：7 字符宽右对齐（如 "  0.000%", "100.000%"）
-	pctStr := fmt.Sprintf("%7.3f%%", r.Progress)
+	// 鐧惧垎姣旓細7 瀛楃瀹藉彸瀵归綈锛堝 "  0.000%", "100.000%"锛?	pctStr := fmt.Sprintf("%7.3f%%", r.Progress)
 
-	// 速度单位自适应
+	// 閫熷害鍗曚綅鑷€傚簲
 	speedVal := r.Speed
 	unit := "B/s"
 	switch {

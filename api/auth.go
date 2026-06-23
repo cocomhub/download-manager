@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -40,7 +40,7 @@ func (s *Server) authMiddleware() mux.MiddlewareFunc {
 					return
 				}
 			}
-			// case "none" or empty — pass through
+			// case "none" or empty 鈥?pass through
 			next.ServeHTTP(w, r)
 		})
 	}

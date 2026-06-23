@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -14,8 +14,7 @@ import (
 
 // ---- Shared proxy probe functions (used by both dlcore.Client and WgetDownloader) ----
 
-// CheckDirect 检测是否可直接访问目标 URL。返回 true 表示可直连。
-func CheckDirect(targetURL string, forceProxy bool, timeoutSecs int) bool {
+// CheckDirect 妫€娴嬫槸鍚﹀彲鐩存帴璁块棶鐩爣 URL銆傝繑鍥?true 琛ㄧず鍙洿杩炪€?func CheckDirect(targetURL string, forceProxy bool, timeoutSecs int) bool {
 	if forceProxy {
 		return false
 	}
@@ -35,8 +34,7 @@ func CheckDirect(targetURL string, forceProxy bool, timeoutSecs int) bool {
 	return true
 }
 
-// GetProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
-func GetProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
+// GetProxyBandwidth 鏌ヨ浠ｇ悊鐨勫甫瀹藉€硷紙鏁板€艰秺灏忚秺濂斤級锛屽け璐ユ椂杩斿洖 999999銆?func GetProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
 		suffix = "/bandwidth"
 	}

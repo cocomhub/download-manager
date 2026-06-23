@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -35,7 +35,7 @@ func TestResolveCache_IsExpired_NotExists(t *testing.T) {
 }
 
 func TestResolveCache_IsExpired_AfterTTL(t *testing.T) {
-	// 使用极短 TTL 测试过期
+	// 浣跨敤鏋佺煭 TTL 娴嬭瘯杩囨湡
 	c := NewResolveCache(50*time.Millisecond, 100)
 	c.MarkResolved("url1")
 	assert.MustEventually(t, func() bool {
@@ -53,14 +53,13 @@ func TestResolveCache_Invalidate(t *testing.T) {
 }
 
 func TestResolveCache_EvictOnOverflow(t *testing.T) {
-	// 设置 maxSize=2，TTL 短，放 3 条后最早的应被清理
+	// 璁剧疆 maxSize=2锛孴TL 鐭紝鏀?3 鏉″悗鏈€鏃╃殑搴旇娓呯悊
 	c := NewResolveCache(50*time.Millisecond, 2)
 	c.MarkResolved("url1")
 	assert.MustEventually(t, func() bool {
 		return c.IsExpired("url1")
 	}, 3*time.Second, 20*time.Millisecond, "wait for url1 to expire")
-	// url1 已过期，但还未触发清理
-	c.MarkResolved("url2") // 触发 evict，清理 url1
+	// url1 宸茶繃鏈燂紝浣嗚繕鏈Е鍙戞竻鐞?	c.MarkResolved("url2") // 瑙﹀彂 evict锛屾竻鐞?url1
 	c.MarkResolved("url3")
 
 	if c.Len() > 2 {

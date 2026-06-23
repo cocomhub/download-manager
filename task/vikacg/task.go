@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package vikacg
@@ -154,8 +154,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 }
 
 // ResolveObject implements core.Task.ResolveObject.
-// vikacg 在 scrapeAndBuild 中已填充完整数据，返回 nil。
-func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+// vikacg 鍦?scrapeAndBuild 涓凡濉厖瀹屾暣鏁版嵁锛岃繑鍥?nil銆?func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
 	return nil
 }
 
@@ -178,7 +177,7 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		return nil, fmt.Errorf("title is empty")
 	}
 	title = stripSiteSuffix(title)
-	title = strings.ReplaceAll(title, "/", "／")
+	title = strings.ReplaceAll(title, "/", "锛?)
 	title = strings.TrimRight(title, ".")
 	title = fmt.Sprintf("[%s] %s", id, title)
 	section := strings.TrimSpace(doc.Find("meta[property='article:section']").AttrOr("content", ""))
@@ -366,27 +365,27 @@ func (t *Task) sanitizeCachedContentHTML(obj *model.DownloadObject) {
 	}
 }
 
-// stripSiteSuffix 去除常见站点后缀，保留纯标题
+// stripSiteSuffix 鍘婚櫎甯歌绔欑偣鍚庣紑锛屼繚鐣欑函鏍囬
 func stripSiteSuffix(title string) string {
 	t := strings.TrimSpace(title)
 	suffixes := []string{
-		" - 维咔VikACG[V站]",
-		" - 维咔VikACG",
-		" - 维咔",
+		" - 缁村挃VikACG[V绔橾",
+		" - 缁村挃VikACG",
+		" - 缁村挃",
 	}
 	for _, s := range suffixes {
 		if before, ok := strings.CutSuffix(t, s); ok {
 			return strings.TrimSpace(before)
 		}
 	}
-	// 兜底：出现 " - 维咔" 时按首次出现截断
-	if idx := strings.Index(t, " - 维咔"); idx > 0 {
+	// 鍏滃簳锛氬嚭鐜?" - 缁村挃" 鏃舵寜棣栨鍑虹幇鎴柇
+	if idx := strings.Index(t, " - 缁村挃"); idx > 0 {
 		return strings.TrimSpace(t[:idx])
 	}
 	return t
 }
 
-// dedupe 简单去重，保持顺序
+// dedupe 绠€鍗曞幓閲嶏紝淇濇寔椤哄簭
 func dedupe(items []string) []string {
 	seen := make(map[string]struct{}, len(items))
 	out := make([]string, 0, len(items))

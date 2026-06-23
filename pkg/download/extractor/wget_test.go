@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package extractor_test
@@ -19,7 +19,7 @@ func TestWgetExtractorName(t *testing.T) {
 func TestWgetExtractorMatch(t *testing.T) {
 	ex := extractor.NewWgetExtractor()
 
-	// WgetExtractor 应匹配普通 HTTP URL
+	// WgetExtractor 搴斿尮閰嶆櫘閫?HTTP URL
 	if !ex.Match(t.Context(), "http://example.com/file.zip") {
 		t.Error("WgetExtractor should match non-m3u8 URL")
 	}
@@ -27,8 +27,7 @@ func TestWgetExtractorMatch(t *testing.T) {
 		t.Error("WgetExtractor should match https URL")
 	}
 
-	// WgetExtractor 不应匹配 .m3u8 URL（由 HLSExtractor 处理）
-	if ex.Match(t.Context(), "http://cdn.example.com/stream.m3u8") {
+	// WgetExtractor 涓嶅簲鍖归厤 .m3u8 URL锛堢敱 HLSExtractor 澶勭悊锛?	if ex.Match(t.Context(), "http://cdn.example.com/stream.m3u8") {
 		t.Error("WgetExtractor should NOT match .m3u8 URL")
 	}
 	if ex.Match(t.Context(), "https://cdn.example.com/playlist.M3U8") {

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -16,8 +16,7 @@ type registeredStorage struct {
 	store  core.Storage
 }
 
-// URLStateRegistry 提供基于 URL 的全局对象状态共享
-type URLStateRegistry struct {
+// URLStateRegistry 鎻愪緵鍩轰簬 URL 鐨勫叏灞€瀵硅薄鐘舵€佸叡浜?type URLStateRegistry struct {
 	mu      sync.RWMutex
 	objects map[string]*model.DownloadObject
 	owners  map[string]map[string]struct{}

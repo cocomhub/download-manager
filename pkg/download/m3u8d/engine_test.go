@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package m3u8d
@@ -82,8 +82,7 @@ func TestMarkAndIsDownloaded(t *testing.T) {
 func TestParseM3U8SingleLevel(t *testing.T) {
 	dir := t.TempDir()
 
-	// 创建测试 m3u8 文件，包含 #EXTINF 行
-	m3u8Content := `#EXTM3U
+	// 鍒涘缓娴嬭瘯 m3u8 鏂囦欢锛屽寘鍚?#EXTINF 琛?	m3u8Content := `#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:10
 #EXTINF:10,
@@ -108,9 +107,8 @@ seg002.ts
 		t.Fatalf("NewM3U8DEngine failed: %v", err)
 	}
 
-	// 测试 parseM3U8（无实际下载，仅解析）
-	localPath := dir + "/parsed.m3u8"
-	// 直接测试 resolveURL
+	// 娴嬭瘯 parseM3U8锛堟棤瀹為檯涓嬭浇锛屼粎瑙ｆ瀽锛?	localPath := dir + "/parsed.m3u8"
+	// 鐩存帴娴嬭瘯 resolveURL
 	base, _ := url.Parse(cfg.InputURL)
 	result := resolveURL(base, "seg001.ts")
 	if result != "https://example.com/seg001.ts" {

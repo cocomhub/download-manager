@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package extractor
@@ -20,6 +20,8 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
+const logTimestampFmt = "20060102150405"
+
 const DefaultWgetUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
@@ -28,9 +30,7 @@ var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
 var _ download.Extractor = (*WgetExtractor)(nil)
 var _ download.Canceller = (*WgetExtractor)(nil)
 
-// WgetExtractor 将 wget 命令行工具包装为 Extractor 接口。
-// 不依赖 Transport，自己管理 exec.Command 来执行 wget 进程。
-type WgetExtractor struct {
+// WgetExtractor 灏?wget 鍛戒护琛屽伐鍏峰寘瑁呬负 Extractor 鎺ュ彛銆?// 涓嶄緷璧?Transport锛岃嚜宸辩鐞?exec.Command 鏉ユ墽琛?wget 杩涚▼銆?type WgetExtractor struct {
 	logDir      string
 	selector    download.Selector
 	active      sync.Map
@@ -39,8 +39,7 @@ type WgetExtractor struct {
 	timeoutSecs int
 }
 
-// NewWgetExtractor 创建 WgetExtractor 实例。
-func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
+// NewWgetExtractor 鍒涘缓 WgetExtractor 瀹炰緥銆?func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
 	e := &WgetExtractor{
 		userAgent:   DefaultWgetUserAgent,
 		maxRetries:  5,
@@ -52,37 +51,29 @@ func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
 	return e
 }
 
-// WgetOption 是 WgetExtractor 的配置函数。
-type WgetOption func(*WgetExtractor)
+// WgetOption 鏄?WgetExtractor 鐨勯厤缃嚱鏁般€?type WgetOption func(*WgetExtractor)
 
-// WithWgetLogDir 设置 wget 日志目录。
-func WithWgetLogDir(dir string) WgetOption { return func(e *WgetExtractor) { e.logDir = dir } }
+// WithWgetLogDir 璁剧疆 wget 鏃ュ織鐩綍銆?func WithWgetLogDir(dir string) WgetOption { return func(e *WgetExtractor) { e.logDir = dir } }
 
-// WithWgetUserAgent 设置自定义 User-Agent。
-func WithWgetUserAgent(ua string) WgetOption { return func(e *WgetExtractor) { e.userAgent = ua } }
+// WithWgetUserAgent 璁剧疆鑷畾涔?User-Agent銆?func WithWgetUserAgent(ua string) WgetOption { return func(e *WgetExtractor) { e.userAgent = ua } }
 
-// WithWgetMaxRetries 设置最大重试次数。
-func WithWgetMaxRetries(n int) WgetOption { return func(e *WgetExtractor) { e.maxRetries = n } }
+// WithWgetMaxRetries 璁剧疆鏈€澶ч噸璇曟鏁般€?func WithWgetMaxRetries(n int) WgetOption { return func(e *WgetExtractor) { e.maxRetries = n } }
 
-// WithWgetTimeout 设置下载超时秒数。
-func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.timeoutSecs = secs } }
+// WithWgetTimeout 璁剧疆涓嬭浇瓒呮椂绉掓暟銆?func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.timeoutSecs = secs } }
 
 func (e *WgetExtractor) Name() string { return "wget" }
 
-// Match 匹配非 m3u8 URL，与 HTTPExtractor 互补。
-func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
+// Match 鍖归厤闈?m3u8 URL锛屼笌 HTTPExtractor 浜掕ˉ銆?func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
 	return !strings.Contains(strings.ToLower(url), ".m3u8")
 }
 
-// SetSelector 注入 Selector 实例用于代理选择。
-func (e *WgetExtractor) SetSelector(s download.Selector) { e.selector = s }
+// SetSelector 娉ㄥ叆 Selector 瀹炰緥鐢ㄤ簬浠ｇ悊閫夋嫨銆?func (e *WgetExtractor) SetSelector(s download.Selector) { e.selector = s }
 
 // SetTransport is a no-op: wget does not use a Go Transport.
 // Implemented for download.TransportSetter interface compatibility.
 func (e *WgetExtractor) SetTransport(t download.Transport) {}
 
-// Extract 使用 wget 命令行下载文件。
-func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) error {
+// Extract 浣跨敤 wget 鍛戒护琛屼笅杞芥枃浠躲€?func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) error {
 	dir := filepath.Dir(req.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("wget: failed to create directory: %w", err)
@@ -105,7 +96,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 
 	var f *os.File
 	if e.logDir != "" {
-		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format("20060102150405")+".wget.log")
+		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format(logTimestampFmt)+".wget.log")
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {
@@ -166,7 +157,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		if req.TrackProgress && req.OnProgress != nil {
 			if matches := reWgetProgress.FindStringSubmatch(line); len(matches) > 1 {
 				if p, err := strconv.Atoi(matches[1]); err == nil {
-					// 用 os.Stat 获取当前已下载字节数作为 downloaded
+					// 鐢?os.Stat 鑾峰彇褰撳墠宸蹭笅杞藉瓧鑺傛暟浣滀负 downloaded
 					var downloaded int64
 					if info, statErr := os.Stat(req.SavePath); statErr == nil {
 						downloaded = info.Size()
@@ -184,8 +175,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	e.active.Delete(req.URL)
 
 	if req.OnProgress != nil {
-		// wget 通过 exec 下载，完成后用文件实际大小填充 downloaded 与 total。
-		var size int64
+		// wget 閫氳繃 exec 涓嬭浇锛屽畬鎴愬悗鐢ㄦ枃浠跺疄闄呭ぇ灏忓～鍏?downloaded 涓?total銆?		var size int64
 		if info, err := os.Stat(req.SavePath); err == nil {
 			size = info.Size()
 		}
@@ -194,8 +184,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	return nil
 }
 
-// Cancel 取消正在进行的 wget 下载。
-func (e *WgetExtractor) Cancel(url string) error {
+// Cancel 鍙栨秷姝ｅ湪杩涜鐨?wget 涓嬭浇銆?func (e *WgetExtractor) Cancel(url string) error {
 	if v, ok := e.active.Load(url); ok {
 		cmd, ok := v.(*exec.Cmd)
 		if !ok {

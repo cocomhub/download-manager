@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -10,13 +10,9 @@ import (
 	"reflect"
 )
 
-// ErrCompositeEmpty 表示复合下载的文件列表为空，需要重新触发 Scrape。
-var ErrCompositeEmpty = errors.New("composite: file list is empty, need re-scrape")
+// ErrCompositeEmpty 琛ㄧず澶嶅悎涓嬭浇鐨勬枃浠跺垪琛ㄤ负绌猴紝闇€瑕侀噸鏂拌Е鍙?Scrape銆?var ErrCompositeEmpty = errors.New("composite: file list is empty, need re-scrape")
 
-// parseCompositeFiles 从 obj.Extra["files"] 解析文件列表。
-// 统一处理 []map[string]string (memory存储)、[]any (JSON反序列化) 和
-// primitive.A (MongoDB BSON数组) 三种来源。
-func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
+// parseCompositeFiles 浠?obj.Extra["files"] 瑙ｆ瀽鏂囦欢鍒楄〃銆?// 缁熶竴澶勭悊 []map[string]string (memory瀛樺偍)銆乕]any (JSON鍙嶅簭鍒楀寲) 鍜?// primitive.A (MongoDB BSON鏁扮粍) 涓夌鏉ユ簮銆?func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
 	// Handle primitive.A (MongoDB BSON array) - convert to []any first
 	val := reflect.ValueOf(filesVal)
 	if val.Kind() == reflect.Slice {

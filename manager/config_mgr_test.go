@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -38,7 +38,7 @@ func TestUpdateConfig_LoadsMissingTasks(t *testing.T) {
 	_ = startManager(t, mgr)
 	waitForTask(t, mgr, "task-lt")
 
-	// Add a second task — clone existing config, add more tasks
+	// Add a second task 鈥?clone existing config, add more tasks
 	cfg := mgr.currentCfg()
 	newCfg := *cfg
 	newCfg.Tasks = append(newCfg.Tasks, config.Task{
@@ -130,7 +130,7 @@ func TestUpdateConfig_StartStopScheduler(t *testing.T) {
 	// that conflicts with the cleanup path when running short-lived tests.
 	newCfg := mgr.currentCfg()
 	newCfg.Runtime.Scheduler.Enabled = !newCfg.Runtime.Scheduler.Enabled
-	// We don't assert on the result — the scheduler lifecycle race with
+	// We don't assert on the result 鈥?the scheduler lifecycle race with
 	// cleanup is tested at the unit level in scheduler_test.go
 	_ = mgr.UpdateConfig(newCfg, nil)
 	// If we get here without panic, the config path works

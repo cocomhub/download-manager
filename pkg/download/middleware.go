@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -8,12 +8,9 @@ import (
 	"time"
 )
 
-// Middleware 是下载中间件函数类型。
-// 在 Extract 前后执行额外逻辑，通过 next 参数调用下一个中间件或实际的 Extractor。
-type Middleware func(ctx context.Context, req *Request, next Extractor) error
+// Middleware 鏄笅杞戒腑闂翠欢鍑芥暟绫诲瀷銆?// 鍦?Extract 鍓嶅悗鎵ц棰濆閫昏緫锛岄€氳繃 next 鍙傛暟璋冪敤涓嬩竴涓腑闂翠欢鎴栧疄闄呯殑 Extractor銆?type Middleware func(ctx context.Context, req *Request, next Extractor) error
 
-// MetricsMiddleware 创建记录下载指标的中间件。
-func MetricsMiddleware(registry *MetricRegistry) Middleware {
+// MetricsMiddleware 鍒涘缓璁板綍涓嬭浇鎸囨爣鐨勪腑闂翠欢銆?func MetricsMiddleware(registry *MetricRegistry) Middleware {
 	return func(ctx context.Context, req *Request, next Extractor) error {
 		start := time.Now()
 		err := next.Extract(ctx, req)
@@ -24,8 +21,7 @@ func MetricsMiddleware(registry *MetricRegistry) Middleware {
 	}
 }
 
-// middlewareExtractor 包装 Extractor，在 Extract 前后执行中间件逻辑。
-type middlewareExtractor struct {
+// middlewareExtractor 鍖呰 Extractor锛屽湪 Extract 鍓嶅悗鎵ц涓棿浠堕€昏緫銆?type middlewareExtractor struct {
 	base Extractor
 	mw   Middleware
 }

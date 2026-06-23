@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -83,7 +83,7 @@ func (m *Manager) CancelTasks(ids []string) map[string]string {
 	return result
 }
 
-// CancelObject 取消单个对象下载（对象级别）
+// CancelObject 鍙栨秷鍗曚釜瀵硅薄涓嬭浇锛堝璞＄骇鍒級
 func (m *Manager) CancelObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
 	if !ok {
@@ -123,7 +123,7 @@ func (m *Manager) CancelObject(taskID, url string) error {
 	return nil
 }
 
-// UndoCancelObject 撤销取消，将对象恢复为待下载
+// UndoCancelObject 鎾ら攢鍙栨秷锛屽皢瀵硅薄鎭㈠涓哄緟涓嬭浇
 func (m *Manager) UndoCancelObject(taskID, url string) error {
 	t, ok := m.getTask(taskID)
 	if !ok {
@@ -143,7 +143,7 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	obj.SetProgress(0)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-	// 通知调度器：不要直接调用 processTask，会绕过 processingTask 守卫
+	// 閫氱煡璋冨害鍣細涓嶈鐩存帴璋冪敤 processTask锛屼細缁曡繃 processingTask 瀹堝崼
 	select {
 	case m.schedulerSignal <- struct{}{}:
 	default:

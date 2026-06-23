@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -50,21 +50,21 @@ func parseFlags(args []string) (parseResult, error) {
 		uiOnly  bool
 	)
 
-	fs.StringVar(&cfgPath, "config", "config.yaml", "配置文件路径（默认 config.yaml）")
-	fs.BoolVar(&showVer, "version", false, "打印版本与构建信息后退出")
-	fs.StringVar(&runMode, "run-mode", "", "运行模式：full 或 ui")
-	fs.BoolVar(&uiOnly, "ui-only", false, "仅启动 Web UI（等价于 --run-mode=ui）")
+	fs.StringVar(&cfgPath, "config", "config.yaml", "閰嶇疆鏂囦欢璺緞锛堥粯璁?config.yaml锛?)
+	fs.BoolVar(&showVer, "version", false, "鎵撳嵃鐗堟湰涓庢瀯寤轰俊鎭悗閫€鍑?)
+	fs.StringVar(&runMode, "run-mode", "", "杩愯妯″紡锛歠ull 鎴?ui")
+	fs.BoolVar(&uiOnly, "ui-only", false, "浠呭惎鍔?Web UI锛堢瓑浠蜂簬 --run-mode=ui锛?)
 
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "用法：download-manager [选项]")
-		fmt.Fprintln(fs.Output(), "选项：")
+		fmt.Fprintln(fs.Output(), "鐢ㄦ硶锛歞ownload-manager [閫夐」]")
+		fmt.Fprintln(fs.Output(), "閫夐」锛?)
 		fs.PrintDefaults()
 		fmt.Fprintln(fs.Output(), "")
-		fmt.Fprintln(fs.Output(), "优先级：命令行 > 环境变量 > 配置文件")
-		fmt.Fprintln(fs.Output(), "环境变量：")
-		fmt.Fprintln(fs.Output(), "  DM_RUN_MODE   设置运行模式 full|ui")
-		fmt.Fprintln(fs.Output(), "  DM_UI_ONLY    若为 1/true/yes 则等价 ui 模式")
-		fmt.Fprintln(fs.Output(), "  DM_HTTP_PORT  设置 HTTP 端口")
+		fmt.Fprintln(fs.Output(), "浼樺厛绾э細鍛戒护琛?> 鐜鍙橀噺 > 閰嶇疆鏂囦欢")
+		fmt.Fprintln(fs.Output(), "鐜鍙橀噺锛?)
+		fmt.Fprintln(fs.Output(), "  DM_RUN_MODE   璁剧疆杩愯妯″紡 full|ui")
+		fmt.Fprintln(fs.Output(), "  DM_UI_ONLY    鑻ヤ负 1/true/yes 鍒欑瓑浠?ui 妯″紡")
+		fmt.Fprintln(fs.Output(), "  DM_HTTP_PORT  璁剧疆 HTTP 绔彛")
 	}
 
 	if err := fs.Parse(args); err != nil {

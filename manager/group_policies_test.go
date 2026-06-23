@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -103,7 +103,7 @@ func TestApplyGroupPriorityPolicies_CancelLowerPriority(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -144,7 +144,7 @@ func TestApplyGroupPriorityPolicies_SkipWhenSamePriorityConflicts(t *testing.T) 
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -193,7 +193,7 @@ func TestApplyGroupPriorityPolicies_DoesNotCancelDownloading(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -230,7 +230,7 @@ func TestApplyGroupPriorityPolicies_ScopesToCurrentTaskWithinSharedStorage(t *te
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -307,7 +307,7 @@ func TestApplyGroupPriorityPolicies_IgnoresSameTaskIDWithDifferentTaskType(t *te
 		TaskID: "shared-task",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -355,7 +355,7 @@ func TestApplyGroupPriorityPolicies_MultipleContentGroups(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},
@@ -422,7 +422,7 @@ func TestApplyGroupPriorityPolicies_AlreadyCompleted(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u1",
 		Metadata: map[string]string{
-			"title":         "【高画质】CLUB-100",
+			"title":         "銆愰珮鐢昏川銆慍LUB-100",
 			"task_type":     core.TaskTypeTktube,
 			"content_group": "CLUB-100",
 		},

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -13,14 +13,11 @@ import (
 	"time"
 )
 
-// ProxySelector 定义代理选择策略。
-// Select 返回最佳代理 URL（空字符串表示直连），以及可能的错误。
-type ProxySelector interface {
+// ProxySelector 瀹氫箟浠ｇ悊閫夋嫨绛栫暐銆?// Select 杩斿洖鏈€浣充唬鐞?URL锛堢┖瀛楃涓茶〃绀虹洿杩烇級锛屼互鍙婂彲鑳界殑閿欒銆?type ProxySelector interface {
 	Select(targetURL string) (proxyURL string, err error)
 }
 
-// DefaultProxySelector 是默认的代理选择器实现，使用文件缓存 + 直连探测 + 带宽评分。
-type DefaultProxySelector struct {
+// DefaultProxySelector 鏄粯璁ょ殑浠ｇ悊閫夋嫨鍣ㄥ疄鐜帮紝浣跨敤鏂囦欢缂撳瓨 + 鐩磋繛鎺㈡祴 + 甯﹀璇勫垎銆?type DefaultProxySelector struct {
 	proxies          []string
 	forceProxy       bool
 	cacheDir         string
@@ -29,11 +26,8 @@ type DefaultProxySelector struct {
 	bandwidthSuffix  string
 }
 
-// NewProxySelector 创建默认代理选择器，使用给定的代理列表。
-// 其余参数使用合理默认值：
-//   - 决策缓存 TTL：1 秒
-//   - 探测超时：3 秒
-//   - 带宽路径后缀："/bandwidth"
+// NewProxySelector 鍒涘缓榛樿浠ｇ悊閫夋嫨鍣紝浣跨敤缁欏畾鐨勪唬鐞嗗垪琛ㄣ€?// 鍏朵綑鍙傛暟浣跨敤鍚堢悊榛樿鍊硷細
+//   - 鍐崇瓥缂撳瓨 TTL锛? 绉?//   - 鎺㈡祴瓒呮椂锛? 绉?//   - 甯﹀璺緞鍚庣紑锛?/bandwidth"
 func NewProxySelector(proxies []string) *DefaultProxySelector {
 	return &DefaultProxySelector{
 		proxies:          proxies,
@@ -43,15 +37,12 @@ func NewProxySelector(proxies []string) *DefaultProxySelector {
 	}
 }
 
-// WithForceProxy 设置是否强制使用代理（跳过直连探测）。
-func (ps *DefaultProxySelector) WithForceProxy(v bool) *DefaultProxySelector {
+// WithForceProxy 璁剧疆鏄惁寮哄埗浣跨敤浠ｇ悊锛堣烦杩囩洿杩炴帰娴嬶級銆?func (ps *DefaultProxySelector) WithForceProxy(v bool) *DefaultProxySelector {
 	ps.forceProxy = v
 	return ps
 }
 
-// WithCache 设置缓存目录和决策 TTL（秒）。
-// ttlSecs 为 0 时使用默认值。
-func (ps *DefaultProxySelector) WithCache(dir string, ttlSecs int) *DefaultProxySelector {
+// WithCache 璁剧疆缂撳瓨鐩綍鍜屽喅绛?TTL锛堢锛夈€?// ttlSecs 涓?0 鏃朵娇鐢ㄩ粯璁ゅ€笺€?func (ps *DefaultProxySelector) WithCache(dir string, ttlSecs int) *DefaultProxySelector {
 	ps.cacheDir = dir
 	if ttlSecs > 0 {
 		ps.decisionCacheTTL = ttlSecs
@@ -59,29 +50,24 @@ func (ps *DefaultProxySelector) WithCache(dir string, ttlSecs int) *DefaultProxy
 	return ps
 }
 
-// WithProbe 设置直连探测超时（秒）。timeoutSecs 为 0 时使用默认值。
-func (ps *DefaultProxySelector) WithProbe(timeoutSecs int) *DefaultProxySelector {
+// WithProbe 璁剧疆鐩磋繛鎺㈡祴瓒呮椂锛堢锛夈€倀imeoutSecs 涓?0 鏃朵娇鐢ㄩ粯璁ゅ€笺€?func (ps *DefaultProxySelector) WithProbe(timeoutSecs int) *DefaultProxySelector {
 	if timeoutSecs > 0 {
 		ps.probeTimeout = timeoutSecs
 	}
 	return ps
 }
 
-// WithBandwidthSuffix 设置代理带宽探测路径后缀。默认为 "/bandwidth"。
-func (ps *DefaultProxySelector) WithBandwidthSuffix(s string) *DefaultProxySelector {
+// WithBandwidthSuffix 璁剧疆浠ｇ悊甯﹀鎺㈡祴璺緞鍚庣紑銆傞粯璁や负 "/bandwidth"銆?func (ps *DefaultProxySelector) WithBandwidthSuffix(s string) *DefaultProxySelector {
 	if s != "" {
 		ps.bandwidthSuffix = s
 	}
 	return ps
 }
 
-// Select 执行代理选择流程：
-//  1. 无代理配置时直接返回直连
-//  2. 检查文件缓存（domain 粒度的直连/代理决策）
-//  3. 缓存命中且为直连 → 直连
-//  4. 缓存命中但为代理 → 跳过直连探测，直接带宽扫描
-//  5. 未命中缓存 → 直连探测 + 带宽扫描
-//  6. 写入缓存
+// Select 鎵ц浠ｇ悊閫夋嫨娴佺▼锛?//  1. 鏃犱唬鐞嗛厤缃椂鐩存帴杩斿洖鐩磋繛
+//  2. 妫€鏌ユ枃浠剁紦瀛橈紙domain 绮掑害鐨勭洿杩?浠ｇ悊鍐崇瓥锛?//  3. 缂撳瓨鍛戒腑涓斾负鐩磋繛 鈫?鐩磋繛
+//  4. 缂撳瓨鍛戒腑浣嗕负浠ｇ悊 鈫?璺宠繃鐩磋繛鎺㈡祴锛岀洿鎺ュ甫瀹芥壂鎻?//  5. 鏈懡涓紦瀛?鈫?鐩磋繛鎺㈡祴 + 甯﹀鎵弿
+//  6. 鍐欏叆缂撳瓨
 func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 	if len(ps.proxies) == 0 {
 		return "", nil
@@ -103,8 +89,7 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 	}
 	cachePath := filepath.Join(cacheBase, domain)
 
-	// 检查缓存
-	if info, err := os.Stat(cachePath); err == nil {
+	// 妫€鏌ョ紦瀛?	if info, err := os.Stat(cachePath); err == nil {
 		ttl := ps.decisionCacheTTL
 		if ttl <= 0 {
 			ttl = 1
@@ -122,7 +107,7 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 		}
 	}
 
-	// 直连探测
+	// 鐩磋繛鎺㈡祴
 	if !ps.forceProxy {
 		if CheckDirect(targetURL, ps.forceProxy, ps.probeTimeout) {
 			slog.Info("direct access is available", "url", targetURL)
@@ -135,8 +120,7 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 	return ps.selectBestProxy(cachePath)
 }
 
-// selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
-func (ps *DefaultProxySelector) selectBestProxy(cachePath string) (string, error) {
+// selectBestProxy 鎵ц甯﹀鎵弿锛岄€夊嚭鏈€浣充唬鐞嗗苟鍐欏叆缂撳瓨銆?func (ps *DefaultProxySelector) selectBestProxy(cachePath string) (string, error) {
 	bestProxy := ""
 	minBandwidth := 999999.0
 	for _, p := range ps.proxies {

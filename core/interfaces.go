@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -30,125 +30,96 @@ type StorageQuery struct {
 	Limit  int64
 }
 
-// Storage 定义下载状态存储的行为
+// Storage 瀹氫箟涓嬭浇鐘舵€佸瓨鍌ㄧ殑琛屼负
 type Storage interface {
-	// Get 获取单个对象状态
-	Get(id string) (*model.DownloadObject, error)
-	// Update 更新单个对象的状态
-	Update(obj *model.DownloadObject) error
-	// Delete 删除对象状态
-	Delete(id string) error
-	// Search 按查询条件搜索对象。
-	// nil 查询表示不过滤、不排序、不分页，返回当前存储中的全部对象。
-	Search(query *StorageQuery) ([]*model.DownloadObject, error)
-	// Count 返回匹配查询过滤条件的对象总数，忽略排序与分页参数。
-	Count(query *StorageQuery) (int64, error)
-	// Exists 批量检查给定对象 ID 是否存在。
-	Exists(ids []string) (map[string]bool, error)
+	// Get 鑾峰彇鍗曚釜瀵硅薄鐘舵€?	Get(id string) (*model.DownloadObject, error)
+	// Update 鏇存柊鍗曚釜瀵硅薄鐨勭姸鎬?	Update(obj *model.DownloadObject) error
+	// Delete 鍒犻櫎瀵硅薄鐘舵€?	Delete(id string) error
+	// Search 鎸夋煡璇㈡潯浠舵悳绱㈠璞°€?	// nil 鏌ヨ琛ㄧず涓嶈繃婊ゃ€佷笉鎺掑簭銆佷笉鍒嗛〉锛岃繑鍥炲綋鍓嶅瓨鍌ㄤ腑鐨勫叏閮ㄥ璞°€?	Search(query *StorageQuery) ([]*model.DownloadObject, error)
+	// Count 杩斿洖鍖归厤鏌ヨ杩囨护鏉′欢鐨勫璞℃€绘暟锛屽拷鐣ユ帓搴忎笌鍒嗛〉鍙傛暟銆?	Count(query *StorageQuery) (int64, error)
+	// Exists 鎵归噺妫€鏌ョ粰瀹氬璞?ID 鏄惁瀛樺湪銆?	Exists(ids []string) (map[string]bool, error)
 }
 
-// Task 定义下载任务的行为
-type Task interface {
-	// ID 返回任务唯一标识
+// Task 瀹氫箟涓嬭浇浠诲姟鐨勮涓?type Task interface {
+	// ID 杩斿洖浠诲姟鍞竴鏍囪瘑
 	ID() string
-	// Type 返回任务类型
+	// Type 杩斿洖浠诲姟绫诲瀷
 	Type() string
-	// Logger 日志
+	// Logger 鏃ュ織
 	Logger() *slog.Logger
-	// Storage 返回任务的存储后端
-	Storage() Storage
-	// SetDownloader 设置下载器
-	SetDownloader(d Downloader)
-	// GetDownloadHeaders 获取下载对象的自定义HTTP头
-	GetDownloadHeaders() map[string]string
-	// GetDownloadObjects 获取该任务当前需要下载的对象列表
+	// Storage 杩斿洖浠诲姟鐨勫瓨鍌ㄥ悗绔?	Storage() Storage
+	// SetDownloader 璁剧疆涓嬭浇鍣?	SetDownloader(d Downloader)
+	// GetDownloadHeaders 鑾峰彇涓嬭浇瀵硅薄鐨勮嚜瀹氫箟HTTP澶?	GetDownloadHeaders() map[string]string
+	// GetDownloadObjects 鑾峰彇璇ヤ换鍔″綋鍓嶉渶瑕佷笅杞界殑瀵硅薄鍒楄〃
 	GetDownloadObjects() ([]*model.DownloadObject, error)
-	// UpdateStatus 更新下载对象的状态
-	UpdateStatus(obj *model.DownloadObject, status string, err error) error
-	// Concurrency 并发数
-	Concurrency() int
-	// SetConcurrency 设置并发数
-	SetConcurrency(int) error
-	// RefreshInterval 刷新时间
+	// UpdateStatus 鏇存柊涓嬭浇瀵硅薄鐨勭姸鎬?	UpdateStatus(obj *model.DownloadObject, status string, err error) error
+	// Concurrency 骞跺彂鏁?	Concurrency() int
+	// SetConcurrency 璁剧疆骞跺彂鏁?	SetConcurrency(int) error
+	// RefreshInterval 鍒锋柊鏃堕棿
 	RefreshInterval() int
-	// SetRefreshInterval 设置刷新时间
+	// SetRefreshInterval 璁剧疆鍒锋柊鏃堕棿
 	SetRefreshInterval(int) error
-	// Start 开始任务
-	Start() error
-	// ResolveObject 解析对象详情，填充 Extra["files"]（主要下载项列表）。
-	// 无需 resolve 的 task（如 urllist）直接返回 nil。
-	// ctx 用于超时控制。
-	ResolveObject(ctx context.Context, obj *model.DownloadObject) error
-	// Close 关闭任务，执行清理或持久化操作
-	Close() error
+	// Start 寮€濮嬩换鍔?	Start() error
+	// ResolveObject 瑙ｆ瀽瀵硅薄璇︽儏锛屽～鍏?Extra["files"]锛堜富瑕佷笅杞介」鍒楄〃锛夈€?	// 鏃犻渶 resolve 鐨?task锛堝 urllist锛夌洿鎺ヨ繑鍥?nil銆?	// ctx 鐢ㄤ簬瓒呮椂鎺у埗銆?	ResolveObject(ctx context.Context, obj *model.DownloadObject) error
+	// Close 鍏抽棴浠诲姟锛屾墽琛屾竻鐞嗘垨鎸佷箙鍖栨搷浣?	Close() error
 }
 
-type FailedTask interface {
-	// MarkAsFailed 标记任务为失败状态
-	MarkAsFailed(obj *model.DownloadObject, err error)
+type FailedTaskMarker interface {
+	// MarkAsFailed 鏍囪浠诲姟涓哄け璐ョ姸鎬?	MarkAsFailed(obj *model.DownloadObject, err error)
 }
 
-// Downloader 定义下载器的行为
+// Downloader 瀹氫箟涓嬭浇鍣ㄧ殑琛屼负
 type Downloader interface {
-	// Download 执行下载
+	// Download 鎵ц涓嬭浇
 	Download(obj *model.DownloadObject, headers map[string]string) error
-	// Name 返回下载器名称
-	Name() string
+	// Name 杩斿洖涓嬭浇鍣ㄥ悕绉?	Name() string
 }
 
-// DownloaderWithContext 表示支持上下文注入的下载器。
-type DownloaderWithContext interface {
+// ContextInjecter 琛ㄧず鏀寔涓婁笅鏂囨敞鍏ョ殑涓嬭浇鍣ㄣ€?type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
-// DownloaderWithDomainLimits 表示支持域名并发限制的下载器。
-type DownloaderWithDomainLimits interface {
+// DomainLimiter 琛ㄧず鏀寔鍩熷悕骞跺彂闄愬埗鐨勪笅杞藉櫒銆?type DomainLimiter interface {
 	ApplyDomainLimits(limits map[string]int)
 }
 
-// DownloaderWithMetrics 表示支持暴露下载指标的下载器。
-type DownloaderWithMetrics interface {
+// MetricsProvider 琛ㄧず鏀寔鏆撮湶涓嬭浇鎸囨爣鐨勪笅杞藉櫒銆?type MetricsProvider interface {
 	MetricsRegistry() any // returns *download.MetricRegistry or similar
 }
 
-// SharedRegistry 用于跨任务共享基于 URL 的对象状态
-type SharedRegistry interface {
+// SharedRegistry 鐢ㄤ簬璺ㄤ换鍔″叡浜熀浜?URL 鐨勫璞＄姸鎬?type SharedRegistry interface {
 	Get(url string) (*model.DownloadObject, error)
 	Update(obj *model.DownloadObject) error
 	Delete(url string) error
 }
 
-// SharedRegistrySetter 任务可实现该接口以接收共享注册表
+// SharedRegistrySetter 浠诲姟鍙疄鐜拌鎺ュ彛浠ユ帴鏀跺叡浜敞鍐岃〃
 type SharedRegistrySetter interface {
 	SetSharedRegistry(reg SharedRegistry)
 }
 
-// TaskStatusGuarder 任务可实现该接口以支持原子化的状态守卫更新。
-// SetStatusUnlessCancelled 在 b.mu 保护下检查对象未被取消后更新状态，
-// 用于解决 processResolve 与 CancelObject 之间的 TOCTOU 竞争。
-// 返回 true 表示状态已更新，false 表示对象已被取消（跳过更新）。
-type TaskStatusGuarder interface {
+// TaskStatusGuarder 浠诲姟鍙疄鐜拌鎺ュ彛浠ユ敮鎸佸師瀛愬寲鐨勭姸鎬佸畧鍗洿鏂般€?// SetStatusUnlessCancelled 鍦?b.mu 淇濇姢涓嬫鏌ュ璞℃湭琚彇娑堝悗鏇存柊鐘舵€侊紝
+// 鐢ㄤ簬瑙ｅ喅 processResolve 涓?CancelObject 涔嬮棿鐨?TOCTOU 绔炰簤銆?// 杩斿洖 true 琛ㄧず鐘舵€佸凡鏇存柊锛宖alse 琛ㄧず瀵硅薄宸茶鍙栨秷锛堣烦杩囨洿鏂帮級銆?type TaskStatusGuarder interface {
 	SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool
 }
 
-// EventType 定义事件类型
+// EventType 瀹氫箟浜嬩欢绫诲瀷
 type EventType string
 
 const (
-	EventTaskUpdate         EventType = "task_update"          // 任务统计更新 (单任务)
-	EventTaskListChange     EventType = "task_list_change"     // 任务列表变动 (添加/删除任务)
-	EventObjectUpdate       EventType = "object_update"        // 对象状态/进度更新
-	EventSharedObjectUpdate EventType = "shared_object_update" // 共享对象状态更新
-	EventProgressBatch      EventType = "progress_batch"       // 批量进度广播
+	EventTaskUpdate         EventType = "task_update"          // 浠诲姟缁熻鏇存柊 (鍗曚换鍔?
+	EventTaskListChange     EventType = "task_list_change"     // 浠诲姟鍒楄〃鍙樺姩 (娣诲姞/鍒犻櫎浠诲姟)
+	EventObjectUpdate       EventType = "object_update"        // 瀵硅薄鐘舵€?杩涘害鏇存柊
+	EventSharedObjectUpdate EventType = "shared_object_update" // 鍏变韩瀵硅薄鐘舵€佹洿鏂?	EventProgressBatch      EventType = "progress_batch"       // 鎵归噺杩涘害骞挎挱
 )
 
-// Event 系统事件
+// Event 绯荤粺浜嬩欢
 type Event struct {
 	Type    EventType `json:"type"`
 	Payload any       `json:"payload"`
 }
 
-// EventBus 定义事件总线行为
+// EventBus 瀹氫箟浜嬩欢鎬荤嚎琛屼负
 type EventBus interface {
 	Subscribe() <-chan Event
 	Unsubscribe(ch <-chan Event)

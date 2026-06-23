@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -10,12 +10,7 @@ import (
 	"strings"
 )
 
-// ResolvePath 将给定的路径 p 相对于 rootDir 进行解析。
-//   - 如果 rootDir 为空，直接返回 p。
-//   - 如果 p 是绝对路径且在 rootDir 内，原样返回。
-//   - 如果 p 是相对路径，与 rootDir 拼接后返回。
-//   - 任何试图逃逸 rootDir 的行为均返回错误。
-func ResolvePath(rootDir, p string) (string, error) {
+// ResolvePath 灏嗙粰瀹氱殑璺緞 p 鐩稿浜?rootDir 杩涜瑙ｆ瀽銆?//   - 濡傛灉 rootDir 涓虹┖锛岀洿鎺ヨ繑鍥?p銆?//   - 濡傛灉 p 鏄粷瀵硅矾寰勪笖鍦?rootDir 鍐咃紝鍘熸牱杩斿洖銆?//   - 濡傛灉 p 鏄浉瀵硅矾寰勶紝涓?rootDir 鎷兼帴鍚庤繑鍥炪€?//   - 浠讳綍璇曞浘閫冮€?rootDir 鐨勮涓哄潎杩斿洖閿欒銆?func ResolvePath(rootDir, p string) (string, error) {
 	if rootDir == "" {
 		return p, nil
 	}
@@ -35,10 +30,7 @@ func ResolvePath(rootDir, p string) (string, error) {
 	return rp, nil
 }
 
-// ResolvePathWithAllowList 在 ResolvePath 基础上增加白名单校验。
-// 当 allowPaths 非空时，解析后的路径必须位于至少一个白名单目录下。
-// 未配置白名单时行为与 ResolvePath 一致。
-func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (string, error) {
+// ResolvePathWithAllowList 鍦?ResolvePath 鍩虹涓婂鍔犵櫧鍚嶅崟鏍￠獙銆?// 褰?allowPaths 闈炵┖鏃讹紝瑙ｆ瀽鍚庣殑璺緞蹇呴』浣嶄簬鑷冲皯涓€涓櫧鍚嶅崟鐩綍涓嬨€?// 鏈厤缃櫧鍚嶅崟鏃惰涓轰笌 ResolvePath 涓€鑷淬€?func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (string, error) {
 	resolved, err := ResolvePath(rootDir, p)
 	if err != nil {
 		return "", err
@@ -58,8 +50,7 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (st
 	return "", fmt.Errorf("path not in allowed list: %s", p)
 }
 
-// isWithinRoot 检查 p 是否在 rootDir 的安全范围内。
-func isWithinRoot(rootDir, p string) bool {
+// isWithinRoot 妫€鏌?p 鏄惁鍦?rootDir 鐨勫畨鍏ㄨ寖鍥村唴銆?func isWithinRoot(rootDir, p string) bool {
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		return false
@@ -77,14 +68,12 @@ func isWithinRoot(rootDir, p string) bool {
 	return strings.HasPrefix(absP, absRoot)
 }
 
-// cleanJoin 将 rootDir 与任意元素拼接并用 filepath.Clean 规范化。
-func cleanJoin(rootDir string, elems ...string) (string, error) {
+// cleanJoin 灏?rootDir 涓庝换鎰忓厓绱犳嫾鎺ュ苟鐢?filepath.Clean 瑙勮寖鍖栥€?func cleanJoin(rootDir string, elems ...string) (string, error) {
 	all := append([]string{rootDir}, elems...)
 	return filepath.Clean(filepath.Join(all...)), nil
 }
 
-// EnsureDir 确保文件路径的父目录存在（如 MkdirAll）。
-func EnsureDir(path string) error {
+// EnsureDir 纭繚鏂囦欢璺緞鐨勭埗鐩綍瀛樺湪锛堝 MkdirAll锛夈€?func EnsureDir(path string) error {
 	dir := filepath.Dir(path)
 	if dir != "" {
 		return os.MkdirAll(dir, 0755)

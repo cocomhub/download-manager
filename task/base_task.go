@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package task
@@ -19,8 +19,8 @@ import (
 	"github.com/cocomhub/download-manager/storage"
 )
 
-// HeadersCap is implemented by tasks that support custom download headers.
-type HeadersCap interface {
+// HeadersSetter is implemented by tasks that support custom download headers.
+type HeadersSetter interface {
 	SetHeaders(map[string]string)
 }
 
@@ -124,8 +124,7 @@ func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err er
 	return b.updateStatusLocked(obj, status, err)
 }
 
-// updateStatusLocked 是 UpdateStatus 的内部实现，调用者必须持有 b.mu。
-func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, err error) error {
+// updateStatusLocked 鏄?UpdateStatus 鐨勫唴閮ㄥ疄鐜帮紝璋冪敤鑰呭繀椤绘寔鏈?b.mu銆?func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, err error) error {
 	obj.SetStatus(status)
 
 	if err != nil {
@@ -149,10 +148,7 @@ func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, 
 	return storeErr
 }
 
-// SetStatusUnlessCancelled 原子地检查对象未被取消后更新状态。
-// 在 b.mu 保护下重新读取 storage，避免 processResolve 与 CancelObject 之间的 TOCTOU 竞争。
-// 如果对象已被取消，则跳过更新并返回 false。
-func (b *BaseTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool {
+// SetStatusUnlessCancelled 鍘熷瓙鍦版鏌ュ璞℃湭琚彇娑堝悗鏇存柊鐘舵€併€?// 鍦?b.mu 淇濇姢涓嬮噸鏂拌鍙?storage锛岄伩鍏?processResolve 涓?CancelObject 涔嬮棿鐨?TOCTOU 绔炰簤銆?// 濡傛灉瀵硅薄宸茶鍙栨秷锛屽垯璺宠繃鏇存柊骞惰繑鍥?false銆?func (b *BaseTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -355,7 +351,7 @@ func (b *BaseTask) StorageExistenceMap(urls []string, lock bool) map[string]bool
 // ProcessNewURLs is the unified dedup entry point for task scrape pipelines.
 // Given a list of URLs (typically from one page of a paged scrape), it returns
 // the URLs that are NOT yet known (neither in runtime nor in storage), along
-// with allKnown — true iff every non-empty URL is already known.
+// with allKnown 鈥?true iff every non-empty URL is already known.
 //
 // Semantics: allKnown is strictly based on storage/runtime presence; it is
 // independent of whether the caller can later successfully construct objects
@@ -403,7 +399,7 @@ func (b *BaseTask) SetScanner(s *PagingScanner) {
 	b.scanner = s
 }
 
-// Scrape implements core.ScrapeCap by delegating to PagingScanner (if set)
+// Scrape implements core.Scraper by delegating to PagingScanner (if set)
 // or to scrape.Driver via buildScrapeHooks (legacy path).
 func (b *BaseTask) Scrape(ctx context.Context) error {
 	// New path: PagingScanner

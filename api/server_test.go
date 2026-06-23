@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package api
@@ -175,7 +175,7 @@ func TestAPI_CancelObject_AlreadyCompleted(t *testing.T) {
 
 	done := startAPIManager(t, srv)
 
-	// Try to cancel the completed object — object seeding is lazy so retry
+	// Try to cancel the completed object 鈥?object seeding is lazy so retry
 	// until the object exists in storage and we get the expected error.
 	const wantHint = "use delete to remove it"
 	assert.MustEventually(t, func() bool {

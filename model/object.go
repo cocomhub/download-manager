@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package model
@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// DownloadObject 代表一个具体的下载对象
+// DownloadObject 浠ｈ〃涓€涓叿浣撶殑涓嬭浇瀵硅薄
 type DownloadObject struct {
 	TaskID   string            `json:"task_id,omitempty" bson:"task_id,omitempty"`
 	URL      string            `json:"url" bson:"url"`

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -38,7 +38,7 @@ func TestWorkerStop_ChannelFull(t *testing.T) {
 	}, 6*time.Second, 100*time.Millisecond, "expected at least 1 downloading object")
 	t.Logf("found %d downloading objects", downloading)
 
-	// Concurrently reduce workers — the workerStop channel should not block.
+	// Concurrently reduce workers 鈥?the workerStop channel should not block.
 	var wg sync.WaitGroup
 	for range 10 {
 		wg.Go(func() {

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package task
@@ -38,7 +38,7 @@ func NewTask(cfg *config.Task, opts ...Option) (core.Task, error) {
 }
 
 func wireByCapabilities(cfg *config.Task, t core.Task) {
-	if cap, ok := t.(HeadersCap); ok {
+	if cap, ok := t.(HeadersSetter); ok {
 		if cfg.Extra != nil {
 			if v, ok := cfg.Extra["headers"]; ok {
 				headers := map[string]string{}

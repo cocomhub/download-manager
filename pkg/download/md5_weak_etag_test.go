@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -16,7 +16,7 @@ func TestTryGetMd5WeakEtag(t *testing.T) {
 	result := TryGetMd5(headers)
 	if result == "" {
 		// Current implementation only checks len==34, misses 36-char weak ETags
-		t.Log("Weak ETag not supported yet — W/ prefix not stripped")
+		t.Log("Weak ETag not supported yet 鈥?W/ prefix not stripped")
 	} else if result != "5d41402abc4b2a76b9719d911017c592" {
 		t.Errorf("expected MD5 hex from weak ETag, got %q", result)
 	}

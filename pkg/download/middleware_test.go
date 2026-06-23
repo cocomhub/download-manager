@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download_test
@@ -10,8 +10,7 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// recordingExtractor 记录被调用的次数。
-type recordingExtractor struct {
+// recordingExtractor 璁板綍琚皟鐢ㄧ殑娆℃暟銆?type recordingExtractor struct {
 	called bool
 }
 
@@ -22,8 +21,7 @@ func (e *recordingExtractor) Extract(_ context.Context, _ *download.Request) err
 	return nil
 }
 
-// failingExtractor 总是返回错误。
-type failingExtractor struct{}
+// failingExtractor 鎬绘槸杩斿洖閿欒銆?type failingExtractor struct{}
 
 func (f *failingExtractor) Name() string                           { return "failer" }
 func (f *failingExtractor) Match(_ context.Context, _ string) bool { return true }
@@ -168,9 +166,7 @@ func TestMiddlewareChainOrder(t *testing.T) {
 		t.Fatalf("Download should succeed: %v", err)
 	}
 
-	// WithMiddleware 将新中间件包装在最外层。
-	// 当 mw1 先注册，mw2 再注册时，链为：mw2(mw1(base))。
-	// 执行顺序：mw2_before -> mw1_before -> extractor -> mw1_after -> mw2_after
+	// WithMiddleware 灏嗘柊涓棿浠跺寘瑁呭湪鏈€澶栧眰銆?	// 褰?mw1 鍏堟敞鍐岋紝mw2 鍐嶆敞鍐屾椂锛岄摼涓猴細mw2(mw1(base))銆?	// 鎵ц椤哄簭锛歮w2_before -> mw1_before -> extractor -> mw1_after -> mw2_after
 	expected := []string{"mw2_before", "mw1_before", "mw1_after", "mw2_after"}
 	if len(order) != len(expected) {
 		t.Fatalf("expected order %v, got %v", expected, order)

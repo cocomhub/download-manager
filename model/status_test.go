@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package model
@@ -10,7 +10,7 @@ func TestStatusResolving(t *testing.T) {
 		t.Error("StatusResolving should not be empty")
 	}
 
-	// 确保与其他状态值不冲突
+	// 纭繚涓庡叾浠栫姸鎬佸€间笉鍐茬獊
 	statuses := []string{StatusPending, StatusDownloading, StatusCompleted, StatusFailed, StatusFailedPermanent, StatusCancelled}
 	for _, s := range statuses {
 		if s == StatusResolving {

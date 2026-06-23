@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -55,7 +55,7 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 	home, _ := os.UserHomeDir()
 	cacheDir := filepath.Join(cfg.Filesystem.RootDir, cfg.Filesystem.CacheDir)
 
-	// 计算可选项需要的绝对路径
+	// 璁＄畻鍙€夐」闇€瑕佺殑缁濆璺緞
 	var (
 		moveEnabled bool
 		moveDirAbs  string
@@ -71,7 +71,7 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 		hlsLogPath = filepath.Join(rootDir, cfg.FFmpeg.ExternalHLSLog.Path)
 	}
 
-	// 创建配置化的 HTTP 客户端 [1,2](@ref)
+	// 鍒涘缓閰嶇疆鍖栫殑 HTTP 瀹㈡埛绔?[1,2](@ref)
 	client := &http.Client{
 		Timeout: time.Duration(cfg.HTTP.TimeoutSeconds) * time.Second,
 		Transport: &http.Transport{
@@ -132,7 +132,7 @@ func (d *NativeHTTPDownloader) Name() string {
 }
 
 func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	// 复合下载逻辑
+	// 澶嶅悎涓嬭浇閫昏緫
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
 
@@ -203,8 +203,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		return nil
 	}
 
-	// 单文件下载
-	req := &dlcore.Request{
+	// 鍗曟枃浠朵笅杞?	req := &dlcore.Request{
 		URL:           obj.URL,
 		SavePath:      obj.SavePath,
 		Headers:       headers,

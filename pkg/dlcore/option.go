@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -7,12 +7,12 @@ import "net/http"
 
 type Option func(*Client)
 
-// WithHTTPClient 自定义 HTTP 客户端（含超时、传输配置）
+// WithHTTPClient 鑷畾涔?HTTP 瀹㈡埛绔紙鍚秴鏃躲€佷紶杈撻厤缃級
 func WithHTTPClient(c *http.Client) Option {
 	return func(cl *Client) { cl.client = c }
 }
 
-// WithLoggerDir 设置日志目录（为空则不落盘）
+// WithLoggerDir 璁剧疆鏃ュ織鐩綍锛堜负绌哄垯涓嶈惤鐩橈級
 func WithLoggerDir(dir string) Option {
 	return func(cl *Client) { cl.logDir = dir }
 }
@@ -86,14 +86,11 @@ func WithExternalHLSLog(enabled bool, path string) Option {
 	}
 }
 
-// WithProxySelector 注入自定义 ProxySelector 实现。
-// 若不调用此选项，NewClient 将从旧代理配置字段自动构造 DefaultProxySelector。
-func WithProxySelector(ps ProxySelector) Option {
+// WithProxySelector 娉ㄥ叆鑷畾涔?ProxySelector 瀹炵幇銆?// 鑻ヤ笉璋冪敤姝ら€夐」锛孨ewClient 灏嗕粠鏃т唬鐞嗛厤缃瓧娈佃嚜鍔ㄦ瀯閫?DefaultProxySelector銆?func WithProxySelector(ps ProxySelector) Option {
 	return func(cl *Client) { cl.proxySelector = ps }
 }
 
-// WithFilesystem 同时设置 rootDir、logDir、cacheDir。
-func WithFilesystem(rootDir, logDir, cacheDir string) Option {
+// WithFilesystem 鍚屾椂璁剧疆 rootDir銆乴ogDir銆乧acheDir銆?func WithFilesystem(rootDir, logDir, cacheDir string) Option {
 	return func(cl *Client) {
 		cl.rootDir = rootDir
 		cl.logDir = logDir
@@ -101,8 +98,7 @@ func WithFilesystem(rootDir, logDir, cacheDir string) Option {
 	}
 }
 
-// WithProxy 同时设置代理列表和强制代理标志。
-func WithProxy(proxies []string, force bool) Option {
+// WithProxy 鍚屾椂璁剧疆浠ｇ悊鍒楄〃鍜屽己鍒朵唬鐞嗘爣蹇椼€?func WithProxy(proxies []string, force bool) Option {
 	return func(cl *Client) {
 		cl.proxies = proxies
 		cl.forceProxy = force

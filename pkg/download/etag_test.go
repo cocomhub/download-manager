@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package download
@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// mockFileEntry 模拟文件条目
+// mockFileEntry 妯℃嫙鏂囦欢鏉＄洰
 type mockFileEntry struct {
 	size int64
 }
 
-// mockFileInfo 模拟 os.FileInfo
+// mockFileInfo 妯℃嫙 os.FileInfo
 type mockFileInfo struct {
 	size int64
 }
@@ -26,8 +26,7 @@ func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m *mockFileInfo) IsDir() bool        { return false }
 func (m *mockFileInfo) Sys() any           { return nil }
 
-// mockFileSystem 模拟文件系统状态
-type mockFileSystem struct {
+// mockFileSystem 妯℃嫙鏂囦欢绯荤粺鐘舵€?type mockFileSystem struct {
 	files map[string]*mockFileEntry
 }
 
@@ -39,8 +38,7 @@ func (m *mockFileSystem) addFile(path string, size int64) {
 	m.files[path] = &mockFileEntry{size: size}
 }
 
-// mockStat 返回 FileStatFunc。
-func (m *mockFileSystem) mockStat() FileStatFunc {
+// mockStat 杩斿洖 FileStatFunc銆?func (m *mockFileSystem) mockStat() FileStatFunc {
 	return func(path string) (os.FileInfo, error) {
 		e, ok := m.files[path]
 		if !ok {
@@ -50,8 +48,7 @@ func (m *mockFileSystem) mockStat() FileStatFunc {
 	}
 }
 
-// mockChecksumer 模拟校验和计算。
-type mockChecksumer struct {
+// mockChecksumer 妯℃嫙鏍￠獙鍜岃绠椼€?type mockChecksumer struct {
 	checksums map[string]string // path -> checksum
 }
 
@@ -97,7 +94,7 @@ func TestResolveAction_CompleteETagMatchChecksumMismatch(t *testing.T) {
 	mfs := newMockFS()
 	mfs.addFile("/path/file.mp4", 1024*1024)
 	mc := newMockChecksumer()
-	mc.add("/path/file.mp4", "def456") // 文件实际校验和为 def456，但记录为 abc123
+	mc.add("/path/file.mp4", "def456") // 鏂囦欢瀹為檯鏍￠獙鍜屼负 def456锛屼絾璁板綍涓?abc123
 
 	action := ResolveAction("/path/file.mp4", `"abc123"`, "abc123", mfs.mockStat(), mc.mockChecksum())
 	if action != ActionReDownload {
@@ -109,7 +106,7 @@ func TestResolveAction_CompleteETagMatchChecksumMissing(t *testing.T) {
 	mfs := newMockFS()
 	mfs.addFile("/path/file.mp4", 1024*1024)
 	mc := newMockChecksumer()
-	// 不添加 checksum，模拟文件无法计算校验和
+	// 涓嶆坊鍔?checksum锛屾ā鎷熸枃浠舵棤娉曡绠楁牎楠屽拰
 
 	action := ResolveAction("/path/file.mp4", `"abc123"`, "abc123", mfs.mockStat(), mc.mockChecksum())
 	if action != ActionResume {
@@ -119,7 +116,7 @@ func TestResolveAction_CompleteETagMatchChecksumMissing(t *testing.T) {
 
 func TestResolveAction_IncompleteFile(t *testing.T) {
 	mfs := newMockFS()
-	mfs.addFile("/path/file.mp4", 512*1024) // 不完整的文件
+	mfs.addFile("/path/file.mp4", 512*1024) // 涓嶅畬鏁寸殑鏂囦欢
 	mc := newMockChecksumer()
 
 	action := ResolveAction("/path/file.mp4", `"abc123"`, "abc123", mfs.mockStat(), mc.mockChecksum())
@@ -129,14 +126,11 @@ func TestResolveAction_IncompleteFile(t *testing.T) {
 }
 
 func TestResolveAction_CompleteETagChecksumReDownload(t *testing.T) {
-	// 场景：文件完整，有 ETag 和 checksum 记录，但文件实际 checksum 与记录不一致（文件损坏）
-	mfs := newMockFS()
+	// 鍦烘櫙锛氭枃浠跺畬鏁达紝鏈?ETag 鍜?checksum 璁板綍锛屼絾鏂囦欢瀹為檯 checksum 涓庤褰曚笉涓€鑷达紙鏂囦欢鎹熷潖锛?	mfs := newMockFS()
 	mfs.addFile("/path/file.mp4", 1024*1024)
 	mc := newMockChecksumer()
-	mc.add("/path/file.mp4", "actualChecksum") // 本地文件实际校验和
-
-	// prevChecksum 不一致 → 文件损坏 或 被篡改
-	action := ResolveAction("/path/file.mp4", `"someETag"`, "recordedChecksum", mfs.mockStat(), mc.mockChecksum())
+	mc.add("/path/file.mp4", "actualChecksum") // 鏈湴鏂囦欢瀹為檯鏍￠獙鍜?
+	// prevChecksum 涓嶄竴鑷?鈫?鏂囦欢鎹熷潖 鎴?琚鏀?	action := ResolveAction("/path/file.mp4", `"someETag"`, "recordedChecksum", mfs.mockStat(), mc.mockChecksum())
 	if action != ActionReDownload {
 		t.Errorf("expected ActionReDownload (checksum mismatch = corrupted), got %v", action)
 	}

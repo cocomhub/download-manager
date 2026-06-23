@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -318,7 +318,7 @@ func TestGetTaskDetails_WithSearch(t *testing.T) {
 		},
 	})
 
-	// Search for "alpha" — the built-in search filters by URL match
+	// Search for "alpha" 鈥?the built-in search filters by URL match
 	result, err := m.GetTaskDetails("task-search", 1, 10, "alpha", "")
 	if err != nil {
 		t.Fatalf("GetTaskDetails with search failed: %v", err)

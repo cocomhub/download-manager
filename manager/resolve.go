@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -17,9 +17,7 @@ type resolveRequest struct {
 	obj    *model.DownloadObject
 }
 
-// StartResolveWorkers 启动 resolve worker 协程池。
-// 只在 Manager.Start() 中调用一次。
-func (m *Manager) StartResolveWorkers(n int) {
+// StartResolveWorkers 鍚姩 resolve worker 鍗忕▼姹犮€?// 鍙湪 Manager.Start() 涓皟鐢ㄤ竴娆°€?func (m *Manager) StartResolveWorkers(n int) {
 	if n <= 0 {
 		n = 3
 	}
@@ -32,8 +30,7 @@ func (m *Manager) StartResolveWorkers(n int) {
 	slog.Info("Resolve workers started", "count", n)
 }
 
-// StopResolveWorkers 停止 resolve worker 协程池。
-func (m *Manager) StopResolveWorkers() {
+// StopResolveWorkers 鍋滄 resolve worker 鍗忕▼姹犮€?func (m *Manager) StopResolveWorkers() {
 	if m.resolveStop == nil {
 		return
 	}
@@ -41,8 +38,7 @@ func (m *Manager) StopResolveWorkers() {
 	m.resolveWg.Wait()
 }
 
-// enqueueResolve 将需要 resolve 的对象放入队列。
-func (m *Manager) enqueueResolve(taskID string, obj *model.DownloadObject) {
+// enqueueResolve 灏嗛渶瑕?resolve 鐨勫璞℃斁鍏ラ槦鍒椼€?func (m *Manager) enqueueResolve(taskID string, obj *model.DownloadObject) {
 	select {
 	case m.resolveQueue <- resolveRequest{taskID: taskID, obj: obj}:
 	default:
@@ -82,12 +78,8 @@ func (m *Manager) processResolve(req resolveRequest) {
 
 	m.resolveCache.MarkResolved(req.obj.URL)
 
-	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates。
-	//
-	// 使用 SetStatusUnlessCancelled 原子地检查对象是否已被 CancelObject() 取消，
-	// 在 b.mu 保护下完成读-检查-写，消除 TOCTOU 竞争窗口。
-	// 如果对象已被取消或任务不支持此守卫，则跳过更新。
-	if guard, ok := t.(core.TaskStatusGuarder); ok {
+	// resolve 鎴愬姛鍚庤鍥?Pending锛屼笅涓€杞?processTask 浼氬皢鍏跺姞鍏?candidates銆?	//
+	// 浣跨敤 SetStatusUnlessCancelled 鍘熷瓙鍦版鏌ュ璞℃槸鍚﹀凡琚?CancelObject() 鍙栨秷锛?	// 鍦?b.mu 淇濇姢涓嬪畬鎴愯-妫€鏌?鍐欙紝娑堥櫎 TOCTOU 绔炰簤绐楀彛銆?	// 濡傛灉瀵硅薄宸茶鍙栨秷鎴栦换鍔′笉鏀寔姝ゅ畧鍗紝鍒欒烦杩囨洿鏂般€?	if guard, ok := t.(core.TaskStatusGuarder); ok {
 		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusPending, nil) {
 			slog.Info("Resolve: object was cancelled, preserving cancelled status",
 				"task_id", req.taskID, "url", req.obj.URL)

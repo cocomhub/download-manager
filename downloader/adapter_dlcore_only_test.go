@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -10,12 +10,10 @@ import (
 )
 
 // ================================================================
-// dlcore-only 测试：验证 dlcore 特有的、pkg/download 不支持的行为
-// 这些测试仅断言 dlcore 行为，pkg/download 的结果通过 t.Log 记录参考。
-// ================================================================
+// dlcore-only 娴嬭瘯锛氶獙璇?dlcore 鐗规湁鐨勩€乸kg/download 涓嶆敮鎸佺殑琛屼负
+// 杩欎簺娴嬭瘯浠呮柇瑷€ dlcore 琛屼负锛宲kg/download 鐨勭粨鏋滈€氳繃 t.Log 璁板綍鍙傝€冦€?// ================================================================
 
-// TestDlcoreOnly_MaxRetriesZero 验证 dlcore maxRetries=0 无限重试。
-func TestDlcoreOnly_MaxRetriesZero(t *testing.T) {
+// TestDlcoreOnly_MaxRetriesZero 楠岃瘉 dlcore maxRetries=0 鏃犻檺閲嶈瘯銆?func TestDlcoreOnly_MaxRetriesZero(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/infinite.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		return http.StatusOK, map[string]string{"Content-Type": "text/plain"}, []byte("success")
@@ -26,21 +24,19 @@ func TestDlcoreOnly_MaxRetriesZero(t *testing.T) {
 	cmp.Run("max-retries-zero", obj, nil,
 		func(t *testing.T, old, new *DownloadResult) {
 			t.Helper()
-			// dlcore: maxRetries=0 表示无限重试
+			// dlcore: maxRetries=0 琛ㄧず鏃犻檺閲嶈瘯
 			if old.Err != nil {
 				t.Errorf("dlcore: expected success with maxRetries=0, got %v", old.Err)
 			}
 			if len(old.FileContent) == 0 {
 				t.Error("dlcore: expected file content")
 			}
-			// pkg/download: maxRetries=0 表示不重试
-			t.Logf("pkg/download reference: err=%v", new.Err)
+			// pkg/download: maxRetries=0 琛ㄧず涓嶉噸璇?			t.Logf("pkg/download reference: err=%v", new.Err)
 		},
 	)
 }
 
-// TestDlcoreOnly_MetadataStatus 验证 dlcore 写入 Metadata["status"]="completed"。
-func TestDlcoreOnly_MetadataStatus(t *testing.T) {
+// TestDlcoreOnly_MetadataStatus 楠岃瘉 dlcore 鍐欏叆 Metadata["status"]="completed"銆?func TestDlcoreOnly_MetadataStatus(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/metastatus.bin", "content", "text/plain")
 
@@ -57,18 +53,14 @@ func TestDlcoreOnly_MetadataStatus(t *testing.T) {
 	)
 }
 
-// TestDlcoreOnly_ImageURLTimeout 验证图片 URL 30s 超时。
-// 注意：此测试运行较慢（至少等待 30s HTTP 超时）。
-// 此处直接调用 oldDL 而非 DlcoreOnlyRun，因为需要精确 elapsed 计时。
-func TestDlcoreOnly_ImageURLTimeout(t *testing.T) {
+// TestDlcoreOnly_ImageURLTimeout 楠岃瘉鍥剧墖 URL 30s 瓒呮椂銆?// 娉ㄦ剰锛氭娴嬭瘯杩愯杈冩參锛堣嚦灏戠瓑寰?30s HTTP 瓒呮椂锛夈€?// 姝ゅ鐩存帴璋冪敤 oldDL 鑰岄潪 DlcoreOnlyRun锛屽洜涓洪渶瑕佺簿纭?elapsed 璁℃椂銆?func TestDlcoreOnly_ImageURLTimeout(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleSlow("GET", "/image.jpg", "image content", 35*time.Second)
 
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/image.jpg", "dlcoreonly/image.jpg", nil, nil)
 
-	// 只测旧路径，避免新路径的 Content-Type 检测快速返回干扰
-	oldObj := copyObject(obj)
+	// 鍙祴鏃ц矾寰勶紝閬垮厤鏂拌矾寰勭殑 Content-Type 妫€娴嬪揩閫熻繑鍥炲共鎵?	oldObj := copyObject(obj)
 	start := time.Now()
 	var oldResult DownloadResult
 	oldResult.Obj = oldObj
@@ -76,7 +68,7 @@ func TestDlcoreOnly_ImageURLTimeout(t *testing.T) {
 	collectFileResult(t, cmp.rootDir, &oldResult)
 	elapsed := time.Since(start)
 
-	// 默认 maxRetries=3，所以总等待可能超过 30s
+	// 榛樿 maxRetries=3锛屾墍浠ユ€荤瓑寰呭彲鑳借秴杩?30s
 	t.Logf("dlcore: err=%v, elapsed=%v", oldResult.Err, elapsed)
 	if oldResult.Err == nil {
 		t.Log("dlcore: image download succeeded (may have completed before timeout)")
@@ -85,16 +77,11 @@ func TestDlcoreOnly_ImageURLTimeout(t *testing.T) {
 	}
 }
 
-// TestDlcoreOnly_HuaacgURL 验证 huaacg.com 特殊 5s 超时 + ErrNoTry。
-// URL 必须包含 huaacg.com 才能触发 dlcore 的特殊逻辑（5s 上下文超时 + ErrNoTry 包装）。
-// 测试依赖网络可达性，但实际请求在 5s 内因超时返回，不会产生大量流量。
-// 成功时：dlcore 返回包装了 ErrNoTry 的错误。
-// 若网络不可达：同样因超时快速返回，不会挂起。
-func TestDlcoreOnly_HuaacgURL(t *testing.T) {
+// TestDlcoreOnly_HuaacgURL 楠岃瘉 huaacg.com 鐗规畩 5s 瓒呮椂 + ErrNoTry銆?// URL 蹇呴』鍖呭惈 huaacg.com 鎵嶈兘瑙﹀彂 dlcore 鐨勭壒娈婇€昏緫锛?s 涓婁笅鏂囪秴鏃?+ ErrNoTry 鍖呰锛夈€?// 娴嬭瘯渚濊禆缃戠粶鍙揪鎬э紝浣嗗疄闄呰姹傚湪 5s 鍐呭洜瓒呮椂杩斿洖锛屼笉浼氫骇鐢熷ぇ閲忔祦閲忋€?// 鎴愬姛鏃讹細dlcore 杩斿洖鍖呰浜?ErrNoTry 鐨勯敊璇€?// 鑻ョ綉缁滀笉鍙揪锛氬悓鏍峰洜瓒呮椂蹇€熻繑鍥烇紝涓嶄細鎸傝捣銆?func TestDlcoreOnly_HuaacgURL(t *testing.T) {
 	cmp := NewComparator(t, nil, WithMaxRetries(0))
 
-	// huaacg URL + .jpg → 触发 dlcore 的 isImageURL(30s) 和 huaacg(5s) 双逻辑
-	// 5s 超时优先触发，返回 ErrNoTry
+	// huaacg URL + .jpg 鈫?瑙﹀彂 dlcore 鐨?isImageURL(30s) 鍜?huaacg(5s) 鍙岄€昏緫
+	// 5s 瓒呮椂浼樺厛瑙﹀彂锛岃繑鍥?ErrNoTry
 	oldObj := makeTestObject("https://huaacg.com/dl/file.jpg", "dlcoreonly/huaacg.jpg", nil, nil)
 
 	start := time.Now()
@@ -107,11 +94,10 @@ func TestDlcoreOnly_HuaacgURL(t *testing.T) {
 	t.Logf("dlcore: err=%v, elapsed=%v", oldResult.Err, elapsed)
 }
 
-// TestDlcoreOnly_ProgressOnZeroTotal 验证双方在 total=0 时不 panic。
-func TestDlcoreOnly_ProgressOnZeroTotal(t *testing.T) {
+// TestDlcoreOnly_ProgressOnZeroTotal 楠岃瘉鍙屾柟鍦?total=0 鏃朵笉 panic銆?func TestDlcoreOnly_ProgressOnZeroTotal(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/zerototal.bin", func(r *http.Request) (int, map[string]string, []byte) {
-		// 不设 Content-Length → total = 0
+		// 涓嶈 Content-Length 鈫?total = 0
 		return http.StatusOK, map[string]string{
 			"Content-Type": "application/octet-stream",
 		}, []byte("some data with unknown length")

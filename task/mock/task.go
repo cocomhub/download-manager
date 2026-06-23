@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package mock implements a configurable mock task type for testing.
@@ -86,7 +86,7 @@ func (t *Task) pendingObjects() []*model.DownloadObject {
 	return pending
 }
 
-// Scrape implements core.ScrapeCap. If refresh_interval > 0, it generates
+// Scrape implements core.Scraper. If refresh_interval > 0, it generates
 // a new batch of objects (simulating new content being discovered).
 // If refresh_interval <= 0, it is a no-op.
 func (t *Task) Scrape(ctx context.Context) error {
@@ -161,4 +161,4 @@ func (t *Task) seedObjects() error {
 
 // compile-time interface checks.
 var _ core.Task = (*Task)(nil)
-var _ core.ScrapeCap = (*Task)(nil)
+var _ core.Scraper = (*Task)(nil)

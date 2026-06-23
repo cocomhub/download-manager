@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -88,7 +88,7 @@ func (m *Manager) Start() {
 func (m *Manager) Stop(ctx context.Context) {
 	slog.Info("Manager stopping")
 
-	// 1. Signal workers to stop first — no new downloads
+	// 1. Signal workers to stop first 鈥?no new downloads
 	close(m.stopChan)
 	m.StopResolveWorkers()
 	m.StopSmallObjectWorkers()
@@ -115,7 +115,7 @@ func (m *Manager) Stop(ctx context.Context) {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		}
-		// Clean up downloadingObj and activeDownloads — the defer in download()
+		// Clean up downloadingObj and activeDownloads 鈥?the defer in download()
 		// may never run for items still in the queue when the worker picks
 		// stopChan over the buffered channel.
 		m.downloadingObj.Delete(key)
@@ -162,19 +162,19 @@ func (m *Manager) scan() {
 	}
 	defer m.scanRunning.Store(false)
 
-	// Phase 1: Scrape — discover new objects from tasks that support it.
+	// Phase 1: Scrape 鈥?discover new objects from tasks that support it.
 	// Run scrapes in detached goroutines with per-task ctx timeout and per-task
 	// dedup guard (scrapingTask) so a slow Scrape never overlaps itself.
-	// Do NOT wait — Phase 2 runs in parallel; scraped objects are persisted
+	// Do NOT wait 鈥?Phase 2 runs in parallel; scraped objects are persisted
 	// to storage and picked up by the next scan cycle's Phase 2.
 	m.tasks.Range(func(key, value any) bool {
-		if sc, ok := value.(core.ScrapeCap); ok {
+		if sc, ok := value.(core.Scraper); ok {
 			taskID := key.(string)
 			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
 				slog.Debug("Scrape: previous run still in progress, skipping", "task_id", taskID)
 				return true
 			}
-			go func(taskID string, sc core.ScrapeCap) {
+			go func(taskID string, sc core.Scraper) {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				done := make(chan error, 1)
@@ -199,7 +199,7 @@ func (m *Manager) scan() {
 		return true
 	})
 
-	// Phase 2: Download — process tasks for pending objects
+	// Phase 2: Download 鈥?process tasks for pending objects
 	tasks := make([]core.Task, 0, 64)
 	m.tasks.Range(func(key, value any) bool {
 		tasks = append(tasks, value.(core.Task))
@@ -258,22 +258,18 @@ func (m *Manager) processTask(t core.Task) {
 			break
 		}
 
-		// 如果已经在下载队列中，跳过
-		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded {
+		// 濡傛灉宸茬粡鍦ㄤ笅杞介槦鍒椾腑锛岃烦杩?		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded {
 			continue
 		}
 
-		// 检查对象状态：需要 resolve 的异步提交
-		if obj.GetStatus() == model.StatusPending && !hasFiles(obj) {
+		// 妫€鏌ュ璞＄姸鎬侊細闇€瑕?resolve 鐨勫紓姝ユ彁浜?		if obj.GetStatus() == model.StatusPending && !hasFiles(obj) {
 			obj.SetStatus(model.StatusResolving)
 			_ = t.UpdateStatus(obj, model.StatusResolving, nil)
 			m.enqueueResolve(t.ID(), obj)
-			m.downloadingObj.Delete(obj.URL) // 不占用下载槽位
-			continue
+			m.downloadingObj.Delete(obj.URL) // 涓嶅崰鐢ㄤ笅杞芥Ы浣?			continue
 		}
 
-		// 对象在 resolve 中，跳过本周期
-		if obj.GetStatus() == model.StatusResolving {
+		// 瀵硅薄鍦?resolve 涓紝璺宠繃鏈懆鏈?		if obj.GetStatus() == model.StatusResolving {
 			m.downloadingObj.Delete(obj.URL)
 			continue
 		}
@@ -290,7 +286,7 @@ func (m *Manager) processTask(t core.Task) {
 			m.mu.Unlock()
 			count++
 
-			// 通知调度器：有新的待处理对象
+			// 閫氱煡璋冨害鍣細鏈夋柊鐨勫緟澶勭悊瀵硅薄
 			select {
 			case m.schedulerSignal <- struct{}{}:
 			default:
@@ -304,9 +300,7 @@ func (m *Manager) processTask(t core.Task) {
 	m.BroadcastTaskUpdate(t.ID())
 }
 
-// hasFiles 检查对象是否已填充 Extra["files"]（即已 resolve 或无需 resolve）。
-// 通过对象的内部锁保护 Extra map 的并发安全。
-func hasFiles(obj *model.DownloadObject) bool {
+// hasFiles 妫€鏌ュ璞℃槸鍚﹀凡濉厖 Extra["files"]锛堝嵆宸?resolve 鎴栨棤闇€ resolve锛夈€?// 閫氳繃瀵硅薄鐨勫唴閮ㄩ攣淇濇姢 Extra map 鐨勫苟鍙戝畨鍏ㄣ€?func hasFiles(obj *model.DownloadObject) bool {
 	if obj == nil {
 		return false
 	}
@@ -333,7 +327,7 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 	if v, ok := m.taskQueues.Load(taskID); ok {
 		return v.(chan *downloadRequest)
 	}
-	// 动态容量：根据任务并发度计算，保证充分缓冲
+	// 鍔ㄦ€佸閲忥細鏍规嵁浠诲姟骞跺彂搴﹁绠楋紝淇濊瘉鍏呭垎缂撳啿
 	cap := 64 // default
 	if t, ok := m.getTask(taskID); ok {
 		concurrency := t.Concurrency()

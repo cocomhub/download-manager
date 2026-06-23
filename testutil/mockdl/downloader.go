@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package mockdl provides a mock implementation of core.Downloader for testing.
@@ -27,7 +27,7 @@ const (
 	ModeAlwaysSuccess Mode = "always_success"
 	// ModeAlwaysFail returns a fixed error immediately.
 	ModeAlwaysFail Mode = "always_fail"
-	// ModeSimulateProgress calls OnProgress from 0→100 then succeeds.
+	// ModeSimulateProgress calls OnProgress from 0鈫?00 then succeeds.
 	ModeSimulateProgress Mode = "simulate_progress"
 	// ModeRandomFail fails with probability FailRate.
 	ModeRandomFail Mode = "random_fail"
@@ -57,7 +57,7 @@ func WithDelay(d time.Duration) Option {
 	return func(md *MockDownloader) { md.delay = d }
 }
 
-// WithFailRate sets the failure probability for ModeRandomFail (0.0–1.0).
+// WithFailRate sets the failure probability for ModeRandomFail (0.0鈥?.0).
 func WithFailRate(rate float64) Option {
 	return func(md *MockDownloader) { md.failRate = rate }
 }
@@ -181,7 +181,7 @@ func (d *MockDownloader) Download(obj *model.DownloadObject, _ map[string]string
 	}
 }
 
-// SetContext implements core.DownloaderWithContext.
+// SetContext implements core.ContextInjecter.
 // If called with a non-nil context, the downloader will use it for
 // cancellation checks during simulated progress and timeout modes.
 func (d *MockDownloader) SetContext(ctx context.Context) {
@@ -344,4 +344,4 @@ func (d *MockDownloader) pauseAtProgress(obj *model.DownloadObject) error {
 
 // compile-time interface check.
 var _ core.Downloader = (*MockDownloader)(nil)
-var _ core.DownloaderWithContext = (*MockDownloader)(nil)
+var _ core.ContextInjecter = (*MockDownloader)(nil)

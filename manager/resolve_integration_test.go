@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -15,7 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// ---- mockSmallObjectTask 实现了 core.Task + core.SmallObjectCap ----
+// ---- mockSmallObjectTask 瀹炵幇浜?core.Task + core.SmallObjectProvider ----
 
 type mockSmallObjectTask struct {
 	id           string
@@ -168,7 +168,7 @@ func TestObjectTrackerWithErrors(t *testing.T) {
 func TestObjectTrackerTimeout(t *testing.T) {
 	tracker := newObjectTracker(2)
 
-	// Never mark done — should timeout without panic, errs should be nil (no errors collected)
+	// Never mark done 鈥?should timeout without panic, errs should be nil (no errors collected)
 	errs := tracker.WaitAll(10 * time.Millisecond)
 	if len(errs) != 0 {
 		t.Errorf("expected 0 errs on timeout with no MarkDone calls, got %d", len(errs))
@@ -183,8 +183,7 @@ func TestProcessTaskSkipsResolving(t *testing.T) {
 	m.tasks.Store("test", task)
 	m.processTask(task)
 
-	// 不应入队，不应改变状态
-	select {
+	// 涓嶅簲鍏ラ槦锛屼笉搴旀敼鍙樼姸鎬?	select {
 	case <-m.resolveQueue:
 		t.Error("should not enqueue a resolving object")
 	default:
@@ -206,7 +205,7 @@ func TestProcessTaskEnqueuesResolve(t *testing.T) {
 	m.tasks.Store("test", task)
 	m.processTask(task)
 
-	// 应入队 resolve
+	// 搴斿叆闃?resolve
 	select {
 	case req := <-m.resolveQueue:
 		if req.obj.URL != "https://example.com/video" {
@@ -216,7 +215,7 @@ func TestProcessTaskEnqueuesResolve(t *testing.T) {
 		t.Error("expected resolve queue to have item")
 	}
 
-	// 状态应为 Resolving
+	// 鐘舵€佸簲涓?Resolving
 	if obj.GetStatus() != model.StatusResolving {
 		t.Errorf("expected StatusResolving, got %s", obj.GetStatus())
 	}

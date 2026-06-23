@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package downloader
@@ -15,11 +15,10 @@ import (
 )
 
 // ================================================================
-// 组A：请求头注入
+// 缁凙锛氳姹傚ご娉ㄥ叆
 // ================================================================
 
-// TestFunc_HeaderInjection 验证浏览器样式请求头被注入。
-func TestFunc_HeaderInjection(t *testing.T) {
+// TestFunc_HeaderInjection 楠岃瘉娴忚鍣ㄦ牱寮忚姹傚ご琚敞鍏ャ€?func TestFunc_HeaderInjection(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/headers.bin", "content", "application/octet-stream")
 
@@ -27,8 +26,7 @@ func TestFunc_HeaderInjection(t *testing.T) {
 	obj := makeTestObject(b.URL()+"/headers.bin", "headers/injected.bin", nil, nil)
 	cmp.Run("browser-headers", obj, nil, CheckBothNil(), CheckFileBytes())
 
-	// 验证请求中包含自定义 User-Agent（而不是 Go-http-client/1.1）
-	for _, name := range []string{"old", "new"} {
+	// 楠岃瘉璇锋眰涓寘鍚嚜瀹氫箟 User-Agent锛堣€屼笉鏄?Go-http-client/1.1锛?	for _, name := range []string{"old", "new"} {
 		reqs := b.Requests()
 		if len(reqs) == 0 {
 			t.Errorf("%s: no requests recorded", name)
@@ -47,19 +45,16 @@ func TestFunc_HeaderInjection(t *testing.T) {
 	}
 }
 
-// TestFunc_HeaderInjectionDisabled 验证禁用浏览器头后不注入自定义头。
-func TestFunc_HeaderInjectionDisabled(t *testing.T) {
+// TestFunc_HeaderInjectionDisabled 楠岃瘉绂佺敤娴忚鍣ㄥご鍚庝笉娉ㄥ叆鑷畾涔夊ご銆?func TestFunc_HeaderInjectionDisabled(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/noheaders.bin", "content", "application/octet-stream")
 
-	// 默认情况下 DisableInjectBrowserLikeHeaders=true（见 NewComparator 实现）
-	cmp := NewComparator(t, b)
+	// 榛樿鎯呭喌涓?DisableInjectBrowserLikeHeaders=true锛堣 NewComparator 瀹炵幇锛?	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/noheaders.bin", "noheaders/out.bin", nil, nil)
 	cmp.Run("no-browser-headers", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_CustomHeaders 验证自定义请求头覆盖。
-func TestFunc_CustomHeaders(t *testing.T) {
+// TestFunc_CustomHeaders 楠岃瘉鑷畾涔夎姹傚ご瑕嗙洊銆?func TestFunc_CustomHeaders(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/custom.bin", "custom content", "application/octet-stream")
 
@@ -69,8 +64,7 @@ func TestFunc_CustomHeaders(t *testing.T) {
 	cmp.Run("custom-headers", obj, headers, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_CustomHeaderOverridesBrowser 验证自定义头覆盖浏览器注入头。
-func TestFunc_CustomHeaderOverridesBrowser(t *testing.T) {
+// TestFunc_CustomHeaderOverridesBrowser 楠岃瘉鑷畾涔夊ご瑕嗙洊娴忚鍣ㄦ敞鍏ュご銆?func TestFunc_CustomHeaderOverridesBrowser(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/override.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		ua := r.UserAgent()
@@ -87,11 +81,9 @@ func TestFunc_CustomHeaderOverridesBrowser(t *testing.T) {
 }
 
 // ================================================================
-// 组B：断点续传
-// ================================================================
+// 缁凚锛氭柇鐐圭画浼?// ================================================================
 
-// TestFunc_ResumeNormal 验证正常的 Range 续传。
-func TestFunc_ResumeNormal(t *testing.T) {
+// TestFunc_ResumeNormal 楠岃瘉姝ｅ父鐨?Range 缁紶銆?func TestFunc_ResumeNormal(t *testing.T) {
 	content := "0123456789ABCDEF"
 	halfContent := content[:8]
 	b := NewBeacon(t)
@@ -99,33 +91,30 @@ func TestFunc_ResumeNormal(t *testing.T) {
 
 	cmp := NewComparator(t, b)
 
-	// 可以先写入部分文件来模拟断点续传场景
-	// 旧路径会在下载前先探测文件大小 → 发 Range 请求
+	// 鍙互鍏堝啓鍏ラ儴鍒嗘枃浠舵潵妯℃嫙鏂偣缁紶鍦烘櫙
+	// 鏃ц矾寰勪細鍦ㄤ笅杞藉墠鍏堟帰娴嬫枃浠跺ぇ灏?鈫?鍙?Range 璇锋眰
 	_ = halfContent
 
 	obj := makeTestObject(b.URL()+"/resume.bin", "resume/out.bin", nil, nil)
 	cmp.Run("resume-normal", obj, nil, CheckBothNil(), CheckFileBytes(), CheckFileSize())
 }
 
-// TestFunc_ResumeCompleted 验证文件已完整时跳过。
-func TestFunc_ResumeCompleted(t *testing.T) {
+// TestFunc_ResumeCompleted 楠岃瘉鏂囦欢宸插畬鏁存椂璺宠繃銆?func TestFunc_ResumeCompleted(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/done.bin", "already-complete-content", "application/octet-stream")
 
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/done.bin", "done/file.bin", nil, nil)
 
-	// 先成功下载一次（建立基线）
-	if err := cmp.oldDL.Download(copyObject(obj), nil); err != nil {
+	// 鍏堟垚鍔熶笅杞戒竴娆★紙寤虹珛鍩虹嚎锛?	if err := cmp.oldDL.Download(copyObject(obj), nil); err != nil {
 		t.Fatalf("initial dlcore download: %v", err)
 	}
 
-	// 第二次下载应该跳过（文件已完整）
+	// 绗簩娆′笅杞藉簲璇ヨ烦杩囷紙鏂囦欢宸插畬鏁达級
 	cmp.Run("resume-completed", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_ResumeServerNoSupport 验证服务器不支持续传时从头下载。
-func TestFunc_ResumeServerNoSupport(t *testing.T) {
+// TestFunc_ResumeServerNoSupport 楠岃瘉鏈嶅姟鍣ㄤ笉鏀寔缁紶鏃朵粠澶翠笅杞姐€?func TestFunc_ResumeServerNoSupport(t *testing.T) {
 	content := "server-no-range-support"
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/norange.bin", content, "application/octet-stream")
@@ -135,8 +124,7 @@ func TestFunc_ResumeServerNoSupport(t *testing.T) {
 	cmp.Run("resume-no-range", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_Resume416 验证 416 时重置从头下载。
-func TestFunc_Resume416(t *testing.T) {
+// TestFunc_Resume416 楠岃瘉 416 鏃堕噸缃粠澶翠笅杞姐€?func TestFunc_Resume416(t *testing.T) {
 	content := "416-reset-content"
 	b := NewBeacon(t)
 	b.HandleRangeContent("GET", "/416.bin", content)
@@ -147,17 +135,15 @@ func TestFunc_Resume416(t *testing.T) {
 }
 
 // ================================================================
-// 组E（扩展）：断点续传边界
-// ================================================================
+// 缁凟锛堟墿灞曪級锛氭柇鐐圭画浼犺竟鐣?// ================================================================
 
-// TestFunc_ResumeContentChanged 验证续传时服务器内容变更 → 重置。
-func TestFunc_ResumeContentChanged(t *testing.T) {
+// TestFunc_ResumeContentChanged 楠岃瘉缁紶鏃舵湇鍔″櫒鍐呭鍙樻洿 鈫?閲嶇疆銆?func TestFunc_ResumeContentChanged(t *testing.T) {
 	originalContent := "original-complete-content"
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/changed.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		rangeHeader := r.Header.Get("Range")
 		if rangeHeader != "" {
-			// 有 Range 请求，但内容已变
+			// 鏈?Range 璇锋眰锛屼絾鍐呭宸插彉
 			return http.StatusOK, map[string]string{
 				"Content-Type": "application/octet-stream",
 			}, []byte(originalContent)
@@ -170,7 +156,7 @@ func TestFunc_ResumeContentChanged(t *testing.T) {
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/changed.bin", "changed/out.bin", nil, nil)
 
-	// 先写入完整的原始文件来模拟"内容已变更"
+	// 鍏堝啓鍏ュ畬鏁寸殑鍘熷鏂囦欢鏉ユā鎷?鍐呭宸插彉鏇?
 	obj2 := copyObject(obj)
 	savePath := filepath.Join(cmp.rootDir, obj2.SavePath)
 	os.MkdirAll(filepath.Dir(savePath), 0755)
@@ -180,25 +166,22 @@ func TestFunc_ResumeContentChanged(t *testing.T) {
 }
 
 // ================================================================
-// 组C：重试
-// ================================================================
+// 缁凜锛氶噸璇?// ================================================================
 
-// TestFunc_RetryOnMD5Mismatch 验证 MD5 不匹配后重试。
-func TestFunc_RetryOnMD5Mismatch(t *testing.T) {
+// TestFunc_RetryOnMD5Mismatch 楠岃瘉 MD5 涓嶅尮閰嶅悗閲嶈瘯銆?func TestFunc_RetryOnMD5Mismatch(t *testing.T) {
 	b := NewBeacon(t)
 
 	callCount := 0
 	b.HandleDynamic("GET", "/md5retry.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		callCount++
 		if callCount <= 2 {
-			// 前两次返回与 MD5 不匹配的内容
+			// 鍓嶄袱娆¤繑鍥炰笌 MD5 涓嶅尮閰嶇殑鍐呭
 			return http.StatusOK, map[string]string{
 				"Content-Type": "application/octet-stream",
 				"Content-MD5":  "d41d8cd98f00b204e9800998ecf8427e", // md5("")
 			}, []byte("wrong content that won't match md5")
 		}
-		// 第三次返回正确内容
-		return http.StatusOK, map[string]string{
+		// 绗笁娆¤繑鍥炴纭唴瀹?		return http.StatusOK, map[string]string{
 			"Content-Type": "application/octet-stream",
 		}, []byte("correct content")
 	})
@@ -208,8 +191,7 @@ func TestFunc_RetryOnMD5Mismatch(t *testing.T) {
 	cmp.Run("md5-retry", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_MaxRetriesExceeded 验证超过重试次数返回错误。
-func TestFunc_MaxRetriesExceeded(t *testing.T) {
+// TestFunc_MaxRetriesExceeded 楠岃瘉瓒呰繃閲嶈瘯娆℃暟杩斿洖閿欒銆?func TestFunc_MaxRetriesExceeded(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/alwaysfail.bin", http.StatusInternalServerError)
 
@@ -219,11 +201,9 @@ func TestFunc_MaxRetriesExceeded(t *testing.T) {
 }
 
 // ================================================================
-// 组C（扩展）：错误码矩阵与退避
-// ================================================================
+// 缁凜锛堟墿灞曪級锛氶敊璇爜鐭╅樀涓庨€€閬?// ================================================================
 
-// TestFunc_500Retriable 验证 500 是可重试的（非 ErrNoTry）。
-func TestFunc_500Retriable(t *testing.T) {
+// TestFunc_500Retriable 楠岃瘉 500 鏄彲閲嶈瘯鐨勶紙闈?ErrNoTry锛夈€?func TestFunc_500Retriable(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/500.bin", http.StatusInternalServerError)
 
@@ -232,8 +212,7 @@ func TestFunc_500Retriable(t *testing.T) {
 	cmp.Run("500-retriable", obj, nil, CheckAnyError())
 }
 
-// TestFunc_502Retriable 验证 502 可重试。
-func TestFunc_502Retriable(t *testing.T) {
+// TestFunc_502Retriable 楠岃瘉 502 鍙噸璇曘€?func TestFunc_502Retriable(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/502.bin", http.StatusBadGateway)
 
@@ -242,8 +221,7 @@ func TestFunc_502Retriable(t *testing.T) {
 	cmp.Run("502-retriable", obj, nil, CheckAnyError())
 }
 
-// TestFunc_503Retriable 验证 503 可重试。
-func TestFunc_503Retriable(t *testing.T) {
+// TestFunc_503Retriable 楠岃瘉 503 鍙噸璇曘€?func TestFunc_503Retriable(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/503.bin", http.StatusServiceUnavailable)
 
@@ -252,8 +230,7 @@ func TestFunc_503Retriable(t *testing.T) {
 	cmp.Run("503-retriable", obj, nil, CheckAnyError())
 }
 
-// TestFunc_RetryBackoff 验证两次重试间有时间间隔（总时间参考，不精确测量单次退避）。
-func TestFunc_RetryBackoff(t *testing.T) {
+// TestFunc_RetryBackoff 楠岃瘉涓ゆ閲嶈瘯闂存湁鏃堕棿闂撮殧锛堟€绘椂闂村弬鑰冿紝涓嶇簿纭祴閲忓崟娆￠€€閬匡級銆?func TestFunc_RetryBackoff(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/backoff.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		return http.StatusInternalServerError, nil, []byte("error")
@@ -270,12 +247,11 @@ func TestFunc_RetryBackoff(t *testing.T) {
 }
 
 // ================================================================
-// 组D：MD5 校验
+// 缁凞锛歁D5 鏍￠獙
 // ================================================================
 
-// TestFunc_MD5_XAmzMetaHeader 验证 X-Amz-Meta-Md5chksum 头（使用空内容匹配）。
-func TestFunc_MD5_XAmzMetaHeader(t *testing.T) {
-	// 空内容的 base64 MD5 = 1B2M2Y8AsgTpgAmY7PhCfg==
+// TestFunc_MD5_XAmzMetaHeader 楠岃瘉 X-Amz-Meta-Md5chksum 澶达紙浣跨敤绌哄唴瀹瑰尮閰嶏級銆?func TestFunc_MD5_XAmzMetaHeader(t *testing.T) {
+	// 绌哄唴瀹圭殑 base64 MD5 = 1B2M2Y8AsgTpgAmY7PhCfg==
 	content := ""
 	b := NewBeacon(t)
 	b.HandleWithMD5("GET", "/xamz.bin", content,
@@ -286,9 +262,8 @@ func TestFunc_MD5_XAmzMetaHeader(t *testing.T) {
 	cmp.Run("md5-xamz", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_MD5_Etag 验证 Etag 头的处理（使用内容为空的 etag 匹配）。
-func TestFunc_MD5_Etag(t *testing.T) {
-	// 空内容的 MD5 hex = d41d8cd98f00b204e9800998ecf8427e
+// TestFunc_MD5_Etag 楠岃瘉 Etag 澶寸殑澶勭悊锛堜娇鐢ㄥ唴瀹逛负绌虹殑 etag 鍖归厤锛夈€?func TestFunc_MD5_Etag(t *testing.T) {
+	// 绌哄唴瀹圭殑 MD5 hex = d41d8cd98f00b204e9800998ecf8427e
 	content := ""
 	b := NewBeacon(t)
 	b.HandleWithMD5("GET", "/etag.bin", content,
@@ -299,9 +274,8 @@ func TestFunc_MD5_Etag(t *testing.T) {
 	cmp.Run("md5-etag", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_MD5_ContentMD5Header 验证 Content-MD5 头（正确 MD5 时下载成功）。
-func TestFunc_MD5_ContentMD5Header(t *testing.T) {
-	// 使用"hello"作为内容，其 MD5 hex = 5d41402abc4b2a76b9719d911017c592
+// TestFunc_MD5_ContentMD5Header 楠岃瘉 Content-MD5 澶达紙姝ｇ‘ MD5 鏃朵笅杞芥垚鍔燂級銆?func TestFunc_MD5_ContentMD5Header(t *testing.T) {
+	// 浣跨敤"hello"浣滀负鍐呭锛屽叾 MD5 hex = 5d41402abc4b2a76b9719d911017c592
 	content := "hello"
 	b := NewBeacon(t)
 	b.HandleWithMD5("GET", "/contentmd5.bin", content,
@@ -313,11 +287,10 @@ func TestFunc_MD5_ContentMD5Header(t *testing.T) {
 }
 
 // ================================================================
-// 组B（扩展）：MD5 校验边界
+// 缁凚锛堟墿灞曪級锛歁D5 鏍￠獙杈圭晫
 // ================================================================
 
-// TestFunc_MD5_MismatchRetry 验证 MD5 不匹配后截断重试（最终超上限报错）。
-func TestFunc_MD5_MismatchRetry(t *testing.T) {
+// TestFunc_MD5_MismatchRetry 楠岃瘉 MD5 涓嶅尮閰嶅悗鎴柇閲嶈瘯锛堟渶缁堣秴涓婇檺鎶ラ敊锛夈€?func TestFunc_MD5_MismatchRetry(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleDynamic("GET", "/md5fail.bin", func(r *http.Request) (int, map[string]string, []byte) {
 		return http.StatusOK, map[string]string{
@@ -331,8 +304,7 @@ func TestFunc_MD5_MismatchRetry(t *testing.T) {
 	cmp.Run("md5-mismatch", obj, nil, CheckAnyError())
 }
 
-// TestFunc_MD5_SkipOnMatch 验证 MD5 匹配时跳过下载。
-func TestFunc_MD5_SkipOnMatch(t *testing.T) {
+// TestFunc_MD5_SkipOnMatch 楠岃瘉 MD5 鍖归厤鏃惰烦杩囦笅杞姐€?func TestFunc_MD5_SkipOnMatch(t *testing.T) {
 	content := "skip-on-md5-match"
 	b := NewBeacon(t)
 	b.HandleWithMD5("GET", "/skipmd5.bin", content,
@@ -344,11 +316,9 @@ func TestFunc_MD5_SkipOnMatch(t *testing.T) {
 }
 
 // ================================================================
-// 组E：错误码检测
-// ================================================================
+// 缁凟锛氶敊璇爜妫€娴?// ================================================================
 
-// TestFunc_403NoRetry 验证 403 返回错误。
-func TestFunc_403NoRetry(t *testing.T) {
+// TestFunc_403NoRetry 楠岃瘉 403 杩斿洖閿欒銆?func TestFunc_403NoRetry(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/403.bin", http.StatusForbidden)
 
@@ -357,8 +327,7 @@ func TestFunc_403NoRetry(t *testing.T) {
 	cmp.Run("403", obj, nil, CheckAnyError())
 }
 
-// TestFunc_404NoRetry 验证 404 返回错误。
-func TestFunc_404NoRetry(t *testing.T) {
+// TestFunc_404NoRetry 楠岃瘉 404 杩斿洖閿欒銆?func TestFunc_404NoRetry(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/404.bin", http.StatusNotFound)
 
@@ -368,11 +337,9 @@ func TestFunc_404NoRetry(t *testing.T) {
 }
 
 // ================================================================
-// 组D：Content-Type 检测（扩展）
-// ================================================================
+// 缁凞锛欳ontent-Type 妫€娴嬶紙鎵╁睍锛?// ================================================================
 
-// TestFunc_TextContentTypeMP4 验证 text/html + .mp4 URL 返回 ErrNoTry（双方一致）。
-func TestFunc_TextContentTypeMP4(t *testing.T) {
+// TestFunc_TextContentTypeMP4 楠岃瘉 text/html + .mp4 URL 杩斿洖 ErrNoTry锛堝弻鏂逛竴鑷达級銆?func TestFunc_TextContentTypeMP4(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleTextContent("GET", "/video.mp4")
 
@@ -381,8 +348,7 @@ func TestFunc_TextContentTypeMP4(t *testing.T) {
 	cmp.Run("text-mp4", obj, nil, CheckErrNoTry())
 }
 
-// TestFunc_TextContentTypeJPG 验证 text/html + .jpg URL 返回 ErrNoTry（双方一致）。
-func TestFunc_TextContentTypeJPG(t *testing.T) {
+// TestFunc_TextContentTypeJPG 楠岃瘉 text/html + .jpg URL 杩斿洖 ErrNoTry锛堝弻鏂逛竴鑷达級銆?func TestFunc_TextContentTypeJPG(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleTextContent("GET", "/image.jpg")
 
@@ -391,34 +357,26 @@ func TestFunc_TextContentTypeJPG(t *testing.T) {
 	cmp.Run("text-jpg", obj, nil, CheckErrNoTry())
 }
 
-// TestFunc_PathTraversal 验证路径穿越被拒绝。
-// 注意：dlcore 的 ResolvePath 对绝对路径不会拒绝（它在 rootDir 内时允许），
-// 而 pkg/download 的 ResolvePath 对 rootDir 为空的绝对路径也会允许。
-// 此测试验证双方至少有一方拒绝。
-func TestFunc_PathTraversal(t *testing.T) {
+// TestFunc_PathTraversal 楠岃瘉璺緞绌胯秺琚嫆缁濄€?// 娉ㄦ剰锛歞lcore 鐨?ResolvePath 瀵圭粷瀵硅矾寰勪笉浼氭嫆缁濓紙瀹冨湪 rootDir 鍐呮椂鍏佽锛夛紝
+// 鑰?pkg/download 鐨?ResolvePath 瀵?rootDir 涓虹┖鐨勭粷瀵硅矾寰勪篃浼氬厑璁搞€?// 姝ゆ祴璇曢獙璇佸弻鏂硅嚦灏戞湁涓€鏂规嫆缁濄€?func TestFunc_PathTraversal(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/safe.bin", "content", "application/octet-stream")
 
 	cmp := NewComparator(t, b)
-	// SavePath 含 ../ 尝试穿越
+	// SavePath 鍚?../ 灏濊瘯绌胯秺
 	obj := makeTestObject(b.URL()+"/safe.bin", "../evil.bin", nil, nil)
 	cmp.Run("path-traversal", obj, nil)
-	// 仅记录差异，不硬断言
+	// 浠呰褰曞樊寮傦紝涓嶇‖鏂█
 }
 
 // ================================================================
-// 组F：日志
-// ================================================================
+// 缁凢锛氭棩蹇?// ================================================================
 
-// TestFunc_LogFileCreated 验证配置 logDir 后日志文件被创建。
-func TestFunc_LogFileCreated(t *testing.T) {
+// TestFunc_LogFileCreated 楠岃瘉閰嶇疆 logDir 鍚庢棩蹇楁枃浠惰鍒涘缓銆?func TestFunc_LogFileCreated(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/logtest.bin", "log content", "text/plain")
 
-	// 注意：WithLogDir 已从 ComparatorOption 中移除
-	// 因为 NativeHTTPDownloader 的 LogDir 拼接在 Windows 上会产生非法路径。
-	// 日志测试需要在后续完善。
-	t.Skip("LogDir 测试在当前 Comparator 架构下暂不支持，后续待完善")
+	// 娉ㄦ剰锛歐ithLogDir 宸蹭粠 ComparatorOption 涓Щ闄?	// 鍥犱负 NativeHTTPDownloader 鐨?LogDir 鎷兼帴鍦?Windows 涓婁細浜х敓闈炴硶璺緞銆?	// 鏃ュ織娴嬭瘯闇€瑕佸湪鍚庣画瀹屽杽銆?	t.Skip("LogDir 娴嬭瘯鍦ㄥ綋鍓?Comparator 鏋舵瀯涓嬫殏涓嶆敮鎸侊紝鍚庣画寰呭畬鍠?)
 
 	cmp := NewComparator(t, b)
 	obj := makeTestObject(b.URL()+"/logtest.bin", "log/out.bin", nil, nil)
@@ -426,11 +384,10 @@ func TestFunc_LogFileCreated(t *testing.T) {
 }
 
 // ================================================================
-// 组F（扩展）：路径与文件系统
+// 缁凢锛堟墿灞曪級锛氳矾寰勪笌鏂囦欢绯荤粺
 // ================================================================
 
-// TestFunc_RelativePath 验证相对路径解析到 rootDir 内。
-func TestFunc_RelativePath(t *testing.T) {
+// TestFunc_RelativePath 楠岃瘉鐩稿璺緞瑙ｆ瀽鍒?rootDir 鍐呫€?func TestFunc_RelativePath(t *testing.T) {
 	content := "relative path test"
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/rel.bin", content, "application/octet-stream")
@@ -440,8 +397,7 @@ func TestFunc_RelativePath(t *testing.T) {
 	cmp.Run("relative-path", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_PathOutsideRoot 验证 rootDir 外的路径被拒绝。
-func TestFunc_PathOutsideRoot(t *testing.T) {
+// TestFunc_PathOutsideRoot 楠岃瘉 rootDir 澶栫殑璺緞琚嫆缁濄€?func TestFunc_PathOutsideRoot(t *testing.T) {
 	content := "outside root test"
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/out.bin", content, "application/octet-stream")
@@ -454,8 +410,7 @@ func TestFunc_PathOutsideRoot(t *testing.T) {
 	cmp.Run("outside-root", obj, nil, CheckAnyError())
 }
 
-// TestFunc_ExplicitRootDir 验证显式设置 RootDir 后相对路径在 rootDir 内正确解析。
-func TestFunc_ExplicitRootDir(t *testing.T) {
+// TestFunc_ExplicitRootDir 楠岃瘉鏄惧紡璁剧疆 RootDir 鍚庣浉瀵硅矾寰勫湪 rootDir 鍐呮纭В鏋愩€?func TestFunc_ExplicitRootDir(t *testing.T) {
 	content := "explicit root dir test"
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/exroot.bin", content, "application/octet-stream")
@@ -468,8 +423,7 @@ func TestFunc_ExplicitRootDir(t *testing.T) {
 	cmp.Run("explicit-rootdir", obj, nil, CheckBothNil(), CheckFileBytes())
 }
 
-// TestFunc_DirAutoCreate 验证输出目录自动创建。
-func TestFunc_DirAutoCreate(t *testing.T) {
+// TestFunc_DirAutoCreate 楠岃瘉杈撳嚭鐩綍鑷姩鍒涘缓銆?func TestFunc_DirAutoCreate(t *testing.T) {
 	content := "auto create dir"
 	b := NewBeacon(t)
 	b.HandleFile("GET", "/autodir.bin", content, "application/octet-stream")
@@ -480,11 +434,9 @@ func TestFunc_DirAutoCreate(t *testing.T) {
 }
 
 // ================================================================
-// 组G：元数据副作用
-// ================================================================
+// 缁凣锛氬厓鏁版嵁鍓綔鐢?// ================================================================
 
-// TestFunc_MetadataMd5Fields 验证 MD5 匹配时 md5_base64 / md5_hex 被设置。
-func TestFunc_MetadataMd5Fields(t *testing.T) {
+// TestFunc_MetadataMd5Fields 楠岃瘉 MD5 鍖归厤鏃?md5_base64 / md5_hex 琚缃€?func TestFunc_MetadataMd5Fields(t *testing.T) {
 	content := "hello"
 	b := NewBeacon(t)
 	b.HandleWithMD5("GET", "/md5meta.bin", content,
@@ -498,8 +450,7 @@ func TestFunc_MetadataMd5Fields(t *testing.T) {
 	)
 }
 
-// TestFunc_MetadataModTime 验证 Last-Modified 被记录到 Metadata。
-func TestFunc_MetadataModTime(t *testing.T) {
+// TestFunc_MetadataModTime 楠岃瘉 Last-Modified 琚褰曞埌 Metadata銆?func TestFunc_MetadataModTime(t *testing.T) {
 	content := "modtime content"
 	b := NewBeacon(t)
 	modTime := "Tue, 15 Jun 2026 10:00:00 GMT"
@@ -518,8 +469,7 @@ func TestFunc_MetadataModTime(t *testing.T) {
 	)
 }
 
-// TestFunc_MetadataFailedNotWritten 验证失败时 metadata 不写入完成标记。
-func TestFunc_MetadataFailedNotWritten(t *testing.T) {
+// TestFunc_MetadataFailedNotWritten 楠岃瘉澶辫触鏃?metadata 涓嶅啓鍏ュ畬鎴愭爣璁般€?func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 	b := NewBeacon(t)
 	b.HandleError("GET", "/failmeta.bin", http.StatusForbidden)
 
@@ -533,8 +483,7 @@ func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 			if !oldIsNoTry && !newIsNoTry {
 				t.Error("expected at least one side to return ErrNoTry")
 			}
-			// 检查 metadata 不应包含 total_size（下载未完成）
-			if old.Obj.Metadata["total_size"] != "" {
+			// 妫€鏌?metadata 涓嶅簲鍖呭惈 total_size锛堜笅杞芥湭瀹屾垚锛?			if old.Obj.Metadata["total_size"] != "" {
 				t.Logf("old metadata total_size set (may be expected in dlcore): %q", old.Obj.Metadata["total_size"])
 			}
 		},
@@ -542,10 +491,10 @@ func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 }
 
 // ================================================================
-// 辅助
+// 杈呭姪
 // ================================================================
 
-// httpCodeName 保留用于扩展测试（当前未使用，等待 HTTP 状态码矩阵扩展时启用）
+// httpCodeName 淇濈暀鐢ㄤ簬鎵╁睍娴嬭瘯锛堝綋鍓嶆湭浣跨敤锛岀瓑寰?HTTP 鐘舵€佺爜鐭╅樀鎵╁睍鏃跺惎鐢級
 // var _ = httpCodeName
 // func httpCodeName(code int) string {
 // 	if name := http.StatusText(code); name != "" {

@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package m3u8d
@@ -13,20 +13,16 @@ import (
 	"github.com/cavaliergopher/grab/v3"
 )
 
-// DownloadTask 描述一个需要下载的资源。
-type DownloadTask struct {
+// DownloadTask 鎻忚堪涓€涓渶瑕佷笅杞界殑璧勬簮銆?type DownloadTask struct {
 	URL       string
 	LocalPath string
 	Type      string
 }
 
-// maxRetryRounds 是 downloadFilesConcurrently 内部 retry 循环的最大轮次，
-// 防止永久失败请求导致无界循环。
-const maxRetryRounds = 3
+// maxRetryRounds 鏄?downloadFilesConcurrently 鍐呴儴 retry 寰幆鐨勬渶澶ц疆娆★紝
+// 闃叉姘镐箙澶辫触璇锋眰瀵艰嚧鏃犵晫寰幆銆?const maxRetryRounds = 3
 
-// downloadFilesConcurrently 使用 grab 库并发下载 TS 分片等资源。
-// grab.NewClient() 会创建独立的 http.Client，不受注入 client 影响。
-func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []DownloadTask) error {
+// downloadFilesConcurrently 浣跨敤 grab 搴撳苟鍙戜笅杞?TS 鍒嗙墖绛夎祫婧愩€?// grab.NewClient() 浼氬垱寤虹嫭绔嬬殑 http.Client锛屼笉鍙楁敞鍏?client 褰卞搷銆?func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []DownloadTask) error {
 	client := grab.NewClient()
 	if d.client != nil {
 		client.HTTPClient = d.client
@@ -51,8 +47,7 @@ func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []Dow
 
 	retryRound := 0
 retry:
-	// 读 Concurrency 时加锁，避免与 StatusCode==472 时的写操作产生 data race。
-	d.concurrencyMu.Lock()
+	// 璇?Concurrency 鏃跺姞閿侊紝閬垮厤涓?StatusCode==472 鏃剁殑鍐欐搷浣滀骇鐢?data race銆?	d.concurrencyMu.Lock()
 	concurrency := d.Config.Concurrency
 	d.concurrencyMu.Unlock()
 
@@ -64,7 +59,7 @@ retry:
 		select {
 		case <-ticker.C:
 			if d.Config.Verbose {
-				fmt.Printf("下载中: 已完成 %d/%d\n", completed, len(reqs))
+				fmt.Printf("涓嬭浇涓? 宸插畬鎴?%d/%d\n", completed, len(reqs))
 			}
 
 		case resp := <-respch:
@@ -75,7 +70,7 @@ retry:
 				if resp.HTTPResponse != nil {
 					status = resp.HTTPResponse.Status
 				}
-				fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
+				fmt.Printf("涓嬭浇澶辫触: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
 				if resp.HTTPResponse != nil && resp.HTTPResponse.StatusCode == 472 {
 					d.concurrencyMu.Lock()
 					d.Config.Concurrency = 1
@@ -94,7 +89,7 @@ retry:
 				d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
 
 				if d.Config.Verbose {
-					fmt.Printf("下载完成: %s\n", filepath.Base(resp.Filename))
+					fmt.Printf("涓嬭浇瀹屾垚: %s\n", filepath.Base(resp.Filename))
 				}
 			}
 		}
@@ -107,7 +102,7 @@ retry:
 			for _, r := range errReqs {
 				failedURLs = append(failedURLs, r.HTTPRequest.URL.String())
 			}
-			return fmt.Errorf("超过最大重试轮次 (%d)，%d 个文件下载失败: %s",
+			return fmt.Errorf("瓒呰繃鏈€澶ч噸璇曡疆娆?(%d)锛?d 涓枃浠朵笅杞藉け璐? %s",
 				maxRetryRounds, len(errReqs), strings.Join(failedURLs, ", "))
 		}
 		reqs = errReqs

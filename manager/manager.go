@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -23,8 +23,7 @@ import (
 	"github.com/cocomhub/download-manager/storage"
 )
 
-// FailureRecord 描述单次下载失败记录，存储在环形缓冲区中供查询
-type FailureRecord struct {
+// FailureRecord 鎻忚堪鍗曟涓嬭浇澶辫触璁板綍锛屽瓨鍌ㄥ湪鐜舰缂撳啿鍖轰腑渚涙煡璇?type FailureRecord struct {
 	TaskID    string `json:"task_id"`
 	URL       string `json:"url"`
 	Error     string `json:"error"`
@@ -87,17 +86,12 @@ type Manager struct {
 	forceWg sync.WaitGroup
 
 	// Heartbeat / uptime
-	startedAt          time.Time    // 进程启动时间, set in NewManager
-	totalDownloads     atomic.Int64 // 历史总下载次数
-	schedulerHeartbeat atomic.Value // time.Time — 调度器最后心跳
-	workerHeartbeat    atomic.Value // time.Time — worker 最后心跳
-
+	startedAt          time.Time    // 杩涚▼鍚姩鏃堕棿, set in NewManager
+	totalDownloads     atomic.Int64 // 鍘嗗彶鎬讳笅杞芥鏁?	schedulerHeartbeat atomic.Value // time.Time 鈥?璋冨害鍣ㄦ渶鍚庡績璺?	workerHeartbeat    atomic.Value // time.Time 鈥?worker 鏈€鍚庡績璺?
 	// Failure records (ring buffer)
 	failureRecords  []FailureRecord
 	failureMu       sync.Mutex
-	failureWriteIdx int // 环形缓冲区写入索引
-	maxFailures     int // 环形容量（默认 1000）
-
+	failureWriteIdx int // 鐜舰缂撳啿鍖哄啓鍏ョ储寮?	maxFailures     int // 鐜舰瀹归噺锛堥粯璁?1000锛?
 	// Composite resolve retry tracking
 	compositeResolveCount sync.Map // URL -> *atomic.Int64 (retry count, max 10)
 
@@ -120,10 +114,9 @@ type taskMetrics struct {
 	avgLatencyMs atomic.Int64
 	failures     atomic.Int64
 	completed    atomic.Int64
-	// 新增
-	retried    atomic.Int64 // 重试次数
-	lastActive atomic.Int64 // 最近活跃 unix 秒
-}
+	// 鏂板
+	retried    atomic.Int64 // 閲嶈瘯娆℃暟
+	lastActive atomic.Int64 // 鏈€杩戞椿璺?unix 绉?}
 
 type RuntimeFeatures struct {
 	Scheduler bool `json:"scheduler"`
@@ -181,7 +174,7 @@ func NewManager(cfg *config.Config) *Manager {
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
 	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())
-	if nd, ok := mgr.getDownloader().(core.DownloaderWithDomainLimits); ok {
+	if nd, ok := mgr.getDownloader().(core.DomainLimiter); ok {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
 	// Wire up AggregationService with real callbacks
@@ -475,7 +468,7 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 // --- Config Management ---
 
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
-	// Validate before IO — Clone to avoid map race in ValidateAndClamp
+	// Validate before IO 鈥?Clone to avoid map race in ValidateAndClamp
 	cfgCopy := newCfg.Clone()
 	cfgCopy.ValidateAndClamp()
 	// Save to file with comment preservation
@@ -504,7 +497,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Reload components
 	m.setDownloader(downloader.New(cfgCopy.Downloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
-	if nd, ok := m.getDownloader().(core.DownloaderWithDomainLimits); ok {
+	if nd, ok := m.getDownloader().(core.DomainLimiter); ok {
 		nd.ApplyDomainLimits(cfgCopy.Downloader.DomainLimits)
 	}
 	logutil.InitLogger(cfgCopy.Log)

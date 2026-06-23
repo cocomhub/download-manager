@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -72,7 +72,7 @@ func TestEventBus_SlowConsumerDrop(t *testing.T) {
 		subscribers: make(map[<-chan core.Event]chan core.Event),
 	}
 
-	// Subscribe but never read — buffer is 100, so publishing >100 should trigger drops
+	// Subscribe but never read 鈥?buffer is 100, so publishing >100 should trigger drops
 	ch := m.Subscribe()
 	defer m.Unsubscribe(ch)
 
@@ -168,7 +168,7 @@ func TestBroadcastProgress(t *testing.T) {
 		if len(batch.Updates) != 2 {
 			t.Fatalf("expected 2 progress updates, got %d", len(batch.Updates))
 		}
-		// Verify items — order depends on sync.Map iteration
+		// Verify items 鈥?order depends on sync.Map iteration
 		if len(batch.Updates) != 2 {
 			t.Fatalf("expected 2 progress updates, got %d", len(batch.Updates))
 		}
@@ -200,7 +200,7 @@ func TestBroadcastProgress_UnchangedProgressSkipped(t *testing.T) {
 	obj.SetStatus(model.StatusDownloading)
 	m.downloadingObj.Store(obj.URL, obj)
 
-	// Pre-set lastProgress to match current progress — simulates no change
+	// Pre-set lastProgress to match current progress 鈥?simulates no change
 	m.lastProgress.Store(obj.URL, 50)
 
 	ch := m.Subscribe()

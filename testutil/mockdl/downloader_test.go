@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package mockdl
@@ -89,7 +89,7 @@ func TestMockDownloader_AlwaysFail(t *testing.T) {
 	tests := []struct {
 		name string
 		opts []Option
-		// check 接收 Download 返回的 err 和传入的 obj，做具体断言
+		// check 鎺ユ敹 Download 杩斿洖鐨?err 鍜屼紶鍏ョ殑 obj锛屽仛鍏蜂綋鏂█
 		check func(t *testing.T, err error, obj *model.DownloadObject)
 	}{
 		{

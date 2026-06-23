@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package core
@@ -9,8 +9,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// TestStorageFilter 验证 StorageFilter 结构体字段
-func TestStorageFilter(t *testing.T) {
+// TestStorageFilter 楠岃瘉 StorageFilter 缁撴瀯浣撳瓧娈?func TestStorageFilter(t *testing.T) {
 	f := StorageFilter{
 		TaskIDs:  []string{"task1"},
 		Statuses: []string{"pending", "downloading"},
@@ -27,8 +26,7 @@ func TestStorageFilter(t *testing.T) {
 	}
 }
 
-// TestStorageQuery 验证 StorageQuery 构建器
-func TestStorageQuery(t *testing.T) {
+// TestStorageQuery 楠岃瘉 StorageQuery 鏋勫缓鍣?func TestStorageQuery(t *testing.T) {
 	q := &StorageQuery{
 		Filter: StorageFilter{
 			TaskIDs:  []string{"task1"},
@@ -49,7 +47,7 @@ func TestStorageQuery(t *testing.T) {
 	}
 }
 
-// TestStorageSort 验证排序定义
+// TestStorageSort 楠岃瘉鎺掑簭瀹氫箟
 func TestStorageSort(t *testing.T) {
 	s := StorageSort{Field: "progress", Desc: true}
 	if s.Field != "progress" {
@@ -60,7 +58,7 @@ func TestStorageSort(t *testing.T) {
 	}
 }
 
-// TestEventTypeConstants 验证事件类型常量
+// TestEventTypeConstants 楠岃瘉浜嬩欢绫诲瀷甯搁噺
 func TestEventTypeConstants(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -80,8 +78,7 @@ func TestEventTypeConstants(t *testing.T) {
 	}
 }
 
-// TestEventStruct 验证事件结构体
-func TestEventStruct(t *testing.T) {
+// TestEventStruct 楠岃瘉浜嬩欢缁撴瀯浣?func TestEventStruct(t *testing.T) {
 	e := Event{
 		Type:    EventObjectUpdate,
 		Payload: &model.DownloadObject{URL: "http://example.com/file.zip"},
@@ -101,14 +98,13 @@ func TestEventStruct(t *testing.T) {
 	}
 }
 
-// TestDownloaderInterface 验证 Downloader 接口定义了 Name 方法
+// TestDownloaderInterface 楠岃瘉 Downloader 鎺ュ彛瀹氫箟浜?Name 鏂规硶
 func TestDownloaderInterface(t *testing.T) {
-	// 编译时检查：确保 Downloader 接口存在并包含 Name 方法
+	// 缂栬瘧鏃舵鏌ワ細纭繚 Downloader 鎺ュ彛瀛樺湪骞跺寘鍚?Name 鏂规硶
 	var _ Downloader = &mockDownloader{}
 }
 
-// mockDownloader 实现 Downloader 接口用于编译检查
-type mockDownloader struct{}
+// mockDownloader 瀹炵幇 Downloader 鎺ュ彛鐢ㄤ簬缂栬瘧妫€鏌?type mockDownloader struct{}
 
 func (m *mockDownloader) Download(_ *model.DownloadObject, _ map[string]string) error {
 	return nil

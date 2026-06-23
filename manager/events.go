@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package manager
@@ -10,7 +10,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// ProgressBatch 包含一次广播周期内所有对象的进度变更
+// ProgressBatch 鍖呭惈涓€娆″箍鎾懆鏈熷唴鎵€鏈夊璞＄殑杩涘害鍙樻洿
 type ProgressBatch struct {
 	Updates []ProgressItem `json:"updates"`
 }

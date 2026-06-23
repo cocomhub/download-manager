@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package dlcore
@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 )
+
+const logTimestampFmt = "20060102150405"
 
 func isHlsURL(u string) bool {
 	lu := strings.ToLower(u)
@@ -60,7 +62,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 			}
 		}
 		logFile = filepath.Join(c.logDir, logFileName+"."+
-			time.Now().Format("20060102150405")+".ffmpeg.log")
+			time.Now().Format(logTimestampFmt)+".ffmpeg.log")
 
 		var err error
 		f, err = os.Create(logFile)

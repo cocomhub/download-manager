@@ -1,4 +1,4 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
+﻿// Copyright 2026 The Cocomhub Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 package tktube
@@ -26,7 +26,7 @@ func TestCreateObjectFromVideoItem_PersistsTaskTypeMetadata(t *testing.T) {
 
 	obj := tk.(*Task).createObjectFromVideoItem(videoItem{
 		href:     "https://example.com/video/1",
-		title:    "【高画质】CLUB-100C",
+		title:    "銆愰珮鐢昏川銆慍LUB-100C",
 		duration: "10:00",
 		date:     "2026-01-01",
 	})
