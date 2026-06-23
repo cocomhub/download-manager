@@ -181,7 +181,7 @@ func (d *MockDownloader) Download(obj *model.DownloadObject, _ map[string]string
 	}
 }
 
-// SetContext implements core.DownloaderWithContext.
+// SetContext implements core.ContextInjecter.
 // If called with a non-nil context, the downloader will use it for
 // cancellation checks during simulated progress and timeout modes.
 func (d *MockDownloader) SetContext(ctx context.Context) {
@@ -344,4 +344,4 @@ func (d *MockDownloader) pauseAtProgress(obj *model.DownloadObject) error {
 
 // compile-time interface check.
 var _ core.Downloader = (*MockDownloader)(nil)
-var _ core.DownloaderWithContext = (*MockDownloader)(nil)
+var _ core.ContextInjecter = (*MockDownloader)(nil)

@@ -111,7 +111,7 @@ func (t *Task) Type() string {
 	return TaskType
 }
 
-// Scrape implements core.ScrapeCap as a no-op — urllist's URL set is fixed at
+// Scrape implements core.Scraper as a no-op — urllist's URL set is fixed at
 // construction time and does not need page scraping.
 func (t *Task) Scrape(ctx context.Context) error {
 	return nil

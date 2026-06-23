@@ -124,7 +124,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	}()
 
 	// Propagate context to downloader if supported
-	if nd, ok := dl.(core.DownloaderWithContext); ok {
+	if nd, ok := dl.(core.ContextInjecter); ok {
 		nd.SetContext(dlCtx)
 	}
 
@@ -182,7 +182,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 					"task_id", t.ID(), "url", obj.URL)
 				m.compositeResolveCount.Delete(obj.URL)
 				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
-				if ft, ok := t.(core.FailedTask); ok {
+				if ft, ok := t.(core.FailedTaskMarker); ok {
 					ft.MarkAsFailed(obj, err)
 				}
 				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -220,7 +220,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		mt.lastActive.Store(time.Now().Unix())
 
 		if download.IsNoTry(err) {
-			if ft, ok := t.(core.FailedTask); ok {
+			if ft, ok := t.(core.FailedTaskMarker); ok {
 				ft.MarkAsFailed(obj, err)
 			}
 		}
@@ -253,7 +253,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			maxRetries = 5
 		}
 		if c >= int64(maxRetries) {
-			if ft, ok := t.(core.FailedTask); ok {
+			if ft, ok := t.(core.FailedTaskMarker); ok {
 				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
 			}
 		}

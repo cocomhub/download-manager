@@ -32,9 +32,9 @@ type Handler interface {
 	Name() string
 }
 
-// HandlerWithClient 表示 Handler 需要在初始化后注入 Client 引用。
+// ClientInjecter 表示 Handler 需要在初始化后注入 Client 引用。
 // 当 Handler 需要访问 Client 配置时（代理、日志路径等）应实现此接口。
-type HandlerWithClient interface {
+type ClientInjecter interface {
 	SetClient(*Client)
 }
 
