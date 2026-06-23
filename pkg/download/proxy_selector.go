@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/config"
 )
 
 // StaticProxySelector 鏄潤鎬佷唬鐞嗗垪琛ㄧ殑閫夋嫨鍣ㄥ疄鐜般€?// 瀹冧娇鐢ㄦ枃浠剁紦瀛?+ 鐩磋繛鎺㈡祴 + 甯﹀璇勫垎鏉ラ€夋嫨鏈€浣充唬鐞嗐€?type StaticProxySelector struct {
@@ -32,7 +34,7 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 		proxies:          proxies,
 		decisionCacheTTL: 1,
 		probeTimeout:     3,
-		bandwidthSuffix:  "/bandwidth",
+		bandwidthSuffix:  config.DefaultBandwidthPath,
 	}
 }
 
@@ -139,7 +141,7 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 
 // getProxyBandwidth 鏌ヨ浠ｇ悊鐨勫甫瀹藉€硷紙鏁板€艰秺灏忚秺濂斤級锛屽け璐ユ椂杩斿洖 999999銆?func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
-		suffix = "/bandwidth"
+		suffix = config.DefaultBandwidthPath
 	}
 	if !strings.HasPrefix(suffix, "/") {
 		suffix = "/" + suffix

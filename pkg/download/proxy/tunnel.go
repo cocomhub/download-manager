@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
@@ -121,7 +122,7 @@ type cachedBandwidth struct {
 			continue
 		}
 
-		// 甯﹀鎺㈡祴锛堜娇鐢?/bandwidth 绔偣鑾峰彇瓒冲澶х殑鍝嶅簲锛?		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+"/bandwidth", s.probeBytes, s.probeTimeout)
+		// 甯﹀鎺㈡祴锛堜娇鐢?/bandwidth 绔偣鑾峰彇瓒冲澶х殑鍝嶅簲锛?		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+config.DefaultBandwidthPath, s.probeBytes, s.probeTimeout)
 		if err != nil {
 			slog.Debug("sproxy bandwidth probe failed", "url", inst.ServerURL, "error", err)
 			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})

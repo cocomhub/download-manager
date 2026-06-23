@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/config"
 )
 
 // ProxySelector 瀹氫箟浠ｇ悊閫夋嫨绛栫暐銆?// Select 杩斿洖鏈€浣充唬鐞?URL锛堢┖瀛楃涓茶〃绀虹洿杩烇級锛屼互鍙婂彲鑳界殑閿欒銆?type ProxySelector interface {
@@ -33,7 +35,7 @@ func NewProxySelector(proxies []string) *DefaultProxySelector {
 		proxies:          proxies,
 		decisionCacheTTL: 1,
 		probeTimeout:     3,
-		bandwidthSuffix:  "/bandwidth",
+		bandwidthSuffix:  config.DefaultBandwidthPath,
 	}
 }
 

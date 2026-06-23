@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/config"
 )
 
 // ---- Shared proxy probe functions (used by both dlcore.Client and WgetDownloader) ----
@@ -36,7 +38,7 @@ import (
 
 // GetProxyBandwidth 鏌ヨ浠ｇ悊鐨勫甫瀹藉€硷紙鏁板€艰秺灏忚秺濂斤級锛屽け璐ユ椂杩斿洖 999999銆?func GetProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
-		suffix = "/bandwidth"
+		suffix = config.DefaultBandwidthPath
 	}
 	if !strings.HasPrefix(suffix, "/") {
 		suffix = "/" + suffix
