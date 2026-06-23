@@ -89,26 +89,16 @@ func (t *Task) Close() error {
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	runtimeObjects := t.SnapshotRuntimeObjects(true)
 	var activeCount int64
-	if t.Storage() != nil {
-		count, err := t.Storage().Count(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{model.StatusDownloading},
-			},
-		})
-		if err == nil {
-			activeCount = count
-		}
-	}
+	candidates := make([]*model.DownloadObject, 0)
 	if activeCount == 0 {
 		for _, obj := range runtimeObjects {
 			if obj.GetStatus() == model.StatusDownloading {
+				candidates = append(candidates, obj)
 				activeCount++
 			}
 		}
 	}
 
-	candidates := make([]*model.DownloadObject, 0)
 	toResolve := make([]*model.DownloadObject, 0)
 
 	queryLimit := int64(max(t.Concurrency()*3+8, 16))

@@ -59,7 +59,8 @@ func InitLogger(cfg LogConfig) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{
-		Level: level,
+		AddSource: true,
+		Level:     level,
 	}))
 	slog.SetDefault(logger)
 }

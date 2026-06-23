@@ -442,9 +442,6 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		slog.Info("Server content changed during resume, restarting download", "file", rPath, "serverSize", totalSize, "localSize", startOffset)
 		return false, nil
 	}
-	if startOffset > 0 && totalSize > 0 {
-		totalSize += startOffset
-	}
 
 	// 写入文件
 	fileFlags := os.O_CREATE | os.O_WRONLY
@@ -485,7 +482,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 				),
 			)
 		}
-		reader = NewProgressReader(tresp.Body, totalSize, onProgress)
+		reader = NewProgressReader(tresp.Body, startOffset, totalSize, onProgress)
 	}
 
 	if _, cErr := io.Copy(file, reader); cErr != nil {

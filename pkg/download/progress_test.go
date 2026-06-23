@@ -18,7 +18,7 @@ func TestProgressReader(t *testing.T) {
 	var lastTotal int64
 	callCount := 0
 
-	pr := NewProgressReader(reader, int64(len(content)),
+	pr := NewProgressReader(reader, 0, int64(len(content)),
 		func(progress float64, downloaded, total int64) {
 			lastProgress = progress
 			lastDownloaded = downloaded
@@ -56,7 +56,7 @@ func TestProgressReader(t *testing.T) {
 
 func TestProgressReaderDone(t *testing.T) {
 	var progress float64
-	pr := NewProgressReader(strings.NewReader("data"), 100,
+	pr := NewProgressReader(strings.NewReader("data"), 0, 100,
 		func(p float64, _, _ int64) {
 			progress = p
 		},
@@ -70,7 +70,7 @@ func TestProgressReaderDone(t *testing.T) {
 }
 
 func TestProgressReaderNilCallback(t *testing.T) {
-	pr := NewProgressReader(strings.NewReader("data"), 10, nil)
+	pr := NewProgressReader(strings.NewReader("data"), 0, 10, nil)
 
 	data, err := io.ReadAll(pr)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestProgressReaderNilCallback(t *testing.T) {
 
 func TestProgressReaderZeroTotal(t *testing.T) {
 	var callCount int
-	pr := NewProgressReader(strings.NewReader("test"), 0,
+	pr := NewProgressReader(strings.NewReader("test"), 0, 0,
 		func(_ float64, _, _ int64) {
 			callCount++
 		},

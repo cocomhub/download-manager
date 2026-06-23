@@ -103,4 +103,7 @@ func init() {
 		return NewFileStorage(config)
 	})
 	Register("memory", NewMemoryStorage)
+	Register("mongo", func(config map[string]string) (core.Storage, error) {
+		return NewMongoStorage(config)
+	})
 }

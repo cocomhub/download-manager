@@ -16,10 +16,11 @@ type ProgressReader struct {
 
 // NewProgressReader 创建一个 ProgressReader。
 // total 为预期总字节数（0 表示未知，此时不触发回调）；onProgress 为进度回调（可为 nil）。
-func NewProgressReader(reader io.Reader, total int64, onProgress func(float64, int64, int64)) *ProgressReader {
+func NewProgressReader(reader io.Reader, downloaded int64, total int64, onProgress func(float64, int64, int64)) *ProgressReader {
 	return &ProgressReader{
 		reader:     reader,
 		total:      total,
+		downloaded: downloaded,
 		onProgress: onProgress,
 	}
 }
