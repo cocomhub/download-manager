@@ -18,7 +18,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 )
 
-func Scrape(url string, cookie string) (string, error) {
+func Scrape(url string, cookie string) (body string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, config.GetServerConfig().ScraperPath, url)
@@ -35,8 +35,8 @@ func Scrape(url string, cookie string) (string, error) {
 	return out.String(), nil
 }
 
-func ScraperNative(url string, cookie string) (string, error) {
-	body, err := doScraperNative(url, cookie)
+func ScraperNative(url string, cookie string) (body string, err error) {
+	body, err = doScraperNative(url, cookie)
 	if err == nil {
 		return body, nil
 	}
@@ -52,7 +52,7 @@ func ScraperNative(url string, cookie string) (string, error) {
 	return doScraperNative(url, cookie)
 }
 
-func doScraperNative(url string, cookie string) (string, error) {
+func doScraperNative(url string, cookie string) (body string, err error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -112,9 +112,9 @@ func doScraperNative(url string, cookie string) (string, error) {
 		return "", fmt.Errorf("scraper(%s) failed: %v", url, resp.Status)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	return string(body), nil
+	return string(b), nil
 }

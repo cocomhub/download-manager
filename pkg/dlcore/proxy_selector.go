@@ -95,7 +95,11 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 
 	cacheBase := ps.cacheDir
 	if cacheBase == "" {
-		cacheBase = filepath.Join(os.TempDir(), ".dm-proxy-cache")
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			cacheDir = os.TempDir()
+		}
+		cacheBase = filepath.Join(cacheDir, "dm-proxy-cache")
 	}
 	cachePath := filepath.Join(cacheBase, domain)
 

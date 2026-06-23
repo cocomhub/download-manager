@@ -80,12 +80,11 @@ func parseFlags(args []string) (parseResult, error) {
 	if runMode != "" {
 		// CLI --run-mode provided
 		res.RunModeSet = true
-		res.RunMode = config.RunModeFull
 		switch strings.ToLower(runMode) {
-		case "full":
-			res.RunMode = config.RunModeFull
 		case "ui":
 			res.RunMode = config.RunModeUI
+		default:
+			res.RunMode = config.RunModeFull
 		}
 	} else if uiOnly {
 		// CLI --ui-only provided

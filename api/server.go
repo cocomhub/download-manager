@@ -139,6 +139,8 @@ func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
 }
 
 // coalesce returns s if non-empty, otherwise returns def.
+//
+//nolint:godre  // single return value, naming adds no value
 func coalesce(s string, def string) string {
 	if s != "" {
 		return s

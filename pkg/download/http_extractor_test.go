@@ -159,7 +159,7 @@ func TestHTTPExtractorDownload(t *testing.T) {
 				io.WriteString(h, content)
 				hexMD5 := hex.EncodeToString(h.Sum(nil))
 
-				var capturedEtag string
+				var capturedEtag string //nolint:godre  // used across closure boundary in OnMetadata
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-MD5", hexMD5)
 					w.WriteHeader(http.StatusOK)
@@ -195,7 +195,7 @@ func TestHTTPExtractorDownload(t *testing.T) {
 		{
 			name: "304 skip",
 			run: func(t *testing.T) {
-				var capturedEtag string
+				var capturedEtag string //nolint:godre  // used across closure boundary in OnMetadata
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if inm := r.Header.Get("If-None-Match"); inm != "" {
 						w.Header().Set("ETag", `"abc123"`)

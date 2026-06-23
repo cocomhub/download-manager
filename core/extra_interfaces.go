@@ -11,7 +11,7 @@ import (
 
 // PathStrategy defines how save paths are resolved for download objects.
 type PathStrategy interface {
-	Resolve(baseDir string, taskID string, title string, fileType string) (string, string)
+	Resolve(baseDir string, taskID string, title string, fileType string) (dir string, filename string)
 }
 
 // ScrapeCap is implemented by tasks that support Manager-driven page scraping.

@@ -540,12 +540,7 @@ func (b *BaseTask) SyncSharedToObject(obj *model.DownloadObject) {
 }
 
 func (b *BaseTask) syncSharedToObjectLocked(obj *model.DownloadObject) {
-	if b.shared == nil || obj == nil {
-		return
-	}
-	if so, err := b.shared.Get(obj.URL); err == nil && so != nil {
-		applySharedState(obj, so)
-	}
+	b.SyncSharedToObject(obj)
 }
 
 func applySharedState(dst, src *model.DownloadObject) {

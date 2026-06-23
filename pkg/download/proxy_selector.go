@@ -75,7 +75,11 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 
 	cacheBase := s.cacheDir
 	if cacheBase == "" {
-		cacheBase = filepath.Join(os.TempDir(), ".dm-proxy-cache")
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			cacheDir = os.TempDir()
+		}
+		cacheBase = filepath.Join(cacheDir, "dm-proxy-cache")
 	}
 	cachePath := filepath.Join(cacheBase, domain)
 

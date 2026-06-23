@@ -136,7 +136,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
 		var fileList []map[string]string
 
-		if typeName := fmt.Sprintf("%T", filesVal); typeName == "primitive.A" {
+		if fmt.Sprintf("%T", filesVal) == "primitive.A" {
 			filesVal = filesVal.([]any)
 		}
 
