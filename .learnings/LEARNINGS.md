@@ -2201,3 +2201,69 @@ bash -n scripts/check-test-files.sh  # 无输出 = 语法正确
 - Pattern-Key: config.add_field_checklist
 - Recurrence-Count: 1
 - **Promoted**: CLAUDE.md
+
+---
+
+## [LRN-20260623-001] insight — download() 成功/失败路径缺少 CancelObject 保护
+
+**Logged**: 2026-06-23T09:56:00Z
+**Priority**: critical
+**Status**: promoted
+**Area**: backend
+
+### Summary
+`manager/download.go` 中 `download()` 函数在 `dl.Download()` 完成后使用本地 stale pointer 写入状态，导致 `CancelObject` 在另一 goroutine 中修改 storage 后，`download()` 仍用旧指针覆盖为 `"completed"` 或 `"failed"`，使 cancel 无法"粘住"。
+
+### Details
+
+**问题路径：**
+
+1. `CancelObject`（`manager/tasks.go:87`）通过 `m.getTaskObject()` 从 storage 获得指针 B，调 `t.UpdateStatus(obj, StatusCancelled)` → storage 中指针 B 状态为 `cancelled`
+2. `download()`（`manager/download.go:20`）保持调用开始时获得的指针 A（状态为 `downloading`/`pending`）
+3. **成功路径（原 line 276）**：`dl.Download()` 成功后直接 `t.UpdateStatus(obj, StatusCompleted)`，**完全不检查是否已被取消**，用指针 A 覆盖 storage
+4. **失败路径（原 line 158）**：`if obj.GetStatus() == StatusCancelled` 从**指针 A**（stale）读取，即使 storage 中已标记 `cancelled` 仍返回 false
+
+**此前已修复的路径：**
+- `processResolve`（`manager/resolve.go`）已使用 `SetStatusUnlessCancelled` 从 storage 重读 → 正确
+- **但 `download()` 成功路径完全没有 cancelled 保护**
+
+**修复方案：`isCancelled` 辅助函数 + 在成功/失败路径使用**
+
+```go
+func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
+    if obj.GetStatus() == model.StatusCancelled {
+        return true
+    }
+    st := t.Storage()
+    if st == nil {
+        return false
+    }
+    current, err := st.Get(obj.URL)
+    if err != nil || current == nil {
+        return false
+    }
+    return current.GetStatus() == model.StatusCancelled
+}
+```
+
+改动：
+1. 失败路径 `obj.GetStatus() == StatusCancelled` → `m.isCancelled(t, obj)`
+2. 成功路径在 `UpdateStatus(StatusCompleted)` 前插入 `m.isCancelled(t, obj)` 检查
+3. 测试超时 3s → 10s
+
+### 学习要点
+- **stale pointer 模式**：当一个对象的指针被多个 goroutine 持有，一个修改 storage、另一个用本地指针写入时，本地指针就是 stale。必须从 storage 重新读取。
+- `download()` 函数有 3 处可能修改对象状态（失败 retry、成功 completed、复合下载 re-resolve），每处都需要 cancelled 检查
+- 即使 `processResolve` 路径已正确防护，`download()` 路径是另一个独立的竞争窗口
+- 与 `SetStatusUnlessCancelled` 不同，这里不能直接用基于本地指针的检查——必须从 storage 重读
+
+### Promoted
+- download-manager/CLAUDE.md （CancelObject 竞争模式条目需扩展）
+
+### Metadata
+- Source: debugging
+- Related Files: manager/download.go, api/server_retry_test.go
+- Tags: data_race, cancel, stale_pointer, download
+- See Also: LRN-20260618-004
+
+---

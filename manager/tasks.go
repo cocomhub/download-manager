@@ -97,7 +97,7 @@ func (m *Manager) CancelObject(taskID, url string) error {
 		return fmt.Errorf("object not found")
 	}
 	if obj.GetStatus() == model.StatusCompleted {
-		return fmt.Errorf("object already completed")
+		return fmt.Errorf("object already completed, use delete to remove it")
 	}
 	t.UpdateStatus(obj, model.StatusCancelled, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})

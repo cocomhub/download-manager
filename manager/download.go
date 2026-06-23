@@ -17,6 +17,23 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
+// isCancelled 从 storage 重新读取对象状态检查是否已取消，
+// 避免 download() 中的本地指针（obj）可能在 CancelObject 修改 storage 后变为 stale。
+func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
+	if obj.GetStatus() == model.StatusCancelled {
+		return true
+	}
+	st := t.Storage()
+	if st == nil {
+		return false
+	}
+	current, err := st.Get(obj.URL)
+	if err != nil || current == nil {
+		return false
+	}
+	return current.GetStatus() == model.StatusCancelled
+}
+
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	start := time.Now()
 	defer func() {
@@ -138,7 +155,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 
 	err := dl.Download(obj, t.GetDownloadHeaders())
 	if err != nil {
-		if obj.GetStatus() == model.StatusCancelled {
+		if m.isCancelled(t, obj) {
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 			return
@@ -254,6 +271,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 				}
 			}
 			m.soTracker.Delete(obj.URL)
+		}
+
+		// 检查是否已被取消（CancelObject 可能已在别的 goroutine 中修改了 storage）
+		if m.isCancelled(t, obj) {
+			slog.Info("Download: object was cancelled before completion, preserving cancelled status",
+				"task_id", t.ID(), "url", obj.URL)
+			m.failedCount.Delete(obj.URL)
+			return
 		}
 
 		t.UpdateStatus(obj, model.StatusCompleted, nil)

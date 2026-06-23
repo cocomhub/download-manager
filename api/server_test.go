@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,6 +149,47 @@ func TestAPI_CancelObject(t *testing.T) {
 		rr := doJSONPost(t, r, "/api/tasks/mock-cancel-api/object/cancel", body)
 		return rr.Code == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "wait for cancel to succeed on mock-cancel-api")
+
+	_ = done
+}
+
+// TestAPI_CancelObject_AlreadyCompleted verifies that canceling a completed
+// object returns a specific error hinting at the delete feature.
+func TestAPI_CancelObject_AlreadyCompleted(t *testing.T) {
+	_, cfg := newAPIServerWithMock(t, "mock-cancel-completed", 1, true)
+	// Override the task config: set initial status to completed.
+	cfg.Tasks[0].Extra = map[string]any{
+		"mock_rules": []any{
+			map[string]any{
+				"url_template": "http://mock-download/file-{n}.bin",
+				"count":        1,
+				"status":       "completed",
+			},
+		},
+		"refresh_interval": 0,
+	}
+	// Recreate the manager with the updated config so objects start as completed.
+	mgr := manager.NewManager(cfg)
+	srv := NewServer(mgr)
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+
+	// Try to cancel the completed object — object seeding is lazy so retry
+	// until the object exists in storage and we get the expected error.
+	const wantHint = "use delete to remove it"
+	assert.MustEventually(t, func() bool {
+		body := map[string]string{"url": "http://mock-download/file-0.bin"}
+		rr := doJSONPost(t, r, "/api/tasks/mock-cancel-completed/object/cancel", body)
+		if rr.Code != http.StatusBadRequest {
+			return false
+		}
+		var resp map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			return false
+		}
+		return strings.Contains(resp["message"], wantHint)
+	}, 3*time.Second, 50*time.Millisecond, "wait for cancel to return delete hint on completed object")
 
 	_ = done
 }
