@@ -6,10 +6,6 @@ name: CI
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-permissions:
-  contents: write   # auto-push 需要
-  deployments: write
-
 on:
   push:
     branches: [dev, main, master, "release/**"]
@@ -44,6 +40,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
         go: ["1.26"]
+    permissions:
+      contents: write   # auto-push 需要
+      deployments: write
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -110,6 +109,7 @@ jobs:
           tool: go
           output-file-path: build/bench/bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
           alert-threshold: "200%"
           comment-on-alert: true
           fail-on-alert: false
