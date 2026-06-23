@@ -183,7 +183,8 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		if r.ModTime != "" {
 			obj.Metadata["mod_time"] = r.ModTime
 		}
-		// TODO(MigrationCleanup): remove after dlcore deprecation — compatibility field
+		// Compatibility shim: set status metadata for consumers not yet migrated
+		// to the pkg/download result model. Remove when dlcore is fully removed.
 		obj.Metadata["status"] = "completed"
 	}
 	obj.Unlock()

@@ -65,7 +65,8 @@ func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.
 // WithHLSUserAgent 设置自定义 User-Agent。
 func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.userAgent = ua } }
 
-// SetTransport 是空操作，HLSExtractor 通过 ffmpeg exec 或 m3u8d 下载，不依赖 Transport。
+// SetTransport is a no-op: HLSExtractor downloads via ffmpeg exec or m3u8d,
+// not through a Go Transport. Implemented for download.TransportSetter interface.
 func (e *HLSExtractor) SetTransport(_ download.Transport) {}
 
 func (e *HLSExtractor) Name() string { return "hls" }

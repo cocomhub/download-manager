@@ -3,7 +3,7 @@
 
 package tktube
 
-import _ "embed"
+import _ "embed" // embed player_util.js at compile time for PlayerUtilJS
 
 // PlayerUtilJS is the embedded JavaScript utility for the tktube player.
 //

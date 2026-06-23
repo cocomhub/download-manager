@@ -77,7 +77,8 @@ func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
 // SetSelector 注入 Selector 实例用于代理选择。
 func (e *WgetExtractor) SetSelector(s download.Selector) { e.selector = s }
 
-// SetTransport 是空操作，wget 不依赖 Transport。
+// SetTransport is a no-op: wget does not use a Go Transport.
+// Implemented for download.TransportSetter interface compatibility.
 func (e *WgetExtractor) SetTransport(t download.Transport) {}
 
 // Extract 使用 wget 命令行下载文件。
