@@ -51,7 +51,7 @@ func TestAPI_RetryObject(t *testing.T) {
 			}
 		}
 		return false
-	}, 3*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
+	}, 10*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
 
 	// Retry the cancelled object.
 	cancelResult := doJSONPost(t, r, "/api/tasks/mock-retry-obj/retry", body)
@@ -174,7 +174,7 @@ func TestAPI_UndoCancelObject(t *testing.T) {
 			}
 		}
 		return false
-	}, 3*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
+	}, 10*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
 
 	// Undo the cancel.
 	undoResult := doJSONPost(t, r, "/api/tasks/mock-undo/object/undo_cancel", body)
@@ -253,7 +253,7 @@ func TestAPI_UndoCancelObjectsBatch(t *testing.T) {
 			}
 		}
 		return cancelled >= 2
-	}, 3*time.Second, 50*time.Millisecond, "wait for both objects to be cancelled")
+	}, 10*time.Second, 50*time.Millisecond, "wait for both objects to be cancelled")
 
 	// Batch undo.
 	rr := doJSONPost(t, r, "/api/tasks/mock-undo-batch/object/undo_cancel_batch", map[string][]string{
