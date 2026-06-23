@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	metricsLabelCompleted = "completed"
+	metricsLabelFailures  = "failures"
+)
+
 // CollectMetrics 收集当前所有任务和全局的运行时指标
 func (m *Manager) CollectMetrics() map[string]any {
 	taskMetricsMap := make(map[string]any)
@@ -30,14 +35,14 @@ func (m *Manager) CollectMetrics() map[string]any {
 		}
 
 		taskMetricsMap[id] = map[string]any{
-			"avg_latency_ms": mt.avgLatencyMs.Load(),
-			"completed":      mt.completed.Load(),
-			"failures":       mt.failures.Load(),
-			"retried":        mt.retried.Load(),
-			"last_active":    mt.lastActive.Load(),
-			"queue_depth":    len(q),
-			"active":         active,
-			"concurrency":    concurrency,
+			"avg_latency_ms":      mt.avgLatencyMs.Load(),
+			metricsLabelCompleted: mt.completed.Load(),
+			"failures":            mt.failures.Load(),
+			"retried":             mt.retried.Load(),
+			"last_active":         mt.lastActive.Load(),
+			"queue_depth":         len(q),
+			"active":              active,
+			"concurrency":         concurrency,
 		}
 		return true
 	})
