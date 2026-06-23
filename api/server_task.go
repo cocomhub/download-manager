@@ -115,7 +115,7 @@ func (s *Server) cancelObject(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req ObjectURLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "url is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "url is required")
 		return
 	}
 	if err := s.mgr.CancelObject(id, req.URL); err != nil {
@@ -131,7 +131,7 @@ func (s *Server) undoCancelObject(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req ObjectURLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "url is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "url is required")
 		return
 	}
 	if err := s.mgr.UndoCancelObject(id, req.URL); err != nil {
@@ -147,7 +147,7 @@ func (s *Server) cancelObjectsBatch(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req ObjectURLsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "urls is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
 		return
 	}
 	result := make(map[string]string)
@@ -167,7 +167,7 @@ func (s *Server) undoCancelObjectsBatch(w http.ResponseWriter, r *http.Request) 
 	id := vars["id"]
 	var req ObjectURLsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "urls is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
 		return
 	}
 	result := make(map[string]string)
@@ -187,7 +187,7 @@ func (s *Server) cancelTasksBatch(w http.ResponseWriter, r *http.Request) {
 		IDs []string `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "ids is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "ids is required")
 		return
 	}
 	res := s.mgr.CancelTasks(req.IDs)
@@ -234,7 +234,7 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req TaskConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	audit := &manager.AuditInfo{
@@ -253,7 +253,7 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task config: %v", err))
+		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task config: %v", err))
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{
@@ -267,7 +267,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	var req TaskConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	audit := &manager.AuditInfo{
@@ -277,7 +277,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "update_failed", fmt.Sprintf("Failed to update task runtime: %v", err))
+		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task runtime: %v", err))
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{
@@ -297,12 +297,12 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 
 	var req ReorderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 
 	if req.URL == "" {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "URL is required")
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "URL is required")
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Server) reorderTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	if t.ID == "" || t.Type == "" {
@@ -357,7 +357,7 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 	}
 	var t config.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf(errFmtInvalidBody, err))
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
 		return
 	}
 	cur := s.mgr.GetConfig()
@@ -381,7 +381,7 @@ func (s *Server) updateTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		Source:  "api/tasks/put",
 		Message: fmt.Sprintf("task %s updated", id),
 	}); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "update_failed", fmt.Sprintf("Failed to update task %s: %v", id, err))
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to update task %s: %v", id, err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -417,7 +417,7 @@ func (s *Server) getGroupObjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Set headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set(hdrCacheControl, hdrNoCache)
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 

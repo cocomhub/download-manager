@@ -130,7 +130,7 @@ func (s *Server) Router() *mux.Router {
 
 // writeJSONError writes a JSON error response with the given status, code, and message.
 func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(hdrContentType, "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error":   code,
