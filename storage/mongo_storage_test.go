@@ -38,10 +38,10 @@ func TestBuildMongoFilter_IncludesTaskStatusMetadataAndSearch(t *testing.T) {
 			Search:   "club",
 		},
 	})
-	if got := filter["task_id"]; got == nil {
+	if filter["task_id"] == nil {
 		t.Fatalf("expected task_id filter")
 	}
-	if got := filter["status"]; got == nil {
+	if filter["status"] == nil {
 		t.Fatalf("expected status filter")
 	}
 	if got := filter["metadata.content_group"]; got != "ABP-123" {

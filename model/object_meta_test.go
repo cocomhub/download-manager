@@ -9,8 +9,7 @@ import (
 )
 
 func TestGetTags_NilObject(t *testing.T) {
-	var o *DownloadObject
-	if tags := o.GetTags(); tags != nil {
+	if tags := (*DownloadObject)(nil).GetTags(); tags != nil {
 		t.Fatalf("expected nil tags for nil object")
 	}
 }
@@ -137,9 +136,9 @@ func TestBackwardCompat_MetadataDirectAccess(t *testing.T) {
 	}
 }
 
+var o *DownloadObject
+
 func TestNilSafety_AllAccessors(t *testing.T) {
-	var o *DownloadObject
-	_ = o.GetTags()
 	_ = o.GetPreviewURL()
 	_ = o.GetLocalPreview()
 	_ = o.GetGroupSize()
