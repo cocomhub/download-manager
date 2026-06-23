@@ -168,7 +168,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		for _, fileMap := range fileList {
 			url := fileMap["url"]
 			path := fileMap["path"]
-			fType := fileMap["type"]
+			fType := fileMap[model.MetadataKeyType]
 
 			if url == "" || path == "" {
 				continue

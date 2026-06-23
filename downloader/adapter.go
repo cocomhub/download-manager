@@ -207,7 +207,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 	for _, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]
-		fType := fileMap["type"]
+		fType := fileMap[model.MetadataKeyType]
 
 		if subURL == "" || subPath == "" {
 			continue

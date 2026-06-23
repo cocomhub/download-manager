@@ -58,10 +58,10 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	var repA *model.DownloadObject
 	var repB *model.DownloadObject
 	for _, o := range objs {
-		if o.Metadata["content_group"] == "CLUB-100" {
+		if o.Metadata[model.MetadataKeyContentGroup] == "CLUB-100" {
 			repA = o
 		}
-		if o.Metadata["content_group"] == "ABP-456" {
+		if o.Metadata[model.MetadataKeyContentGroup] == "ABP-456" {
 			repB = o
 		}
 	}

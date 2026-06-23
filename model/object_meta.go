@@ -162,7 +162,7 @@ func (o *DownloadObject) GetMetaTitle() string {
 	if o == nil || o.Metadata == nil {
 		return ""
 	}
-	return o.Metadata["title"]
+	return o.Metadata[MetadataKeyTitle]
 }
 
 // SetMetaTitle sets title in Metadata.
@@ -173,7 +173,7 @@ func (o *DownloadObject) SetMetaTitle(title string) {
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
-	o.Metadata["title"] = title
+	o.Metadata[MetadataKeyTitle] = title
 }
 
 // GetMetaDate returns date from Metadata.
@@ -219,7 +219,7 @@ func (o *DownloadObject) GetMetaContentGroup() string {
 	if o == nil || o.Metadata == nil {
 		return ""
 	}
-	return o.Metadata["content_group"]
+	return o.Metadata[MetadataKeyContentGroup]
 }
 
 // SetMetaContentGroup sets content_group in Metadata.
@@ -230,7 +230,7 @@ func (o *DownloadObject) SetMetaContentGroup(group string) {
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
-	o.Metadata["content_group"] = group
+	o.Metadata[MetadataKeyContentGroup] = group
 }
 
 // GetMetaTaskType returns task_type from Metadata.

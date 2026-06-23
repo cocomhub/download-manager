@@ -247,7 +247,7 @@ func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 
 	// Preview 视频
 	if previewURL, ok := obj.Extra["preview_url"].(string); ok && previewURL != "" {
-		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
+		baseName := strings.ReplaceAll(obj.Metadata[model.MetadataKeyTitle], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_preview.mp4")
 		items = append(items, core.SmallObjectInfo{
 			URL:      previewURL,
@@ -258,7 +258,7 @@ func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 
 	// Cover 缩略图
 	if thumbURL, ok := obj.Extra["thumb_url"].(string); ok && thumbURL != "" {
-		baseName := strings.ReplaceAll(obj.Metadata["title"], "/", "_")
+		baseName := strings.ReplaceAll(obj.Metadata[model.MetadataKeyTitle], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_thumb.jpg")
 		items = append(items, core.SmallObjectInfo{
 			URL:      thumbURL,
@@ -306,7 +306,7 @@ func (t *Task) SetObjectIndex(url string, newIndex int) error {
 }
 
 func (t *Task) resolveVideoDetails(obj *model.DownloadObject) error {
-	t.Logger().Info("Resolving video details", "title", obj.Metadata["title"])
+	t.Logger().Info("Resolving video details", "title", obj.Metadata[model.MetadataKeyTitle])
 	videoInfo, err := t.parseVideoPage(obj.URL)
 	if err != nil {
 		if err == ErrNoFlashvars {

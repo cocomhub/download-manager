@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
@@ -93,7 +94,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 	for i, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]
-		fType := fileMap["type"]
+		fType := fileMap[model.MetadataKeyType]
 
 		if subURL == "" || subPath == "" {
 			continue

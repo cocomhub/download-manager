@@ -452,7 +452,7 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 		})
 	}
 	applyResolve := func() {
-		obj.Metadata["title"] = info.title
+		obj.Metadata[model.MetadataKeyTitle] = info.title
 		obj.Metadata["date"] = info.date
 		obj.SavePath = videoPath
 		if _, ok := obj.Extra["files"]; !ok {

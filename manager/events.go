@@ -70,7 +70,7 @@ func (m *Manager) broadcastProgress() {
 				Status:   obj.GetStatus(),
 			}
 			if obj.Metadata != nil {
-				item.Title = obj.Metadata["title"]
+				item.Title = obj.Metadata[model.MetadataKeyTitle]
 			}
 			batch.Updates = append(batch.Updates, item)
 			m.lastProgress.Store(obj.URL, obj.GetProgress())
