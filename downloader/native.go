@@ -17,6 +17,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // deprecated dlcore used only by native_old downloader
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 var (
@@ -26,7 +27,7 @@ var (
 // Deprecated: NativeHTTPDownloader uses the deprecated pkg/dlcore.
 // Use New() with a "native" type to get the new pkg/download path.
 type NativeHTTPDownloader struct {
-	ctx               context.Context
+	ctx               context.Context //nolint:containedctx
 	logDir            string
 	proxies           []string
 	cacheFile         string
@@ -47,7 +48,7 @@ func NewNativeHTTPDownloader(cfg config.Downloader) *NativeHTTPDownloader {
 	if logDirRel != "" {
 		logDir = filepath.Join(rootDir, logDirRel)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			slog.Error("Failed to create log directory", "dir", logDir, "error", err)
+			slog.Error("Failed to create log directory", "dir", logDir, logutil.LogKeyError, err)
 			logDir = ""
 		}
 	}
@@ -156,7 +157,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 			}
 		} else {
 			slog.Error("Composite download with unknown files metadata type",
-				"type", fmt.Sprintf("%T", filesVal), "task_id", obj.TaskID)
+				"type", fmt.Sprintf("%T", filesVal), logutil.LogKeyTaskID, obj.TaskID)
 			return fmt.Errorf("composite download error: unknown 'files' metadata type")
 		}
 
@@ -164,7 +165,7 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 			return fmt.Errorf("%w: composite download error: 'files' metadata found but empty", dlcore.ErrNoTry)
 		}
 
-		slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
+		slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyTaskID, obj.TaskID)
 		for _, fileMap := range fileList {
 			url := fileMap["url"]
 			path := fileMap["path"]

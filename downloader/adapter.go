@@ -16,6 +16,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // compile-time interface checks
@@ -30,7 +31,7 @@ var (
 type DownloaderAdapter struct {
 	mu              sync.Mutex
 	dl              *download.Downloader
-	dlCtx           context.Context
+	dlCtx           context.Context //nolint:containedctx
 	transport       download.Transport
 	cancels         sync.Map // map[string]context.CancelFunc
 	metrics         *download.MetricRegistry
@@ -203,7 +204,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 	}
 	// parseCompositeFiles already handles empty list — returns ErrCompositeEmpty
 
-	slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
+	slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyTaskID, obj.TaskID)
 	for _, fileMap := range fileList {
 		subURL := fileMap["url"]
 		subPath := fileMap["path"]
