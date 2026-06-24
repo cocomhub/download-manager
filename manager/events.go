@@ -8,6 +8,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // ProgressBatch 包含一次广播周期内所有对象的进度变更
@@ -48,7 +49,7 @@ func (m *Manager) publish(e core.Event) {
 		case ch <- e:
 		default:
 			// Drop event if consumer is too slow
-			slog.Warn("Dropping event for slow subscriber", "type", e.Type)
+			slog.Warn("Dropping event for slow subscriber", logutil.LogKeyType, e.Type)
 		}
 	}
 }

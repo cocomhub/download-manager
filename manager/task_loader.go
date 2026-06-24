@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/task"
 )
 
@@ -20,7 +21,7 @@ func (m *Manager) loadTasks() {
 		}
 		t, err := task.NewTask(&tCfg, task.WithDriver(m.scrapeDriver))
 		if err != nil {
-			slog.Error("Failed to create task", "task_id", tCfg.ID, "error", err)
+			slog.Error("Failed to create task", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
 			continue
 		}
 		t.SetDownloader(m.getDownloader())
@@ -28,13 +29,13 @@ func (m *Manager) loadTasks() {
 			srSetter.SetSharedRegistry(m.urlRegistry)
 		}
 		if err = t.Start(); err != nil {
-			slog.Error("Failed to start task", "task_id", tCfg.ID, "error", err)
+			slog.Error("Failed to start task", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
 			_ = t.Close()
 			continue
 		}
 		m.urlRegistry.RegisterStorage(tCfg.ID, t.Storage())
 		m.tasks.Store(tCfg.ID, t)
-		slog.Info("Task loaded", "task_id", tCfg.ID)
+		slog.Info("Task loaded", logutil.LogKeyTaskID, tCfg.ID)
 	}
 }
 
@@ -46,7 +47,7 @@ func (m *Manager) closeAllTasks() {
 	})
 	for _, t := range tasks {
 		if err := t.Close(); err != nil {
-			slog.Error("Failed to close task", "task_id", t.ID(), "error", err)
+			slog.Error("Failed to close task", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyError, err)
 		}
 	}
 }

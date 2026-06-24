@@ -13,14 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/task"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
 // baseURL is the root URL for hanime1.me API requests.
@@ -118,7 +118,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				candidates = append(candidates, obj)
 			} else {
 				cancel()
-				t.Logger().Error("hanime resolve object failed", "url", obj.URL, "error", err)
+				t.Logger().Error("hanime resolve object failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				t.UpdateStatus(obj, model.StatusFailed, err)
 			}
 		}
@@ -147,7 +147,7 @@ func (t *Task) runScraper(url string) (string, error) {
 func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
-		t.Logger().Error("hanime parse home page failed", "error", err)
+		t.Logger().Error("hanime parse home page failed", logutil.LogKeyError, err)
 		return nil, err
 	}
 	items := make([]hanimeItem, 0, 24)

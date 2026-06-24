@@ -7,6 +7,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // DefaultPager implements Pager with retry, dynamic tail refresh, maxEmptyPages break,
@@ -45,7 +47,7 @@ func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) R
 	var items any
 	for {
 		if err := ctx.Err(); err != nil {
-			slog.Info("Pager: context canceled", "page", page, "error", err)
+			slog.Info("Pager: context canceled", "page", page, logutil.LogKeyError, err)
 			return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
 		}
 
@@ -60,14 +62,14 @@ func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) R
 				break
 			}
 			if attempt < maxRetries-1 {
-				slog.Warn("Pager: retry after scrape error", "page", page, "url", url, "attempt", attempt+1, "error", err)
+				slog.Warn("Pager: retry after scrape error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
 				if !sleepCtx(ctx, time.Duration(1<<attempt)*time.Second) {
 					return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
 				}
 			}
 		}
 		if err != nil {
-			slog.Error("Pager: scrape failed after max retries", "page", page, "url", url, "error", err)
+			slog.Error("Pager: scrape failed after max retries", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
 			if firstFailedPage == 0 {
 				firstFailedPage = page
 			}
@@ -90,10 +92,10 @@ func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) R
 				break
 			}
 			if attempt < maxRetries-1 {
-				slog.Warn("Pager: retry after parse error", "page", page, "url", url, "attempt", attempt+1, "error", err)
+				slog.Warn("Pager: retry after parse error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
 				reHTML, reErr := hooks.RunScraper(url)
 				if reErr != nil {
-					slog.Error("Pager: re-scrape failed after parse error", "page", page, "url", url, "error", reErr)
+					slog.Error("Pager: re-scrape failed after parse error", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, reErr)
 					err = reErr
 					break
 				}
@@ -101,7 +103,7 @@ func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) R
 			}
 		}
 		if err != nil {
-			slog.Error("Pager: parse failed after max retries", "page", page, "url", url, "error", err)
+			slog.Error("Pager: parse failed after max retries", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
 			if firstFailedPage == 0 {
 				firstFailedPage = page
 			}

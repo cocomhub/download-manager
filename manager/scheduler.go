@@ -12,6 +12,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 func (m *Manager) Start() {
@@ -171,7 +172,7 @@ func (m *Manager) scan() {
 		if sc, ok := value.(core.ScrapeCap); ok {
 			taskID := key.(string)
 			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
-				slog.Debug("Scrape: previous run still in progress, skipping", "task_id", taskID)
+				slog.Debug("Scrape: previous run still in progress, skipping", logutil.LogKeyTaskID, taskID)
 				return true
 			}
 			go func(taskID string, sc core.ScrapeCap) {
@@ -184,10 +185,10 @@ func (m *Manager) scan() {
 				select {
 				case err := <-done:
 					if err != nil {
-						slog.Error("Scrape failed", "task_id", taskID, "error", err)
+						slog.Error("Scrape failed", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 					}
 				case <-ctx.Done():
-					slog.Error("Scrape timed out", "task_id", taskID)
+					slog.Error("Scrape timed out", logutil.LogKeyTaskID, taskID)
 					// ctx is canceled; wait for inner goroutine to actually return
 					// before releasing the dedup guard, so the next scan cycle
 					// does not start a second concurrent Scrape for this task.
@@ -230,7 +231,7 @@ func (m *Manager) processTask(t core.Task) {
 	// If active >= limit, we stop scheduling new downloads for this task.
 	if active >= limit {
 		m.mu.Unlock()
-		// slog.Debug("Task reached concurrency limit", "task_id", t.ID(), "active", active, "limit", limit)
+		// slog.Debug("Task reached concurrency limit", logutil.LogKeyTaskID, t.ID(), "active", active, "limit", limit)
 		return
 	}
 	m.mu.Unlock()
@@ -241,14 +242,14 @@ func (m *Manager) processTask(t core.Task) {
 	// Only fetch objects if we have capacity
 	objs, err := t.GetDownloadObjects()
 	if err != nil {
-		slog.Error("Error getting objects for task", "task_id", t.ID(), "error", err)
+		slog.Error("Error getting objects for task", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyError, err)
 		return
 	}
 
 	if len(objs) == 0 {
 		return
 	}
-	// slog.Debug("Task has objects to download", "task_id", t.ID(), "count", len(objs))
+	// slog.Debug("Task has objects to download", logutil.LogKeyTaskID, t.ID(), "count", len(objs))
 
 	// Schedule downloads up to available slots
 	count := 0
@@ -282,7 +283,7 @@ func (m *Manager) processTask(t core.Task) {
 		q := m.getTaskQueue(t.ID())
 		select {
 		case q <- &downloadRequest{task: t, obj: obj}:
-			slog.Info("Object enqueued", "task_id", t.ID(), "url", obj.URL)
+			slog.Info("Object enqueued", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 
 			m.mu.Lock()
 			m.activeDownloads[t.ID()]++

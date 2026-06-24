@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cocomhub/download-manager/pkg/download"
-
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 const (
@@ -281,17 +281,17 @@ func TryGetMd5(resp *http.Response) string {
 	url := resp.Request.URL.String()
 
 	if xAmzMetaMd5 := resp.Header.Get("X-Amz-Meta-Md5chksum"); len(xAmzMetaMd5) == 24 {
-		slog.Info("MD5chksum header is not empty", "url", url, "md5", xAmzMetaMd5)
+		slog.Info("MD5chksum header is not empty", logutil.LogKeyURL, url, "md5", xAmzMetaMd5)
 		return xAmzMetaMd5
 	} else if etag, ok := strings.CutPrefix(resp.Header.Get("Etag"), "W/"); ok && len(etag) == 34 && etag[0] == '"' && etag[33] == '"' {
 		etag = etag[1:33]
-		slog.Info("Etag is weak, using it", "url", url, "md5", etag)
+		slog.Info("Etag is weak, using it", logutil.LogKeyURL, url, "md5", etag)
 		return etag
 	} else if wantHexMd5 := resp.Header.Get("Content-MD5"); len(wantHexMd5) == 32 {
-		slog.Info("Content-MD5 header is not empty", "url", url, "md5", wantHexMd5)
+		slog.Info("Content-MD5 header is not empty", logutil.LogKeyURL, url, "md5", wantHexMd5)
 		return wantHexMd5
 	}
-	slog.Debug("md5 header is empty", "url", url, "md5", "")
+	slog.Debug("md5 header is empty", logutil.LogKeyURL, url, "md5", "")
 	return ""
 }
 

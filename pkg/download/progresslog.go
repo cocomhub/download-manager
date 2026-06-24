@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // ProgressReport 是单次进度快照的值对象，包含计算格式化日志行所需的全部字段。
@@ -190,6 +192,6 @@ func defaultProgressFormatter(w io.Writer, r ProgressReport) {
 	_, err := fmt.Fprintf(w, "%s Progress: %s  %.2f %s expected time: %s\n",
 		ts, pctStr, speedVal, unit, etaStr)
 	if err != nil {
-		slog.Warn("Failed to write progress log", "error", err)
+		slog.Warn("Failed to write progress log", logutil.LogKeyError, err)
 	}
 }

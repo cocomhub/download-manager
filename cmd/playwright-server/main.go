@@ -21,6 +21,7 @@ import (
 	"github.com/cocomhub/download-manager/cmd/playwright-server/fixture"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	_ "github.com/cocomhub/download-manager/task/mock" // register mock task type
 )
 
@@ -70,7 +71,7 @@ func main() {
 	// Load fixture before Start() so loadTasks picks it up
 	if *fixtureName != "" {
 		if err := fixture.LoadFixture(mgr, *fixtureName); err != nil {
-			slog.Error("failed to load fixture", "name", *fixtureName, "error", err)
+			slog.Error("failed to load fixture", "name", *fixtureName, logutil.LogKeyError, err)
 			os.Exit(1)
 		}
 	}
@@ -88,7 +89,7 @@ func main() {
 	go func() {
 		slog.Info("playwright test server starting", "port", *port, "fixture", *fixtureName)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server error", "error", err)
+			slog.Error("http server error", logutil.LogKeyError, err)
 			os.Exit(1)
 		}
 	}()

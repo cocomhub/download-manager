@@ -157,7 +157,7 @@ func main() {
 	fl := flock.New(lockFile)
 	locked, err := fl.TryLock()
 	if err != nil {
-		slog.Error("Failed to acquire lock", "lock", lockFile, "error", err)
+		slog.Error("Failed to acquire lock", "lock", lockFile, logutil.LogKeyError, err)
 		os.Exit(1)
 	}
 	if !locked {
@@ -166,7 +166,7 @@ func main() {
 	}
 	defer func() {
 		if err := fl.Unlock(); err != nil {
-			slog.Warn("unlock failed", "lock", lockFile, "error", err)
+			slog.Warn("unlock failed", "lock", lockFile, logutil.LogKeyError, err)
 		}
 		_ = fl.Close()
 	}()
@@ -195,9 +195,9 @@ func main() {
 
 	go func() {
 		slog.Info("Starting HTTP server", "port", port, "version", Version, "build_at", BuildAt)
-		slog.Info("Web UI available", "url", fmt.Sprintf("http://localhost:%d", port))
+		slog.Info("Web UI available", logutil.LogKeyURL, fmt.Sprintf("http://localhost:%d", port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("HTTP server failed", "error", err)
+			slog.Error("HTTP server failed", logutil.LogKeyError, err)
 		}
 	}()
 
@@ -222,7 +222,7 @@ func main() {
 
 	// Step 2: Graceful HTTP shutdown
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("HTTP server shutdown error", "error", err)
+		slog.Error("HTTP server shutdown error", logutil.LogKeyError, err)
 	}
 
 	// Step 3: Wait for workers and flush storages

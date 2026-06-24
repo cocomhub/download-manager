@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 const truncateLogMsg = "\tTruncating existing file."
@@ -113,7 +115,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 			time.Now().Format("20060102150405")+".native.log")
 		ff, err := os.Create(logFile)
 		if err != nil {
-			slog.Warn("Failed to create log file", "file", logFile, "error", err)
+			slog.Warn("Failed to create log file", "file", logFile, logutil.LogKeyError, err)
 		} else {
 			defer ff.Close()
 			f = ff
@@ -128,7 +130,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 		proxyURL, err = c.determineProxy(req)
 		if err != nil {
 			slog.Warn("Proxy selection failed, falling back to direct",
-				"url", req.URL, "error", err)
+				"url", req.URL, logutil.LogKeyError, err)
 		}
 	}
 
@@ -138,7 +140,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 		urlStr = strings.TrimPrefix(urlStr, "http://")
 		urlStr = strings.TrimPrefix(urlStr, "https://")
 		urlStr = proxyURL + "/" + urlStr
-		slog.Info("Using proxy", "url", urlStr, "proxy", proxyURL)
+		slog.Info("Using proxy", logutil.LogKeyURL, urlStr, "proxy", proxyURL)
 	}
 
 	// 检查文件是否存在以支持断点续传

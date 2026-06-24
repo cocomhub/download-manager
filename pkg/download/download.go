@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // Downloader 是用户使用的主要入口。
@@ -114,7 +116,7 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 		return fmt.Errorf("no extractor found for URL: %s", req.URL)
 	}
 
-	slog.Debug("Download: matched extractor", "extractor", ex.Name(), "url", req.URL)
+	slog.Debug("Download: matched extractor", "extractor", ex.Name(), logutil.LogKeyURL, req.URL)
 
 	// 2. 为 Extractor 注入 Transport 和 Selector（如果支持）
 	if hw, ok := ex.(interface{ SetTransport(Transport) }); ok && d.transport != nil {

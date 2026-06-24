@@ -15,6 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // isCancelled 从 storage 重新读取对象状态检查是否已取消，
@@ -64,7 +65,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	// Check if manager is stopping — avoids overwriting status set by Stop()
 	select {
 	case <-m.stopChan:
-		slog.Info("Download skipped — manager stopping", "url", obj.URL)
+		slog.Info("Download skipped — manager stopping", logutil.LogKeyURL, obj.URL)
 		return
 	default:
 	}
@@ -77,12 +78,12 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := t.ResolveObject(ctx, obj); err != nil {
-			slog.Error("Download: resolve expired and re-resolve failed", "task_id", t.ID(), "url", obj.URL, "error", err)
+			slog.Error("Download: resolve expired and re-resolve failed", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 			t.UpdateStatus(obj, model.StatusFailed, err)
 			return
 		}
 		m.resolveCache.MarkResolved(obj.URL)
-		slog.Debug("Download: re-resolved expired object", "task_id", t.ID(), "url", obj.URL)
+		slog.Debug("Download: re-resolved expired object", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 	}
 
 	// 发起小对象下载（不阻塞主体下载）
@@ -138,19 +139,19 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			}
 			if err := st.Update(obj); err != nil {
 				slog.Error("Metadata flush: store.Update failed",
-					"task_id", t.ID(), "url", obj.URL, "error", err)
+					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				return
 			}
 			if flusher, ok := st.(interface{ ForceFlush() error }); ok {
 				if err := flusher.ForceFlush(); err != nil {
 					slog.Error("Metadata flush: ForceFlush failed",
-						"task_id", t.ID(), "url", obj.URL, "error", err)
+						logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				}
 			}
 		})
 	} else {
 		slog.Warn("Metadata flush not supported — crash may lose ETag/checksum",
-			"task_id", t.ID(), "url", obj.URL)
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 	}
 
 	err := dl.Download(obj, t.GetDownloadHeaders())
@@ -179,7 +180,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			count := counter.Add(1)
 			if count > 10 {
 				slog.Error("Composite resolve retry exhausted, marking as permanent failure",
-					"task_id", t.ID(), "url", obj.URL)
+					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 				m.compositeResolveCount.Delete(obj.URL)
 				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
 				if ft, ok := t.(core.FailedTask); ok {
@@ -193,7 +194,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			// 指数退避：2^(count-1) 秒，最大 3600 秒
 			backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
 			slog.Warn("Composite download with empty file list, re-resolving",
-				"task_id", t.ID(), "url", obj.URL, "attempt", count, "backoff", backoff)
+				logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, "attempt", count, "backoff", backoff)
 
 			time.Sleep(backoff)
 
@@ -201,7 +202,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			defer cancel()
 			if resolveErr := t.ResolveObject(ctx, obj); resolveErr != nil {
 				slog.Error("Re-resolve after composite empty failed",
-					"task_id", t.ID(), "url", obj.URL, "error", resolveErr)
+					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, resolveErr)
 			}
 			t.UpdateStatus(obj, model.StatusPending, nil)
 			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
@@ -213,7 +214,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			return
 		}
 
-		slog.Error("Download failed", "task_id", t.ID(), "url", obj.URL, "error", err)
+		slog.Error("Download failed", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 		t.UpdateStatus(obj, model.StatusFailed, err)
 		mt := m.getOrCreateMetrics(t.ID())
 		mt.failures.Add(1)
@@ -267,7 +268,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 			errs := soTracker.WaitAll(5 * time.Minute)
 			for _, e := range errs {
 				if e != nil {
-					slog.Warn("Small-object download had error", "task_id", t.ID(), "url", obj.URL, "error", e)
+					slog.Warn("Small-object download had error", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, e)
 				}
 			}
 			m.soTracker.Delete(obj.URL)
@@ -276,7 +277,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		// 检查是否已被取消（CancelObject 可能已在别的 goroutine 中修改了 storage）
 		if m.isCancelled(t, obj) {
 			slog.Info("Download: object was cancelled before completion, preserving cancelled status",
-				"task_id", t.ID(), "url", obj.URL)
+				logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 			m.failedCount.Delete(obj.URL)
 			return
 		}
@@ -321,7 +322,7 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 		return // Already downloading
 	}
 
-	slog.Info("Force starting download", "task_id", t.ID(), "url", obj.URL)
+	slog.Info("Force starting download", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 
 	m.mu.Lock()
 	m.activeDownloads[t.ID()]++
@@ -369,7 +370,7 @@ func (m *Manager) RetryObject(taskID, url string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := t.ResolveObject(ctx, obj); err != nil {
-			slog.Error("Failed to resolve object for retry", "error", err)
+			slog.Error("Failed to resolve object for retry", logutil.LogKeyError, err)
 			return fmt.Errorf("failed to resolve object: %v", err)
 		}
 

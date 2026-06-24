@@ -19,6 +19,7 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/task"
 	"github.com/dop251/goja"
@@ -150,7 +151,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 				defer func() { <-sem }()
 
 				if err := t.resolveVideoDetails(o); err != nil {
-					t.Logger().Error("Failed to resolve video details", "url", o.URL, "error", err)
+					t.Logger().Error("Failed to resolve video details", logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)
 					// resolveVideoDetails already calls MarkAsFailed for ErrNoFlashvars
 					// (which sets failed_permanent). Don't overwrite with generic StatusFailed.
 					if !errors.Is(err, ErrNoFlashvars) {

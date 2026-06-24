@@ -13,6 +13,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // --- objectTracker 追踪单个 DownloadObject 的所有下载项完成状态 ---
@@ -113,7 +114,7 @@ func (m *Manager) enqueueSmallObjects(t core.Task, obj *model.DownloadObject) *o
 			tracker:   tracker,
 		}:
 		default:
-			slog.Warn("Small-object queue full, dropping", "task_id", t.ID(), "url", obj.URL, "rel", info.Rel)
+			slog.Warn("Small-object queue full, dropping", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, "rel", info.Rel)
 			tracker.MarkDone(nil) // 不阻塞主流程
 		}
 	}
@@ -134,8 +135,8 @@ func (m *Manager) soWorker(id int) {
 }
 
 func (m *Manager) processSO(req smallObjectRequest) {
-	slog.Debug("Downloading small object", "task_id", req.taskID,
-		"parent_url", req.parentObj.URL, "url", req.info.URL, "rel", req.info.Rel)
+	slog.Debug("Downloading small object", logutil.LogKeyTaskID, req.taskID,
+		"parent_url", req.parentObj.URL, logutil.LogKeyURL, req.info.URL, "rel", req.info.Rel)
 
 	// 小对象重试：最多 3 次，指数退避
 	const maxAttempts = 3
@@ -152,14 +153,14 @@ func (m *Manager) processSO(req smallObjectRequest) {
 		}
 		if attempt < maxAttempts {
 			backoff := time.Duration(attempt*5) * time.Second
-			slog.Warn("Small-object download failed, retrying", "task_id", req.taskID,
-				"url", req.info.URL, "rel", req.info.Rel, "attempt", attempt, "backoff", backoff, "error", err)
+			slog.Warn("Small-object download failed, retrying", logutil.LogKeyTaskID, req.taskID,
+				"url", req.info.URL, "rel", req.info.Rel, "attempt", attempt, "backoff", backoff, logutil.LogKeyError, err)
 			time.Sleep(backoff)
 		}
 	}
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-		slog.Error("Small-object download failed after retries", "task_id", req.taskID,
-			"url", req.info.URL, "rel", req.info.Rel, "error", err)
+		slog.Error("Small-object download failed after retries", logutil.LogKeyTaskID, req.taskID,
+			"url", req.info.URL, "rel", req.info.Rel, logutil.LogKeyError, err)
 	}
 
 	// 下载成功后将路径写回 parentObj.Extra，供前端读取

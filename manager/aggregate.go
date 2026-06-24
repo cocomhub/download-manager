@@ -10,6 +10,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
 )
@@ -232,12 +233,12 @@ func (m *Manager) BackfillContentGroups() {
 				continue
 			}
 			if err := st.Update(obj); err != nil {
-				slog.Warn("Failed to recompute object metadata", "task_id", t.ID(), "url", obj.URL, "error", err)
+				slog.Warn("Failed to recompute object metadata", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				continue
 			}
 			changed++
 		}
-		slog.Info("Recomputed object metadata", "task_id", t.ID(), "task_type", t.Type(), "total", total, "changed", changed)
+		slog.Info("Recomputed object metadata", logutil.LogKeyTaskID, t.ID(), "task_type", t.Type(), "total", total, "changed", changed)
 		return true
 	})
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // TunnelInstance 描述一个 sproxy 隧道实例。
@@ -125,7 +126,7 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 		// 健康检查
 		healthURL := inst.ServerURL + "/healthz"
 		if err := download.CheckHealth(ctx, healthURL, s.probeTimeout); err != nil {
-			slog.Debug("sproxy instance unhealthy", "url", inst.ServerURL, "error", err)
+			slog.Debug("sproxy instance unhealthy", logutil.LogKeyURL, inst.ServerURL, logutil.LogKeyError, err)
 			continue
 		}
 
@@ -138,7 +139,7 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 		// 带宽探测（使用 /bandwidth 端点获取足够大的响应）
 		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+"/bandwidth", s.probeBytes, s.probeTimeout)
 		if err != nil {
-			slog.Debug("sproxy bandwidth probe failed", "url", inst.ServerURL, "error", err)
+			slog.Debug("sproxy bandwidth probe failed", logutil.LogKeyURL, inst.ServerURL, logutil.LogKeyError, err)
 			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})
 		} else {
 			s.setCache(inst.ServerURL, bw)
@@ -157,6 +158,6 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 	})
 
 	best := results[0]
-	slog.Info("Selected sproxy instance", "url", best.serverURL, "bandwidth", best.bandwidth)
+	slog.Info("Selected sproxy instance", logutil.LogKeyURL, best.serverURL, "bandwidth", best.bandwidth)
 	return best.serverURL, nil
 }

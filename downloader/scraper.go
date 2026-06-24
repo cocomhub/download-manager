@@ -16,6 +16,7 @@ import (
 
 	"github.com/cocomhub/download-manager/cmd/scraper_get/tunnel"
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 func Scrape(url string, cookie string) (body string, err error) {
@@ -56,10 +57,10 @@ func doScraperNative(url string, cookie string) (body string, err error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		slog.Error("ScraperNative new request failed", "url", url, "err", err)
+		slog.Error("ScraperNative new request failed", logutil.LogKeyURL, url, "err", err)
 		return "", err
 	}
-	slog.Debug("ScraperNative request created", "url", url)
+	slog.Debug("ScraperNative request created", logutil.LogKeyURL, url)
 	req.Header.Set("accept", "*/*")
 	req.Header.Set("cache-control", "no-cache")
 	req.Header.Set("pragma", "no-cache")

@@ -456,13 +456,13 @@ func (c *Config) ValidateAndClamp() {
 		}
 		if len(c.Contexts) == 0 {
 			slog.Warn("task references context but no contexts defined",
-				"task_id", t.ID, "context", t.StorageContext)
+				logutil.LogKeyTaskID, t.ID, "context", t.StorageContext)
 			continue
 		}
 		ctx, ok := c.Contexts[t.StorageContext]
 		if !ok {
 			slog.Warn("task references unknown context",
-				"task_id", t.ID, "context", t.StorageContext)
+				logutil.LogKeyTaskID, t.ID, "context", t.StorageContext)
 			continue
 		}
 		t.Storage = ctx.Storage

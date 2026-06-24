@@ -152,7 +152,7 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 	if len(mongoConfigs) > 0 {
 		if err := storage.InitMongoClients(mongoConfigs); err != nil {
-			slog.Warn("Failed to init mongo clients", "error", err)
+			slog.Warn("Failed to init mongo clients", logutil.LogKeyError, err)
 		}
 	}
 
@@ -328,7 +328,7 @@ func (m *Manager) flushAllStorages() {
 		t := value.(core.Task)
 		if flusher, ok := t.Storage().(interface{ ForceFlush() error }); ok {
 			if err := flusher.ForceFlush(); err != nil {
-				slog.Error("Failed to flush storage", "task_id", t.ID(), "error", err)
+				slog.Error("Failed to flush storage", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyError, err)
 			}
 		}
 		return true
@@ -484,18 +484,18 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	}
 	// Write backup and audit
 	if name, err := m.configSvc.writeConfigBackup(); err != nil {
-		slog.Warn("Failed to write config backup", "error", err)
+		slog.Warn("Failed to write config backup", logutil.LogKeyError, err)
 	} else if audit != nil {
 		msg := audit.Message
 		if msg == "" {
 			msg = "config update"
 		}
 		if err := m.configSvc.AddConfigNote(name, msg, audit.Author); err != nil {
-			slog.Warn("Failed to add config note", "error", err, "filename", name, "message", msg)
+			slog.Warn("Failed to add config note", logutil.LogKeyError, err, "filename", name, "message", msg)
 		}
 		if audit.Source != "" {
 			if err := m.configSvc.AddConfigTag(name, audit.Source); err != nil {
-				slog.Warn("Failed to add config tag", "error", err, "filename", name, "tag", audit.Source)
+				slog.Warn("Failed to add config tag", logutil.LogKeyError, err, "filename", name, "tag", audit.Source)
 			}
 		}
 	}

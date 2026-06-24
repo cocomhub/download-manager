@@ -16,7 +16,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -59,7 +59,7 @@ func CloseAllMongoClients() {
 	for name, client := range mongoClients {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := client.Disconnect(ctx); err != nil {
-			slog.Warn("Failed to disconnect mongo client", "source", name, "error", err)
+			slog.Warn("Failed to disconnect mongo client", "source", name, logutil.LogKeyError, err)
 		} else {
 			slog.Info("Disconnected mongo client", "source", name)
 		}

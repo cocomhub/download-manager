@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 func isHlsURL(u string) bool {
@@ -33,7 +35,7 @@ func isImageURL(u string) bool {
 }
 
 func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error {
-	slog.Info("hls_auto_mark_as_fail", "status", c.hlsAutoMarkAsFail)
+	slog.Info("hls_auto_mark_as_fail", logutil.LogKeyStatus, c.hlsAutoMarkAsFail)
 	if c.hlsAutoMarkAsFail {
 		return fmt.Errorf("hls auto mark as fail (path check): %w", ErrNoTry)
 	}
@@ -65,7 +67,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {
-			slog.Warn("Failed to create ffmpeg log file", "file", logFile, "error", err)
+			slog.Warn("Failed to create ffmpeg log file", "file", logFile, logutil.LogKeyError, err)
 		} else {
 			defer f.Close()
 		}
@@ -119,7 +121,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 				if p, err := ResolvePath(c.rootDir, candidate); err == nil {
 					candidate = p
 				} else {
-					slog.Warn("Failed to resolve move-if-exists path", "path", candidate, "error", err)
+					slog.Warn("Failed to resolve move-if-exists path", "path", candidate, logutil.LogKeyError, err)
 				}
 			}
 			if _, err := os.Stat(candidate); err == nil {
@@ -143,7 +145,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 				if p, err := ResolvePath(c.rootDir, logPath); err == nil {
 					logPath = p
 				} else {
-					slog.Warn("Failed to resolve external HLS log path", "path", logPath, "error", err)
+					slog.Warn("Failed to resolve external HLS log path", "path", logPath, logutil.LogKeyError, err)
 				}
 			}
 			hlsFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -165,7 +167,7 @@ func (c *Client) downloadHLSWithFFmpeg(ctx context.Context, req *Request) error 
 		return fmt.Errorf("ffmpeg: failed to attach stderr: %w", err)
 	}
 	cmd.Stdout = f
-	slog.Info("Starting download", "downloader", "ffmpeg", "url", req.URL, "path", req.SavePath, "ffmpeg_log", logFile)
+	slog.Info("Starting download", "downloader", "ffmpeg", logutil.LogKeyURL, req.URL, "path", req.SavePath, "ffmpeg_log", logFile)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ffmpeg start failed: %w", err)
 	}

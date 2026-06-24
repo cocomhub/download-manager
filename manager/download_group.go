@@ -9,6 +9,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // applyGroupPriorityPolicies enforces group priority within the current tktube task only.
@@ -79,7 +80,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 	}
 	for priority, count := range priorityCounts {
 		if count > 1 {
-			slog.Info("Skip auto-cancel for conflicting content group priority", "task_id", t.ID(), "task_type", t.Type(), "content_group", group, "priority", priority, "count", count)
+			slog.Info("Skip auto-cancel for conflicting content group priority", logutil.LogKeyTaskID, t.ID(), "task_type", t.Type(), "content_group", group, "priority", priority, "count", count)
 			return
 		}
 	}
@@ -98,7 +99,7 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 			}
 			o.Extra["redirect_url"] = canonical.URL
 			if err := t.UpdateStatus(o, model.StatusCancelled, nil); err != nil {
-				slog.Warn("Failed to auto-cancel lower-priority duplicate", "task_id", t.ID(), "url", o.URL, "error", err)
+				slog.Warn("Failed to auto-cancel lower-priority duplicate", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)
 			}
 		}
 	}

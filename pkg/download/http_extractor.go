@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // mediaExtensionSet 是预期为媒体文件的 URL 扩展名集合，用于 Content-Type 校验。
@@ -141,7 +143,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	if e.selector != nil {
 		proxyURL, err = e.selector.SelectProxy(dlCtx, req.URL, req.Hint)
 		if err != nil {
-			slog.Warn("Proxy selection failed, falling back to direct", "url", req.URL, "error", err)
+			slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		}
 	}
 
@@ -231,7 +233,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 			continue
 		}
 
-		slog.Warn("Download attempt failed, retrying", "attempt", attempt, "url", req.URL, "error", err)
+		slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
@@ -249,7 +251,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			time.Now().Format("20060102150405")+".progress.log")
 		f, fErr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if fErr != nil {
-			slog.Warn("Failed to create progress log file", "file", logFile, "error", fErr)
+			slog.Warn("Failed to create progress log file", "file", logFile, logutil.LogKeyError, fErr)
 		} else {
 			defer f.Close()
 			logWriter = f
