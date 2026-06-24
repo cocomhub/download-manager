@@ -26,7 +26,7 @@ var (
 // Deprecated: NativeHTTPDownloader uses the deprecated pkg/dlcore.
 // Use New() with a "native" type to get the new pkg/download path.
 type NativeHTTPDownloader struct {
-	ctx               context.Context
+	ctx               context.Context //nolint:containedctx
 	logDir            string
 	proxies           []string
 	cacheFile         string

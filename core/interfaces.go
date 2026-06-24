@@ -83,7 +83,7 @@ type Task interface {
 	Close() error
 }
 
-type FailedTask interface {
+type FailedTaskMarker interface {
 	// MarkAsFailed 标记任务为失败状态
 	MarkAsFailed(obj *model.DownloadObject, err error)
 }
@@ -96,18 +96,18 @@ type Downloader interface {
 	Name() string
 }
 
-// DownloaderWithContext 表示支持上下文注入的下载器。
-type DownloaderWithContext interface {
+// ContextInjecter 表示支持上下文注入的下载器。
+type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
-// DownloaderWithDomainLimits 表示支持域名并发限制的下载器。
-type DownloaderWithDomainLimits interface {
+// DomainLimiter 表示支持域名并发限制的下载器。
+type DomainLimiter interface {
 	ApplyDomainLimits(limits map[string]int)
 }
 
-// DownloaderWithMetrics 表示支持暴露下载指标的下载器。
-type DownloaderWithMetrics interface {
+// MetricsProvider 表示支持暴露下载指标的下载器。
+type MetricsProvider interface {
 	MetricsRegistry() any // returns *download.MetricRegistry or similar
 }
 

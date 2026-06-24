@@ -14,10 +14,10 @@ type PathStrategy interface {
 	Resolve(baseDir string, taskID string, title string, fileType string) (dir string, filename string)
 }
 
-// ScrapeCap is implemented by tasks that support Manager-driven page scraping.
+// Scraper is implemented by tasks that support Manager-driven page scraping.
 // Manager's scan loop calls Scrape(ctx) periodically to discover new objects.
 // Implementations MUST honor ctx cancellation to allow timely shutdown.
-type ScrapeCap interface {
+type Scraper interface {
 	Scrape(ctx context.Context) error
 }
 
@@ -29,9 +29,9 @@ type SmallObjectInfo struct {
 	Rel      string `json:"rel"`      // 关系类型: "cover", "preview", "thumb"
 }
 
-// SmallObjectCap 是可选接口，由有小对象（封面/预览等）的任务实现。
+// SmallObjectProvider 是可选接口，由有小对象（封面/预览等）的任务实现。
 // Task 只负责提供小对象的信息，实际下载由 Manager 的 smallObjectWorker 池完成。
-type SmallObjectCap interface {
+type SmallObjectProvider interface {
 	// SmallObjects 返回给定主对象关联的小对象列表。
 	SmallObjects(obj *model.DownloadObject) []SmallObjectInfo
 }

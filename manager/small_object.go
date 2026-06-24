@@ -89,9 +89,9 @@ func (m *Manager) StopSmallObjectWorkers() {
 	m.soWg.Wait()
 }
 
-// enqueueSmallObjects 检查 task 是否实现了 SmallObjectCap，有则入队。
+// enqueueSmallObjects 检查 task 是否实现了 SmallObjectProvider，有则入队。
 func (m *Manager) enqueueSmallObjects(t core.Task, obj *model.DownloadObject) *objectTracker {
-	soc, ok := t.(core.SmallObjectCap)
+	soc, ok := t.(core.SmallObjectProvider)
 	if !ok {
 		return nil
 	}

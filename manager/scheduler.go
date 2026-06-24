@@ -168,13 +168,13 @@ func (m *Manager) scan() {
 	// Do NOT wait — Phase 2 runs in parallel; scraped objects are persisted
 	// to storage and picked up by the next scan cycle's Phase 2.
 	m.tasks.Range(func(key, value any) bool {
-		if sc, ok := value.(core.ScrapeCap); ok {
+		if sc, ok := value.(core.Scraper); ok {
 			taskID := key.(string)
 			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
 				slog.Debug("Scrape: previous run still in progress, skipping", "task_id", taskID)
 				return true
 			}
-			go func(taskID string, sc core.ScrapeCap) {
+			go func(taskID string, sc core.Scraper) {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				done := make(chan error, 1)

@@ -105,11 +105,11 @@ func NewClient(opts ...Option) *Client {
 			WithBandwidthSuffix(cl.bandwidthPathSuffix)
 		cl.proxySelector = ps
 	}
-	if hwc, ok := cl.defaultHandler.(HandlerWithClient); ok {
+	if hwc, ok := cl.defaultHandler.(ClientInjecter); ok {
 		hwc.SetClient(cl)
 	}
 	for _, rh := range handlers {
-		if hwc, ok := rh.handler.(HandlerWithClient); ok {
+		if hwc, ok := rh.handler.(ClientInjecter); ok {
 			hwc.SetClient(cl)
 		}
 	}

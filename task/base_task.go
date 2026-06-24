@@ -19,8 +19,8 @@ import (
 	"github.com/cocomhub/download-manager/storage"
 )
 
-// HeadersCap is implemented by tasks that support custom download headers.
-type HeadersCap interface {
+// HeadersSetter is implemented by tasks that support custom download headers.
+type HeadersSetter interface {
 	SetHeaders(map[string]string)
 }
 
@@ -403,7 +403,7 @@ func (b *BaseTask) SetScanner(s *PagingScanner) {
 	b.scanner = s
 }
 
-// Scrape implements core.ScrapeCap by delegating to PagingScanner (if set)
+// Scrape implements core.Scraper by delegating to PagingScanner (if set)
 // or to scrape.Driver via buildScrapeHooks (legacy path).
 func (b *BaseTask) Scrape(ctx context.Context) error {
 	// New path: PagingScanner

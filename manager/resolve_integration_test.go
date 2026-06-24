@@ -15,7 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// ---- mockSmallObjectTask 实现了 core.Task + core.SmallObjectCap ----
+// ---- mockSmallObjectTask 实现了 core.Task + core.SmallObjectProvider ----
 
 type mockSmallObjectTask struct {
 	id           string

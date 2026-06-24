@@ -94,8 +94,6 @@ func parseFlags(args []string) (parseResult, error) {
 		// ENV DM_RUN_MODE
 		res.RunModeSet = true
 		switch strings.ToLower(envMode) {
-		case "full":
-			res.RunMode = config.RunModeFull
 		case "ui":
 			res.RunMode = config.RunModeUI
 		default:
