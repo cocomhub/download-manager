@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // ErrCompositeEmpty 表示复合下载的文件列表为空，需要重新触发 Scrape。
@@ -71,6 +73,6 @@ func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
 		return fileList, nil
 	}
 
-	slog.Error("Composite download with unknown files metadata type", "type", fmt.Sprintf("%T", filesVal))
+	slog.Error("Composite download with unknown files metadata type", logutil.LogKeyType, fmt.Sprintf("%T", filesVal))
 	return nil, fmt.Errorf("composite download error: unknown 'files' metadata type")
 }

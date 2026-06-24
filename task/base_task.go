@@ -15,6 +15,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/scrape"
 	"github.com/cocomhub/download-manager/storage"
 )
@@ -60,7 +61,7 @@ func NewBaseTask(cfg *config.Task, opts Options) (*BaseTask, error) {
 	t := &BaseTask{
 		Task:      *cfg,
 		Options:   opts,
-		logger:    slog.With("task_id", cfg.ID),
+		logger:    slog.With(logutil.LogKeyTaskID, cfg.ID),
 		objects:   make([]*model.DownloadObject, 0),
 		knownURLs: map[string]bool{},
 	}
@@ -108,7 +109,7 @@ func (b *BaseTask) Close() error {
 	if b.store != nil {
 		if flusher, ok := b.store.(interface{ ForceFlush() error }); ok {
 			if err := flusher.ForceFlush(); err != nil {
-				b.logger.Error("force flush store failed", "error", err)
+				b.logger.Error("force flush store failed", logutil.LogKeyError, err)
 				return err
 			}
 		}
@@ -129,16 +130,16 @@ func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, 
 	obj.SetStatus(status)
 
 	if err != nil {
-		b.logger.Error("Object failed", "url", obj.URL, "error", err)
+		b.logger.Error("Object failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 	} else {
-		b.logger.Info("Object status updated", "url", obj.URL, "status", status)
+		b.logger.Info("Object status updated", logutil.LogKeyURL, obj.URL, logutil.LogKeyStatus, status)
 	}
 
 	var storeErr error
 	if b.store != nil {
 		storeErr = b.store.Update(obj)
 		if storeErr != nil {
-			b.logger.Error("Failed to update storage", "error", storeErr)
+			b.logger.Error("Failed to update storage", logutil.LogKeyError, storeErr)
 		}
 	}
 	if b.shared != nil {
@@ -387,11 +388,11 @@ func (b *BaseTask) PersistTaskObject(obj *model.DownloadObject) {
 // and resets them to pending if found.
 func (b *BaseTask) ResetZombieState(obj *model.DownloadObject) {
 	if obj.GetStatus() == model.StatusDownloading {
-		b.logger.Warn("Found zombie downloading state, resetting to pending", "url", obj.URL)
+		b.logger.Warn("Found zombie downloading state, resetting to pending", logutil.LogKeyURL, obj.URL)
 		obj.SetStatus(model.StatusPending)
 		if b.store != nil {
 			if err := b.store.Update(obj); err != nil {
-				b.logger.Error("Failed to reset zombie state", "error", err)
+				b.logger.Error("Failed to reset zombie state", logutil.LogKeyError, err)
 			}
 		}
 	}

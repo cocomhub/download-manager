@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // HLSMode 表示 HLS 下载模式。
@@ -139,7 +140,7 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 	args = append(args, e.ffmpegArgs...)
 	args = append(args, rPath)
 
-	slog.Info("Starting HLS download", "downloader", "ffmpeg", "url", req.URL)
+	slog.Info("Starting HLS download", "downloader", "ffmpeg", logutil.LogKeyURL, req.URL)
 
 	cmd := exec.CommandContext(ctx, ffmpeg, args...)
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // compile-time interface check
@@ -72,7 +73,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 		return err
 	}
 
-	slog.Info("Starting composite download", "count", len(fileList), "url", req.URL)
+	slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyURL, req.URL)
 
 	// 构建子 Downloader，注入 Selector、Transport 和 Extractor
 	var totalDownloaded int64

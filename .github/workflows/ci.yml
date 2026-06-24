@@ -43,6 +43,7 @@ jobs:
     permissions:
       contents: write   # auto-push 需要
       deployments: write
+      pull-requests: write # 允许创建PR Review评论
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -102,17 +103,23 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
         run: make bench
 
-      - uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
         if: matrix.os == 'ubuntu-latest' && matrix.go == '1.26'
         continue-on-error: true
         with:
-          tool: go
+          tool: 'go'
           output-file-path: build/bench/bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
-          alert-threshold: "200%"
+          alert-threshold: '100%'
           comment-on-alert: true
           fail-on-alert: false
+          skip-fetch-gh-pages: false
+          comment-always: true
+          summary-always: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
 
   test-no-mongo:
     runs-on: ubuntu-latest

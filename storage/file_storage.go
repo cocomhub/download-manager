@@ -15,6 +15,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 type FileStorage struct {
@@ -165,7 +166,7 @@ func (s *FileStorage) flushAsync() {
 
 	if s.dirty {
 		if err := s.saveLocked(); err != nil {
-			slog.Error("Error saving file storage", "error", err)
+			slog.Error("Error saving file storage", logutil.LogKeyError, err)
 		}
 	}
 }

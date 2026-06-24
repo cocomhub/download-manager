@@ -10,6 +10,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 type resolveRequest struct {
@@ -46,7 +47,7 @@ func (m *Manager) enqueueResolve(taskID string, obj *model.DownloadObject) {
 	select {
 	case m.resolveQueue <- resolveRequest{taskID: taskID, obj: obj}:
 	default:
-		slog.Warn("Resolve queue full, dropping", "task_id", taskID, "url", obj.URL)
+		slog.Warn("Resolve queue full, dropping", logutil.LogKeyTaskID, taskID, logutil.LogKeyURL, obj.URL)
 	}
 }
 
@@ -66,7 +67,7 @@ func (m *Manager) resolveWorker(id int) {
 func (m *Manager) processResolve(req resolveRequest) {
 	t, ok := m.getTask(req.taskID)
 	if !ok {
-		slog.Warn("Resolve: task not found", "task_id", req.taskID)
+		slog.Warn("Resolve: task not found", logutil.LogKeyTaskID, req.taskID)
 		return
 	}
 
@@ -74,7 +75,7 @@ func (m *Manager) processResolve(req resolveRequest) {
 	defer cancel()
 
 	if err := t.ResolveObject(ctx, req.obj); err != nil {
-		slog.Error("Resolve failed", "task_id", req.taskID, "url", req.obj.URL, "error", err)
+		slog.Error("Resolve failed", logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL, logutil.LogKeyError, err)
 		_ = t.UpdateStatus(req.obj, model.StatusFailed, err)
 		m.resolveCache.Invalidate(req.obj.URL)
 		return
@@ -90,12 +91,12 @@ func (m *Manager) processResolve(req resolveRequest) {
 	if guard, ok := t.(core.TaskStatusGuarder); ok {
 		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusPending, nil) {
 			slog.Info("Resolve: object was cancelled, preserving cancelled status",
-				"task_id", req.taskID, "url", req.obj.URL)
+				logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL)
 			m.resolveCache.Invalidate(req.obj.URL)
 			return
 		}
 	} else {
 		_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
 	}
-	slog.Debug("Resolve succeeded", "task_id", req.taskID, "url", req.obj.URL)
+	slog.Debug("Resolve succeeded", logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL)
 }

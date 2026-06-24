@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/task"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
 const TaskType = "vikacg"
@@ -90,7 +90,7 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 		}
 		obj, err := t.scrapeAndBuild(u)
 		if err != nil {
-			t.Logger().Warn("vikacg parse failed", "url", u, "error", err)
+			t.Logger().Warn("vikacg parse failed", logutil.LogKeyURL, u, logutil.LogKeyError, err)
 			continue
 		}
 		t.PersistTaskObject(obj)
@@ -143,7 +143,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 					pending = append(pending, newObj)
 					continue
 				} else {
-					t.Logger().Warn("vikacg re-scrape failed, will retry next cycle", "url", o.URL, "error", err)
+					t.Logger().Warn("vikacg re-scrape failed, will retry next cycle", logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)
 					t.resolved2URLs.Delete(o.URL)
 				}
 			}
@@ -458,7 +458,7 @@ func (t *Task) getPostsPage(ctx context.Context, page int) ([]vikPost, error) {
 		req.Header.Set("User-Agent", t.userAgent)
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	t.Logger().Debug("vikacg getPosts request", "page", page, "url", url)
+	t.Logger().Debug("vikacg getPosts request", "page", page, logutil.LogKeyURL, url)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -471,7 +471,7 @@ func (t *Task) getPostsPage(ctx context.Context, page int) ([]vikPost, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	t.Logger().Info("vikacg getPosts response", "page", page, "url", url, "posts", len(out.Data.List))
+	t.Logger().Info("vikacg getPosts response", "page", page, logutil.LogKeyURL, url, "posts", len(out.Data.List))
 	return out.Data.List, nil
 }
 

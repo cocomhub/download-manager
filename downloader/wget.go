@@ -21,6 +21,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 type WgetDownloader struct {
@@ -38,7 +39,7 @@ var _ core.Downloader = &WgetDownloader{}
 func NewWgetDownloader(cfg config.Downloader) *WgetDownloader {
 	logDir := cfg.LogDir
 	if err := os.MkdirAll(logDir, 0755); err != nil {
-		slog.Error("Failed to create log directory", "dir", logDir, "error", err)
+		slog.Error("Failed to create log directory", "dir", logDir, logutil.LogKeyError, err)
 		logDir = ""
 	}
 
@@ -82,7 +83,7 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]
 				}
 			}
 		} else {
-			slog.Error("Composite download with unknown files metadata type", "type", fmt.Sprintf("%T", filesVal), "task_id", obj.TaskID)
+			slog.Error("Composite download with unknown files metadata type", logutil.LogKeyType, fmt.Sprintf("%T", filesVal), logutil.LogKeyTaskID, obj.TaskID)
 			return fmt.Errorf("composite download error: unknown 'files' metadata type. extra: %+v", obj.Extra)
 		}
 
@@ -94,7 +95,7 @@ func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]
 		}
 
 		if len(fileList) > 0 {
-			slog.Info("Starting composite download", "count", len(fileList), "task_id", obj.TaskID)
+			slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyTaskID, obj.TaskID)
 			for _, fileMap := range fileList {
 				url := fileMap["url"]
 				path := fileMap["path"]
@@ -152,7 +153,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {
-			slog.Warn("Failed to create wget log file", "file", logFile, "error", err)
+			slog.Warn("Failed to create wget log file", "file", logFile, logutil.LogKeyError, err)
 		} else {
 			defer f.Close()
 		}
@@ -164,7 +165,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 		var err error
 		proxyURL, err = d.determineProxy(subObj.URL)
 		if err != nil {
-			slog.Warn("Proxy selection failed, falling back to direct", "url", subObj.URL, "error", err)
+			slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, subObj.URL, logutil.LogKeyError, err)
 		}
 	}
 
@@ -186,7 +187,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 		url = strings.TrimPrefix(url, "http://")
 		url = strings.TrimPrefix(url, "https://")
 		url = proxyURL + "/" + url
-		slog.Info("Using proxy", "url", url, "proxy", proxyURL)
+		slog.Info("Using proxy", logutil.LogKeyURL, url, "proxy", proxyURL)
 		// Set both environment variables and command line args to be safe,
 		// but typically environment variables are enough for wget if not using --no-proxy
 		// Using -e http_proxy=... works well with wget
@@ -194,7 +195,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 		// args = append(args, "-e", "http_proxy="+proxyURL)
 		// args = append(args, "-e", "https_proxy="+proxyURL)
 	} else {
-		slog.Debug("Using direct connection", "url", url)
+		slog.Debug("Using direct connection", logutil.LogKeyURL, url)
 	}
 
 	args = append(args, "-O", subObj.SavePath, url)
@@ -213,7 +214,7 @@ func (d *WgetDownloader) downloadFile(subObj *model.DownloadObject, trackProgres
 	// Also capture stdout just in case
 	cmd.Stdout = f
 
-	slog.Info("Starting download", "downloader", "wget", "url", subObj.URL, "path", subObj.SavePath, "wget_log", logFile)
+	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, subObj.URL, "path", subObj.SavePath, "wget_log", logFile)
 
 	if err := cmd.Start(); err != nil {
 		d.active.Delete(subObj.URL)

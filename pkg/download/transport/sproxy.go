@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/sproxy/pkg/tunnel"
 )
 
@@ -64,7 +65,7 @@ func WithSproxyTunnelKey(key string) SproxyOption {
 	return func(t *SproxyTunnelTransport) {
 		tc, err := tunnel.NewClient(key, t.serverURL+"/tunnel", 600*time.Second, t.logger)
 		if err != nil {
-			t.logger.Warn("sproxy: tunnel client init failed, falling back to HTTP proxy", "error", err)
+			t.logger.Warn("sproxy: tunnel client init failed, falling back to HTTP proxy", logutil.LogKeyError, err)
 			return
 		}
 		t.tunnelCl = tc

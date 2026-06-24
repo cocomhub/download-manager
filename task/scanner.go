@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/scrape"
 )
 
@@ -103,7 +104,7 @@ func (s *PagingScanner) processItems(items any) ([]any, bool) {
 		}
 		obj, err := s.adapter.BuildObject(items, i)
 		if err != nil {
-			s.logger.Warn("BuildObject failed", "url", u, "error", err)
+			s.logger.Warn("BuildObject failed", logutil.LogKeyURL, u, logutil.LogKeyError, err)
 			continue
 		}
 		if obj == nil {

@@ -6,6 +6,8 @@ package scrape
 import (
 	"context"
 	"log/slog"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // Driver combines Tracker + Pager to provide a single Scrape entry point.
@@ -45,16 +47,16 @@ func (d *Driver) Scrape(ctx context.Context, taskID string, hooks PageHooks, bas
 		// Incremental mode
 		opts.Mode = ModeIncremental
 		opts.StartPage = 1
-		slog.Debug("ScrapeDriver: incremental mode", "task_id", taskID)
+		slog.Debug("ScrapeDriver: incremental mode", logutil.LogKeyTaskID, taskID)
 	} else {
 		// Full mode: check progress for resume
 		opts.Mode = ModeFull
 		if info, ok := d.tracker.LoadProgress(taskID); ok && info.LastFailedPage > 0 {
 			opts.StartPage = info.LastFailedPage
-			slog.Info("ScrapeDriver: resuming full scan from page", "task_id", taskID, "from", info.LastFailedPage, "max_detected", info.MaxDetectedPage)
+			slog.Info("ScrapeDriver: resuming full scan from page", logutil.LogKeyTaskID, taskID, "from", info.LastFailedPage, "max_detected", info.MaxDetectedPage)
 		} else {
 			opts.StartPage = 1
-			slog.Debug("ScrapeDriver: cold start full scan", "task_id", taskID)
+			slog.Debug("ScrapeDriver: cold start full scan", logutil.LogKeyTaskID, taskID)
 		}
 	}
 
@@ -66,12 +68,12 @@ func (d *Driver) Scrape(ctx context.Context, taskID string, hooks PageHooks, bas
 		if opts.Mode == ModeFull {
 			// Full scan succeeded -> mark full succ + clear progress
 			if err := d.tracker.MarkFullSucceeded(taskID); err != nil {
-				slog.Error("ScrapeDriver: failed to mark full succeeded", "task_id", taskID, "error", err)
+				slog.Error("ScrapeDriver: failed to mark full succeeded", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 			} else {
-				slog.Info("ScrapeDriver: full scan succeeded", "task_id", taskID, "pages", result.DetectedPages)
+				slog.Info("ScrapeDriver: full scan succeeded", logutil.LogKeyTaskID, taskID, "pages", result.DetectedPages)
 			}
 			if err := d.tracker.ClearProgress(taskID); err != nil {
-				slog.Warn("ScrapeDriver: failed to clear progress", "task_id", taskID, "error", err)
+				slog.Warn("ScrapeDriver: failed to clear progress", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 			}
 		}
 		// Incremental success: keep full_succ marker intact (do nothing)
@@ -82,14 +84,14 @@ func (d *Driver) Scrape(ctx context.Context, taskID string, hooks PageHooks, bas
 			MaxDetectedPage: result.DetectedPages,
 		}
 		if err := d.tracker.SaveProgress(taskID, pi); err != nil {
-			slog.Error("ScrapeDriver: failed to save progress", "task_id", taskID, "error", err)
+			slog.Error("ScrapeDriver: failed to save progress", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 		}
 		if opts.Mode == ModeIncremental {
 			// Incremental failure: downgrade, next run will be full
 			if err := d.tracker.DeleteFullSuccess(taskID); err != nil {
-				slog.Error("ScrapeDriver: failed to downgrade full_succ", "task_id", taskID, "error", err)
+				slog.Error("ScrapeDriver: failed to downgrade full_succ", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 			} else {
-				slog.Warn("ScrapeDriver: incremental failed, downgraded to full", "task_id", taskID, "failed_page", result.LastFailedPage)
+				slog.Warn("ScrapeDriver: incremental failed, downgraded to full", logutil.LogKeyTaskID, taskID, "failed_page", result.LastFailedPage)
 			}
 		}
 	}

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 const DefaultWgetUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -109,7 +110,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {
-			slog.Warn("Failed to create wget log file", "file", logFile, "error", err)
+			slog.Warn("Failed to create wget log file", "file", logFile, logutil.LogKeyError, err)
 		} else {
 			defer f.Close()
 		}
@@ -120,7 +121,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		var err error
 		proxyURL, err = e.selector.SelectProxy(ctx, req.URL, req.Hint)
 		if err != nil {
-			slog.Warn("Proxy selection failed, falling back to direct", "url", req.URL, "error", err)
+			slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		}
 	}
 
@@ -136,7 +137,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		targetURL = strings.TrimPrefix(targetURL, "http://")
 		targetURL = strings.TrimPrefix(targetURL, "https://")
 		targetURL = proxyURL + "/" + targetURL
-		slog.Info("Using proxy", "url", targetURL, "proxy", proxyURL)
+		slog.Info("Using proxy", logutil.LogKeyURL, targetURL, "proxy", proxyURL)
 	}
 
 	args = append(args, "-O", req.SavePath, targetURL)
@@ -151,7 +152,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	}
 	cmd.Stdout = f
 
-	slog.Info("Starting download", "downloader", "wget", "url", req.URL, "path", req.SavePath)
+	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, req.URL, "path", req.SavePath)
 	if err := cmd.Start(); err != nil {
 		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: start failed: %w", err)

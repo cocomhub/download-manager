@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // ProxySelector 定义代理选择策略。
@@ -125,7 +127,7 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 	// 直连探测
 	if !ps.forceProxy {
 		if CheckDirect(targetURL, ps.forceProxy, ps.probeTimeout) {
-			slog.Info("direct access is available", "url", targetURL)
+			slog.Info("direct access is available", logutil.LogKeyURL, targetURL)
 			_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
 			_ = os.WriteFile(cachePath, []byte("direct"), 0644)
 			return "", nil
