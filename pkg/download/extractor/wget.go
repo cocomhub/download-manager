@@ -23,6 +23,8 @@ import (
 
 const DefaultWgetUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
+const logTimestampFmt = "20060102150405"
+
 var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
 
 // compile-time interface check
@@ -106,7 +108,7 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 
 	var f *os.File
 	if e.logDir != "" {
-		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format("20060102150405")+".wget.log")
+		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format(logTimestampFmt)+".wget.log")
 		var err error
 		f, err = os.Create(logFile)
 		if err != nil {
