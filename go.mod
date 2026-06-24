@@ -10,7 +10,7 @@ require (
 	github.com/gofrs/flock v0.13.0
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
-	go.mongodb.org/mongo-driver v1.17.6
+	go.mongodb.org/mongo-driver v1.17.9
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
