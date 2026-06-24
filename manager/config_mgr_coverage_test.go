@@ -556,7 +556,7 @@ func TestConfigService_normalizeYAML_TabToSpaces(t *testing.T) {
 }
 
 func TestConfigService_normalizeYAML_Both(t *testing.T) {
-	input := "server:\n  port: 8080   \n  # a comment\n  host: localhost  \n"
+	input := "server:\n  port: 8080   \n  # a comment\n  host: 127.0.0.1  \n"
 	got := normalizeYAML(input, true, true)
 	if contains(got, "#") {
 		t.Fatal("comments should be stripped")
@@ -564,7 +564,7 @@ func TestConfigService_normalizeYAML_Both(t *testing.T) {
 	if contains(got, "  \n") {
 		t.Fatal("trailing spaces should be stripped")
 	}
-	if !contains(got, "localhost") {
+	if !contains(got, "127.0.0.1") {
 		t.Fatal("normalizeYAML stripped too much")
 	}
 }

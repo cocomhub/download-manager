@@ -38,6 +38,8 @@ var mediaExtensionSet = map[string]string{
 	".bmp":  mimePrefixImage,
 }
 
+const logTimestampFmt = "20060102150405"
+
 // ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
 // 返回 error 则终止下载（ErrNoTry 表示永久终止，其他 error 可重试）。
 type ResponseCheck func(req *Request, tresp *TransportResponse) error
@@ -248,7 +250,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	if e.logDir != "" {
 		logFileName := filepath.Base(rPath)
 		logFile := filepath.Join(e.logDir, logFileName+"."+
-			time.Now().Format("20060102150405")+".progress.log")
+			time.Now().Format(logTimestampFmt)+".progress.log")
 		f, fErr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if fErr != nil {
 			slog.Warn("Failed to create progress log file", "file", logFile, logutil.LogKeyError, fErr)

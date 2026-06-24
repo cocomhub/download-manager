@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -137,7 +138,7 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 		}
 
 		// 带宽探测（使用 /bandwidth 端点获取足够大的响应）
-		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+"/bandwidth", s.probeBytes, s.probeTimeout)
+		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+config.DefaultBandwidthPath, s.probeBytes, s.probeTimeout)
 		if err != nil {
 			slog.Debug("sproxy bandwidth probe failed", logutil.LogKeyURL, inst.ServerURL, logutil.LogKeyError, err)
 			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})

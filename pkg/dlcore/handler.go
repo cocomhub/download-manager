@@ -23,6 +23,8 @@ import (
 
 const truncateLogMsg = "\tTruncating existing file."
 
+const logTimestampFmt = "20060102150405"
+
 // Handler 定义 URL 匹配与下载能力。
 // 实现方通过 Match 判定是否能处理该 URL，通过 Download 执行下载。
 type Handler interface {
@@ -112,7 +114,7 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 			}
 		}
 		logFile = filepath.Join(c.logDir, logFileName+"."+
-			time.Now().Format("20060102150405")+".native.log")
+			time.Now().Format(logTimestampFmt)+".native.log")
 		ff, err := os.Create(logFile)
 		if err != nil {
 			slog.Warn("Failed to create log file", "file", logFile, logutil.LogKeyError, err)
