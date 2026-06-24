@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/config"
 )
 
 // ---- Shared proxy probe functions (used by both dlcore.Client and WgetDownloader) ----
@@ -38,7 +40,7 @@ func CheckDirect(targetURL string, forceProxy bool, timeoutSecs int) bool {
 // GetProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
 func GetProxyBandwidth(proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
-		suffix = "/bandwidth"
+		suffix = config.DefaultBandwidthPath
 	}
 	if !strings.HasPrefix(suffix, "/") {
 		suffix = "/" + suffix

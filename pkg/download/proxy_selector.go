@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cocomhub/download-manager/config"
 )
 
 // StaticProxySelector 是静态代理列表的选择器实现。
@@ -37,7 +39,7 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 		proxies:          proxies,
 		decisionCacheTTL: 1,
 		probeTimeout:     3,
-		bandwidthSuffix:  "/bandwidth",
+		bandwidthSuffix:  config.DefaultBandwidthPath,
 	}
 }
 

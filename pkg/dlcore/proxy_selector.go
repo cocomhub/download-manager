@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -41,7 +42,7 @@ func NewProxySelector(proxies []string) *DefaultProxySelector {
 		proxies:          proxies,
 		decisionCacheTTL: 1,
 		probeTimeout:     3,
-		bandwidthSuffix:  "/bandwidth",
+		bandwidthSuffix:  config.DefaultBandwidthPath,
 	}
 }
 

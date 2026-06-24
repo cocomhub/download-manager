@@ -13,6 +13,9 @@ import (
 
 const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
+// DefaultBandwidthPath is the default URL path suffix for proxy bandwidth probing.
+const DefaultBandwidthPath = "/bandwidth"
+
 type Config struct {
 	Server     Server             `yaml:"server" json:"server"`
 	Log        logutil.LogConfig  `yaml:"log" json:"log"`
@@ -428,7 +431,7 @@ func (c *Config) ValidateAndClamp() {
 		c.Downloader.Proxy.DirectProbeTimeoutSecs = 3
 	}
 	if c.Downloader.Proxy.BandwidthPathSuffix == "" {
-		c.Downloader.Proxy.BandwidthPathSuffix = "/bandwidth"
+		c.Downloader.Proxy.BandwidthPathSuffix = DefaultBandwidthPath
 	}
 
 	if c.Downloader.Progress.MinPercentStep <= 0 {
