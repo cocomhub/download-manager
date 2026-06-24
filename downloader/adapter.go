@@ -20,9 +20,9 @@ import (
 
 // compile-time interface checks
 var (
-	_ core.Downloader                 = (*DownloaderAdapter)(nil)
-	_ core.DownloaderWithContext      = (*DownloaderAdapter)(nil)
-	_ core.DownloaderWithDomainLimits = (*DownloaderAdapter)(nil)
+	_ core.Downloader      = (*DownloaderAdapter)(nil)
+	_ core.ContextInjecter = (*DownloaderAdapter)(nil)
+	_ core.DomainLimiter   = (*DownloaderAdapter)(nil)
 )
 
 // DownloaderAdapter 将 pkg/download.Downloader 包装为 core.Downloader。
@@ -30,7 +30,7 @@ var (
 type DownloaderAdapter struct {
 	mu              sync.Mutex
 	dl              *download.Downloader
-	dlCtx           context.Context
+	dlCtx           context.Context //nolint:containedctx
 	transport       download.Transport
 	cancels         sync.Map // map[string]context.CancelFunc
 	metrics         *download.MetricRegistry
@@ -87,7 +87,7 @@ func (a *DownloaderAdapter) Cancel(url string) error {
 	return nil
 }
 
-// MetricsRegistry returns the download MetricRegistry (implements core.DownloaderWithMetrics).
+// MetricsRegistry returns the download MetricRegistry (implements core.MetricsProvider).
 func (a *DownloaderAdapter) MetricsRegistry() any {
 	return a.metrics
 }

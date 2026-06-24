@@ -236,7 +236,7 @@ func (t *Task) parseTotalPages(html string) int {
 	return lastPage
 }
 
-// SmallObjects implements core.SmallObjectCap.
+// SmallObjects implements core.SmallObjectProvider.
 // 返回与主对象关联的小对象（preview 视频 + cover 缩略图）。
 func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 	if obj == nil || obj.Extra == nil || obj.Metadata == nil {

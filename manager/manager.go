@@ -181,7 +181,7 @@ func NewManager(cfg *config.Config) *Manager {
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
 	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())
-	if nd, ok := mgr.getDownloader().(core.DownloaderWithDomainLimits); ok {
+	if nd, ok := mgr.getDownloader().(core.DomainLimiter); ok {
 		nd.ApplyDomainLimits(cfg.Downloader.DomainLimits)
 	}
 	// Wire up AggregationService with real callbacks
@@ -504,7 +504,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Reload components
 	m.setDownloader(downloader.New(cfgCopy.Downloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
-	if nd, ok := m.getDownloader().(core.DownloaderWithDomainLimits); ok {
+	if nd, ok := m.getDownloader().(core.DomainLimiter); ok {
 		nd.ApplyDomainLimits(cfgCopy.Downloader.DomainLimits)
 	}
 	logutil.InitLogger(cfgCopy.Log)
