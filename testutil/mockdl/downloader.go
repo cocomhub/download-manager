@@ -235,69 +235,83 @@ func (d *MockDownloader) timeout(obj *model.DownloadObject) error {
 }
 
 // simulateProgress calls OnProgress from 0 to 100 in steps of 5,
-// respecting context cancellation. It uses the object lock to safely
-// access Extra fields during progress simulation.
+// respecting context cancellation.
 func (d *MockDownloader) simulateProgress(obj *model.DownloadObject) error {
-	fileSize := 1024 * 1024 // 1MB default for progress simulation
-
-	// Read group_size under the object lock.
-	obj.Lock()
-	if obj.Extra != nil {
-		if gs, ok := obj.Extra["group_size"]; ok {
-			switch v := gs.(type) {
-			case float64:
-				if v > 0 {
-					fileSize = int(v)
-				}
-			case int:
-				if v > 0 {
-					fileSize = v
-				}
-			case int64:
-				if v > 0 {
-					fileSize = int(v)
-				}
-			}
-		}
-	}
-	// Copy lock-unrelated info before releasing.
-	groupSize := fileSize
-	if groupSize <= 0 {
-		groupSize = 1024 * 1024
-	}
-	obj.Unlock()
-
+	groupSize := extractGroupSize(obj)
 	totalSteps := 20 // 5% steps
+
 	for i := 0; i <= totalSteps; i++ {
-		select {
-		case <-d.getContext().Done():
-			obj.SetStatus(model.StatusFailed)
-			err := d.getContext().Err()
-			if d.OnFail != nil {
-				d.OnFail(obj.URL, err)
-			}
-			return err
-		default:
-		}
-
 		pct := min(int(float64(i)/float64(totalSteps)*100), 100)
-		obj.SetProgress(pct)
-
-		if d.OnProgress != nil {
-			d.OnProgress(obj.URL, pct)
-		}
-
-		// Simulate incremental progress timing.
-		if d.delayPerByte > 0 {
-			time.Sleep(d.delayPerByte * time.Duration(groupSize/totalSteps))
-		} else {
-			time.Sleep(10 * time.Millisecond)
+		if err := d.simulateStep(obj, pct, groupSize, totalSteps); err != nil {
+			return err
 		}
 	}
 
 	obj.SetStatus(model.StatusCompleted)
 	if d.OnComplete != nil {
 		d.OnComplete(obj.URL)
+	}
+	return nil
+}
+
+// extractGroupSize reads group_size from obj.Extra under lock and returns the
+// file size to use for progress simulation timing. Returns the default (1MB)
+// if group_size is missing, zero, or negative.
+func extractGroupSize(obj *model.DownloadObject) int {
+	const defaultSize = 1024 * 1024
+
+	obj.Lock()
+	defer obj.Unlock()
+
+	if obj.Extra == nil {
+		return defaultSize
+	}
+
+	gs, ok := obj.Extra["group_size"]
+	if !ok {
+		return defaultSize
+	}
+
+	switch v := gs.(type) {
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	case int:
+		if v > 0 {
+			return v
+		}
+	case int64:
+		if v > 0 {
+			return int(v)
+		}
+	}
+	return defaultSize
+}
+
+// simulateStep performs one progress step, checking for context cancellation
+// and updating progress. It respects the configured delay per byte for timing.
+func (d *MockDownloader) simulateStep(obj *model.DownloadObject, pct int, groupSize int, totalSteps int) error {
+	select {
+	case <-d.getContext().Done():
+		obj.SetStatus(model.StatusFailed)
+		err := d.getContext().Err()
+		if d.OnFail != nil {
+			d.OnFail(obj.URL, err)
+		}
+		return err
+	default:
+	}
+
+	obj.SetProgress(pct)
+	if d.OnProgress != nil {
+		d.OnProgress(obj.URL, pct)
+	}
+
+	if d.delayPerByte > 0 {
+		time.Sleep(d.delayPerByte * time.Duration(groupSize/totalSteps))
+	} else {
+		time.Sleep(10 * time.Millisecond)
 	}
 	return nil
 }

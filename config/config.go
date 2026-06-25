@@ -201,10 +201,16 @@ func (c *Config) Clone() *Config {
 		return nil
 	}
 	cc := *c // shallow copy value
+	cc.cloneTasks(c.Tasks)
+	cc.cloneContexts(c.Contexts)
+	cc.cloneDownloader(c.Downloader)
+	cc.cloneMongo(c.Mongo)
+	return &cc
+}
 
-	// Deep-copy Tasks (each has Extra map and Storage.Config map)
-	cc.Tasks = make([]Task, len(c.Tasks))
-	for i, t := range c.Tasks {
+func (cc *Config) cloneTasks(src []Task) {
+	cc.Tasks = make([]Task, len(src))
+	for i, t := range src {
 		tc := t
 		if t.Extra != nil {
 			tc.Extra = make(map[string]any, len(t.Extra))
@@ -216,73 +222,95 @@ func (c *Config) Clone() *Config {
 		}
 		cc.Tasks[i] = tc
 	}
+}
 
-	// Deep-copy Contexts (each has Storage.Config map)
-	if c.Contexts != nil {
-		cc.Contexts = make(map[string]Context, len(c.Contexts))
-		for k, ctx := range c.Contexts {
-			ctxc := ctx
-			if ctx.Storage.Config != nil {
-				ctxc.Storage.Config = make(map[string]string, len(ctx.Storage.Config))
-				maps.Copy(ctxc.Storage.Config, ctx.Storage.Config)
-			}
-			cc.Contexts[k] = ctxc
+func (cc *Config) cloneContexts(src map[string]Context) {
+	if src == nil {
+		return
+	}
+	cc.Contexts = make(map[string]Context, len(src))
+	for k, ctx := range src {
+		ctxc := ctx
+		if ctx.Storage.Config != nil {
+			ctxc.Storage.Config = make(map[string]string, len(ctx.Storage.Config))
+			maps.Copy(ctxc.Storage.Config, ctx.Storage.Config)
 		}
+		cc.Contexts[k] = ctxc
 	}
+}
 
-	// Deep-copy Downloader slices and maps
-	if c.Downloader.Proxies != nil {
-		cc.Downloader.Proxies = make([]string, len(c.Downloader.Proxies))
-		copy(cc.Downloader.Proxies, c.Downloader.Proxies)
+func (cc *Config) cloneDownloader(src Downloader) {
+	if src.Proxies != nil {
+		cc.Downloader.Proxies = make([]string, len(src.Proxies))
+		copy(cc.Downloader.Proxies, src.Proxies)
 	}
-	if c.Downloader.DomainLimits != nil {
-		cc.Downloader.DomainLimits = make(map[string]int, len(c.Downloader.DomainLimits))
-		maps.Copy(cc.Downloader.DomainLimits, c.Downloader.DomainLimits)
+	if src.DomainLimits != nil {
+		cc.Downloader.DomainLimits = make(map[string]int, len(src.DomainLimits))
+		maps.Copy(cc.Downloader.DomainLimits, src.DomainLimits)
 	}
-	if c.Downloader.Proxy.List != nil {
-		cc.Downloader.Proxy.List = make([]string, len(c.Downloader.Proxy.List))
-		copy(cc.Downloader.Proxy.List, c.Downloader.Proxy.List)
+	if src.Proxy.List != nil {
+		cc.Downloader.Proxy.List = make([]string, len(src.Proxy.List))
+		copy(cc.Downloader.Proxy.List, src.Proxy.List)
 	}
-	if c.Downloader.FFmpeg.ExtraArgs != nil {
-		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(c.Downloader.FFmpeg.ExtraArgs))
-		copy(cc.Downloader.FFmpeg.ExtraArgs, c.Downloader.FFmpeg.ExtraArgs)
+	if src.FFmpeg.ExtraArgs != nil {
+		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(src.FFmpeg.ExtraArgs))
+		copy(cc.Downloader.FFmpeg.ExtraArgs, src.FFmpeg.ExtraArgs)
 	}
-	if c.Downloader.Filesystem.AllowPaths != nil {
-		cc.Downloader.Filesystem.AllowPaths = make([]string, len(c.Downloader.Filesystem.AllowPaths))
-		copy(cc.Downloader.Filesystem.AllowPaths, c.Downloader.Filesystem.AllowPaths)
+	if src.Filesystem.AllowPaths != nil {
+		cc.Downloader.Filesystem.AllowPaths = make([]string, len(src.Filesystem.AllowPaths))
+		copy(cc.Downloader.Filesystem.AllowPaths, src.Filesystem.AllowPaths)
 	}
-	// MoveIfExists and ExternalHLSLog are plain structs — shallow copy is sufficient.
+}
 
-	// Deep-cache Mongo (simple struct slice, no maps)
-	if c.Mongo != nil {
-		cc.Mongo = make([]MongoSource, len(c.Mongo))
-		copy(cc.Mongo, c.Mongo)
+func (cc *Config) cloneMongo(src []MongoSource) {
+	if src == nil {
+		return
 	}
+	cc.Mongo = make([]MongoSource, len(src))
+	copy(cc.Mongo, src)
+}
 
-	return &cc
+func isFSConfigured(fs DcFilesystem) bool {
+	return fs.RootDir != "" || fs.LogDir != "" || fs.CacheDir != ""
+}
+
+func isHTTPConfigured(h DcHTTP) bool {
+	return h.TimeoutSeconds != 0 || h.IdleConnTimeoutSeconds != 0 ||
+		h.MaxIdleConns != 0 || h.MaxIdleConnsPerHost != 0 ||
+		h.DefaultUserAgent != "" || h.DisableInjectBrowserLikeHeaders
+}
+
+func isProxyConfigured(p DcProxy) bool {
+	return p.Force || len(p.List) > 0 || p.DecisionCacheTTLSecs != 0 ||
+		p.DirectProbeTimeoutSecs != 0 || p.BandwidthPathSuffix != ""
+}
+
+func isFFmpegConfigured(f DcFFmpeg) bool {
+	return f.Path != "" || len(f.ExtraArgs) > 0 || f.MoveIfExists.Enabled ||
+		f.ExternalHLSLog.Enabled || f.HLSAutoMarkAsFail
 }
 
 func (c *Config) ValidateAndClamp() {
 	if c == nil {
 		return
 	}
-	isFSConfigured := func(fs DcFilesystem) bool {
-		return fs.RootDir != "" || fs.LogDir != "" || fs.CacheDir != ""
-	}
-	isHTTPConfigured := func(h DcHTTP) bool {
-		return h.TimeoutSeconds != 0 || h.IdleConnTimeoutSeconds != 0 ||
-			h.MaxIdleConns != 0 || h.MaxIdleConnsPerHost != 0 ||
-			h.DefaultUserAgent != "" || h.DisableInjectBrowserLikeHeaders
-	}
-	isProxyConfigured := func(p DcProxy) bool {
-		return p.Force || len(p.List) > 0 || p.DecisionCacheTTLSecs != 0 ||
-			p.DirectProbeTimeoutSecs != 0 || p.BandwidthPathSuffix != ""
-	}
-	isFFmpegConfigured := func(f DcFFmpeg) bool {
-		return f.Path != "" || len(f.ExtraArgs) > 0 || f.MoveIfExists.Enabled ||
-			f.ExternalHLSLog.Enabled || f.HLSAutoMarkAsFail
-	}
-	// Runtime defaults and validation
+	c.validateRuntimeMode()
+	c.validateTaskScan()
+	c.migrateDownloaderType()
+	c.clampDownloaderParams()
+	c.validateLogConfig()
+	c.validateTaskExtras()
+	c.validateServerDefaults()
+	c.migrateOldDownloaderFields()
+	c.setFilesystemDefaults()
+	c.setHTTPDefaults()
+	c.setProxyDefaults()
+	c.setProgressDefaults()
+	c.setFFmpegDefaults()
+	c.resolveTaskContexts()
+}
+
+func (c *Config) validateRuntimeMode() {
 	if c.Runtime.Mode == "" {
 		c.Runtime.Mode = RunModeFull
 	}
@@ -290,23 +318,30 @@ func (c *Config) ValidateAndClamp() {
 		slog.Warn("invalid runtime mode, fallback to full", "mode", string(c.Runtime.Mode))
 		c.Runtime.Mode = RunModeFull
 	}
-	// Keep current behavior: both enabled by default when unspecified.
-	// This method may be called after unmarshalling into a pre-initialized struct.
-	// So do not force override false values here.
+}
+
+func (c *Config) validateTaskScan() {
 	if c.TaskScan.Interval <= 0 {
 		c.TaskScan.Interval = 10
 	}
-	// Migrate deprecated "native_http" type to "native_old"
+}
+
+func (c *Config) migrateDownloaderType() {
 	if c.Downloader.Type == "native_http" {
 		slog.Warn("config: downloader type 'native_http' is deprecated, migrating to 'native_old'. " +
 			"Use type 'native' for the new pkg/download path.")
 		c.Downloader.Type = "native_old"
 	}
+}
+
+func (c *Config) clampDownloaderParams() {
 	c.Downloader.GlobalConcurrent = clampInt(c.Downloader.GlobalConcurrent, 1, 100)
 	if c.Downloader.MaxRetries < 0 {
 		c.Downloader.MaxRetries = 0
 	}
-	// Log config lower bounds
+}
+
+func (c *Config) validateLogConfig() {
 	if c.Log.MaxSize <= 0 {
 		c.Log.MaxSize = 1
 	}
@@ -316,7 +351,9 @@ func (c *Config) ValidateAndClamp() {
 	if c.Log.MaxAge < 0 {
 		c.Log.MaxAge = 0
 	}
-	// Per-task extra validations
+}
+
+func (c *Config) validateTaskExtras() {
 	for i := range c.Tasks {
 		t := &c.Tasks[i]
 		if t.Extra == nil {
@@ -339,7 +376,9 @@ func (c *Config) ValidateAndClamp() {
 			}
 		}
 	}
-	// Server defaults
+}
+
+func (c *Config) validateServerDefaults() {
 	if c.Server.HTTPPort <= 0 {
 		c.Server.HTTPPort = 8080
 	}
@@ -349,7 +388,6 @@ func (c *Config) ValidateAndClamp() {
 	if c.Server.DownloadRootDir == "" {
 		c.Server.DownloadRootDir = filepath.Join(c.Server.WorkDir, "downloads")
 	}
-	// UI defaults clamp
 	if c.Server.UIDefaults.WindowWidth < 480 {
 		c.Server.UIDefaults.WindowWidth = 480
 	}
@@ -362,8 +400,9 @@ func (c *Config) ValidateAndClamp() {
 	if c.Server.UIDefaults.StatusStyle == "" {
 		c.Server.UIDefaults.StatusStyle = "pill"
 	}
+}
 
-	// Migration: old fields -> new sub-structures when new not explicitly set
+func (c *Config) migrateOldDownloaderFields() {
 	if !isFSConfigured(c.Downloader.Filesystem) && c.Downloader.LogDir != "" {
 		c.Downloader.Filesystem.LogDir = c.Downloader.LogDir
 	}
@@ -383,8 +422,9 @@ func (c *Config) ValidateAndClamp() {
 			c.Downloader.FFmpeg.HLSAutoMarkAsFail = true
 		}
 	}
+}
 
-	// Defaults for new sub-structures
+func (c *Config) setFilesystemDefaults() {
 	if c.Downloader.Filesystem.RootDir == "" {
 		wd := c.Server.WorkDir
 		if wd == "" {
@@ -398,32 +438,35 @@ func (c *Config) ValidateAndClamp() {
 	if c.Downloader.Filesystem.CacheDir == "" {
 		c.Downloader.Filesystem.CacheDir = ".cache"
 	}
+}
 
+func (c *Config) setHTTPDefaults() {
 	if !isHTTPConfigured(c.Downloader.HTTP) {
 		c.Downloader.HTTP.TimeoutSeconds = 600
 		c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
 		c.Downloader.HTTP.MaxIdleConns = 100
 		c.Downloader.HTTP.MaxIdleConnsPerHost = 10
 		c.Downloader.HTTP.DefaultUserAgent = defaultUserAgent
-	} else {
-		// Partial defaults if some fields were left zero
-		if c.Downloader.HTTP.TimeoutSeconds == 0 {
-			c.Downloader.HTTP.TimeoutSeconds = 600
-		}
-		if c.Downloader.HTTP.IdleConnTimeoutSeconds == 0 {
-			c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
-		}
-		if c.Downloader.HTTP.MaxIdleConns == 0 {
-			c.Downloader.HTTP.MaxIdleConns = 100
-		}
-		if c.Downloader.HTTP.MaxIdleConnsPerHost == 0 {
-			c.Downloader.HTTP.MaxIdleConnsPerHost = 10
-		}
-		if c.Downloader.HTTP.DefaultUserAgent == "" {
-			c.Downloader.HTTP.DefaultUserAgent = defaultUserAgent
-		}
+		return
 	}
+	if c.Downloader.HTTP.TimeoutSeconds == 0 {
+		c.Downloader.HTTP.TimeoutSeconds = 600
+	}
+	if c.Downloader.HTTP.IdleConnTimeoutSeconds == 0 {
+		c.Downloader.HTTP.IdleConnTimeoutSeconds = 30
+	}
+	if c.Downloader.HTTP.MaxIdleConns == 0 {
+		c.Downloader.HTTP.MaxIdleConns = 100
+	}
+	if c.Downloader.HTTP.MaxIdleConnsPerHost == 0 {
+		c.Downloader.HTTP.MaxIdleConnsPerHost = 10
+	}
+	if c.Downloader.HTTP.DefaultUserAgent == "" {
+		c.Downloader.HTTP.DefaultUserAgent = defaultUserAgent
+	}
+}
 
+func (c *Config) setProxyDefaults() {
 	if c.Downloader.Proxy.DecisionCacheTTLSecs == 0 {
 		c.Downloader.Proxy.DecisionCacheTTLSecs = 1
 	}
@@ -433,29 +476,31 @@ func (c *Config) ValidateAndClamp() {
 	if c.Downloader.Proxy.BandwidthPathSuffix == "" {
 		c.Downloader.Proxy.BandwidthPathSuffix = DefaultBandwidthPath
 	}
+}
 
+func (c *Config) setProgressDefaults() {
 	if c.Downloader.Progress.MinPercentStep <= 0 {
 		c.Downloader.Progress.MinPercentStep = 0.5
 	}
 	if c.Downloader.Progress.MaxIntervalSeconds <= 0 {
 		c.Downloader.Progress.MaxIntervalSeconds = 10
 	}
+}
 
+func (c *Config) setFFmpegDefaults() {
 	if c.Downloader.FFmpeg.Path == "" {
 		c.Downloader.FFmpeg.Path = "ffmpeg"
 	}
+}
 
-	// Context resolution: substitute named context references for inline storage.
-	// Precedence: explicit inline storage (Storage.Type != "") > storage_context
-	// reference > zero value. A task with both keeps inline storage; the context
-	// name is preserved in the struct for round-trip fidelity.
+func (c *Config) resolveTaskContexts() {
 	for i := range c.Tasks {
 		t := &c.Tasks[i]
 		if t.StorageContext == "" {
 			continue
 		}
 		if t.Storage.Type != "" {
-			continue // explicit inline takes precedence
+			continue
 		}
 		if len(c.Contexts) == 0 {
 			slog.Warn("task references context but no contexts defined",

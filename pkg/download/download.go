@@ -66,6 +66,20 @@ func Get(ctx context.Context, url, savePath string) error {
 	})
 }
 
+// validateRequest validates and initializes the request.
+func validateRequest(req *Request) error {
+	if req == nil || req.URL == "" || req.SavePath == "" {
+		return fmt.Errorf("invalid request: missing URL or SavePath")
+	}
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]string)
+	}
+	if req.Result == nil {
+		req.Result = &DownloadResult{}
+	}
+	return nil
+}
+
 // New 创建 Downloader，可通过 Option 自定义配置。
 // 零参数调用时自动注册 HTTPExtractor、StdlibTransport、DefaultSelector。
 // 若传入了 WithExtractor，则不注册默认 HTTPExtractor。
@@ -84,41 +98,40 @@ func New(opts ...Option) *Downloader {
 	return d
 }
 
+// matchExtractor uses the Selector (if set) to find an Extractor for the given URL,
+// falling back to iterating the extractor list.
+func (d *Downloader) matchExtractor(ctx context.Context, url string, hint *DownloadHint) Extractor {
+	if d.selector != nil {
+		ex := d.selector.MatchExtractor(ctx, url, hint)
+		if ex != nil {
+			return ex
+		}
+	}
+	for _, e := range d.extractors {
+		if e.Match(ctx, url) {
+			return e
+		}
+	}
+	return nil
+}
+
 // Download 执行一次下载的完整编排：
 //  1. Selector 匹配 Extractor
 //  2. 注入 Transport 和 Selector（如果 Extractor 支持）
 //  3. 执行 Extractor.Extract
 func (d *Downloader) Download(ctx context.Context, req *Request) error {
-	if req == nil || req.URL == "" || req.SavePath == "" {
-		return fmt.Errorf("invalid request: missing URL or SavePath")
-	}
-	if req.Metadata == nil {
-		req.Metadata = make(map[string]string)
-	}
-	if req.Result == nil {
-		req.Result = &DownloadResult{}
+	if err := validateRequest(req); err != nil {
+		return err
 	}
 
-	// 1. Selector 匹配 Extractor
-	var ex Extractor
-	if d.selector != nil {
-		ex = d.selector.MatchExtractor(ctx, req.URL, req.Hint)
-	}
-	if ex == nil {
-		for _, e := range d.extractors {
-			if e.Match(ctx, req.URL) {
-				ex = e
-				break
-			}
-		}
-	}
+	ex := d.matchExtractor(ctx, req.URL, req.Hint)
 	if ex == nil {
 		return fmt.Errorf("no extractor found for URL: %s", req.URL)
 	}
 
 	slog.Debug("Download: matched extractor", "extractor", ex.Name(), logutil.LogKeyURL, req.URL)
 
-	// 2. 为 Extractor 注入 Transport 和 Selector（如果支持）
+	// Inject Transport and Selector into the extractor if it supports them.
 	if hw, ok := ex.(interface{ SetTransport(Transport) }); ok && d.transport != nil {
 		hw.SetTransport(d.transport)
 	}
@@ -126,7 +139,7 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 		hw.SetSelector(d.selector)
 	}
 
-	// 3. 中间件链包装 Extractor
+	// Wrap with middleware if configured.
 	executor := ex
 	if d.middleware != nil {
 		executor = &middlewareExtractor{
@@ -135,6 +148,5 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 		}
 	}
 
-	// 4. 执行下载
 	return executor.Extract(ctx, req)
 }

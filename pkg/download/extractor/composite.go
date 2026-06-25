@@ -46,6 +46,62 @@ func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
 	e.extractors = append(e.extractors, ex)
 }
 
+// buildDownloader builds or returns the cached downloader instance.
+func (e *CompositeExtractor) buildDownloader() *download.Downloader {
+	if e.downloader != nil {
+		return e.downloader
+	}
+	var opts []download.Option
+	if e.transport != nil {
+		opts = append(opts, download.WithTransport(e.transport))
+	}
+	if e.selector != nil {
+		opts = append(opts, download.WithSelector(e.selector))
+	}
+	for _, ex := range e.extractors {
+		opts = append(opts, download.WithExtractor(ex))
+	}
+	return download.New(opts...)
+}
+
+// processFile handles a single file entry from the composite file list.
+func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downloader, fileMap map[string]string, req *download.Request, totalDownloaded *int64, fileIndex int, totalFiles int) error {
+	subURL := fileMap["url"]
+	subPath := fileMap["path"]
+	fType := fileMap[model.MetadataKeyType]
+
+	if subURL == "" || subPath == "" {
+		return nil
+	}
+
+	dir := filepath.Dir(subPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("composite: failed to create directory %s: %w", dir, err)
+	}
+
+	trackProgress := fType == "video" || totalFiles == 1
+
+	subReq := &download.Request{
+		URL:           subURL,
+		SavePath:      subPath,
+		TrackProgress: trackProgress,
+		OnProgress:    req.OnProgress,
+	}
+
+	if err := dl.Download(ctx, subReq); err != nil {
+		return fmt.Errorf("composite: sub-download failed (%s): %w", subURL, err)
+	}
+
+	if info, statErr := os.Stat(subPath); statErr == nil {
+		*totalDownloaded += info.Size()
+	}
+	if req.OnProgress != nil && totalFiles > 1 {
+		pct := float64(fileIndex+1) / float64(totalFiles) * 100
+		req.OnProgress(pct, *totalDownloaded, 0)
+	}
+	return nil
+}
+
 // parseFiles 从 req.Metadata["files"] 解析文件列表。
 // 支持 JSON 字符串 ("[{\"url\":\"...\",\"path\":\"...\",\"type\":\"video\"}]")
 func parseFiles(metadata map[string]string) ([]map[string]string, error) {
@@ -75,59 +131,12 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 
 	slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyURL, req.URL)
 
-	// 构建子 Downloader，注入 Selector、Transport 和 Extractor
 	var totalDownloaded int64
-	dl := e.downloader
-	if dl == nil {
-		var opts []download.Option
-		if e.transport != nil {
-			opts = append(opts, download.WithTransport(e.transport))
-		}
-		if e.selector != nil {
-			opts = append(opts, download.WithSelector(e.selector))
-		}
-		for _, ex := range e.extractors {
-			opts = append(opts, download.WithExtractor(ex))
-		}
-		dl = download.New(opts...)
-	}
+	dl := e.buildDownloader()
 
 	for i, fileMap := range fileList {
-		subURL := fileMap["url"]
-		subPath := fileMap["path"]
-		fType := fileMap[model.MetadataKeyType]
-
-		if subURL == "" || subPath == "" {
-			continue
-		}
-
-		// 创建目录
-		dir := filepath.Dir(subPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("composite: failed to create directory %s: %w", dir, err)
-		}
-
-		// 跟踪进度：仅 video 类型或只有一个文件时
-		trackProgress := (fType == "video" || len(fileList) == 1)
-
-		subReq := &download.Request{
-			URL:           subURL,
-			SavePath:      subPath,
-			TrackProgress: trackProgress,
-			OnProgress:    req.OnProgress,
-		}
-
-		if err := dl.Download(ctx, subReq); err != nil {
-			return fmt.Errorf("composite: sub-download failed (%s): %w", subURL, err)
-		}
-
-		// 累计已下载字节数
-		if info, statErr := os.Stat(subPath); statErr == nil {
-			totalDownloaded += info.Size()
-		}
-		if req.OnProgress != nil && len(fileList) > 1 {
-			pct := float64(i+1) / float64(len(fileList)) * 100
-			req.OnProgress(pct, totalDownloaded, 0)
+		if err := e.processFile(ctx, dl, fileMap, req, &totalDownloaded, i, len(fileList)); err != nil {
+			return err
 		}
 	}
 

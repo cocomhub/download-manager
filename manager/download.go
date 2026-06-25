@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,30 +38,7 @@ func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
 
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	start := time.Now()
-	defer func() {
-		// Only decrement activeDownloads if the object is still tracked in downloadingObj.
-		// CancelTask/CancelObject may have already handled cleanup, including the
-		// decrement and downloadingObj.Delete. Without this check, the double-decrement
-		// would make activeDownloads negative.
-		if _, stillActive := m.downloadingObj.Load(obj.URL); stillActive {
-			m.mu.Lock()
-			m.activeDownloads[t.ID()]--
-			m.mu.Unlock()
-		}
-
-		// Remove from downloadingObj map (safe to call even if CancelTask already removed it)
-		m.downloadingObj.Delete(obj.URL)
-		m.lastProgress.Delete(obj.URL)
-
-		// Broadcast task update on finish
-		m.BroadcastTaskUpdate(t.ID())
-
-		// 通知调度器：可能有新槽位可用
-		select {
-		case m.schedulerSignal <- struct{}{}:
-		default:
-		}
-	}()
+	defer m.cleanupAfterDownload(t, obj)
 
 	// Check if manager is stopping — avoids overwriting status set by Stop()
 	select {
@@ -109,28 +87,61 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	// Periodic worker heartbeat during long downloads
 	heartbeatStop := make(chan struct{})
 	defer close(heartbeatStop)
-	go func() {
-		hbTick := time.NewTicker(5 * time.Second)
-		defer hbTick.Stop()
-		for {
-			select {
-			case <-hbTick.C:
-				m.workerHeartbeat.Store(time.Now())
-			case <-heartbeatStop:
-				return
-			case <-dlCtx.Done():
-				return
-			}
-		}
-	}()
+	go m.heartbeatLoop(heartbeatStop, dlCtx)
 
 	// Propagate context to downloader if supported
 	if nd, ok := dl.(core.ContextInjecter); ok {
 		nd.SetContext(dlCtx)
 	}
 
-	// 设置 metadata flusher：在 Extractor 提取到 ETag/checksum 后立即持久化到存储，
-	// 避免进程崩溃时丢失元数据导致下次必须重新下载。
+	// 设置 metadata flusher
+	m.setupMetadataFlusher(dl, t, obj)
+
+	err := dl.Download(obj, t.GetDownloadHeaders())
+	if err != nil {
+		m.handleDownloadError(t, obj, err)
+	} else {
+		m.handleDownloadSuccess(t, obj, start)
+	}
+}
+
+// cleanupAfterDownload 处理下载结束后的清理工作：释放 activeDownloads、删除 downloadingObj 跟踪、广播任务更新、通知调度器。
+func (m *Manager) cleanupAfterDownload(t core.Task, obj *model.DownloadObject) {
+	if _, stillActive := m.downloadingObj.Load(obj.URL); stillActive {
+		m.mu.Lock()
+		m.activeDownloads[t.ID()]--
+		m.mu.Unlock()
+	}
+
+	m.downloadingObj.Delete(obj.URL)
+	m.lastProgress.Delete(obj.URL)
+
+	m.BroadcastTaskUpdate(t.ID())
+
+	select {
+	case m.schedulerSignal <- struct{}{}:
+	default:
+	}
+}
+
+// heartbeatLoop 在下载期间定期更新 worker heartbeat，防止 health check 超时。
+func (m *Manager) heartbeatLoop(stop <-chan struct{}, ctx context.Context) {
+	hbTick := time.NewTicker(5 * time.Second)
+	defer hbTick.Stop()
+	for {
+		select {
+		case <-hbTick.C:
+			m.workerHeartbeat.Store(time.Now())
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// setupMetadataFlusher 注册 metadata flusher 回调，确保 ETag/checksum 在提取后立即持久化。
+func (m *Manager) setupMetadataFlusher(dl core.Downloader, t core.Task, obj *model.DownloadObject) {
 	if mf, ok := dl.(interface{ SetMetadataFlusher(func()) }); ok {
 		mf.SetMetadataFlusher(func() {
 			st := t.Storage()
@@ -153,159 +164,158 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		slog.Warn("Metadata flush not supported — crash may lose ETag/checksum",
 			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 	}
+}
 
-	err := dl.Download(obj, t.GetDownloadHeaders())
-	if err != nil {
-		if m.isCancelled(t, obj) {
-			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-			return
-		}
-
-		// 复合下载空列表：重新 resolve 后放回 pending，让调度器重新调度
-		// 最多 10 次，指数退避最大 1h
-		if errors.Is(err, downloader.ErrCompositeEmpty) {
-			v, _ := m.compositeResolveCount.LoadOrStore(obj.URL, new(atomic.Int64))
-			counter, ok := v.(*atomic.Int64)
-			if !ok {
-				m.compositeResolveCount.Store(obj.URL, new(atomic.Int64))
-				raw, _ := m.compositeResolveCount.Load(obj.URL)
-				counter, ok = raw.(*atomic.Int64)
-				if !ok {
-					m.compositeResolveCount.Store(obj.URL, new(atomic.Int64))
-					counter = new(atomic.Int64)
-					m.compositeResolveCount.Store(obj.URL, counter)
-				}
-			}
-			count := counter.Add(1)
-			if count > 10 {
-				slog.Error("Composite resolve retry exhausted, marking as permanent failure",
-					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
-				m.compositeResolveCount.Delete(obj.URL)
-				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
-				if ft, ok := t.(core.FailedTaskMarker); ok {
-					ft.MarkAsFailed(obj, err)
-				}
-				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-				return
-			}
-
-			// 指数退避：2^(count-1) 秒，最大 3600 秒
-			backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
-			slog.Warn("Composite download with empty file list, re-resolving",
-				logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, "attempt", count, "backoff", backoff)
-
-			time.Sleep(backoff)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if resolveErr := t.ResolveObject(ctx, obj); resolveErr != nil {
-				slog.Error("Re-resolve after composite empty failed",
-					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, resolveErr)
-			}
-			t.UpdateStatus(obj, model.StatusPending, nil)
-			m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
-			m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
-			select {
-			case m.schedulerSignal <- struct{}{}:
-			default:
-			}
-			return
-		}
-
-		slog.Error("Download failed", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-		t.UpdateStatus(obj, model.StatusFailed, err)
-		mt := m.getOrCreateMetrics(t.ID())
-		mt.failures.Add(1)
-		mt.lastActive.Store(time.Now().Unix())
-
-		if download.IsNoTry(err) {
-			if ft, ok := t.(core.FailedTaskMarker); ok {
-				ft.MarkAsFailed(obj, err)
-			}
-		}
-
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return
-		}
-
-		// Increment failed count
-		v, _ := m.failedCount.LoadOrStore(obj.URL, new(atomic.Int64))
-		counter, ok := v.(*atomic.Int64)
-		if !ok {
-			m.failedCount.Store(obj.URL, new(atomic.Int64))
-			raw, _ := m.failedCount.Load(obj.URL)
-			counter, ok = raw.(*atomic.Int64)
-			if !ok {
-				fallback := new(atomic.Int64)
-				m.failedCount.Store(obj.URL, fallback)
-				counter = fallback
-			}
-		}
-		c := counter.Add(1)
-		// Track retries (c > 1 means this is a retry)
-		if c > 1 {
-			m.getOrCreateMetrics(t.ID()).retried.Add(1)
-		}
-		// Check if max retries reached
-		maxRetries := m.currentCfg().Downloader.MaxRetries
-		if maxRetries <= 0 {
-			maxRetries = 5
-		}
-		if c >= int64(maxRetries) {
-			if ft, ok := t.(core.FailedTaskMarker); ok {
-				ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
-			}
-		}
-
-		// Record failure detail
-		isPermanent := download.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
-		m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
-	} else {
-		// 等待小对象完成后再标记 Completed
-		if soTracker := m.soTrackerForObj(obj.URL); soTracker != nil {
-			errs := soTracker.WaitAll(5 * time.Minute)
-			for _, e := range errs {
-				if e != nil {
-					slog.Warn("Small-object download had error", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, e)
-				}
-			}
-			m.soTracker.Delete(obj.URL)
-		}
-
-		// 检查是否已被取消（CancelObject 可能已在别的 goroutine 中修改了 storage）
-		if m.isCancelled(t, obj) {
-			slog.Info("Download: object was cancelled before completion, preserving cancelled status",
-				logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
-			m.failedCount.Delete(obj.URL)
-			return
-		}
-
-		t.UpdateStatus(obj, model.StatusCompleted, nil)
-		// Reset failed count on success
-		m.failedCount.Delete(obj.URL)
-		m.totalDownloads.Add(1)
-		// Apply group priority policies for content groups
-		m.applyGroupPriorityPolicies(t, obj)
-		mt := m.getOrCreateMetrics(t.ID())
-		mt.completed.Add(1)
-		elapsed := time.Since(start).Seconds() * 1000
-		if mt.avgLatencyMs.Load() == 0 {
-			mt.avgLatencyMs.Store(int64(elapsed))
-		} else {
-			for {
-				old := mt.avgLatencyMs.Load()
-				newVal := int64(float64(old)*0.7 + elapsed*0.3)
-				if mt.avgLatencyMs.CompareAndSwap(old, newVal) {
-					break
-				}
-			}
-		}
-		mt.lastActive.Store(time.Now().Unix())
+// handleDownloadError 根据错误类型分发处理：取消、复合空列表、或一般下载错误。
+func (m *Manager) handleDownloadError(t core.Task, obj *model.DownloadObject, err error) {
+	if m.isCancelled(t, obj) {
+		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+		return
 	}
+	if errors.Is(err, downloader.ErrCompositeEmpty) {
+		m.handleCompositeEmptyError(t, obj, err)
+		return
+	}
+	m.handleGeneralDownloadError(t, obj, err)
+}
+
+// handleCompositeEmptyError 处理复合下载空列表错误：重新 resolve 后放回 pending，指数退避。
+func (m *Manager) handleCompositeEmptyError(t core.Task, obj *model.DownloadObject, err error) {
+	counter := syncMapCounter(&m.compositeResolveCount, obj.URL)
+	count := counter.Add(1)
+	if count > 10 {
+		slog.Error("Composite resolve retry exhausted, marking as permanent failure",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		m.compositeResolveCount.Delete(obj.URL)
+		t.UpdateStatus(obj, model.StatusFailedPermanent, err)
+		if ft, ok := t.(core.FailedTaskMarker); ok {
+			ft.MarkAsFailed(obj, err)
+		}
+		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+		return
+	}
+
+	// 指数退避：2^(count-1) 秒，最大 3600 秒
+	backoff := min(time.Duration(1<<(count-1))*time.Second, time.Hour)
+	slog.Warn("Composite download with empty file list, re-resolving",
+		logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, "attempt", count, "backoff", backoff)
+
+	time.Sleep(backoff)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if resolveErr := t.ResolveObject(ctx, obj); resolveErr != nil {
+		slog.Error("Re-resolve after composite empty failed",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, resolveErr)
+	}
+	t.UpdateStatus(obj, model.StatusPending, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+	select {
+	case m.schedulerSignal <- struct{}{}:
+	default:
+	}
+}
+
+// handleGeneralDownloadError 处理一般下载失败（非 composite empty）。
+func (m *Manager) handleGeneralDownloadError(t core.Task, obj *model.DownloadObject, err error) {
+	slog.Error("Download failed", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+	t.UpdateStatus(obj, model.StatusFailed, err)
+	mt := m.getOrCreateMetrics(t.ID())
+	mt.failures.Add(1)
+	mt.lastActive.Store(time.Now().Unix())
+
+	if download.IsNoTry(err) {
+		if ft, ok := t.(core.FailedTaskMarker); ok {
+			ft.MarkAsFailed(obj, err)
+		}
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return
+	}
+
+	counter := syncMapCounter(&m.failedCount, obj.URL)
+	c := counter.Add(1)
+	if c > 1 {
+		m.getOrCreateMetrics(t.ID()).retried.Add(1)
+	}
+
+	maxRetries := m.currentCfg().Downloader.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 5
+	}
+	if c >= int64(maxRetries) {
+		if ft, ok := t.(core.FailedTaskMarker); ok {
+			ft.MarkAsFailed(obj, fmt.Errorf("max retries reached: %w", err))
+		}
+	}
+
+	isPermanent := download.IsNoTry(err) || (maxRetries > 0 && c >= int64(maxRetries))
+	m.recordFailure(t.ID(), obj.URL, err.Error(), int(c), isPermanent)
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+}
+
+// handleDownloadSuccess 处理下载成功后的逻辑：等待小对象、检查取消、标记 completed、更新 metrics。
+func (m *Manager) handleDownloadSuccess(t core.Task, obj *model.DownloadObject, start time.Time) {
+	if soTracker := m.soTrackerForObj(obj.URL); soTracker != nil {
+		errs := soTracker.WaitAll(5 * time.Minute)
+		for _, e := range errs {
+			if e != nil {
+				slog.Warn("Small-object download had error", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, e)
+			}
+		}
+		m.soTracker.Delete(obj.URL)
+	}
+
+	if m.isCancelled(t, obj) {
+		slog.Info("Download: object was cancelled before completion, preserving cancelled status",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		m.failedCount.Delete(obj.URL)
+		return
+	}
+
+	t.UpdateStatus(obj, model.StatusCompleted, nil)
+	m.failedCount.Delete(obj.URL)
+	m.totalDownloads.Add(1)
+	m.applyGroupPriorityPolicies(t, obj)
+	mt := m.getOrCreateMetrics(t.ID())
+	mt.completed.Add(1)
+	elapsed := time.Since(start).Seconds() * 1000
+	if mt.avgLatencyMs.Load() == 0 {
+		mt.avgLatencyMs.Store(int64(elapsed))
+	} else {
+		for {
+			old := mt.avgLatencyMs.Load()
+			newVal := int64(float64(old)*0.7 + elapsed*0.3)
+			if mt.avgLatencyMs.CompareAndSwap(old, newVal) {
+				break
+			}
+		}
+	}
+	mt.lastActive.Store(time.Now().Unix())
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+}
+
+// syncMapCounter 从 sync.Map 加载或存储 atomic.Int64 计数器，应对类型断言竞争，返回稳定的 *atomic.Int64。
+func syncMapCounter(m *sync.Map, key string) *atomic.Int64 {
+	v, _ := m.LoadOrStore(key, new(atomic.Int64))
+	counter, ok := v.(*atomic.Int64)
+	if !ok {
+		m.Store(key, new(atomic.Int64))
+		raw, _ := m.Load(key)
+		counter, ok = raw.(*atomic.Int64)
+		if !ok {
+			fallback := new(atomic.Int64)
+			m.Store(key, fallback)
+			counter = fallback
+		}
+	}
+	return counter
 }
 
 // soTrackerForObj 返回指定对象的小对象 tracker（如果存在）。

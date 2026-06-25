@@ -42,54 +42,47 @@ type FileChecksumFunc func(path string) (string, error)
 //	完整			无记录(旧数据)	不存在			ActionDownload
 func ResolveAction(localPath string, prevETag, prevChecksum string, statFunc FileStatFunc, checksumFunc FileChecksumFunc) DownloadAction {
 	fi, err := statFunc(localPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ActionDownload
-		}
-		// 无法 stat 视为不存在，安全走全新下载
+	if err != nil || fi.Size() == 0 {
 		return ActionDownload
 	}
 
-	fileSize := fi.Size()
-	// 文件大小为 0 视为不存在
-	if fileSize == 0 {
-		return ActionDownload
-	}
-
-	// 文件不完整（无 checksum 可校验，说明上次未完成下载）
-	// 如果 prevETag != ""，尝试续传，否则重新下载
 	localChecksum, ckErr := checksumFunc(localPath)
+
+	// Checksum 计算失败但有 ETag 记录 -> 尝试续传
 	if ckErr != nil && prevETag != "" {
 		return ActionResume
 	}
 
-	// 有 ETag 记录但无 checksum 记录，触发条件请求（If-None-Match）
-	// 如果服务端返回 304，表示文件未变更，跳过下载
+	return resolveWithChecksum(prevETag, prevChecksum, localChecksum, ckErr == nil)
+}
+
+// resolveWithChecksum 在有文件且 checksum 可能可用的前提下，
+// 根据 ETag/checksum 记录与本地 checksum 决定下载行为。
+func resolveWithChecksum(prevETag, prevChecksum, localChecksum string, checksumOK bool) DownloadAction {
+	if !checksumOK {
+		// Checksum 失败且无 prevChecksum 记录 -> 全新下载
+		// 有 prevChecksum 记录但无法校验 -> 重新下载
+		if prevChecksum == "" {
+			return ActionDownload
+		}
+		return ActionReDownload
+	}
+
+	// ETag 有记录但无 checksum 记录 -> 触发条件请求（If-None-Match）
 	if prevETag != "" && prevChecksum == "" {
-		// 文件完好但无上次 checksum 记录，走条件请求让服务端决定
 		return ActionDownload
 	}
 
-	// 兼容旧数据：无 ETag 但有 checksum 且匹配文件
-	if prevETag == "" && prevChecksum != "" && localChecksum == prevChecksum {
+	// Checksum 匹配（无论是否有 ETag）-> 文件完整
+	if prevChecksum != "" && localChecksum == prevChecksum {
 		return ActionSkip
 	}
 
-	// 兼容旧数据：无 ETag 且无 checksum 记录
+	// 无 ETag、无 checksum 记录 -> 全新下载
 	if prevETag == "" && prevChecksum == "" {
 		return ActionDownload
 	}
 
-	// ETag 匹配且 checksum 匹配 → 跳过
-	if prevETag != "" && localChecksum == prevChecksum {
-		return ActionSkip
-	}
-
-	// ETag 匹配但 checksum 不匹配 → 文件损坏，需要重下
-	if prevETag != "" && localChecksum != prevChecksum {
-		return ActionReDownload
-	}
-
-	// ETag 不匹配
+	// ETag 存在但 checksum 不匹配 -> 文件已变更或损坏
 	return ActionReDownload
 }

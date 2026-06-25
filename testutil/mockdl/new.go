@@ -30,80 +30,13 @@ type MockTaskConfig struct {
 func NewTask(t testing.TB, cfg MockTaskConfig) core.Task {
 	t.Helper()
 
-	if cfg.TaskID == "" {
-		cfg.TaskID = "mock-test"
-	}
-	if cfg.SaveDir == "" {
-		cfg.SaveDir = t.TempDir()
-	}
-	if cfg.Storage == nil {
-		s, err := storage.NewMemoryStorage(nil)
-		if err != nil {
-			t.Fatalf("NewMemoryStorage: %v", err)
-		}
-		cfg.Storage = s
-	}
+	fillDefaults(t, &cfg)
 
 	extra := map[string]any{}
-
-	// Serialize rules.
 	if len(cfg.Rules) > 0 {
-		var rulesRaw []any
-		for _, r := range cfg.Rules {
-			rm := map[string]any{
-				"url_template": r.URLTemplate,
-				"count":        r.Count,
-				"file_size":    r.FileSize,
-				"status":       r.Status,
-			}
-			if len(r.Slugs) > 0 {
-				slugsRaw := make([]any, len(r.Slugs))
-				for i, s := range r.Slugs {
-					slugsRaw[i] = s
-				}
-				rm["slugs"] = slugsRaw
-			}
-			if r.InitialProgress > 0 {
-				rm["initial_progress"] = r.InitialProgress
-			}
-			if len(r.Metadata) > 0 {
-				metaRaw := make(map[string]any, len(r.Metadata))
-				for k, v := range r.Metadata {
-					metaRaw[k] = v
-				}
-				rm["metadata"] = metaRaw
-			}
-			rulesRaw = append(rulesRaw, rm)
-		}
-		extra["mock_rules"] = rulesRaw
+		extra["mock_rules"] = serializeMockRules(cfg.Rules)
 	}
-
-	// Serialize behavior.
-	b := map[string]any{
-		"mode": cfg.Behavior.Mode,
-	}
-	if cfg.Behavior.FailRate > 0 {
-		b["fail_rate"] = cfg.Behavior.FailRate
-	}
-	if cfg.Behavior.DelayPerByte > 0 {
-		b["delay_per_byte"] = cfg.Behavior.DelayPerByte
-	}
-	if len(cfg.Behavior.FailOnURLs) > 0 {
-		urls := make([]any, len(cfg.Behavior.FailOnURLs))
-		for i, u := range cfg.Behavior.FailOnURLs {
-			urls[i] = u
-		}
-		b["fail_on_urls"] = urls
-	}
-	if len(cfg.Behavior.TimeoutOnURLs) > 0 {
-		urls := make([]any, len(cfg.Behavior.TimeoutOnURLs))
-		for i, u := range cfg.Behavior.TimeoutOnURLs {
-			urls[i] = u
-		}
-		b["timeout_on_urls"] = urls
-	}
-	extra["mock_behavior"] = b
-
+	extra["mock_behavior"] = serializeMockBehavior(cfg.Behavior)
 	if cfg.Concurrency > 0 {
 		extra["max_concurrent"] = cfg.Concurrency
 	}
@@ -121,13 +54,94 @@ func NewTask(t testing.TB, cfg MockTaskConfig) core.Task {
 		t.Fatalf("NewTask(mock): %v", err)
 	}
 
-	// Pre-seed objects if provided directly.
-	if len(cfg.Objects) > 0 {
-		for _, obj := range cfg.Objects {
-			obj.TaskID = cfg.TaskID
-			_ = cfg.Storage.Update(obj)
-		}
-	}
+	seedObjects(cfg.Objects, cfg.TaskID, cfg.Storage)
 
 	return tsk
+}
+
+// fillDefaults sets default values for MockTaskConfig fields that are not set.
+func fillDefaults(t testing.TB, cfg *MockTaskConfig) {
+	t.Helper()
+
+	if cfg.TaskID == "" {
+		cfg.TaskID = "mock-test"
+	}
+	if cfg.SaveDir == "" {
+		cfg.SaveDir = t.TempDir()
+	}
+	if cfg.Storage == nil {
+		s, err := storage.NewMemoryStorage(nil)
+		if err != nil {
+			t.Fatalf("NewMemoryStorage: %v", err)
+		}
+		cfg.Storage = s
+	}
+}
+
+// serializeMockRules converts MockRule slices to the serialized []any format.
+func serializeMockRules(rules []mocktask.MockRule) []any {
+	rulesRaw := make([]any, len(rules))
+	for i, r := range rules {
+		rm := map[string]any{
+			"url_template": r.URLTemplate,
+			"count":        r.Count,
+			"file_size":    r.FileSize,
+			"status":       r.Status,
+		}
+		if len(r.Slugs) > 0 {
+			slugsRaw := make([]any, len(r.Slugs))
+			for j, s := range r.Slugs {
+				slugsRaw[j] = s
+			}
+			rm["slugs"] = slugsRaw
+		}
+		if r.InitialProgress > 0 {
+			rm["initial_progress"] = r.InitialProgress
+		}
+		if len(r.Metadata) > 0 {
+			metaRaw := make(map[string]any, len(r.Metadata))
+			for k, v := range r.Metadata {
+				metaRaw[k] = v
+			}
+			rm["metadata"] = metaRaw
+		}
+		rulesRaw[i] = rm
+	}
+	return rulesRaw
+}
+
+// serializeMockBehavior converts a MockBehavior to a serialized map format.
+func serializeMockBehavior(b mocktask.MockBehavior) map[string]any {
+	m := map[string]any{
+		"mode": b.Mode,
+	}
+	if b.FailRate > 0 {
+		m["fail_rate"] = b.FailRate
+	}
+	if b.DelayPerByte > 0 {
+		m["delay_per_byte"] = b.DelayPerByte
+	}
+	if len(b.FailOnURLs) > 0 {
+		urls := make([]any, len(b.FailOnURLs))
+		for i, u := range b.FailOnURLs {
+			urls[i] = u
+		}
+		m["fail_on_urls"] = urls
+	}
+	if len(b.TimeoutOnURLs) > 0 {
+		urls := make([]any, len(b.TimeoutOnURLs))
+		for i, u := range b.TimeoutOnURLs {
+			urls[i] = u
+		}
+		m["timeout_on_urls"] = urls
+	}
+	return m
+}
+
+// seedObjects pre-seeds DownloadObject entries into storage.
+func seedObjects(objects []*model.DownloadObject, taskID string, store core.Storage) {
+	for _, obj := range objects {
+		obj.TaskID = taskID
+		_ = store.Update(obj)
+	}
 }

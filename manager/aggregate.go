@@ -8,6 +8,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/logutil"
@@ -20,114 +21,128 @@ func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status str
 }
 
 // typeMatchesTask checks if the given task type matches any of the given type prefixes.
-// It is a package-level helper shared by Manager.AggregateByContent and AggregationService.AggregateObjects.
 func typeMatchesTask(t core.Task, types []string) bool {
 	if len(types) == 0 {
 		return true
 	}
 	tt := strings.ToLower(t.Type())
 	for _, pref := range types {
-		p := strings.ToLower(pref)
-		if strings.HasPrefix(tt, p) {
+		if strings.HasPrefix(tt, strings.ToLower(pref)) {
 			return true
 		}
 	}
 	return false
 }
 
-// AggregateByContent groups objects by scoped content group and returns representatives.
-func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	cfg := m.currentCfg()
-	type taskObj struct {
-		t   core.Task
-		obj *model.DownloadObject
-	}
+// contentGroupEntry associates a task with one of its download objects during aggregation.
+type contentGroupEntry struct {
+	task core.Task
+	obj  *model.DownloadObject
+}
 
-	// Collect matching tasks
-	var matchingTasks []core.Task
+// collectMatchingTasks returns registered tasks whose types match the given type prefixes.
+func collectMatchingTasks(cfg *config.Config, getTask func(string) (core.Task, bool), types []string) []core.Task {
+	var matching []core.Task
 	for _, tCfg := range cfg.Tasks {
-		id := tCfg.ID
-		tk, ok := m.getTask(id)
+		tk, ok := getTask(tCfg.ID)
 		if !ok {
 			continue
 		}
 		if !typeMatchesTask(tk, types) {
 			continue
 		}
-		matchingTasks = append(matchingTasks, tk)
+		matching = append(matching, tk)
 	}
+	return matching
+}
 
-	if page < 1 {
-		page = 1
+// buildContentQuery constructs a StorageQuery filtered by the given search text and (optionally) status.
+func buildContentQuery(search, status string) *core.StorageQuery {
+	q := &core.StorageQuery{
+		Filter: core.StorageFilter{Search: search},
 	}
-	if limit <= 0 {
-		limit = 50
+	if status != "" && status != "all" {
+		q.Filter.Statuses = []string{status}
 	}
+	return q
+}
 
-	// For content grouping we need ALL matching objects to build groups properly,
-	// but we collect each task via Search with search/status filter to reduce data.
-	all := make([]taskObj, 0, 1024)
-	for _, tk := range matchingTasks {
-		query := &core.StorageQuery{
-			Filter: core.StorageFilter{
-				Search: search,
-			},
-		}
-		if status != "" && status != "all" {
-			query.Filter.Statuses = []string{status}
-		}
-		objs, err := m.collectTaskObjects(tk, query, 200)
+// collectContentObjects gathers all matching objects from the given tasks.
+func collectContentObjects(m *Manager, tasks []core.Task, search, status string) ([]contentGroupEntry, error) {
+	all := make([]contentGroupEntry, 0, 1024)
+	for _, tk := range tasks {
+		objs, err := m.collectTaskObjects(tk, buildContentQuery(search, status), 200)
 		if err != nil {
 			return nil, err
 		}
 		for _, o := range objs {
-			all = append(all, taskObj{t: tk, obj: o})
+			all = append(all, contentGroupEntry{task: tk, obj: o})
 		}
 	}
-	// Group by task_id + task_type + content_group to avoid cross-task leakage.
-	type groupEntry struct {
-		t   core.Task
-		obj *model.DownloadObject
+	return all, nil
+}
+
+// groupByContentKey partitions entries by scoped content group key (task_id + task_type + content_group).
+func groupByContentKey(entries []contentGroupEntry) map[string][]contentGroupEntry {
+	groups := make(map[string][]contentGroupEntry)
+	for _, e := range entries {
+		key := scopedContentGroupKey(e.task.ID(), e.task.Type(), metadataContentGroup(e.obj))
+		groups[key] = append(groups[key], e)
 	}
-	groups := make(map[string][]groupEntry)
-	for _, to := range all {
-		key := scopedContentGroupKey(to.t.ID(), to.t.Type(), metadataContentGroup(to.obj))
-		groups[key] = append(groups[key], groupEntry(to))
+	return groups
+}
+
+// pickRepresentative selects the best object within a group by variant priority (tie goes to first).
+func pickRepresentative(entries []contentGroupEntry) *model.DownloadObject {
+	var rep *model.DownloadObject
+	bestScore := -1
+	for idx, e := range entries {
+		score := variantPriorityScore(e.task, e.obj)
+		if idx == 0 || score > bestScore {
+			rep = e.obj
+			bestScore = score
+		}
 	}
-	// Pick representative by priority, tie -> first.
+	return rep
+}
+
+// copyRepresentative creates a shallow copy of rep and attaches the group_size extra field.
+func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.DownloadObject {
+	c := &model.DownloadObject{
+		TaskID:   rep.TaskID,
+		URL:      rep.URL,
+		SavePath: rep.SavePath,
+		Status:   rep.GetStatus(),
+		Progress: rep.GetProgress(),
+	}
+	if rep.Metadata != nil {
+		c.Metadata = make(map[string]string, len(rep.Metadata))
+		maps.Copy(c.Metadata, rep.Metadata)
+	}
+	c.Extra = make(map[string]any, len(rep.Extra)+1)
+	if rep.Extra != nil {
+		maps.Copy(c.Extra, rep.Extra)
+	}
+	c.Extra["group_size"] = groupSize
+	return c
+}
+
+// selectGroupRepresentatives picks one representative per content group and copies it.
+func selectGroupRepresentatives(groups map[string][]contentGroupEntry) []*model.DownloadObject {
 	reps := make([]*model.DownloadObject, 0, len(groups))
 	for _, entries := range groups {
-		var rep *model.DownloadObject
-		repScore := -1
-		for idx, e := range entries {
-			score := variantPriorityScore(e.t, e.obj)
-			if idx == 0 || score > repScore {
-				rep = e.obj
-				repScore = score
-			}
+		rep := pickRepresentative(entries)
+		if rep == nil {
+			continue
 		}
-		if rep != nil {
-			// shallow copy Extra/Metadata without copying mu
-			copyObj := &model.DownloadObject{
-				TaskID:   rep.TaskID,
-				URL:      rep.URL,
-				SavePath: rep.SavePath,
-				Status:   rep.GetStatus(),
-				Progress: rep.GetProgress(),
-			}
-			if rep.Metadata != nil {
-				copyObj.Metadata = make(map[string]string, len(rep.Metadata))
-				maps.Copy(copyObj.Metadata, rep.Metadata)
-			}
-			copyObj.Extra = make(map[string]any, len(rep.Extra)+1)
-			if rep.Extra != nil {
-				maps.Copy(copyObj.Extra, rep.Extra)
-			}
-			copyObj.Extra["group_size"] = len(entries)
-			reps = append(reps, copyObj)
-		}
+		reps = append(reps, copyRepresentative(rep, len(entries)))
 	}
-	total := int64(len(reps))
+	return reps
+}
+
+// paginateContentResults applies sorting, offset, and limit to the representatives list.
+func paginateContentResults(reps []*model.DownloadObject, page, limit int64, sortBy string) (paged []*model.DownloadObject, total, outPage, outLimit int64) {
+	total = int64(len(reps))
 	if page < 1 {
 		page = 1
 	}
@@ -138,11 +153,34 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 	} else {
 		offset = (page - 1) * limit
 	}
-	paged := storage.ApplyQueryToObjects(reps, &core.StorageQuery{
+	paged = storage.ApplyQueryToObjects(reps, &core.StorageQuery{
 		Sort:   sortRules(sortBy),
 		Offset: offset,
 		Limit:  limit,
 	})
+	return paged, total, page, limit
+}
+
+// AggregateByContent groups objects by scoped content group and returns representatives.
+func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
+	matchingTasks := collectMatchingTasks(m.currentCfg(), m.getTask, types)
+
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	all, err := collectContentObjects(m, matchingTasks, search, status)
+	if err != nil {
+		return nil, err
+	}
+
+	groups := groupByContentKey(all)
+	reps := selectGroupRepresentatives(groups)
+	paged, total, page, limit := paginateContentResults(reps, page, limit, sortBy)
+
 	return map[string]any{
 		"objects": paged,
 		"total":   total,
@@ -189,58 +227,72 @@ func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
 // BackfillContentGroups scans storages and recomputes content_group/task_type metadata for tktube tasks.
 func (m *Manager) BackfillContentGroups() {
 	m.tasks.Range(func(key, value any) bool {
-		t, _ := value.(core.Task)
-		if t == nil || t.Type() != core.TaskTypeTktube {
-			return true
-		}
-		st := t.Storage()
-		if st == nil {
-			return true
-		}
-		list, err := m.collectTaskObjects(t, &core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs: []string{strings.TrimSpace(t.ID())},
-			},
-		}, 200)
-		if err != nil || list == nil {
-			return true
-		}
-		total := 0
-		changed := 0
-		taskType := strings.TrimSpace(t.Type())
-		for _, obj := range list {
-			if obj == nil {
-				continue
-			}
-			total++
-
-			obj.Lock()
-			if obj.Metadata == nil {
-				obj.Metadata = make(map[string]string)
-			}
-			dirty := false
-			newGroup := titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
-			if obj.Metadata[model.MetadataKeyContentGroup] != newGroup {
-				obj.Metadata[model.MetadataKeyContentGroup] = newGroup
-				dirty = true
-			}
-			if obj.Metadata["task_type"] != taskType {
-				obj.Metadata["task_type"] = taskType
-				dirty = true
-			}
-			obj.Unlock()
-			if !dirty {
-				continue
-			}
-			if err := st.Update(obj); err != nil {
-				slog.Warn("Failed to recompute object metadata", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-				continue
-			}
-			changed++
-		}
-		slog.Info("Recomputed object metadata", logutil.LogKeyTaskID, t.ID(), "task_type", t.Type(), "total", total, "changed", changed)
+		m.processOneBackfillTask(value)
 		return true
 	})
+}
+
+// processOneBackfillTask processes a single value from the tasks map during backfill.
+func (m *Manager) processOneBackfillTask(value any) bool {
+	t, _ := value.(core.Task)
+	if t == nil || t.Type() != core.TaskTypeTktube {
+		return true
+	}
+	st := t.Storage()
+	if st == nil {
+		return true
+	}
+	list, err := m.collectTaskObjects(t, &core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs: []string{strings.TrimSpace(t.ID())},
+		},
+	}, 200)
+	if err != nil || list == nil {
+		return true
+	}
+	taskType := strings.TrimSpace(t.Type())
+	total := 0
+	changed := 0
+	for _, obj := range list {
+		if obj == nil {
+			continue
+		}
+		total++
+		if applyBackfillMetadata(obj, taskType, t.ID(), st) {
+			changed++
+		}
+	}
+	slog.Info("Recomputed object metadata", logutil.LogKeyTaskID, t.ID(), "task_type", t.Type(), "total", total, "changed", changed)
+	return true
+}
+
+// applyBackfillMetadata computes content_group and task_type metadata for a tktube object
+// and persists it if changed. Returns true if a change was made.
+func applyBackfillMetadata(obj *model.DownloadObject, taskType, taskID string, st core.Storage) bool {
+	obj.Lock()
+	if obj.Metadata == nil {
+		obj.Metadata = make(map[string]string)
+	}
+	newGroup := titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
+	groupChanged := obj.Metadata[model.MetadataKeyContentGroup] != newGroup
+	typeChanged := obj.Metadata["task_type"] != taskType
+	if groupChanged {
+		obj.Metadata[model.MetadataKeyContentGroup] = newGroup
+	}
+	if typeChanged {
+		obj.Metadata["task_type"] = taskType
+	}
+	dirty := groupChanged || typeChanged
+	obj.Unlock()
+
+	if !dirty {
+		return false
+	}
+	if err := st.Update(obj); err != nil {
+		slog.Warn("Failed to recompute object metadata", logutil.LogKeyTaskID, taskID, logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+		return false
+	}
+	return true
 }
 
 // GetObjectsByScopedGroup returns all objects for the given task_id + task_type + content_group.

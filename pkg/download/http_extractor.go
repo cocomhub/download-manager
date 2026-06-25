@@ -126,163 +126,37 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	defer dlCancel()
 	e.cancels.Store(req.URL, dlCancel)
 
-	rPath := req.SavePath
-	var err error
-	if e.rootDir != "" {
-		rPath, err = ResolvePathWithAllowList(e.rootDir, e.allowPaths, req.SavePath)
-		if err != nil {
-			return err
-		}
+	rPath, err := e.resolveSavePath(req)
+	if err != nil {
+		return err
 	}
 
-	// 创建目录
-	if err := os.MkdirAll(filepath.Dir(rPath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
+	proxyURL := e.selectProxy(dlCtx, req)
+	action := e.resolveDownloadAction(rPath, req)
 
-	// 选择代理
-	proxyURL := ""
-	if e.selector != nil {
-		proxyURL, err = e.selector.SelectProxy(dlCtx, req.URL, req.Hint)
-		if err != nil {
-			slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
-		}
-	}
-
-	// ETag/checksum 检查：如果文件完整且内容未变，跳过下载
-	prevETag := ""
-	prevChecksum := ""
-	if req.Metadata != nil {
-		prevETag = req.Metadata["etag"]
-		prevChecksum = req.Metadata["checksum"]
-	}
-
-	action := ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
-		_, hexMD5, err := ComputeFileMD5(path)
-		return hexMD5, err
-	})
 	if action == ActionSkip {
-		slog.Info("Skipping download — file unchanged (ETag + checksum match)", "file", req.SavePath)
-		if req.Result == nil {
-			req.Result = &DownloadResult{}
-		}
-		req.Result.StatusCode = http.StatusNotModified
-		req.Result.TotalSize = func() int64 {
-			if fi, _ := os.Stat(rPath); fi != nil {
-				return fi.Size()
-			}
-			return 0
-		}()
-		if req.OnProgress != nil {
-			req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
-		}
+		e.handleSkipResult(rPath, req)
 		return nil
 	}
 
-	// 检查已有文件大小（断点续传支持）
-	startOffset := int64(0)
-	if fi, statErr := os.Stat(rPath); statErr == nil && fi.Size() > 0 {
-		// 文件存在：
-		// - ActionSkip: 跳过下载（ETag+checksum 匹配），保留 startOffset=0
-		// - ActionResume: 续传
-		// - ActionReDownload/ActionDownload: 无 ETag 元数据但有文件 → 也尝试续传
-		//   如果服务器不支持续传会返回 200，代码自动回退
-		if action == ActionResume || (action == ActionDownload && fi.Size() > 0) {
-			startOffset = fi.Size()
-			slog.Info("Resuming download (best-effort)", "file", req.SavePath, "offset", startOffset)
-		} else if action == ActionReDownload {
-			// ETag 不一致或文件损坏，清除后重新下载
-			_ = os.Remove(rPath)
-			slog.Info("Removing stale file for re-download", "file", req.SavePath)
-		}
-	}
+	startOffset := e.prepareDownloadOffset(rPath, action)
+	ensureRequestFields(req)
 
-	if req.Metadata == nil {
-		req.Metadata = make(map[string]string)
-	}
-	if req.Result == nil {
-		req.Result = &DownloadResult{}
-	}
-
-	// 重试循环
-	maxRetries := e.maxRetries
-	if maxRetries <= 0 {
-		maxRetries = 5 // 保底重试（与 Manager 层一致）
-	}
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		select {
-		case <-dlCtx.Done():
-			return dlCtx.Err()
-		default:
-		}
-
-		var success bool
-		success, err = e.tryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req)
-		if err == nil && success {
-			return nil
-		}
-		// tryDownload 返回 304 时 success=true 且 req.Result.StatusCode==304
-		if err == nil && success && req.Result != nil && req.Result.StatusCode == http.StatusNotModified {
-			slog.Info("Download: 304 Not Modified, file unchanged", "file", req.SavePath)
-			return nil
-		}
-		if err != nil && IsNoTry(err) {
-			return err
-		}
-		if !success && err == nil {
-			// 需要重新开始（如 MD5 不匹配或 416）
-			startOffset = 0
-			continue
-		}
-
-		slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
-		time.Sleep(time.Duration(attempt) * time.Second)
-	}
-
-	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, e.maxRetries)
+	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req)
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
 func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) (success bool, err error) {
-
-	// ---- 进度日志文件创建 ----
-	var logWriter io.Writer
-	if e.logDir != "" {
-		logFileName := filepath.Base(rPath)
-		logFile := filepath.Join(e.logDir, logFileName+"."+
-			time.Now().Format(logTimestampFmt)+".progress.log")
-		f, fErr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-		if fErr != nil {
-			slog.Warn("Failed to create progress log file", "file", logFile, logutil.LogKeyError, fErr)
-		} else {
-			defer f.Close()
-			logWriter = f
-		}
+	logWriter := createProgressLogWriter(e.logDir, rPath)
+	if c, ok := logWriter.(io.Closer); ok {
+		defer c.Close()
 	}
 	started := time.Now()
 	defer func() {
-		if err != nil && logWriter != nil {
-			fmt.Fprintf(logWriter, "%s Download failed: %v\n",
-				time.Now().Format(time.RFC3339Nano), err)
-		}
+		writeDownloadError(logWriter, err)
 	}()
 
-	// ---- 日志：保存路径 + 代理 ----
-	if logWriter != nil {
-		fmt.Fprintf(logWriter, "Save file to %s\n", rPath)
-		if proxyURL != "" {
-			// 脱敏代理 URL：去除认证信息
-			safeProxy := proxyURL
-			if parsed, pErr := url.Parse(proxyURL); pErr == nil {
-				parsed.User = nil
-				safeProxy = parsed.String()
-			}
-			fmt.Fprintf(logWriter, "Using proxy: %s\n", safeProxy)
-		} else {
-			fmt.Fprintf(logWriter, "Direct connection\n")
-		}
-		fmt.Fprintf(logWriter, "Requesting URL: %s\n\n", rawURL)
-	}
+	logDownloadStart(logWriter, rPath, proxyURL, rawURL)
 
 	treq := &TransportRequest{
 		URL:      rawURL,
@@ -290,8 +164,6 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		ProxyURL: proxyURL,
 		Headers:  e.buildHeaders(req),
 	}
-
-	// 断点续传：设置 Range 头
 	if startOffset > 0 {
 		treq.Range = &RangeRequest{Offset: startOffset}
 	}
@@ -302,97 +174,204 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 	defer tresp.Body.Close()
 
-	// ---- 日志：HTTP 请求头 + 响应头 ----
-	if logWriter != nil {
-		// 需要脱敏的敏感请求头列表
-		redactedHeaders := map[string]bool{
-			"authorization":       true,
-			"cookie":              true,
-			"proxy-authorization": true,
-			"x-api-key":           true,
-		}
+	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL)
 
-		fmt.Fprintf(logWriter, "[%s] Request:\n", treq.Method)
-		fmt.Fprintf(logWriter, "URL: %s\n", rawURL)
-		if treq.ProxyURL != "" {
-			fmt.Fprintf(logWriter, "Proxy: %s\n", treq.ProxyURL)
-		} else if proxyURL != "" {
-			fmt.Fprintf(logWriter, "Proxy: %s\n", proxyURL)
-		}
-		fmt.Fprintf(logWriter, "Headers:\n")
-		for k, v := range treq.Headers {
-			if redactedHeaders[strings.ToLower(k)] {
-				v = "[REDACTED]"
-			}
-			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
-		}
-		if treq.Range != nil && treq.Range.Offset > 0 {
-			fmt.Fprintf(logWriter, "\tRange: bytes=%d-\n", treq.Range.Offset)
-		}
-		fmt.Fprintf(logWriter, "\n")
-
-		fmt.Fprintf(logWriter, "[%d] Response:\n", tresp.StatusCode)
-		if statusText := http.StatusText(tresp.StatusCode); statusText != "" {
-			fmt.Fprintf(logWriter, "Status: %d %s\n", tresp.StatusCode, statusText)
-		}
-		fmt.Fprintf(logWriter, "Content-Length: %d\n", tresp.ContentLength)
-		fmt.Fprintf(logWriter, "Headers:\n")
-		for k, v := range tresp.Headers {
-			if redactedHeaders[strings.ToLower(k)] {
-				v = "[REDACTED]"
-			}
-			fmt.Fprintf(logWriter, "\t%s: %s\n", k, v)
-		}
-		fmt.Fprintf(logWriter, "\n")
+	if handled, success, err := handleHTTPResponseStatus(tresp, logWriter, req, rPath); handled {
+		return success, err
 	}
 
-	// 检查 HTTP 状态码
-	if tresp.StatusCode == http.StatusForbidden || tresp.StatusCode == http.StatusNotFound {
-		return false, fmt.Errorf("%w: HTTP %d", ErrNoTry, tresp.StatusCode)
+	if err := validateContentTypeByExtension(rawURL, tresp, logWriter); err != nil {
+		return false, err
 	}
 
-	// 处理 304 Not Modified — 文件未变更，跳过下载
-	if tresp.StatusCode == http.StatusNotModified {
-		if logWriter != nil {
-			fmt.Fprintf(logWriter, "Server responded with 304 Not Modified, file unchanged\n")
+	for _, check := range e.responseChecks {
+		if err := check(req, tresp); err != nil {
+			writeLog(logWriter, "Response check failed: %v\n", err)
+			return false, err
 		}
-		// 不实际写入文件，直接视为成功
-		req.Result.StatusCode = http.StatusNotModified
-		req.Result.ContentLength = 0
-		req.Result.TotalSize = 0
-		if fi, stErr := os.Stat(rPath); stErr == nil {
-			req.Result.TotalSize = fi.Size()
-		}
-		if req.OnProgress != nil {
-			req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
-		}
-		// 保存 ETag（304 响应也会携带 ETag，与 200 一致）
-		if etag := tresp.Headers["Etag"]; etag != "" {
-			setReqMetadata(req, "etag", etag)
-		} else if etag := tresp.Headers["ETag"]; etag != "" {
-			setReqMetadata(req, "etag", etag)
-		}
-		return true, nil
 	}
 
-	if tresp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-		// 416 Range Not Satisfiable → 文件可能已变，重新从 0 开始
-		if logWriter != nil {
-			fmt.Fprintf(logWriter, "Server responded with 416 Range Not Satisfiable, restarting download\n")
-		}
+	if startOffset > 0 && tresp.StatusCode == http.StatusOK {
+		writeLog(logWriter, "Server doesn't support resume, restarting download\n")
 		return false, nil
 	}
 
-	if tresp.StatusCode != http.StatusOK && tresp.StatusCode != http.StatusPartialContent {
-		if tresp.StatusCode >= 400 {
-			// 500+ 级错误允许重试（非 ErrNoTry）
-			return false, fmt.Errorf("HTTP %d", tresp.StatusCode)
-		}
-		return false, fmt.Errorf("HTTP error: %d", tresp.StatusCode)
+	totalSize := getContentLength(tresp)
+	if startOffset > 0 && totalSize > 0 && totalSize < startOffset {
+		slog.Info("Server content changed during resume, restarting download", "file", rPath, "serverSize", totalSize, "localSize", startOffset)
+		return false, nil
+	}
+	totalSize = adjustTotalSize(totalSize, startOffset)
+
+	if err := writeResponseBody(tresp.Body, rPath, startOffset, totalSize, req, logWriter); err != nil {
+		return false, err
 	}
 
-	// Content-Type 严格校验：媒体扩展名必须返回匹配的 Content-Type 前缀
-	// 使用 url.Parse 后的 Path 取扩展名，避免查询参数（?token=abc）干扰
+	req.Result.StatusCode = tresp.StatusCode
+	req.Result.ContentLength = totalSize
+	req.Result.TotalSize = totalSize
+
+	if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
+		return false, err
+	} else if restart {
+		return false, nil
+	}
+
+	saveETagAndModTime(tresp, req, rPath)
+	logDownloadComplete(logWriter, started, totalSize)
+
+	return true, nil
+}
+
+// ---------------------------------------------------------------------------
+// 以下为 tryDownload 提取出的辅助函数
+// ---------------------------------------------------------------------------
+
+// createProgressLogWriter 创建进度日志文件。logDir 为空时返回 nil。
+func createProgressLogWriter(logDir, rPath string) io.Writer {
+	if logDir == "" {
+		return nil
+	}
+	logFileName := filepath.Base(rPath)
+	logFile := filepath.Join(logDir, logFileName+"."+
+		time.Now().Format(logTimestampFmt)+".progress.log")
+	f, fErr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if fErr != nil {
+		slog.Warn("Failed to create progress log file", "file", logFile, logutil.LogKeyError, fErr)
+		return nil
+	}
+	return f
+}
+
+// writeDownloadError 将失败信息写入日志（用在 defer 中）。
+func writeDownloadError(w io.Writer, err error) {
+	if err != nil && w != nil {
+		fmt.Fprintf(w, "%s Download failed: %v\n",
+			time.Now().Format(time.RFC3339Nano), err)
+	}
+}
+
+// writeLog 条件写日志，w 为 nil 时静默跳过。
+func writeLog(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, format, args...)
+}
+
+// logDownloadStart 在进度日志开头写入保存路径、代理、URL 信息。
+func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, "Save file to %s\n", rPath)
+	if proxyURL != "" {
+		safeProxy := proxyURL
+		if parsed, pErr := url.Parse(proxyURL); pErr == nil {
+			parsed.User = nil
+			safeProxy = parsed.String()
+		}
+		fmt.Fprintf(w, "Using proxy: %s\n", safeProxy)
+	} else {
+		fmt.Fprintf(w, "Direct connection\n")
+	}
+	fmt.Fprintf(w, "Requesting URL: %s\n\n", rawURL)
+}
+
+// logHTTPHeaders 在进度日志中输出请求和响应的 HTTP 头（敏感头脱敏）。
+func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportResponse, rawURL, proxyURL string) {
+	if w == nil {
+		return
+	}
+	redactedHeaders := map[string]bool{
+		"authorization":       true,
+		"cookie":              true,
+		"proxy-authorization": true,
+		"x-api-key":           true,
+	}
+
+	fmt.Fprintf(w, "[%s] Request:\n", treq.Method)
+	fmt.Fprintf(w, "URL: %s\n", rawURL)
+	if treq.ProxyURL != "" {
+		fmt.Fprintf(w, "Proxy: %s\n", treq.ProxyURL)
+	} else if proxyURL != "" {
+		fmt.Fprintf(w, "Proxy: %s\n", proxyURL)
+	}
+	fmt.Fprintf(w, "Headers:\n")
+	for k, v := range treq.Headers {
+		if redactedHeaders[strings.ToLower(k)] {
+			v = "[REDACTED]"
+		}
+		fmt.Fprintf(w, "\t%s: %s\n", k, v)
+	}
+	if treq.Range != nil && treq.Range.Offset > 0 {
+		fmt.Fprintf(w, "\tRange: bytes=%d-\n", treq.Range.Offset)
+	}
+	fmt.Fprintf(w, "\n")
+
+	fmt.Fprintf(w, "[%d] Response:\n", tresp.StatusCode)
+	if statusText := http.StatusText(tresp.StatusCode); statusText != "" {
+		fmt.Fprintf(w, "Status: %d %s\n", tresp.StatusCode, statusText)
+	}
+	fmt.Fprintf(w, "Content-Length: %d\n", tresp.ContentLength)
+	fmt.Fprintf(w, "Headers:\n")
+	for k, v := range tresp.Headers {
+		if redactedHeaders[strings.ToLower(k)] {
+			v = "[REDACTED]"
+		}
+		fmt.Fprintf(w, "\t%s: %s\n", k, v)
+	}
+	fmt.Fprintf(w, "\n")
+}
+
+// handleHTTPResponseStatus 根据 HTTP 状态码决定后续流程。
+// 返回值 handled=true 时，调用方应立即返回 (success, err)。
+func handleHTTPResponseStatus(tresp *TransportResponse, w io.Writer, req *Request, rPath string) (handled, success bool, err error) {
+	switch {
+	case tresp.StatusCode == http.StatusForbidden || tresp.StatusCode == http.StatusNotFound:
+		return true, false, fmt.Errorf("%w: HTTP %d", ErrNoTry, tresp.StatusCode)
+	case tresp.StatusCode == http.StatusNotModified:
+		handle304Response(tresp, w, req, rPath)
+		return true, true, nil
+	case tresp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+		writeLog(w, "Server responded with 416 Range Not Satisfiable, restarting download\n")
+		return true, false, nil
+	case tresp.StatusCode != http.StatusOK && tresp.StatusCode != http.StatusPartialContent:
+		if tresp.StatusCode >= 400 {
+			return true, false, fmt.Errorf("HTTP %d", tresp.StatusCode)
+		}
+		return true, false, fmt.Errorf("HTTP error: %d", tresp.StatusCode)
+	default:
+		return false, false, nil
+	}
+}
+
+// handle304Response 处理 304 Not Modified 响应，填充 req.Result 并保存 ETag。
+func handle304Response(tresp *TransportResponse, w io.Writer, req *Request, rPath string) {
+	writeLog(w, "Server responded with 304 Not Modified, file unchanged\n")
+	req.Result.StatusCode = http.StatusNotModified
+	req.Result.ContentLength = 0
+	req.Result.TotalSize = 0
+	if fi, stErr := os.Stat(rPath); stErr == nil {
+		req.Result.TotalSize = fi.Size()
+	}
+	if req.OnProgress != nil {
+		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+	}
+	saveEtag(tresp, req)
+}
+
+// saveEtag 将响应的 ETag 保存到 req.Metadata。
+func saveEtag(tresp *TransportResponse, req *Request) {
+	if etag := tresp.Headers["Etag"]; etag != "" {
+		setReqMetadata(req, "etag", etag)
+	} else if etag := tresp.Headers["ETag"]; etag != "" {
+		setReqMetadata(req, "etag", etag)
+	}
+}
+
+// validateContentTypeByExtension 检查 URL 媒体扩展名与响应 Content-Type 是否匹配。
+func validateContentTypeByExtension(rawURL string, tresp *TransportResponse, w io.Writer) error {
 	mediaExt := ""
 	if parsedURL, parseErr := url.Parse(rawURL); parseErr == nil {
 		mediaExt = strings.ToLower(filepath.Ext(parsedURL.Path))
@@ -404,53 +383,36 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 			ct = tresp.Headers["content-type"]
 		}
 		if !strings.HasPrefix(ct, expectedPrefix) {
-			if logWriter != nil {
-				fmt.Fprintf(logWriter, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
-			}
-			return false, fmt.Errorf("%w: invalid content type: expected %s*, got %s", ErrNoTry, expectedPrefix, ct)
+			writeLog(w, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
+			return fmt.Errorf("%w: invalid content type: expected %s*, got %s", ErrNoTry, expectedPrefix, ct)
 		}
 	}
+	return nil
+}
 
-	// 响应校验钩子：注册的 ResponseCheck 按顺序执行，任一返回 error 则终止下载
-	for _, check := range e.responseChecks {
-		if err := check(req, tresp); err != nil {
-			if logWriter != nil {
-				fmt.Fprintf(logWriter, "Response check failed: %v\n", err)
-			}
-			return false, err
-		}
-	}
-
-	// 如果请求了 Range 但服务器返回 200（而非 206），说明不支持断点续传
-	// 返回 (false, nil) 让外层重置 startOffset=0 从头下载完整内容
-	if startOffset > 0 && tresp.StatusCode == http.StatusOK {
-		if logWriter != nil {
-			fmt.Fprintf(logWriter, "Server doesn't support resume, restarting download\n")
-		}
-		return false, nil
-	}
-
-	// 计算总大小
-	totalSize := tresp.ContentLength
+// getContentLength 从响应中提取完整资源大小（优先使用 Content-Range 中的总长）。
+func getContentLength(tresp *TransportResponse) int64 {
 	if cr := tresp.Headers["Content-Range"]; cr != "" {
 		parts := strings.Split(cr, "/")
 		if len(parts) == 2 {
 			if parsed, pErr := strconv.ParseInt(parts[1], 10, 64); pErr == nil {
-				totalSize = parsed
+				return parsed
 			}
 		}
 	}
-	// 断点续传时检测服务器内容是否已变更：如果服务器返回的完整内容比本地已有文件还小，
-	// 说明文件已被替换/截断，必须重置 offset 重新下载完整内容。
-	if startOffset > 0 && totalSize > 0 && totalSize < startOffset {
-		slog.Info("Server content changed during resume, restarting download", "file", rPath, "serverSize", totalSize, "localSize", startOffset)
-		return false, nil
-	}
-	if startOffset > 0 && totalSize > 0 {
-		totalSize += startOffset
-	}
+	return tresp.ContentLength
+}
 
-	// 写入文件
+// adjustTotalSize 在断点续传时将 startOffset 加入 totalSize 得到完整文件大小。
+func adjustTotalSize(totalSize, startOffset int64) int64 {
+	if startOffset > 0 && totalSize > 0 {
+		return totalSize + startOffset
+	}
+	return totalSize
+}
+
+// writeResponseBody 将响应体写入文件并通过 ProgressReader 跟踪进度。
+func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize int64, req *Request, w io.Writer) error {
 	fileFlags := os.O_CREATE | os.O_WRONLY
 	if startOffset > 0 {
 		fileFlags |= os.O_APPEND
@@ -460,114 +422,111 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	file, fErr := os.OpenFile(rPath, fileFlags, 0644)
 	if fErr != nil {
-		return false, fmt.Errorf("failed to open file: %w", fErr)
+		return fmt.Errorf("failed to open file: %w", fErr)
 	}
 	defer file.Close()
 
-	// 日志：文件模式 + 预期大小
-	if logWriter != nil {
+	if w != nil {
 		if startOffset > 0 {
-			fmt.Fprintf(logWriter, "File mode: append (resume from offset %d)\n", startOffset)
+			fmt.Fprintf(w, "File mode: append (resume from offset %d)\n", startOffset)
 		} else {
-			fmt.Fprintf(logWriter, "File mode: truncate (new download)\n")
+			fmt.Fprintf(w, "File mode: truncate (new download)\n")
 		}
-		fmt.Fprintf(logWriter, "Expected total: %d bytes\n\n", totalSize)
+		fmt.Fprintf(w, "Expected total: %d bytes\n\n", totalSize)
 	}
 
-	var reader io.Reader = tresp.Body
-	if req.TrackProgress && req.OnProgress != nil && totalSize > 0 {
-		// 在 ProgressReader 外层注入进度日志回调（与原有回调组合）。
-		// 注意：使用局部变量而非修改 req.OnProgress，避免重试时回调链累积。
-		onProgress := req.OnProgress
-		if logWriter != nil {
-			onProgress = ComposeProgress(
-				req.OnProgress,
-				NewProgressLogCallback(
-					WithLogWriter(logWriter),
-					WithMinPercentStep(0.5),
-					WithMaxInterval(10*time.Second),
-				),
-			)
-		}
-		reader = NewProgressReader(tresp.Body, totalSize, onProgress)
-	}
-
+	reader := buildProgressReader(body, totalSize, req, w)
 	if _, cErr := io.Copy(file, reader); cErr != nil {
-		return false, fmt.Errorf("failed to write file: %w", cErr)
+		return fmt.Errorf("failed to write file: %w", cErr)
+	}
+	return nil
+}
+
+// buildProgressReader 创建可选的进度跟踪 reader。条件不满足时返回原 body。
+func buildProgressReader(body io.Reader, totalSize int64, req *Request, w io.Writer) io.Reader {
+	if !req.TrackProgress || req.OnProgress == nil || totalSize <= 0 {
+		return body
+	}
+	onProgress := req.OnProgress
+	if w != nil {
+		onProgress = ComposeProgress(
+			req.OnProgress,
+			NewProgressLogCallback(
+				WithLogWriter(w),
+				WithMinPercentStep(0.5),
+				WithMaxInterval(10*time.Second),
+			),
+		)
+	}
+	return NewProgressReader(body, totalSize, onProgress)
+}
+
+// checkFileMD5 验证下载文件的 MD5 校验和。返回 restart=true 表示需要重新下载。
+func checkFileMD5(tresp *TransportResponse, rPath string, req *Request, w io.Writer) (restart bool, err error) {
+	wantMd5 := TryGetMd5(tresp.Headers)
+	if wantMd5 == "" {
+		return false, nil
 	}
 
-	// 填写结果
-	req.Result.StatusCode = tresp.StatusCode
-	req.Result.ContentLength = totalSize
-	req.Result.TotalSize = totalSize
-
-	// MD5 校验
-	if wantMd5 := TryGetMd5(tresp.Headers); wantMd5 != "" {
-		base64MD5, hexMD5, md5Err := ComputeFileMD5(rPath)
-		if md5Err != nil {
-			return false, fmt.Errorf("failed to compute MD5: %w", md5Err)
-		}
-		if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
-			slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
-			if logWriter != nil {
-				fmt.Fprintf(logWriter, "MD5 check failed: want %s, got %s (hex: %s)\n",
-					wantMd5, base64MD5, hexMD5)
-			}
-			return false, nil // return false 触发重新下载
-		}
-		req.Result.MD5Base64 = base64MD5
-		req.Result.MD5Hex = hexMD5
-		setReqMetadata(req, "checksum", hexMD5)
-		if logWriter != nil {
-			fmt.Fprintf(logWriter, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
-		}
+	base64MD5, hexMD5, md5Err := ComputeFileMD5(rPath)
+	if md5Err != nil {
+		return false, fmt.Errorf("failed to compute MD5: %w", md5Err)
 	}
 
-	// 保存 ETag 到 metadata（供下次下载时决策）
-	if etag := tresp.Headers["Etag"]; etag != "" {
-		setReqMetadata(req, "etag", etag)
-	} else if etag := tresp.Headers["ETag"]; etag != "" {
-		setReqMetadata(req, "etag", etag)
+	if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
+		slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
+		writeLog(w, "MD5 check failed: want %s, got %s (hex: %s)\n", wantMd5, base64MD5, hexMD5)
+		return true, nil
 	}
 
-	// 如果服务端没给 ETag 但 MD5 校验通过了，用 MD5 hex 作为弱校验依据
+	req.Result.MD5Base64 = base64MD5
+	req.Result.MD5Hex = hexMD5
+	setReqMetadata(req, "checksum", hexMD5)
+	writeLog(w, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
+	return false, nil
+}
+
+// saveETagAndModTime 保存响应中的 ETag 和 Last-Modified 到 req.Result 和 metadata。
+func saveETagAndModTime(tresp *TransportResponse, req *Request, rPath string) {
+	saveEtag(tresp, req)
+
 	if req.Metadata["etag"] == "" && req.Result.MD5Hex != "" {
 		setReqMetadata(req, "etag", `"`+req.Result.MD5Hex+`"`)
 	}
 
-	// 设置 Last-Modified 时间
 	if modTimeStr := tresp.Headers["Last-Modified"]; modTimeStr != "" {
 		if modTime, pErr := time.Parse(time.RFC1123, modTimeStr); pErr == nil {
 			req.Result.ModTime = modTime.Format(time.RFC3339Nano)
 			_ = os.Chtimes(rPath, modTime, modTime)
 		}
 	}
+}
 
-	// 日志：下载完成信息
-	if logWriter != nil {
-		elapsed := time.Since(started)
-		avgSpeed := float64(totalSize) / elapsed.Seconds()
-		var speedUnit string
-		speedVal := avgSpeed
-		switch {
-		case speedVal >= 1<<30:
-			speedVal /= 1 << 30
-			speedUnit = "GB/s"
-		case speedVal >= 1<<20:
-			speedVal /= 1 << 20
-			speedUnit = "MB/s"
-		case speedVal >= 1<<10:
-			speedVal /= 1 << 10
-			speedUnit = "KB/s"
-		default:
-			speedUnit = "B/s"
-		}
-		fmt.Fprintf(logWriter, "Download completed, total size: %d bytes\n", totalSize)
-		fmt.Fprintf(logWriter, "Elapsed: %.2f s, average speed: %.2f %s\n",
-			elapsed.Seconds(), speedVal, speedUnit)
+// logDownloadComplete 在进度日志中输出下载完成信息与平均速度。
+func logDownloadComplete(w io.Writer, started time.Time, totalSize int64) {
+	if w == nil {
+		return
 	}
-
-	return true, nil
+	elapsed := time.Since(started)
+	avgSpeed := float64(totalSize) / elapsed.Seconds()
+	speedVal := avgSpeed
+	var speedUnit string
+	switch {
+	case speedVal >= 1<<30:
+		speedVal /= 1 << 30
+		speedUnit = "GB/s"
+	case speedVal >= 1<<20:
+		speedVal /= 1 << 20
+		speedUnit = "MB/s"
+	case speedVal >= 1<<10:
+		speedVal /= 1 << 10
+		speedUnit = "KB/s"
+	default:
+		speedUnit = "B/s"
+	}
+	fmt.Fprintf(w, "Download completed, total size: %d bytes\n", totalSize)
+	fmt.Fprintf(w, "Elapsed: %.2f s, average speed: %.2f %s\n",
+		elapsed.Seconds(), speedVal, speedUnit)
 }
 
 // setReqMetadata 写入 req.Metadata 并触发 OnMetadata 回调（如有），
@@ -580,6 +539,129 @@ func setReqMetadata(req *Request, key, value string) {
 	if req.OnMetadata != nil {
 		req.OnMetadata(key, value)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 以下为 Extract 提取出的辅助函数
+// ---------------------------------------------------------------------------
+
+// resolveSavePath 解析保存路径并创建目录。
+func (e *HTTPExtractor) resolveSavePath(req *Request) (string, error) {
+	rPath := req.SavePath
+	if e.rootDir != "" {
+		var err error
+		rPath, err = ResolvePathWithAllowList(e.rootDir, e.allowPaths, req.SavePath)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(rPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+	return rPath, nil
+}
+
+// selectProxy 选择代理，失败时降级为直连。
+func (e *HTTPExtractor) selectProxy(ctx context.Context, req *Request) string {
+	if e.selector == nil {
+		return ""
+	}
+	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	if err != nil {
+		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
+		return ""
+	}
+	return proxyURL
+}
+
+// resolveDownloadAction 读取元数据中的 ETag/checksum 并决定下载策略。
+func (e *HTTPExtractor) resolveDownloadAction(rPath string, req *Request) DownloadAction {
+	prevETag := ""
+	prevChecksum := ""
+	if req.Metadata != nil {
+		prevETag = req.Metadata["etag"]
+		prevChecksum = req.Metadata["checksum"]
+	}
+	return ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
+		_, hexMD5, err := ComputeFileMD5(path)
+		return hexMD5, err
+	})
+}
+
+// handleSkipResult 处理文件未变更（ActionSkip）的情况。
+func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
+	slog.Info("Skipping download — file unchanged (ETag + checksum match)", "file", req.SavePath)
+	if req.Result == nil {
+		req.Result = &DownloadResult{}
+	}
+	req.Result.StatusCode = http.StatusNotModified
+	req.Result.TotalSize = func() int64 {
+		if fi, _ := os.Stat(rPath); fi != nil {
+			return fi.Size()
+		}
+		return 0
+	}()
+	if req.OnProgress != nil {
+		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+	}
+}
+
+// prepareDownloadOffset 检查已有文件并决定起始偏移量，必要时清除失效文件。
+func (e *HTTPExtractor) prepareDownloadOffset(rPath string, action DownloadAction) int64 {
+	fi, statErr := os.Stat(rPath)
+	if statErr != nil || fi.Size() == 0 {
+		return 0
+	}
+	switch action {
+	case ActionResume, ActionDownload:
+		slog.Info("Resuming download (best-effort)", "file", rPath, "offset", fi.Size())
+		return fi.Size()
+	case ActionReDownload:
+		_ = os.Remove(rPath)
+		slog.Info("Removing stale file for re-download", "file", rPath)
+	}
+	return 0
+}
+
+// ensureRequestFields 确保 req.Metadata 和 req.Result 非 nil。
+func ensureRequestFields(req *Request) {
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]string)
+	}
+	if req.Result == nil {
+		req.Result = &DownloadResult{}
+	}
+}
+
+// retryDownload 执行带重试的下载循环。
+func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) error {
+	maxRetries := e.maxRetries
+	if maxRetries <= 0 {
+		maxRetries = 5
+	}
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-dlCtx.Done():
+			return dlCtx.Err()
+		default:
+		}
+
+		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req)
+		if err != nil {
+			if IsNoTry(err) {
+				return err
+			}
+			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		if !success {
+			startOffset = 0
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, e.maxRetries)
 }
 
 func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {

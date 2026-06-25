@@ -254,81 +254,15 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	var tasks []DownloadTask
 	var modifiedLines []string
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			modifiedLines = append(modifiedLines, line)
-			continue
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+
+		modifiedLine, lineTasks, err := d.processM3U8Line(ctx, base, line, level)
+		if err != nil {
+			return nil, err
 		}
-
-		// Sanitize: reject lines with directory traversal or null bytes
-		if strings.Contains(line, "..") || strings.Contains(line, "\x00") {
-			return nil, fmt.Errorf("invalid resource path in m3u8: %s", line)
-		}
-
-		if strings.HasPrefix(line, "#") {
-			if strings.Contains(line, "#EXT-X-KEY") {
-				if keyURL, ok := extractKeyURL(line); ok {
-					// Validate key URL scheme
-					keyParsed, err := url.Parse(keyURL)
-					if err != nil || (keyParsed.Scheme != "http" && keyParsed.Scheme != "https") {
-						return nil, fmt.Errorf("invalid key URL scheme in m3u8: %s", keyURL)
-					}
-
-					absKeyURL := resolveURL(base, keyURL)
-					// Use hash-based filename to prevent path traversal
-					keyHash := fmt.Sprintf("key_%x", sha256.Sum256([]byte(keyURL)))[:20]
-					keyLocalPath := filepath.Join(d.Config.WorkDir, keyHash)
-
-					tasks = append(tasks, DownloadTask{
-						URL:       absKeyURL,
-						LocalPath: keyLocalPath,
-						Type:      "key",
-					})
-
-					localKeyPath := fmt.Sprintf("file://%s", keyLocalPath)
-					line = strings.Replace(line, keyURL, localKeyPath, 1)
-				}
-			}
-			modifiedLines = append(modifiedLines, line)
-			continue
-		}
-
-		absURL := resolveURL(base, line)
-		// Use hash-based filename for all resources to prevent path traversal
-		fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
-
-		switch {
-		case strings.Contains(line, ".m3u8"):
-			subM3U8Path := filepath.Join(d.Config.WorkDir, fileHash+".m3u8")
-			subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
-			if err != nil {
-				return nil, err
-			}
-			tasks = append(tasks, subTasks...)
-			modifiedLines = append(modifiedLines, filepath.Base(subM3U8Path))
-
-		case strings.Contains(line, ".ts"):
-			tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
-			tasks = append(tasks, DownloadTask{
-				URL:       absURL,
-				LocalPath: tsLocalPath,
-				Type:      "ts",
-			})
-			modifiedLines = append(modifiedLines, filepath.Base(tsLocalPath))
-
-		case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
-			keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
-			tasks = append(tasks, DownloadTask{
-				URL:       absURL,
-				LocalPath: keyLocalPath,
-				Type:      "key",
-			})
-			modifiedLines = append(modifiedLines, filepath.Base(line))
-
-		default:
-			modifiedLines = append(modifiedLines, line)
-		}
+		modifiedLines = append(modifiedLines, modifiedLine)
+		tasks = append(tasks, lineTasks...)
 	}
 
 	updatedContent := strings.Join(modifiedLines, "\n")
@@ -337,6 +271,92 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	}
 
 	return tasks, nil
+}
+
+// processM3U8Line 处理 m3u8 文件中的一行，返回修改后内容及下载任务。
+func (d *M3U8DEngine) processM3U8Line(ctx context.Context, base *url.URL, line string, level int) (string, []DownloadTask, error) {
+	if line == "" {
+		return line, nil, nil
+	}
+
+	if strings.Contains(line, "..") || strings.Contains(line, "\x00") {
+		return "", nil, fmt.Errorf("invalid resource path in m3u8: %s", line)
+	}
+
+	if strings.HasPrefix(line, "#") {
+		return d.processDirectiveLine(base, line)
+	}
+
+	return d.processResourceLine(ctx, base, line, level)
+}
+
+// processDirectiveLine 处理 m3u8 指令行（以 # 开头）。
+func (d *M3U8DEngine) processDirectiveLine(base *url.URL, line string) (string, []DownloadTask, error) {
+	if !strings.Contains(line, "#EXT-X-KEY") {
+		return line, nil, nil
+	}
+
+	keyURL, ok := extractKeyURL(line)
+	if !ok {
+		return line, nil, nil
+	}
+
+	keyParsed, err := url.Parse(keyURL)
+	if err != nil || !validScheme(keyParsed.Scheme) {
+		return "", nil, fmt.Errorf("invalid key URL scheme in m3u8: %s", keyURL)
+	}
+
+	absKeyURL := resolveURL(base, keyURL)
+	keyHash := fmt.Sprintf("key_%x", sha256.Sum256([]byte(keyURL)))[:20]
+	keyLocalPath := filepath.Join(d.Config.WorkDir, keyHash)
+
+	line = strings.Replace(line, keyURL, fmt.Sprintf("file://%s", keyLocalPath), 1)
+
+	return line, []DownloadTask{{
+		URL:       absKeyURL,
+		LocalPath: keyLocalPath,
+		Type:      "key",
+	}}, nil
+}
+
+// processResourceLine 处理 m3u8 文件中的资源行（非指令行）。
+func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, line string, level int) (string, []DownloadTask, error) {
+	absURL := resolveURL(base, line)
+	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
+
+	switch {
+	case strings.Contains(line, ".m3u8"):
+		subM3U8Path := filepath.Join(d.Config.WorkDir, fileHash+".m3u8")
+		subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
+		if err != nil {
+			return "", nil, err
+		}
+		return filepath.Base(subM3U8Path), subTasks, nil
+
+	case strings.Contains(line, ".ts"):
+		tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
+		return filepath.Base(tsLocalPath), []DownloadTask{{
+			URL:       absURL,
+			LocalPath: tsLocalPath,
+			Type:      "ts",
+		}}, nil
+
+	case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
+		keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
+		return filepath.Base(line), []DownloadTask{{
+			URL:       absURL,
+			LocalPath: keyLocalPath,
+			Type:      "key",
+		}}, nil
+
+	default:
+		return line, nil, nil
+	}
+}
+
+// validScheme 检查 URL scheme 是否为 http 或 https。
+func validScheme(scheme string) bool {
+	return scheme == "http" || scheme == "https"
 }
 
 // 辅助函数

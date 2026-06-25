@@ -483,22 +483,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	// Write backup and audit
-	if name, err := m.configSvc.writeConfigBackup(); err != nil {
-		slog.Warn("Failed to write config backup", logutil.LogKeyError, err)
-	} else if audit != nil {
-		msg := audit.Message
-		if msg == "" {
-			msg = "config update"
-		}
-		if err := m.configSvc.AddConfigNote(name, msg, audit.Author); err != nil {
-			slog.Warn("Failed to add config note", logutil.LogKeyError, err, "filename", name, "message", msg)
-		}
-		if audit.Source != "" {
-			if err := m.configSvc.AddConfigTag(name, audit.Source); err != nil {
-				slog.Warn("Failed to add config tag", logutil.LogKeyError, err, "filename", name, "tag", audit.Source)
-			}
-		}
-	}
+	m.writeBackupAndAudit(audit)
 	// Apply in-memory config
 	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
@@ -512,8 +497,46 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	m.adjustGlobalWorkers(newCfg.Downloader.GlobalConcurrent)
 	m.applyTaskRuntime(newCfg)
 
-	// Reconcile scheduler runtime state
+	// Reconcile runtime state from the now-active config
 	cfg := m.currentCfg()
+	m.reconcileScheduler(cfg)
+	m.reconcileWorkers(cfg)
+
+	// Load missing tasks
+	m.loadTasks()
+	// Notify
+	slog.Info("Configuration updated")
+	m.publish(core.Event{Type: core.EventTaskListChange, Payload: nil})
+	go m.scan()
+	return nil
+}
+
+// writeBackupAndAudit writes a config backup and records audit annotations (note, tag).
+func (m *Manager) writeBackupAndAudit(audit *AuditInfo) {
+	name, err := m.configSvc.writeConfigBackup()
+	if err != nil {
+		slog.Warn("Failed to write config backup", logutil.LogKeyError, err)
+		return
+	}
+	if audit == nil {
+		return
+	}
+	msg := audit.Message
+	if msg == "" {
+		msg = "config update"
+	}
+	if err := m.configSvc.AddConfigNote(name, msg, audit.Author); err != nil {
+		slog.Warn("Failed to add config note", logutil.LogKeyError, err, "filename", name, "message", msg)
+	}
+	if audit.Source != "" {
+		if err := m.configSvc.AddConfigTag(name, audit.Source); err != nil {
+			slog.Warn("Failed to add config tag", logutil.LogKeyError, err, "filename", name, "tag", audit.Source)
+		}
+	}
+}
+
+// reconcileScheduler starts or stops the scheduler goroutine based on config.
+func (m *Manager) reconcileScheduler(cfg *config.Config) {
 	schedulerWanted := cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
 	if schedulerWanted && !m.schedulerEnabled.Load() {
 		m.schedulerEnabled.Store(true)
@@ -527,8 +550,10 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		m.schedulerEnabled.Store(false)
 		slog.Info("Scheduler stopped via config update")
 	}
+}
 
-	// Reconcile worker runtime state
+// reconcileWorkers starts or stops download workers based on config.
+func (m *Manager) reconcileWorkers(cfg *config.Config) {
 	workersWanted := cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Download.Enabled
 	if workersWanted && !m.workersEnabled.Load() {
 		m.workersEnabled.Store(true)
@@ -542,14 +567,6 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 		}
 		slog.Info("Workers disabled via config update")
 	}
-
-	// Load missing tasks
-	m.loadTasks()
-	// Notify
-	slog.Info("Configuration updated")
-	m.publish(core.Event{Type: core.EventTaskListChange, Payload: nil})
-	go m.scan()
-	return nil
 }
 
 func (m *Manager) UpdateLogConfig(newLog logutil.LogConfig) error {

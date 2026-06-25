@@ -19,144 +19,228 @@ func NewDefaultPager() *DefaultPager {
 	return &DefaultPager{}
 }
 
-func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) Result {
-	var all []any
+// pageState holds all mutable state for a pagination run.
+type pageState struct {
+	page            int
+	detectedPages   int
+	firstFailedPage int
+	emptyPages      int
+	refreshCount    int
+	maxRetries      int
+	maxEmpty        int
+	maxRefresh      int
+	mode            Mode
+	canceled        bool
+}
+
+func newPageState(opts Options) *pageState {
 	page := opts.StartPage
 	if page <= 0 {
 		page = 1
 	}
-	detectedPages := -1
-	firstFailedPage := 0
-	emptyPages := 0
-	maxRetries := opts.MaxRetries
-	if maxRetries <= 0 {
-		maxRetries = 3
+	return &pageState{
+		page:          page,
+		detectedPages: -1,
+		maxRetries:    defaultPositive(opts.MaxRetries, 3),
+		maxEmpty:      defaultPositive(opts.MaxEmptyPages, 3),
+		maxRefresh:    defaultPositive(opts.MaxTailRefresh, 5),
+		mode:          opts.Mode,
 	}
-	maxEmpty := opts.MaxEmptyPages
-	if maxEmpty <= 0 {
-		maxEmpty = 3
-	}
-	maxRefresh := opts.MaxTailRefresh
-	if maxRefresh <= 0 {
-		maxRefresh = 5
-	}
-	refreshCount := 0
+}
 
-	var pageNew []any
-	var allKnown bool
-	var items any
+func defaultPositive(v, d int) int {
+	if v <= 0 {
+		return d
+	}
+	return v
+}
+
+// processAction signals what the main loop should do next.
+type processAction int
+
+const (
+	actionContinue processAction = iota
+	actionBreak
+	actionReturn
+)
+
+func (st *pageState) result(all []any) Result {
+	return Result{
+		Items:          all,
+		AllSucceeded:   !st.canceled && st.firstFailedPage == 0,
+		LastFailedPage: st.firstFailedPage,
+		DetectedPages:  st.detectedPages,
+	}
+}
+
+func (st *pageState) recordFailure() {
+	if st.firstFailedPage == 0 {
+		st.firstFailedPage = st.page
+	}
+}
+
+func (st *pageState) detectPages(hooks PageHooks, html string) {
+	if st.detectedPages != -1 {
+		return
+	}
+	st.detectedPages = hooks.ParseTotalPages(html)
+	if st.detectedPages <= 0 {
+		st.detectedPages = 1
+	}
+}
+
+// advance increments the page and checks boundaries. It returns true when
+// the loop should continue, or false when pagination is exhausted.
+func (st *pageState) advance(hooks PageHooks) bool {
+	st.page++
+	if st.detectedPages > 0 && st.page > st.detectedPages {
+		if st.mode == ModeFull && st.refreshCount < st.maxRefresh {
+			newDetected := hooks.ParseTotalPages(hooks.BuildPageURL(1))
+			if newDetected > st.detectedPages {
+				slog.Info("Pager: detected page growth, extending scan", "old", st.detectedPages, "new", newDetected)
+				st.detectedPages = newDetected
+				st.refreshCount++
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// processItems runs ProcessItems and determines whether the loop should
+// continue, break, or return (when failures exist at a terminal state).
+func (st *pageState) processItems(hooks PageHooks, items any, all *[]any) processAction {
+	pageNew, allKnown := hooks.ProcessItems(items)
+	if len(pageNew) > 0 {
+		*all = append(*all, pageNew...)
+		st.emptyPages = 0
+	} else {
+		st.emptyPages++
+	}
+
+	if allKnown {
+		if st.firstFailedPage > 0 {
+			return actionReturn
+		}
+		return actionBreak
+	}
+
+	if st.mode == ModeIncremental && st.emptyPages >= st.maxEmpty {
+		if st.firstFailedPage > 0 {
+			return actionReturn
+		}
+		return actionBreak
+	}
+
+	return actionContinue
+}
+
+// Run scrapes pages with retry, dynamic tail refresh, maxEmptyPages break,
+// and firstFailedPage tracking.
+func (p *DefaultPager) Run(ctx context.Context, hooks PageHooks, opts Options) Result {
+	var all []any
+	st := newPageState(opts)
+
 	for {
-		if err := ctx.Err(); err != nil {
-			slog.Info("Pager: context canceled", "page", page, logutil.LogKeyError, err)
-			return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
+		action := p.processPage(ctx, hooks, st, &all)
+		if action == actionReturn {
+			return st.result(all)
 		}
-
-		url := hooks.BuildPageURL(page)
-
-		// Scrape page with retries
-		var html string
-		var err error
-		for attempt := range maxRetries {
-			html, err = hooks.RunScraper(url)
-			if err == nil {
-				break
-			}
-			if attempt < maxRetries-1 {
-				slog.Warn("Pager: retry after scrape error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
-				if !sleepCtx(ctx, time.Duration(1<<attempt)*time.Second) {
-					return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
-				}
-			}
-		}
-		if err != nil {
-			slog.Error("Pager: scrape failed after max retries", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
-			if firstFailedPage == 0 {
-				firstFailedPage = page
-			}
-			// Continue to next page (don't abort) to collect progress
-			goto nextPage
-		}
-
-		// Detect total pages on first page
-		if detectedPages == -1 {
-			detectedPages = hooks.ParseTotalPages(html)
-			if detectedPages <= 0 {
-				detectedPages = 1
-			}
-		}
-
-		// Parse page items
-		for attempt := range maxRetries {
-			items, err = hooks.ParsePage(html)
-			if err == nil {
-				break
-			}
-			if attempt < maxRetries-1 {
-				slog.Warn("Pager: retry after parse error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
-				reHTML, reErr := hooks.RunScraper(url)
-				if reErr != nil {
-					slog.Error("Pager: re-scrape failed after parse error", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, reErr)
-					err = reErr
-					break
-				}
-				html = reHTML
-			}
-		}
-		if err != nil {
-			slog.Error("Pager: parse failed after max retries", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
-			if firstFailedPage == 0 {
-				firstFailedPage = page
-			}
-			goto nextPage
-		}
-
-		if items == nil {
-			break
-		}
-
-		pageNew, allKnown = hooks.ProcessItems(items)
-		if len(pageNew) > 0 {
-			all = append(all, pageNew...)
-			emptyPages = 0
-		} else {
-			emptyPages++
-		}
-
-		if allKnown {
-			// If there were failures before this point, still mark as incomplete
-			if firstFailedPage > 0 {
-				return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
-			}
-			break
-		}
-
-		// Incremental mode: max empty pages guard
-		if opts.Mode == ModeIncremental && emptyPages >= maxEmpty {
-			if firstFailedPage > 0 {
-				return Result{Items: all, AllSucceeded: false, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
-			}
-			break
-		}
-
-	nextPage:
-		page++
-		if detectedPages > 0 && page > detectedPages {
-			// Full mode: dynamic tail refresh
-			if opts.Mode == ModeFull && refreshCount < maxRefresh {
-				newDetected := hooks.ParseTotalPages(hooks.BuildPageURL(1))
-				if newDetected > detectedPages {
-					slog.Info("Pager: detected page growth, extending scan", "old", detectedPages, "new", newDetected)
-					detectedPages = newDetected
-					refreshCount++
-					continue // don't advance page since we're past end
-				}
-			}
+		if action == actionBreak {
 			break
 		}
 	}
 
-	allSucceeded := firstFailedPage == 0
-	return Result{Items: all, AllSucceeded: allSucceeded, LastFailedPage: firstFailedPage, DetectedPages: detectedPages}
+	return st.result(all)
+}
+
+// processPage handles one page iteration: scrape, parse, process, advance.
+func (p *DefaultPager) processPage(ctx context.Context, hooks PageHooks, st *pageState, all *[]any) processAction {
+	if ctx.Err() != nil {
+		st.canceled = true
+		return actionReturn
+	}
+
+	url := hooks.BuildPageURL(st.page)
+
+	html, err := scrapeWithRetry(ctx, hooks, url, st.maxRetries, st.page)
+	if err != nil {
+		st.recordFailure()
+		slog.Error("Pager: scrape failed after max retries", "page", st.page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
+		if st.advance(hooks) {
+			return actionContinue
+		}
+		return actionBreak
+	}
+
+	st.detectPages(hooks, html)
+
+	items, err := parseWithRetry(ctx, hooks, url, html, st.maxRetries, st.page)
+	if err != nil {
+		st.recordFailure()
+		slog.Error("Pager: parse failed after max retries", "page", st.page, logutil.LogKeyURL, url, logutil.LogKeyError, err)
+		if st.advance(hooks) {
+			return actionContinue
+		}
+		return actionBreak
+	}
+
+	if items == nil {
+		return actionBreak
+	}
+
+	action := st.processItems(hooks, items, all)
+	if action != actionContinue {
+		return action
+	}
+
+	if st.advance(hooks) {
+		return actionContinue
+	}
+	return actionBreak
+}
+
+// scrapeWithRetry attempts to scrape a URL with up to maxRetries attempts.
+func scrapeWithRetry(ctx context.Context, hooks PageHooks, url string, maxRetries int, page int) (string, error) {
+	var html string
+	var err error
+	for attempt := range maxRetries {
+		html, err = hooks.RunScraper(url)
+		if err == nil {
+			return html, nil
+		}
+		if attempt < maxRetries-1 {
+			slog.Warn("Pager: retry after scrape error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
+			if !sleepCtx(ctx, time.Duration(1<<attempt)*time.Second) {
+				return "", ctx.Err()
+			}
+		}
+	}
+	return html, err
+}
+
+// parseWithRetry attempts to parse the HTML with up to maxRetries attempts,
+// re-scraping on parse failure.
+func parseWithRetry(ctx context.Context, hooks PageHooks, url, html string, maxRetries int, page int) (any, error) {
+	var err error
+	var items any
+	for attempt := range maxRetries {
+		items, err = hooks.ParsePage(html)
+		if err == nil {
+			return items, nil
+		}
+		if attempt < maxRetries-1 {
+			slog.Warn("Pager: retry after parse error", "page", page, logutil.LogKeyURL, url, "attempt", attempt+1, logutil.LogKeyError, err)
+			reHTML, reErr := hooks.RunScraper(url)
+			if reErr != nil {
+				slog.Error("Pager: re-scrape failed after parse error", "page", page, logutil.LogKeyURL, url, logutil.LogKeyError, reErr)
+				return nil, reErr
+			}
+			html = reHTML
+		}
+	}
+	return items, err
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {

@@ -44,7 +44,22 @@ func taskIndex(tasks []Task, id string) int {
 // Diff compares two Config values and returns a list of changes.
 func (c Config) Diff(b Config) []Change {
 	var changes []Change
-	// Server
+	changes = append(changes, diffServerFields(c, b)...)
+	changes = append(changes, diffLogFields(c, b)...)
+	changes = append(changes, diffDownloaderBasic(c, b)...)
+	changes = append(changes, diffFilesystemFields(c, b)...)
+	changes = append(changes, diffHTTPFields(c, b)...)
+	changes = append(changes, diffProxyFields(c, b)...)
+	changes = append(changes, diffProgressFields(c, b)...)
+	changes = append(changes, diffFFmpegFields(c, b)...)
+	changes = append(changes, diffTaskScanFields(c, b)...)
+	changes = append(changes, diffContextsFields(c, b)...)
+	changes = append(changes, diffTaskConfigs(c, b)...)
+	return changes
+}
+
+func diffServerFields(c, b Config) []Change {
+	var changes []Change
 	if c.Server.HTTPPort != b.Server.HTTPPort {
 		changes = append(changes, Change{Path: "server.http_port", A: c.Server.HTTPPort, B: b.Server.HTTPPort})
 	}
@@ -102,8 +117,11 @@ func (c Config) Diff(b Config) []Change {
 	if c.Server.UIDefaults.StatusStyle != b.Server.UIDefaults.StatusStyle {
 		changes = append(changes, Change{Path: "server.ui_defaults.status_style", A: c.Server.UIDefaults.StatusStyle, B: b.Server.UIDefaults.StatusStyle})
 	}
+	return changes
+}
 
-	// Log
+func diffLogFields(c, b Config) []Change {
+	var changes []Change
 	if c.Log.Level != b.Log.Level {
 		changes = append(changes, Change{Path: "log.level", A: c.Log.Level, B: b.Log.Level})
 	}
@@ -125,7 +143,11 @@ func (c Config) Diff(b Config) []Change {
 	if c.Log.Compress != b.Log.Compress {
 		changes = append(changes, Change{Path: "log.compress", A: c.Log.Compress, B: b.Log.Compress})
 	}
-	// Downloader
+	return changes
+}
+
+func diffDownloaderBasic(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.Type != b.Downloader.Type {
 		changes = append(changes, Change{Path: "downloader.type", A: c.Downloader.Type, B: b.Downloader.Type})
 	}
@@ -144,7 +166,11 @@ func (c Config) Diff(b Config) []Change {
 	if !reflect.DeepEqual(c.Downloader.Proxies, b.Downloader.Proxies) {
 		changes = append(changes, Change{Path: "downloader.proxies", A: c.Downloader.Proxies, B: b.Downloader.Proxies})
 	}
-	// Downloader (new sub-structures)
+	return changes
+}
+
+func diffFilesystemFields(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.Filesystem.RootDir != b.Downloader.Filesystem.RootDir {
 		changes = append(changes, Change{Path: "downloader.filesystem.root_dir", A: c.Downloader.Filesystem.RootDir, B: b.Downloader.Filesystem.RootDir})
 	}
@@ -157,6 +183,11 @@ func (c Config) Diff(b Config) []Change {
 	if !stringSliceEqual(c.Downloader.Filesystem.AllowPaths, b.Downloader.Filesystem.AllowPaths) {
 		changes = append(changes, Change{Path: "downloader.filesystem.allow_paths", A: c.Downloader.Filesystem.AllowPaths, B: b.Downloader.Filesystem.AllowPaths})
 	}
+	return changes
+}
+
+func diffHTTPFields(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.HTTP.TimeoutSeconds != b.Downloader.HTTP.TimeoutSeconds {
 		changes = append(changes, Change{Path: "downloader.http.timeout_seconds", A: c.Downloader.HTTP.TimeoutSeconds, B: b.Downloader.HTTP.TimeoutSeconds})
 	}
@@ -175,6 +206,11 @@ func (c Config) Diff(b Config) []Change {
 	if c.Downloader.HTTP.DisableInjectBrowserLikeHeaders != b.Downloader.HTTP.DisableInjectBrowserLikeHeaders {
 		changes = append(changes, Change{Path: "downloader.http.disable_inject_browser_like_headers", A: c.Downloader.HTTP.DisableInjectBrowserLikeHeaders, B: b.Downloader.HTTP.DisableInjectBrowserLikeHeaders})
 	}
+	return changes
+}
+
+func diffProxyFields(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.Proxy.Force != b.Downloader.Proxy.Force {
 		changes = append(changes, Change{Path: "downloader.proxy.force", A: c.Downloader.Proxy.Force, B: b.Downloader.Proxy.Force})
 	}
@@ -190,12 +226,22 @@ func (c Config) Diff(b Config) []Change {
 	if c.Downloader.Proxy.BandwidthPathSuffix != b.Downloader.Proxy.BandwidthPathSuffix {
 		changes = append(changes, Change{Path: "downloader.proxy.bandwidth_path_suffix", A: c.Downloader.Proxy.BandwidthPathSuffix, B: b.Downloader.Proxy.BandwidthPathSuffix})
 	}
+	return changes
+}
+
+func diffProgressFields(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.Progress.MinPercentStep != b.Downloader.Progress.MinPercentStep {
 		changes = append(changes, Change{Path: "downloader.progress.min_percent_step", A: c.Downloader.Progress.MinPercentStep, B: b.Downloader.Progress.MinPercentStep})
 	}
 	if c.Downloader.Progress.MaxIntervalSeconds != b.Downloader.Progress.MaxIntervalSeconds {
 		changes = append(changes, Change{Path: "downloader.progress.max_interval_seconds", A: c.Downloader.Progress.MaxIntervalSeconds, B: b.Downloader.Progress.MaxIntervalSeconds})
 	}
+	return changes
+}
+
+func diffFFmpegFields(c, b Config) []Change {
+	var changes []Change
 	if c.Downloader.FFmpeg.Path != b.Downloader.FFmpeg.Path {
 		changes = append(changes, Change{Path: "downloader.ffmpeg.path", A: c.Downloader.FFmpeg.Path, B: b.Downloader.FFmpeg.Path})
 	}
@@ -211,18 +257,30 @@ func (c Config) Diff(b Config) []Change {
 	if c.Downloader.FFmpeg.HLSAutoMarkAsFail != b.Downloader.FFmpeg.HLSAutoMarkAsFail {
 		changes = append(changes, Change{Path: "downloader.ffmpeg.hls_auto_mark_as_fail", A: c.Downloader.FFmpeg.HLSAutoMarkAsFail, B: b.Downloader.FFmpeg.HLSAutoMarkAsFail})
 	}
-	// TaskScan
+	return changes
+}
+
+func diffTaskScanFields(c, b Config) []Change {
+	var changes []Change
 	if c.TaskScan.Disable != b.TaskScan.Disable {
 		changes = append(changes, Change{Path: "task_scan.disable", A: c.TaskScan.Disable, B: b.TaskScan.Disable})
 	}
 	if c.TaskScan.Interval != b.TaskScan.Interval {
 		changes = append(changes, Change{Path: "task_scan.interval", A: c.TaskScan.Interval, B: b.TaskScan.Interval})
 	}
-	// Contexts
+	return changes
+}
+
+func diffContextsFields(c, b Config) []Change {
+	var changes []Change
 	if !reflect.DeepEqual(c.Contexts, b.Contexts) {
 		changes = append(changes, Change{Path: "contexts", A: c.Contexts, B: b.Contexts})
 	}
-	// Tasks
+	return changes
+}
+
+func diffTaskConfigs(c, b Config) []Change {
+	var changes []Change
 	for _, ta := range c.Tasks {
 		j := taskIndex(b.Tasks, ta.ID)
 		if j == -1 {

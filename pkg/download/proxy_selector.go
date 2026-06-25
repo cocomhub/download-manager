@@ -62,6 +62,46 @@ func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
 	return s
 }
 
+// cachePathForDomain 返回指定域名的缓存文件路径。
+func (s *StaticProxySelector) cachePathForDomain(domain string) string {
+	cacheBase := s.cacheDir
+	if cacheBase == "" {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			cacheDir = os.TempDir()
+		}
+		cacheBase = filepath.Join(cacheDir, "dm-proxy-cache")
+	}
+	return filepath.Join(cacheBase, domain)
+}
+
+// readCachedDecision 读取并验证缓存中的代理决策。
+// 返回决策值（"direct"/"proxy"）和是否命中有效缓存。
+func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool) {
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		return "", false
+	}
+	ttl := s.decisionCacheTTL
+	if ttl <= 0 {
+		ttl = 1
+	}
+	if time.Since(info.ModTime()) >= time.Duration(ttl)*time.Second {
+		return "", false
+	}
+	content, err := os.ReadFile(cachePath)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(content)), true
+}
+
+// writeCacheDecision 将代理决策写入缓存文件。
+func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision string) {
+	_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
+	_ = os.WriteFile(cachePath, []byte(decision), 0644)
+}
+
 // Select 实现 ProxySelector 接口。
 // 返回空字符串表示直连（不使用代理）。
 func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
@@ -73,43 +113,21 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	if err != nil {
 		return "", err
 	}
-	domain := u.Host
 
-	cacheBase := s.cacheDir
-	if cacheBase == "" {
-		cacheDir, err := os.UserCacheDir()
-		if err != nil {
-			cacheDir = os.TempDir()
-		}
-		cacheBase = filepath.Join(cacheDir, "dm-proxy-cache")
-	}
-	cachePath := filepath.Join(cacheBase, domain)
+	cachePath := s.cachePathForDomain(u.Host)
 
 	// 检查缓存
-	if info, err := os.Stat(cachePath); err == nil {
-		ttl := s.decisionCacheTTL
-		if ttl <= 0 {
-			ttl = 1
+	if decision, ok := s.readCachedDecision(cachePath); ok {
+		if decision == "direct" {
+			return "", nil
 		}
-		if time.Since(info.ModTime()) < time.Duration(ttl)*time.Second {
-			content, _ := os.ReadFile(cachePath)
-			contentStr := strings.TrimSpace(string(content))
-			if contentStr == "direct" {
-				return "", nil
-			}
-			if contentStr == "proxy" {
-				return s.selectBestProxy(ctx, cachePath)
-			}
-		}
+		return s.selectBestProxy(ctx, cachePath)
 	}
 
 	// 直连探测
-	if !s.forceProxy {
-		if checkDirect(ctx, targetURL, s.probeTimeout) {
-			_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-			_ = os.WriteFile(cachePath, []byte("direct"), 0644)
-			return "", nil
-		}
+	if !s.forceProxy && checkDirect(ctx, targetURL, s.probeTimeout) {
+		s.writeCacheDecision(cachePath, "direct")
+		return "", nil
 	}
 
 	return s.selectBestProxy(ctx, cachePath)
@@ -127,8 +145,7 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 		}
 	}
 	if bestProxy != "" {
-		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-		_ = os.WriteFile(cachePath, []byte("proxy"), 0644)
+		s.writeCacheDecision(cachePath, "proxy")
 		return bestProxy, nil
 	}
 	return "", fmt.Errorf("no suitable proxy found")
