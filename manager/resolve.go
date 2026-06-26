@@ -78,20 +78,20 @@ func (m *Manager) processResolve(req resolveRequest) {
 
 	m.resolveCache.MarkResolved(req.obj.URL)
 
-	// resolve 成功后设回 Pending，下一轮 processTask 会将其加入 candidates。
+	// resolve 成功后设回 Downloading，下一轮 processTask 会将其加入 candidates。
 	//
 	// 使用 SetStatusUnlessCancelled 原子地检查对象是否已被 CancelObject() 取消，
 	// 在 b.mu 保护下完成读-检查-写，消除 TOCTOU 竞争窗口。
 	// 如果对象已被取消或任务不支持此守卫，则跳过更新。
 	if guard, ok := t.(core.TaskStatusGuarder); ok {
-		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusPending, nil) {
+		if !guard.SetStatusUnlessCancelled(req.obj, model.StatusDownloading, nil) {
 			slog.Info("Resolve: object was cancelled, preserving cancelled status",
 				logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL)
 			m.resolveCache.Invalidate(req.obj.URL)
 			return
 		}
 	} else {
-		_ = t.UpdateStatus(req.obj, model.StatusPending, nil)
+		_ = t.UpdateStatus(req.obj, model.StatusDownloading, nil)
 	}
 	slog.Debug("Resolve succeeded", logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL)
 }

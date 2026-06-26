@@ -18,7 +18,7 @@ func TestProgressReader(t *testing.T) {
 	var lastTotal int64
 	callCount := 0
 
-	pr := NewProgressReader(reader, int64(len(content)),
+	pr := NewProgressReader(reader, 0, int64(len(content)),
 		func(progress float64, downloaded, total int64) {
 			lastProgress = progress
 			lastDownloaded = downloaded
@@ -56,7 +56,7 @@ func TestProgressReader(t *testing.T) {
 
 func TestProgressReaderDone(t *testing.T) {
 	var progress float64
-	pr := NewProgressReader(strings.NewReader("data"), 100,
+	pr := NewProgressReader(strings.NewReader("data"), 0, 100,
 		func(p float64, _, _ int64) {
 			progress = p
 		},
@@ -70,7 +70,7 @@ func TestProgressReaderDone(t *testing.T) {
 }
 
 func TestProgressReaderNilCallback(t *testing.T) {
-	pr := NewProgressReader(strings.NewReader("data"), 10, nil)
+	pr := NewProgressReader(strings.NewReader("data"), 0, 10, nil)
 
 	data, err := io.ReadAll(pr)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestProgressReaderNilCallback(t *testing.T) {
 
 func TestProgressReaderZeroTotal(t *testing.T) {
 	var callCount int
-	pr := NewProgressReader(strings.NewReader("test"), 0,
+	pr := NewProgressReader(strings.NewReader("test"), 0, 0,
 		func(_ float64, _, _ int64) {
 			callCount++
 		},
@@ -99,5 +99,50 @@ func TestProgressReaderZeroTotal(t *testing.T) {
 	// because of the `if pr.total > 0` guard
 	if callCount != 0 {
 		t.Errorf("expected 0 callbacks with zero total, got %d", callCount)
+	}
+}
+
+// TestProgressReader_WithInitialDownloaded 验证断点续传场景下，
+// ProgressReader 从已下载字节数开始计算进度而非从 0 开始。
+func TestProgressReader_WithInitialDownloaded(t *testing.T) {
+	content := "hello world"
+	initialDownloaded := int64(100) // simulate 100 bytes already downloaded
+	totalSize := initialDownloaded + int64(len(content))
+
+	var firstProgress float64
+	var firstDownloaded int64
+	callbackCalled := false
+
+	pr := NewProgressReader(strings.NewReader(content), initialDownloaded, totalSize,
+		func(progress float64, downloaded, total int64) {
+			if !callbackCalled {
+				firstProgress = progress
+				firstDownloaded = downloaded
+				callbackCalled = true
+			}
+		},
+	)
+
+	data, err := io.ReadAll(pr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != content {
+		t.Errorf("expected content %q, got %q", content, string(data))
+	}
+
+	if !callbackCalled {
+		t.Fatal("onProgress was never called")
+	}
+
+	// First callback should report downloaded > initialDownloaded
+	if firstDownloaded <= initialDownloaded {
+		t.Errorf("expected downloaded > %d, got %d", initialDownloaded, firstDownloaded)
+	}
+
+	// Progress should reflect the initial offset, not 0%
+	expectedMinProgress := float64(initialDownloaded) / float64(totalSize) * 100
+	if firstProgress < expectedMinProgress {
+		t.Errorf("expected progress >= %f%%, got %f%%", expectedMinProgress, firstProgress)
 	}
 }

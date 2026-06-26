@@ -449,9 +449,9 @@ func (b *BaseTask) LoadPendingFromStorage(limit int64) []*model.DownloadObject {
 	stored, err := b.store.Search(&core.StorageQuery{
 		Filter: core.StorageFilter{
 			TaskIDs:  []string{b.ID()},
-			Statuses: []string{model.StatusPending, model.StatusFailed},
+			Statuses: []string{model.StatusPending, model.StatusFailed, model.StatusDownloading},
 		},
-		Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}},
+		Sort:  []core.StorageSort{{Field: "date", Desc: true}, {Field: "url"}, {Field: "status"}},
 		Limit: limit,
 	})
 	if err != nil || len(stored) == 0 {

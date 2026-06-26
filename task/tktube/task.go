@@ -106,21 +106,8 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return candidates, nil
 }
 
-// countActiveDownloads counts currently downloading objects from storage,
-// falling back to runtime objects if the storage count is zero or unavailable.
+// countActiveDownloads counts currently downloading objects from runtime objects.
 func (t *Task) countActiveDownloads(runtimeObjects []*model.DownloadObject) int64 {
-	if t.Storage() != nil {
-		count, err := t.Storage().Count(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{model.StatusDownloading},
-			},
-		})
-		if err == nil && count > 0 {
-			return count
-		}
-	}
-	// Fallback: count from runtime objects
 	var active int64
 	for _, obj := range runtimeObjects {
 		if obj.GetStatus() == model.StatusDownloading {

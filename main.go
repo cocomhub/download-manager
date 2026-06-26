@@ -21,6 +21,10 @@ import (
 	"github.com/cocomhub/download-manager/manager"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/storage"
+	_ "github.com/cocomhub/download-manager/task/hanime"
+	_ "github.com/cocomhub/download-manager/task/tktube"
+	_ "github.com/cocomhub/download-manager/task/urllist"
+	_ "github.com/cocomhub/download-manager/task/vikacg"
 	"github.com/gofrs/flock"
 )
 
@@ -221,8 +225,8 @@ func main() {
 	sig := <-quit
 	slog.Info("Received shutdown signal", "signal", sig)
 
-	// Create shutdown context with 30s timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create shutdown context with 5s timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Second signal: force exit

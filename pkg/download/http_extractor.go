@@ -201,7 +201,6 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		slog.Info("Server content changed during resume, restarting download", "file", rPath, "serverSize", totalSize, "localSize", startOffset)
 		return false, nil
 	}
-	totalSize = adjustTotalSize(totalSize, startOffset)
 
 	if err := writeResponseBody(tresp.Body, rPath, startOffset, totalSize, req, logWriter); err != nil {
 		return false, err
@@ -403,14 +402,6 @@ func getContentLength(tresp *TransportResponse) int64 {
 	return tresp.ContentLength
 }
 
-// adjustTotalSize 在断点续传时将 startOffset 加入 totalSize 得到完整文件大小。
-func adjustTotalSize(totalSize, startOffset int64) int64 {
-	if startOffset > 0 && totalSize > 0 {
-		return totalSize + startOffset
-	}
-	return totalSize
-}
-
 // writeResponseBody 将响应体写入文件并通过 ProgressReader 跟踪进度。
 func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize int64, req *Request, w io.Writer) error {
 	fileFlags := os.O_CREATE | os.O_WRONLY
@@ -435,7 +426,7 @@ func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize 
 		fmt.Fprintf(w, "Expected total: %d bytes\n\n", totalSize)
 	}
 
-	reader := buildProgressReader(body, totalSize, req, w)
+	reader := buildProgressReader(body, startOffset, totalSize, req, w)
 	if _, cErr := io.Copy(file, reader); cErr != nil {
 		return fmt.Errorf("failed to write file: %w", cErr)
 	}
@@ -443,7 +434,8 @@ func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize 
 }
 
 // buildProgressReader 创建可选的进度跟踪 reader。条件不满足时返回原 body。
-func buildProgressReader(body io.Reader, totalSize int64, req *Request, w io.Writer) io.Reader {
+// startOffset 为断点续传时的已下载字节数，用于正确计算进度百分比。
+func buildProgressReader(body io.Reader, startOffset, totalSize int64, req *Request, w io.Writer) io.Reader {
 	if !req.TrackProgress || req.OnProgress == nil || totalSize <= 0 {
 		return body
 	}
@@ -458,7 +450,7 @@ func buildProgressReader(body io.Reader, totalSize int64, req *Request, w io.Wri
 			),
 		)
 	}
-	return NewProgressReader(body, totalSize, onProgress)
+	return NewProgressReader(body, startOffset, totalSize, onProgress)
 }
 
 // checkFileMD5 验证下载文件的 MD5 校验和。返回 restart=true 表示需要重新下载。

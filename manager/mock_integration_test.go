@@ -76,15 +76,19 @@ func TestManagerWithMockTask_CancelDuringDownload(t *testing.T) {
 
 	task := waitForTask(t, mgr, "mock-cancel")
 
-	// Wait until at least one object enters downloading state.
-	// ProcessTask sets StatusDownloading BEFORE calling dl.Download(),
-	// so we should see it in the task's object list quickly.
+	// Wait until at least one object enters downloading state and is actually
+	// in the download pipeline (downloadingObj). With the resolve→StatusDownloading
+	// optimization, objects enter StatusDownloading during resolve, so we must
+	// wait for the full pipeline: resolve → processTask → task queue → download queue.
 	var target string
 	assert.MustEventually(t, func() bool {
 		mgr.scan()
 		all := getAllObjectsFromTask(t, task)
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
+				if _, ok := mgr.downloadingObj.Load(obj.URL); !ok {
+					continue
+				}
 				target = obj.URL
 				t.Logf("found downloading object: %s", obj.URL)
 				return true

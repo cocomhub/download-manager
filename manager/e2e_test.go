@@ -383,7 +383,10 @@ func TestE2E_MultiTaskConcurrency(t *testing.T) {
 
 // --- helpers ---
 
-// waitForDownloading polls until an object enters StatusDownloading.
+// waitForDownloading polls until an object enters StatusDownloading and is
+// actually enqueued in the download pipeline (in downloadingObj).
+// With the resolve→StatusDownloading optimization, objects enter StatusDownloading
+// during resolve, before being enqueued. We must wait for the full pipeline.
 func waitForDownloading(t *testing.T, mgr *Manager, task core.Task, timeout time.Duration) string {
 	t.Helper()
 	var foundURL string
@@ -392,6 +395,11 @@ func waitForDownloading(t *testing.T, mgr *Manager, task core.Task, timeout time
 		all := getAllObjectsFromTask(t, task)
 		for _, obj := range all {
 			if obj.GetStatus() == model.StatusDownloading {
+				// Object must also be in the download pipeline (downloadingObj)
+				// to ensure CancelObject can properly clean it up.
+				if _, ok := mgr.downloadingObj.Load(obj.URL); !ok {
+					continue
+				}
 				foundURL = obj.URL
 				t.Logf("found downloading object: %s", obj.URL)
 				return true
