@@ -89,8 +89,7 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		objects = t.SnapshotRuntimeObjects(true)
 	}
 
-	activeCount := t.countActiveDownloading(objects)
-	candidates, toResolve := t.separateDownloadCandidates(objects, activeCount)
+	candidates, toResolve := t.separateDownloadCandidates(objects)
 
 	if len(toResolve) > 0 {
 		candidates = t.resolveDownloadCandidates(candidates, toResolve)
@@ -99,24 +98,20 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	return candidates, nil
 }
 
-// countActiveDownloading counts objects currently in StatusDownloading state.
-func (t *Task) countActiveDownloading(objects []*model.DownloadObject) int {
-	count := 0
-	for _, obj := range objects {
-		if obj.GetStatus() == model.StatusDownloading {
-			count++
-		}
-	}
-	return count
-}
-
 // separateDownloadCandidates splits objects into candidates (already resolved)
 // and toResolve (needs resolution), respecting the concurrency capacity limit.
-func (t *Task) separateDownloadCandidates(objects []*model.DownloadObject, activeCount int) (candidates, toResolve []*model.DownloadObject) {
+func (t *Task) separateDownloadCandidates(objects []*model.DownloadObject) (candidates, toResolve []*model.DownloadObject) {
 	maxToResolve := t.Concurrency()*2 + 2
+
 	candidates = make([]*model.DownloadObject, 0)
+	for _, obj := range objects {
+		if obj.GetStatus() == model.StatusDownloading {
+			candidates = append(candidates, obj)
+		}
+	}
 	toResolve = make([]*model.DownloadObject, 0)
 
+	activeCount := len(candidates)
 	for _, obj := range objects {
 		if t.IsMarkedFailed(obj.URL) {
 			continue

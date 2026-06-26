@@ -246,3 +246,66 @@ func (r *memSharedRegistry) Delete(url string) error {
 
 // Ensure compile-time check for interface.
 var _ core.SharedRegistry = (*memSharedRegistry)(nil)
+
+// TestLoadPendingFromStorage_IncludesDownloading verifies that LoadPendingFromStorage
+// retrieves objects with StatusDownloading in addition to Pending and Failed.
+// This ensures that after a restart, in-flight downloads are not lost.
+func TestLoadPendingFromStorage_IncludesDownloading(t *testing.T) {
+	bt := newBaseTaskForTest(t)
+
+	// Store objects with different statuses
+	pendingObj := &model.DownloadObject{
+		TaskID: "test-bt",
+		URL:    "http://test/pending-obj",
+		Status: model.StatusPending,
+	}
+	failedObj := &model.DownloadObject{
+		TaskID: "test-bt",
+		URL:    "http://test/failed-obj",
+		Status: model.StatusFailed,
+	}
+	downloadingObj := &model.DownloadObject{
+		TaskID: "test-bt",
+		URL:    "http://test/downloading-obj",
+		Status: model.StatusDownloading,
+	}
+	completedObj := &model.DownloadObject{
+		TaskID: "test-bt",
+		URL:    "http://test/completed-obj",
+		Status: model.StatusCompleted,
+	}
+
+	bt.Storage().Update(pendingObj)
+	bt.Storage().Update(failedObj)
+	bt.Storage().Update(downloadingObj)
+	bt.Storage().Update(completedObj)
+
+	results := bt.LoadPendingFromStorage(10)
+	if results == nil {
+		t.Fatal("LoadPendingFromStorage returned nil")
+	}
+
+	// Build a set of loaded URLs
+	loaded := make(map[string]bool)
+	for _, obj := range results {
+		loaded[obj.URL] = true
+	}
+
+	// Pending and Failed should be loaded
+	if !loaded["http://test/pending-obj"] {
+		t.Error("pending object not loaded")
+	}
+	if !loaded["http://test/failed-obj"] {
+		t.Error("failed object not loaded")
+	}
+
+	// StatusDownloading should be loaded (this is the fix)
+	if !loaded["http://test/downloading-obj"] {
+		t.Error("StatusDownloading object not loaded — LoadPendingFromStorage should include StatusDownloading")
+	}
+
+	// Completed should NOT be loaded
+	if loaded["http://test/completed-obj"] {
+		t.Error("completed object should not be loaded")
+	}
+}

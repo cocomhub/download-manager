@@ -62,6 +62,12 @@ func (t *mockSmallObjectTask) SmallObjects(obj *model.DownloadObject) []core.Sma
 func (t *mockSmallObjectTask) MarkAsFailed(*model.DownloadObject, error) {}
 func (t *mockSmallObjectTask) IsMarkedFailed(string) bool                { return false }
 
+// SetStatusUnlessCancelled implements core.TaskStatusGuarder.
+func (t *mockSmallObjectTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, _ error) bool {
+	obj.SetStatus(status)
+	return true
+}
+
 // ---- Tests ----
 
 func TestEnqueueResolve(t *testing.T) {
@@ -219,5 +225,40 @@ func TestProcessTaskEnqueuesResolve(t *testing.T) {
 	// 状态应为 Resolving
 	if obj.GetStatus() != model.StatusResolving {
 		t.Errorf("expected StatusResolving, got %s", obj.GetStatus())
+	}
+}
+
+// TestProcessResolve_StatusTransition verifies that after a successful resolve,
+// the object status is set to StatusDownloading (not StatusPending).
+func TestProcessResolve_StatusTransition(t *testing.T) {
+	m := NewManager(&config.Config{Runtime: config.Runtime{Mode: config.RunModeFull}})
+	obj := &model.DownloadObject{
+		URL:      "https://example.com/resolve-test",
+		Status:   model.StatusResolving,
+		SavePath: "/tmp/test.mp4",
+		Extra:    make(map[string]any),
+	}
+	task := &mockSmallObjectTask{
+		id:       "test-resolve",
+		objs:     []*model.DownloadObject{obj},
+		resolved: make(map[string]bool),
+	}
+
+	m.tasks.Store("test-resolve", task)
+
+	req := resolveRequest{
+		taskID: "test-resolve",
+		obj:    obj,
+	}
+	m.processResolve(req)
+
+	// After successful resolve, status should be StatusDownloading, not StatusPending.
+	if obj.GetStatus() != model.StatusDownloading {
+		t.Errorf("expected StatusDownloading after resolve, got %s", obj.GetStatus())
+	}
+
+	// Verify resolve was actually called
+	if !task.resolved[obj.URL] {
+		t.Error("expected ResolveObject to be called")
 	}
 }
