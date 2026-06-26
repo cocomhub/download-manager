@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -63,23 +64,37 @@ func (m *Manager) adjustGlobalWorkers(newLimit int) {
 
 func (m *Manager) applyTaskRuntime(newCfg *config.Config) {
 	for _, tCfg := range newCfg.Tasks {
-		if t, ok := m.getTask(tCfg.ID); ok {
-			if cfgVal := int(configutil.GetInt64(tCfg.Extra, "max_concurrent", 2)); t.Concurrency() != cfgVal {
-				if err := t.SetConcurrency(cfgVal); err != nil {
-					slog.Warn("SetConcurrency failed", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
-				} else {
-					slog.Info("Task concurrency updated", logutil.LogKeyTaskID, tCfg.ID, "value", cfgVal)
-				}
-			}
-			if cfgVal := int(configutil.GetInt64(tCfg.Extra, "refresh_interval", 3600)); t.RefreshInterval() != cfgVal {
-				if err := t.SetRefreshInterval(cfgVal); err != nil {
-					slog.Warn("SetRefreshInterval failed", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
-				} else {
-					slog.Info("Task refresh interval updated", logutil.LogKeyTaskID, tCfg.ID, "value", cfgVal)
-				}
-			}
+		t, ok := m.getTask(tCfg.ID)
+		if !ok {
+			continue
 		}
+		applyConcurrency(t, &tCfg)
+		applyRefreshInterval(t, &tCfg)
 	}
+}
+
+func applyConcurrency(t core.Task, tCfg *config.Task) {
+	cfgVal := int(configutil.GetInt64(tCfg.Extra, "max_concurrent", 2))
+	if t.Concurrency() == cfgVal {
+		return
+	}
+	if err := t.SetConcurrency(cfgVal); err != nil {
+		slog.Warn("SetConcurrency failed", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
+		return
+	}
+	slog.Info("Task concurrency updated", logutil.LogKeyTaskID, tCfg.ID, "value", cfgVal)
+}
+
+func applyRefreshInterval(t core.Task, tCfg *config.Task) {
+	cfgVal := int(configutil.GetInt64(tCfg.Extra, "refresh_interval", 3600))
+	if t.RefreshInterval() == cfgVal {
+		return
+	}
+	if err := t.SetRefreshInterval(cfgVal); err != nil {
+		slog.Warn("SetRefreshInterval failed", logutil.LogKeyTaskID, tCfg.ID, logutil.LogKeyError, err)
+		return
+	}
+	slog.Info("Task refresh interval updated", logutil.LogKeyTaskID, tCfg.ID, "value", cfgVal)
 }
 
 func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval *int, audit *AuditInfo) (map[string]bool, error) {
@@ -96,26 +111,33 @@ func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval
 		t.SetRefreshInterval(*refreshInterval)
 		result["refresh_interval"] = true
 	}
-	if result["concurrency"] || result["refresh_interval"] {
-		// Persist to config file
-		m.mu.Lock()
-		cfgCopy := *m.currentCfg()
-		for i := range cfgCopy.Tasks {
-			if cfgCopy.Tasks[i].ID == taskID {
-				if cfgCopy.Tasks[i].Extra == nil {
-					cfgCopy.Tasks[i].Extra = make(map[string]any)
-				}
-				if concurrency != nil {
-					cfgCopy.Tasks[i].Extra["max_concurrent"] = *concurrency
-				}
-				if refreshInterval != nil {
-					cfgCopy.Tasks[i].Extra["refresh_interval"] = *refreshInterval
-				}
-				break
-			}
-		}
-		m.mu.Unlock()
-		return result, m.UpdateConfig(&cfgCopy, audit)
+	if !result["concurrency"] && !result["refresh_interval"] {
+		return result, nil
 	}
-	return result, nil
+	return result, m.saveTaskConfig(taskID, concurrency, refreshInterval, audit)
+}
+
+func (m *Manager) saveTaskConfig(taskID string, concurrency, refreshInterval *int, audit *AuditInfo) error {
+	m.mu.Lock()
+	cfgCopy := *m.currentCfg()
+	for i := range cfgCopy.Tasks {
+		if cfgCopy.Tasks[i].ID == taskID {
+			updateTaskConfigExtra(&cfgCopy.Tasks[i], concurrency, refreshInterval)
+			break
+		}
+	}
+	m.mu.Unlock()
+	return m.UpdateConfig(&cfgCopy, audit)
+}
+
+func updateTaskConfigExtra(task *config.Task, concurrency, refreshInterval *int) {
+	if task.Extra == nil {
+		task.Extra = make(map[string]any)
+	}
+	if concurrency != nil {
+		task.Extra["max_concurrent"] = *concurrency
+	}
+	if refreshInterval != nil {
+		task.Extra["refresh_interval"] = *refreshInterval
+	}
 }

@@ -31,33 +31,16 @@ func NewAggregationService(
 	}
 }
 
+// taskInfo holds a task and the count of objects matching the current filter.
+type taskInfo struct {
+	t     core.Task
+	count int64
+}
+
 func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	type taskInfo struct {
-		t     core.Task
-		count int64
-	}
-	var matchingTasks []taskInfo
-	var total int64
-	for _, t := range svc.tasks() {
-		if !typeMatchesTask(t, types) {
-			continue
-		}
-		countQuery := &core.StorageQuery{
-			Filter: core.StorageFilter{
-				Search: search,
-			},
-		}
-		if status != "" && status != "all" {
-			countQuery.Filter.Statuses = []string{status}
-		}
-		cnt, err := svc.count(t, countQuery)
-		if err != nil {
-			return nil, err
-		}
-		if cnt > 0 {
-			matchingTasks = append(matchingTasks, taskInfo{t: t, count: cnt})
-			total += cnt
-		}
+	matchingTasks, total, err := svc.collectMatchingTasks(search, status, types)
+	if err != nil {
+		return nil, err
 	}
 
 	if page < 1 {
@@ -69,66 +52,12 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 
 	var all []*model.DownloadObject
 	if limit > 0 && limit < total && len(matchingTasks) > 1 {
-		allocated := int64(0)
-		for i, ti := range matchingTasks {
-			share := max(int64(1), limit*ti.count/total)
-			if i == len(matchingTasks)-1 {
-				share = max(0, limit-allocated)
-			}
-			if share <= 0 {
-				continue
-			}
-			perTaskLimit := share * 3
-			dataQuery := &core.StorageQuery{
-				Filter: core.StorageFilter{
-					Search: search,
-				},
-				Sort:  sortRules(sortBy),
-				Limit: perTaskLimit,
-			}
-			if status != "" && status != "all" {
-				dataQuery.Filter.Statuses = []string{status}
-			}
-			objs, err := svc.search(ti.t, dataQuery)
-			if err != nil {
-				return nil, err
-			}
-			all = append(all, objs...)
-			allocated += share
-		}
-		if len(all) > 1 {
-			storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
-		}
-		offset := (page - 1) * limit
-		if offset >= int64(len(all)) {
-			all = []*model.DownloadObject{}
-		} else {
-			end := min(offset+limit, int64(len(all)))
-			all = all[offset:end]
-		}
+		all, err = svc.proportionalAllocation(matchingTasks, page, limit, total, search, status, sortBy)
 	} else {
-		for _, ti := range matchingTasks {
-			query := &core.StorageQuery{
-				Filter: core.StorageFilter{
-					Search: search,
-				},
-			}
-			if status != "" && status != "all" {
-				query.Filter.Statuses = []string{status}
-			}
-			objs, err := svc.collect(ti.t, query, 200)
-			if err != nil {
-				return nil, err
-			}
-			all = append(all, objs...)
-		}
-		offset := (page - 1) * limit
-		paged := storage.ApplyQueryToObjects(all, &core.StorageQuery{
-			Sort:   sortRules(sortBy),
-			Offset: offset,
-			Limit:  limit,
-		})
-		all = paged
+		all, err = svc.simpleCollect(matchingTasks, page, limit, search, status, sortBy)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	if all == nil {
@@ -140,4 +69,90 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 		"page":    page,
 		"limit":   limit,
 	}, nil
+}
+
+// collectMatchingTasks filters tasks by type and counts their matching objects.
+func (svc *AggregationService) collectMatchingTasks(search, status string, types []string) ([]taskInfo, int64, error) {
+	var matchingTasks []taskInfo
+	var total int64
+	for _, t := range svc.tasks() {
+		if !typeMatchesTask(t, types) {
+			continue
+		}
+		cnt, err := svc.count(t, buildBaseQuery(search, status))
+		if err != nil {
+			return nil, 0, err
+		}
+		if cnt > 0 {
+			matchingTasks = append(matchingTasks, taskInfo{t: t, count: cnt})
+			total += cnt
+		}
+	}
+	return matchingTasks, total, nil
+}
+
+// proportionalAllocation fetches a superset of objects from each task proportionally,
+// then sorts and paginates the merged result.
+func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, page, limit, total int64, search, status, sortBy string) ([]*model.DownloadObject, error) {
+	var all []*model.DownloadObject
+	allocated := int64(0)
+	for i, ti := range matchingTasks {
+		share := max(int64(1), limit*ti.count/total)
+		if i == len(matchingTasks)-1 {
+			share = max(0, limit-allocated)
+		}
+		if share <= 0 {
+			continue
+		}
+		dataQuery := buildBaseQuery(search, status)
+		dataQuery.Sort = sortRules(sortBy)
+		dataQuery.Limit = share * 3
+		objs, err := svc.search(ti.t, dataQuery)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, objs...)
+		allocated += share
+	}
+	if len(all) > 1 {
+		storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
+	}
+	offset := (page - 1) * limit
+	if offset >= int64(len(all)) {
+		return []*model.DownloadObject{}, nil
+	}
+	end := min(offset+limit, int64(len(all)))
+	return all[offset:end], nil
+}
+
+// simpleCollect gathers all objects from every matching task,
+// then sorts and paginates the merged result in a single pass.
+func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, limit int64, search, status, sortBy string) ([]*model.DownloadObject, error) {
+	var all []*model.DownloadObject
+	for _, ti := range matchingTasks {
+		objs, err := svc.collect(ti.t, buildBaseQuery(search, status), 200)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, objs...)
+	}
+	offset := (page - 1) * limit
+	return storage.ApplyQueryToObjects(all, &core.StorageQuery{
+		Sort:   sortRules(sortBy),
+		Offset: offset,
+		Limit:  limit,
+	}), nil
+}
+
+// buildBaseQuery creates a StorageQuery with search filter and optional status filter.
+func buildBaseQuery(search, status string) *core.StorageQuery {
+	q := &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Search: search,
+		},
+	}
+	if status != "" && status != "all" {
+		q.Filter.Statuses = []string{status}
+	}
+	return q
 }

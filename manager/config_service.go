@@ -264,70 +264,106 @@ func (cs *ConfigService) AddConfigNote(filename, message, author string) error {
 
 func (cs *ConfigService) WriteConfigWithComments(cfg *config.Config) error {
 	path := config.GetConfigFilePath()
+	dst, src, origRoot, ok := buildMergeNodes(path, cfg)
+	if !ok {
+		return config.Save(path, cfg)
+	}
+	mergeTopLevelKeys(dst, src)
+	mergeTasks(dst, src)
+	return writeYAMLToFile(path, origRoot)
+}
+
+// --- Helpers for WriteConfigWithComments ---
+
+// buildMergeNodes reads the config file and marshals the new config into yaml nodes.
+// Returns dst (orig mapping node), src (new mapping node), the full orig root for
+// writing, and ok=false if any step fails (caller should fall back to plain save).
+func buildMergeNodes(path string, cfg *config.Config) (dst, src, origRoot *yaml.Node, ok bool) {
 	origData, err := os.ReadFile(path)
 	if err != nil {
-		return config.Save(path, cfg)
+		return nil, nil, nil, false
 	}
-	var origRoot yaml.Node
-	if err := yaml.Unmarshal(origData, &origRoot); err != nil {
-		return config.Save(path, cfg)
+	origRoot = new(yaml.Node)
+	if err := yaml.Unmarshal(origData, origRoot); err != nil {
+		return nil, nil, nil, false
 	}
-	var newRoot yaml.Node
 	newData, err := yaml.Marshal(cfg)
 	if err != nil {
-		return config.Save(path, cfg)
+		return nil, nil, nil, false
 	}
+	var newRoot yaml.Node
 	if err := yaml.Unmarshal(newData, &newRoot); err != nil {
-		return config.Save(path, cfg)
+		return nil, nil, nil, false
 	}
 	if len(origRoot.Content) == 0 || origRoot.Content[0].Kind != yaml.MappingNode {
-		return config.Save(path, cfg)
+		return nil, nil, nil, false
 	}
-	dst := origRoot.Content[0]
-	src := newRoot.Content[0]
+	return origRoot.Content[0], newRoot.Content[0], origRoot, true
+}
+
+// mergeTopLevelKeys copies specified top-level keys from src to dst, preserving
+// comments from the original dst values.
+func mergeTopLevelKeys(dst, src *yaml.Node) {
 	for _, key := range []string{"server", "log", "mongo", "downloader", "task_scan", "contexts"} {
 		_, val, _ := mapGet(src, key)
 		if val != nil {
 			mapSet(dst, key, val)
 		}
 	}
+}
+
+// mergeTasks merges task entries from src into dst. Existing tasks (matched by
+// "id") have specific fields updated; new tasks are appended to dst.
+func mergeTasks(dst, src *yaml.Node) {
 	_, srcTasks, _ := mapGet(src, "tasks")
+	if srcTasks == nil {
+		return
+	}
 	_, dstTasks, _ := mapGet(dst, "tasks")
-	if srcTasks != nil {
-		if dstTasks == nil {
-			dstTasks = &yaml.Node{Kind: yaml.SequenceNode}
-			mapSet(dst, "tasks", dstTasks)
+	if dstTasks == nil {
+		dstTasks = &yaml.Node{Kind: yaml.SequenceNode}
+		mapSet(dst, "tasks", dstTasks)
+	}
+	dstMap := buildTaskMap(dstTasks)
+	for _, sItem := range srcTasks.Content {
+		if sItem.Kind != yaml.MappingNode {
+			continue
 		}
-		dstMap := map[string]*yaml.Node{}
-		for _, dItem := range dstTasks.Content {
-			if dItem.Kind == yaml.MappingNode {
-				_, idNode, _ := mapGet(dItem, "id")
-				if idNode != nil {
-					dstMap[idNode.Value] = dItem
-				}
-			}
+		_, sID, _ := mapGet(sItem, "id")
+		if sID == nil {
+			continue
 		}
-		for _, sItem := range srcTasks.Content {
-			if sItem.Kind != yaml.MappingNode {
-				continue
-			}
-			_, sID, _ := mapGet(sItem, "id")
-			if sID == nil {
-				continue
-			}
-			if dItem, ok := dstMap[sID.Value]; ok {
-				for _, k := range []string{"type", "save_dir", "storage", "storage_context", "extra"} {
-					_, sVal, _ := mapGet(sItem, k)
-					if sVal != nil {
-						mapSet(dItem, k, sVal)
-					}
-				}
-			} else {
-				dstTasks.Content = append(dstTasks.Content, sItem)
+		if dItem, ok := dstMap[sID.Value]; ok {
+			updateTaskFields(dItem, sItem)
+		} else {
+			dstTasks.Content = append(dstTasks.Content, sItem)
+		}
+	}
+}
+
+// buildTaskMap indexes dst task nodes by their "id" value for O(1) lookup.
+func buildTaskMap(dstTasks *yaml.Node) map[string]*yaml.Node {
+	m := make(map[string]*yaml.Node)
+	for _, dItem := range dstTasks.Content {
+		if dItem.Kind == yaml.MappingNode {
+			_, idNode, _ := mapGet(dItem, "id")
+			if idNode != nil {
+				m[idNode.Value] = dItem
 			}
 		}
 	}
-	return writeYAMLToFile(path, &origRoot)
+	return m
+}
+
+// updateTaskFields copies specific fields from a source task node into an existing
+// destination task node, preserving comments on the destination.
+func updateTaskFields(dItem, sItem *yaml.Node) {
+	for _, k := range []string{"type", "save_dir", "storage", "storage_context", "extra"} {
+		_, sVal, _ := mapGet(sItem, k)
+		if sVal != nil {
+			mapSet(dItem, k, sVal)
+		}
+	}
 }
 
 // --- Package-level helpers (shared with old config_mgr.go until fully migrated) ---

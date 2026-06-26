@@ -157,26 +157,16 @@ func NewHandler(key []byte) http.Handler {
 			return
 		}
 
-		plaintext, err := Decrypt(key, body)
+		req, err := parseTunnelRequest(key, body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		var req Request
-		if err := json.Unmarshal(plaintext, &req); err != nil {
+		bodyReader, err := prepareBodyReader(req)
+		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
-		}
-
-		var bodyReader io.Reader
-		if req.Body != "" {
-			decoded, err := DecodeBody(req.Body)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			bodyReader = bytes.NewReader(decoded)
 		}
 
 		proxyReq, err := http.NewRequestWithContext(r.Context(), req.Method, req.URL, bodyReader)
@@ -185,40 +175,13 @@ func NewHandler(key []byte) http.Handler {
 			return
 		}
 
-		for k, v := range req.Headers {
-			proxyReq.Header.Set(k, v)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(proxyReq)
-		if err != nil {
-			tunnelResp := Response{
-				Status:  502,
-				Headers: map[string]string{},
-				Body:    EncodeBody([]byte(err.Error())),
-			}
-			writeEncryptedResponse(w, key, tunnelResp)
-			return
-		}
-		defer resp.Body.Close()
-
-		respBodyBytes, err := io.ReadAll(resp.Body)
+		resp, err := doProxyRequest(proxyReq, req.Headers)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		respHeaders := make(map[string]string)
-		for k := range resp.Header {
-			respHeaders[k] = resp.Header.Get(k)
-		}
-
-		tunnelResp := Response{
-			Status:  resp.StatusCode,
-			Headers: respHeaders,
-			Body:    EncodeBody(respBodyBytes),
-		}
-		writeEncryptedResponse(w, key, tunnelResp)
+		writeEncryptedResponse(w, key, *resp)
 	})
 }
 
@@ -236,6 +199,68 @@ func writeEncryptedResponse(w http.ResponseWriter, key []byte, resp Response) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(encrypted)
+}
+
+// parseTunnelRequest decrypts and unmarshals an encrypted tunnel request.
+func parseTunnelRequest(key, body []byte) (*Request, error) {
+	plaintext, err := Decrypt(key, body)
+	if err != nil {
+		return nil, err
+	}
+	var req Request
+	if err := json.Unmarshal(plaintext, &req); err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// prepareBodyReader decodes the Base64-encoded request body, returning an io.Reader.
+// Returns (nil, nil) when req.Body is empty.
+func prepareBodyReader(req *Request) (io.Reader, error) {
+	if req.Body == "" {
+		return nil, nil
+	}
+	decoded, err := DecodeBody(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(decoded), nil
+}
+
+// doProxyRequest creates an HTTP request from the tunneled request, sets headers,
+// executes it, and returns the tunneled response. Returns a 502 gateway error
+// as a valid Response when the upstream is unreachable.
+func doProxyRequest(proxyReq *http.Request, headers map[string]string) (*Response, error) {
+	for k, v := range headers {
+		proxyReq.Header.Set(k, v)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		return &Response{
+			Status:  http.StatusBadGateway,
+			Headers: map[string]string{},
+			Body:    EncodeBody([]byte(err.Error())),
+		}, nil
+	}
+	defer resp.Body.Close()
+
+	respBodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	respHeaders := make(map[string]string)
+	for k := range resp.Header {
+		respHeaders[k] = resp.Header.Get(k)
+	}
+
+	return &Response{
+		Status:  resp.StatusCode,
+		Headers: respHeaders,
+		Body:    EncodeBody(respBodyBytes),
+	}, nil
 }
 
 type Client struct {

@@ -111,60 +111,33 @@ func copyMetadata(src map[string]string) map[string]string {
 	return dst
 }
 
-// Download 实现 core.Downloader 接口。
-// 将 model.DownloadObject + headers 映射为 download.Request 并执行下载。
-func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[string]string) error {
-	ctx := a.getCtx()
-
-	if headers == nil {
-		headers = make(map[string]string)
-	}
-
-	// 处理复合下载：检查 Extra["files"]
-	// Must lock the object to synchronize with concurrent writes
-	// from applySharedState (task/base_task.go).
+// getObjMetadataCopy 返回 obj.Metadata 的副本（在 RLock 保护下）。
+func getObjMetadataCopy(obj *model.DownloadObject) map[string]string {
 	obj.RLock()
-	filesVal, hasFiles := obj.Extra["files"]
-	obj.RUnlock()
-	if hasFiles {
-		return a.downloadComposite(ctx, obj, headers, filesVal)
+	defer obj.RUnlock()
+	return copyMetadata(obj.Metadata)
+}
+
+// makeOnMetadataCallback 创建一个 OnMetadata 回调，在加锁下将 key-value 写入 obj.Metadata，
+// prefix 非空时键名前缀（用于复合下载子文件，如 "cover_"+"etag"）。
+func (a *DownloaderAdapter) makeOnMetadataCallback(obj *model.DownloadObject, prefix string) func(string, string) {
+	return func(key, value string) {
+		obj.Lock()
+		if obj.Metadata == nil {
+			obj.Metadata = make(map[string]string)
+		}
+		obj.Metadata[prefix+key] = value
+		obj.Unlock()
+		if fn := a.getMetadataFlusher(); fn != nil {
+			fn()
+		}
 	}
+}
 
-	// 标准单文件下载
-	req := &download.Request{
-		URL:           obj.URL,
-		SavePath:      obj.SavePath,
-		Headers:       headers,
-		Metadata:      func() map[string]string { obj.RLock(); defer obj.RUnlock(); return copyMetadata(obj.Metadata) }(),
-		TrackProgress: true,
-		OnProgress: func(progress float64, downloaded, total int64) {
-			obj.SetProgress(int(progress))
-		},
-		OnMetadata: func(key, value string) {
-			obj.Lock()
-			if obj.Metadata == nil {
-				obj.Metadata = make(map[string]string)
-			}
-			obj.Metadata[key] = value
-			obj.Unlock()
-			if a.getMetadataFlusher() != nil {
-				a.getMetadataFlusher()()
-			}
-		},
-	}
-
-	// 创建 per-URL 可取消的 context
-	dlCtx, dlCancel := context.WithCancel(ctx)
-	defer a.cancels.Delete(obj.URL)
-	a.cancels.Store(obj.URL, dlCancel)
-
-	err := a.dl.Download(dlCtx, req)
-	if err != nil {
-		return fmt.Errorf("adapter: download failed: %w", err)
-	}
-
-	// 将 DownloadResult 显式写入 obj.Metadata（加锁保护）
+// writeResultToMetadata 在加锁下将 DownloadResult 字段写入 obj.Metadata。
+func writeResultToMetadata(obj *model.DownloadObject, req *download.Request) {
 	obj.Lock()
+	defer obj.Unlock()
 	if r := req.Result; r != nil {
 		if r.StatusCode > 0 {
 			obj.Metadata["status_code"] = strconv.Itoa(r.StatusCode)
@@ -188,8 +161,60 @@ func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[stri
 		// to the pkg/download result model. Remove when dlcore is fully removed.
 		obj.Metadata["status"] = "completed"
 	}
-	obj.Unlock()
+}
 
+// Download 实现 core.Downloader 接口。
+// 将 model.DownloadObject + headers 映射为 download.Request 并执行下载。
+func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[string]string) error {
+	ctx := a.getCtx()
+
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+
+	// 复合下载：检查 Extra["files"]
+	if filesVal, hasFiles := a.getCompositeFilesVal(obj); hasFiles {
+		return a.downloadComposite(ctx, obj, headers, filesVal)
+	}
+
+	// 标准单文件下载
+	return a.executeDownload(ctx, obj, a.newDownloadRequest(obj, headers))
+}
+
+// getCompositeFilesVal 返回 obj.Extra["files"] 的值及其是否存在（RLock 保护下）。
+func (a *DownloaderAdapter) getCompositeFilesVal(obj *model.DownloadObject) (any, bool) {
+	obj.RLock()
+	filesVal, hasFiles := obj.Extra["files"]
+	obj.RUnlock()
+	return filesVal, hasFiles
+}
+
+// newDownloadRequest 创建标准单文件下载的 Request。
+func (a *DownloaderAdapter) newDownloadRequest(obj *model.DownloadObject, headers map[string]string) *download.Request {
+	return &download.Request{
+		URL:           obj.URL,
+		SavePath:      obj.SavePath,
+		Headers:       headers,
+		Metadata:      getObjMetadataCopy(obj),
+		TrackProgress: true,
+		OnProgress: func(progress float64, downloaded, total int64) {
+			obj.SetProgress(int(progress))
+		},
+		OnMetadata: a.makeOnMetadataCallback(obj, ""),
+	}
+}
+
+// executeDownload 执行单文件下载，包含 per-URL 取消上下文管理与下载后处理。
+func (a *DownloaderAdapter) executeDownload(ctx context.Context, obj *model.DownloadObject, req *download.Request) error {
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer a.cancels.Delete(obj.URL)
+	a.cancels.Store(obj.URL, dlCancel)
+
+	if err := a.dl.Download(dlCtx, req); err != nil {
+		return fmt.Errorf("adapter: download failed: %w", err)
+	}
+
+	writeResultToMetadata(obj, req)
 	obj.SetProgress(100)
 	return nil
 }
@@ -244,18 +269,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 			OnProgress: func(progress float64, downloaded, total int64) {
 				obj.SetProgress(int(progress))
 			},
-			OnMetadata: func(key, value string) {
-				// 按 type 前缀写入 obj.Metadata（如 cover_etag、video_checksum）
-				obj.Lock()
-				if obj.Metadata == nil {
-					obj.Metadata = make(map[string]string)
-				}
-				obj.Metadata[prefix+key] = value
-				obj.Unlock()
-				if a.getMetadataFlusher() != nil {
-					a.getMetadataFlusher()()
-				}
-			},
+			OnMetadata: a.makeOnMetadataCallback(obj, prefix),
 		}
 
 		if err := a.dl.Download(ctx, subReq); err != nil {

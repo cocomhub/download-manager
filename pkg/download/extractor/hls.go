@@ -90,17 +90,31 @@ func (e *HLSExtractor) Extract(ctx context.Context, req *download.Request) error
 }
 
 func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Request) error {
+	if err := validateHLSParams(req); err != nil {
+		return err
+	}
 	rPath := req.SavePath
-	dir := filepath.Dir(rPath)
+	if err := os.MkdirAll(filepath.Dir(rPath), 0755); err != nil {
+		return fmt.Errorf("hls: failed to create directory: %w", err)
+	}
+	ffmpeg := e.ffmpegPath
+	if path, err := exec.LookPath(ffmpeg); err != nil {
+		return fmt.Errorf("hls: ffmpeg not found: %w", err)
+	} else {
+		ffmpeg = path
+	}
+	return e.executeFFmpeg(ctx, ffmpeg, e.buildFFmpegArgs(req), rPath, req)
+}
 
-	// Validate args to prevent argv injection
-	if strings.HasPrefix(rPath, "-") {
+func validateHLSParams(req *download.Request) error {
+	if strings.HasPrefix(req.SavePath, "-") {
 		return fmt.Errorf("hls: invalid save path (starts with '-')")
 	}
 	if strings.HasPrefix(req.URL, "-") {
 		return fmt.Errorf("hls: invalid URL (starts with '-')")
 	}
-	if !strings.HasPrefix(strings.ToLower(req.URL), "http://") && !strings.HasPrefix(strings.ToLower(req.URL), "https://") {
+	lowerURL := strings.ToLower(req.URL)
+	if !strings.HasPrefix(lowerURL, "http://") && !strings.HasPrefix(lowerURL, "https://") {
 		return fmt.Errorf("hls: invalid URL scheme")
 	}
 	for _, v := range []string{req.Headers["Referer"], req.Headers["Cookie"]} {
@@ -108,23 +122,14 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 			return fmt.Errorf("hls: invalid header value contains CR/LF")
 		}
 	}
+	return nil
+}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("hls: failed to create directory: %w", err)
-	}
-
-	ffmpeg := e.ffmpegPath
-	if path, err := exec.LookPath(ffmpeg); err == nil {
-		ffmpeg = path
-	} else {
-		return fmt.Errorf("hls: ffmpeg not found: %w", err)
-	}
-
+func (e *HLSExtractor) buildFFmpegArgs(req *download.Request) []string {
 	args := []string{"-y"}
 	if e.userAgent != "" {
 		args = append(args, "-user_agent", e.userAgent)
 	}
-
 	var headerLines []string
 	if v := req.Headers["Referer"]; v != "" {
 		headerLines = append(headerLines, fmt.Sprintf("Referer: %s", v))
@@ -135,11 +140,13 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 	if len(headerLines) > 0 {
 		args = append(args, "-headers", strings.Join(headerLines, "\r\n"))
 	}
-
 	args = append(args, "-i", req.URL)
 	args = append(args, e.ffmpegArgs...)
-	args = append(args, rPath)
+	args = append(args, req.SavePath)
+	return args
+}
 
+func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []string, rPath string, req *download.Request) error {
 	slog.Info("Starting HLS download", "downloader", "ffmpeg", logutil.LogKeyURL, req.URL)
 
 	cmd := exec.CommandContext(ctx, ffmpeg, args...)
@@ -168,21 +175,22 @@ func (e *HLSExtractor) downloadWithFFmpeg(ctx context.Context, req *download.Req
 		return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
 	}
 
-	if req.OnProgress != nil {
-		// 用实际文件大小填充 downloaded 与 total，避免传零值。
-		var size int64
-		if info, err := os.Stat(rPath); err == nil {
-			size = info.Size()
-		}
-		req.OnProgress(100, size, size)
-	}
+	reportHLSDownloadResult(rPath, req)
+	return nil
+}
+
+func reportHLSDownloadResult(rPath string, req *download.Request) {
+	var size int64
 	if info, err := os.Stat(rPath); err == nil {
+		size = info.Size()
 		if req.Result == nil {
 			req.Result = &download.DownloadResult{}
 		}
-		req.Result.TotalSize = info.Size()
+		req.Result.TotalSize = size
 	}
-	return nil
+	if req.OnProgress != nil {
+		req.OnProgress(100, size, size)
+	}
 }
 
 func (e *HLSExtractor) downloadWithM3U8D(_ context.Context, _ *download.Request) error {

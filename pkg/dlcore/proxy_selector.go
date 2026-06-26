@@ -78,6 +78,47 @@ func (ps *DefaultProxySelector) WithBandwidthSuffix(s string) *DefaultProxySelec
 	return ps
 }
 
+// getCachePath 返回 domain 对应的缓存文件路径。
+// 如果未设置 cacheDir，使用系统缓存目录下的 dm-proxy-cache 子目录。
+func (ps *DefaultProxySelector) getCachePath(domain string) string {
+	cacheBase := ps.cacheDir
+	if cacheBase == "" {
+		dir, err := os.UserCacheDir()
+		if err != nil {
+			dir = os.TempDir()
+		}
+		cacheBase = filepath.Join(dir, "dm-proxy-cache")
+	}
+	return filepath.Join(cacheBase, domain)
+}
+
+// readCacheDecision 尝试从缓存文件读取决策。
+// 返回 (true, "direct") 或 (true, "proxy") 表示有效缓存命中，(false, "") 表示未命中或已过期。
+func (ps *DefaultProxySelector) readCacheDecision(cachePath string) (bool, string) {
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		return false, ""
+	}
+	ttl := ps.decisionCacheTTL
+	if ttl <= 0 {
+		ttl = 1
+	}
+	if time.Since(info.ModTime()) >= time.Duration(ttl)*time.Second {
+		return false, ""
+	}
+	content, err := os.ReadFile(cachePath)
+	if err != nil {
+		return false, ""
+	}
+	return true, strings.TrimSpace(string(content))
+}
+
+// writeCacheDecision 将决策写入缓存文件（自动创建目录）。
+func (ps *DefaultProxySelector) writeCacheDecision(cachePath, decision string) {
+	_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
+	_ = os.WriteFile(cachePath, []byte(decision), 0644)
+}
+
 // Select 执行代理选择流程：
 //  1. 无代理配置时直接返回直连
 //  2. 检查文件缓存（domain 粒度的直连/代理决策）
@@ -94,45 +135,22 @@ func (ps *DefaultProxySelector) Select(targetURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	domain := u.Host
+	cachePath := ps.getCachePath(u.Host)
 
-	cacheBase := ps.cacheDir
-	if cacheBase == "" {
-		cacheDir, err := os.UserCacheDir()
-		if err != nil {
-			cacheDir = os.TempDir()
-		}
-		cacheBase = filepath.Join(cacheDir, "dm-proxy-cache")
-	}
-	cachePath := filepath.Join(cacheBase, domain)
-
-	// 检查缓存
-	if info, err := os.Stat(cachePath); err == nil {
-		ttl := ps.decisionCacheTTL
-		if ttl <= 0 {
-			ttl = 1
-		}
-		if time.Since(info.ModTime()) < time.Duration(ttl)*time.Second {
-			content, _ := os.ReadFile(cachePath)
-			s := strings.TrimSpace(string(content))
-			if s == "direct" {
-				return "", nil
-			}
-			if s == "proxy" {
-				slog.Info("proxy cache hit, skipping direct check", "domain", domain)
-				return ps.selectBestProxy(cachePath)
-			}
-		}
-	}
-
-	// 直连探测
-	if !ps.forceProxy {
-		if CheckDirect(targetURL, ps.forceProxy, ps.probeTimeout) {
-			slog.Info("direct access is available", logutil.LogKeyURL, targetURL)
-			_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-			_ = os.WriteFile(cachePath, []byte("direct"), 0644)
+	if ok, decision := ps.readCacheDecision(cachePath); ok {
+		if decision == "direct" {
 			return "", nil
 		}
+		if decision == "proxy" {
+			slog.Info("proxy cache hit, skipping direct check", "domain", u.Host)
+			return ps.selectBestProxy(cachePath)
+		}
+	}
+
+	if !ps.forceProxy && CheckDirect(targetURL, ps.forceProxy, ps.probeTimeout) {
+		slog.Info("direct access is available", logutil.LogKeyURL, targetURL)
+		ps.writeCacheDecision(cachePath, "direct")
+		return "", nil
 	}
 
 	return ps.selectBestProxy(cachePath)
@@ -151,8 +169,7 @@ func (ps *DefaultProxySelector) selectBestProxy(cachePath string) (string, error
 	}
 	if bestProxy != "" {
 		slog.Info("best proxy found", "proxy", bestProxy, "bandwidth", minBandwidth)
-		_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-		_ = os.WriteFile(cachePath, []byte("proxy"), 0644)
+		ps.writeCacheDecision(cachePath, "proxy")
 		return bestProxy, nil
 	}
 	return "", fmt.Errorf("no suitable proxy found")

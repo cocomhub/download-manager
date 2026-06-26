@@ -135,81 +135,76 @@ func parseMockBehavior(extra map[string]any) (MockBehavior, error) {
 	if v, ok := bMap["delay_per_byte"]; ok {
 		mb.DelayPerByte, _ = v.(float64)
 	}
-	if v, ok := bMap["fail_on_urls"]; ok {
-		urls, ok := v.([]any)
-		if ok {
-			for _, u := range urls {
-				if s, ok := u.(string); ok {
-					mb.FailOnURLs = append(mb.FailOnURLs, s)
-				}
-			}
-		}
-	}
-	if v, ok := bMap["timeout_on_urls"]; ok {
-		urls, ok := v.([]any)
-		if ok {
-			for _, u := range urls {
-				if s, ok := u.(string); ok {
-					mb.TimeoutOnURLs = append(mb.TimeoutOnURLs, s)
-				}
-			}
-		}
-	}
+	mb.FailOnURLs = extractStringList(bMap, "fail_on_urls")
+	mb.TimeoutOnURLs = extractStringList(bMap, "timeout_on_urls")
 	return mb, nil
+}
+
+// extractStringList extracts a []string value for a key from a map.
+func extractStringList(m map[string]any, key string) []string {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	return stringSliceFromAny(v)
 }
 
 func mapToMockRule(m map[string]any) (MockRule, error) {
 	r := MockRule{}
-	if v, ok := m["url_template"]; ok {
-		r.URLTemplate, _ = v.(string)
-	}
-	if v, ok := m["count"]; ok {
-		switch vv := v.(type) {
-		case int:
-			r.Count = vv
-		case float64:
-			r.Count = int(vv)
-		}
-	}
-	if v, ok := m["file_size"]; ok {
-		switch vv := v.(type) {
-		case int64:
-			r.FileSize = vv
-		case float64:
-			r.FileSize = int64(vv)
-		case int:
-			r.FileSize = int64(vv)
-		}
-	}
-	if v, ok := m["initial_progress"]; ok {
-		switch vv := v.(type) {
-		case int:
-			r.InitialProgress = vv
-		case float64:
-			r.InitialProgress = int(vv)
-		}
-	}
-	if v, ok := m["status"]; ok {
-		r.Status, _ = v.(string)
-	}
-	if v, ok := m["slugs"]; ok {
-		slugsRaw, ok := v.([]any)
-		if ok {
-			for _, slug := range slugsRaw {
-				if s, ok := slug.(string); ok {
-					r.Slugs = append(r.Slugs, s)
-				}
-			}
-		}
-	}
-	if v, ok := m["metadata"]; ok {
-		metaRaw, ok := v.(map[string]any)
-		if ok {
-			r.Metadata = make(map[string]string)
-			for k, vv := range metaRaw {
-				r.Metadata[k], _ = vv.(string)
-			}
-		}
-	}
+	r.URLTemplate, _ = m["url_template"].(string)
+	r.Count = intFromAny(m["count"])
+	r.FileSize = int64FromAny(m["file_size"])
+	r.InitialProgress = intFromAny(m["initial_progress"])
+	r.Status, _ = m["status"].(string)
+	r.Slugs = stringSliceFromAny(m["slugs"])
+	r.Metadata = stringMapFromAny(m["metadata"])
 	return r, nil
+}
+
+func intFromAny(v any) int {
+	switch vv := v.(type) {
+	case int:
+		return vv
+	case float64:
+		return int(vv)
+	}
+	return 0
+}
+
+func int64FromAny(v any) int64 {
+	switch vv := v.(type) {
+	case int64:
+		return vv
+	case float64:
+		return int64(vv)
+	case int:
+		return int64(vv)
+	}
+	return 0
+}
+
+func stringSliceFromAny(v any) []string {
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var result []string
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func stringMapFromAny(v any) map[string]string {
+	raw, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string)
+	for k, vv := range raw {
+		result[k], _ = vv.(string)
+	}
+	return result
 }

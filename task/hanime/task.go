@@ -88,42 +88,68 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	if objects == nil {
 		objects = t.SnapshotRuntimeObjects(true)
 	}
-	candidates := make([]*model.DownloadObject, 0)
-	toResolve := make([]*model.DownloadObject, 0)
-	activeCount := 0
+
+	activeCount := t.countActiveDownloading(objects)
+	candidates, toResolve := t.separateDownloadCandidates(objects, activeCount)
+
+	if len(toResolve) > 0 {
+		candidates = t.resolveDownloadCandidates(candidates, toResolve)
+	}
+
+	return candidates, nil
+}
+
+// countActiveDownloading counts objects currently in StatusDownloading state.
+func (t *Task) countActiveDownloading(objects []*model.DownloadObject) int {
+	count := 0
 	for _, obj := range objects {
 		if obj.GetStatus() == model.StatusDownloading {
-			activeCount++
+			count++
 		}
 	}
+	return count
+}
+
+// separateDownloadCandidates splits objects into candidates (already resolved)
+// and toResolve (needs resolution), respecting the concurrency capacity limit.
+func (t *Task) separateDownloadCandidates(objects []*model.DownloadObject, activeCount int) (candidates, toResolve []*model.DownloadObject) {
+	maxToResolve := t.Concurrency()*2 + 2
+	candidates = make([]*model.DownloadObject, 0)
+	toResolve = make([]*model.DownloadObject, 0)
+
 	for _, obj := range objects {
 		if t.IsMarkedFailed(obj.URL) {
 			continue
 		}
-		if obj.GetStatus() != model.StatusCompleted && obj.GetStatus() != model.StatusCancelled {
-			if _, hasFiles := obj.Extra["files"]; hasFiles {
-				candidates = append(candidates, obj)
-			} else {
-				if len(candidates)+len(toResolve)+activeCount < t.Concurrency()*2+2 {
-					toResolve = append(toResolve, obj)
-				}
-			}
+		if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusCancelled {
+			continue
+		}
+		if _, hasFiles := obj.Extra["files"]; hasFiles {
+			candidates = append(candidates, obj)
+			continue
+		}
+		if len(candidates)+len(toResolve)+activeCount < maxToResolve {
+			toResolve = append(toResolve, obj)
 		}
 	}
-	if len(toResolve) > 0 {
-		for _, obj := range toResolve {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := t.ResolveObject(ctx, obj); err == nil {
-				cancel()
-				candidates = append(candidates, obj)
-			} else {
-				cancel()
-				t.Logger().Error("hanime resolve object failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-				t.UpdateStatus(obj, model.StatusFailed, err)
-			}
+	return
+}
+
+// resolveDownloadCandidates resolves each unresolved object and appends
+// successful ones to candidates, returning the updated candidates slice.
+func (t *Task) resolveDownloadCandidates(candidates, toResolve []*model.DownloadObject) []*model.DownloadObject {
+	for _, obj := range toResolve {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := t.ResolveObject(ctx, obj); err == nil {
+			cancel()
+			candidates = append(candidates, obj)
+		} else {
+			cancel()
+			t.Logger().Error("hanime resolve object failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+			t.UpdateStatus(obj, model.StatusFailed, err)
 		}
 	}
-	return candidates, nil
+	return candidates
 }
 
 type hanimeItem struct {
@@ -144,74 +170,96 @@ func (t *Task) runScraper(url string) (string, error) {
 	return downloader.ScraperNative(url, t.cookie)
 }
 
+type titleFallback int
+
+const (
+	fallbackNone      titleFallback = 0
+	fallbackImgAlt    titleFallback = 1
+	fallbackTitleAttr titleFallback = 2
+)
+
+type itemParseConfig struct {
+	linkSel         string
+	titleSel        string
+	thumbFromParent bool
+	titleFallback   titleFallback
+}
+
+// makeItem creates a hanimeItem from a matched DOM selection using the given config.
+func makeItem(s *goquery.Selection, cfg itemParseConfig) (hanimeItem, bool) {
+	href := strings.TrimSpace(s.AttrOr("href", ""))
+	if href == "" {
+		return hanimeItem{}, false
+	}
+	if strings.HasPrefix(href, "/") {
+		href = baseURL + href
+	}
+	title := extractItemTitle(s, cfg)
+	title = strings.ReplaceAll(title, "/", "／")
+	title = strings.TrimRight(title, ".")
+	vid := extractVideoIDFromURL(href)
+	return hanimeItem{
+		href:     href,
+		title:    fmt.Sprintf(titleWithVidFmt, vid, title),
+		thumbURL: extractItemThumb(s, cfg),
+	}, true
+}
+
+// extractItemTitle extracts the title using the configured selector and fallback.
+func extractItemTitle(s *goquery.Selection, cfg itemParseConfig) string {
+	title := strings.TrimSpace(s.Find(cfg.titleSel).First().Text())
+	if title != "" {
+		return title
+	}
+	if cfg.titleFallback == fallbackImgAlt {
+		return strings.TrimSpace(s.Find("img").First().AttrOr("alt", ""))
+	}
+	if cfg.titleFallback == fallbackTitleAttr {
+		return strings.TrimSpace(s.AttrOr("title", ""))
+	}
+	return ""
+}
+
+// extractItemThumb extracts the thumbnail URL, optionally from the parent element.
+func extractItemThumb(s *goquery.Selection, cfg itemParseConfig) string {
+	if cfg.thumbFromParent {
+		return strings.TrimSpace(s.Parent().Find("img").First().AttrOr("src", ""))
+	}
+	return strings.TrimSpace(s.Find("img").First().AttrOr("src", ""))
+}
+
+// collectItems extracts all hanime items from a document matching the given config.
+func collectItems(doc *goquery.Document, cfg itemParseConfig) []hanimeItem {
+	items := make([]hanimeItem, 0, 24)
+	doc.Find(cfg.linkSel).Each(func(i int, s *goquery.Selection) {
+		item, ok := makeItem(s, cfg)
+		if ok {
+			items = append(items, item)
+		}
+	})
+	return items
+}
+
 func (t *Task) parseHomePage(html string) ([]hanimeItem, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		t.Logger().Error("hanime parse home page failed", logutil.LogKeyError, err)
 		return nil, err
 	}
-	items := make([]hanimeItem, 0, 24)
-	doc.Find("a[href^='/videos']").Each(func(i int, s *goquery.Selection) {
-		href := strings.TrimSpace(s.AttrOr("href", ""))
-		if href == "" {
-			return
-		}
-		if strings.HasPrefix(href, "/") {
-			href = baseURL + href
-		}
-		title := strings.TrimSpace(s.Find(".title, .card-title, h3, .name").First().Text())
-		if title == "" {
-			img := s.Find("img").First()
-			alt := strings.TrimSpace(img.AttrOr("alt", ""))
-			title = alt
-		}
-		title = strings.ReplaceAll(title, "/", "／")
-		title = strings.TrimRight(title, ".")
-		vid := extractVideoIDFromURL(href)
-		title = fmt.Sprintf(titleWithVidFmt, vid, title)
-		thumb := strings.TrimSpace(s.Find("img").First().AttrOr("src", ""))
-		items = append(items, hanimeItem{href: href, title: title, thumbURL: thumb})
-	})
-	if len(items) == 0 {
-		doc.Find(".search-result__item a").Each(func(i int, s *goquery.Selection) {
-			h := strings.TrimSpace(s.AttrOr("href", ""))
-			if h == "" {
-				return
-			}
-			if strings.HasPrefix(h, "/") {
-				h = baseURL + h
-			}
-			title := strings.TrimSpace(s.Find(".title, .card-title, h3, .name").First().Text())
-			title = strings.ReplaceAll(title, "/", "／")
-			title = strings.TrimRight(title, ".")
-			vid := extractVideoIDFromURL(h)
-			title = fmt.Sprintf(titleWithVidFmt, vid, title)
-			thumb := strings.TrimSpace(s.Parent().Find("img").First().AttrOr("src", ""))
-			items = append(items, hanimeItem{href: h, title: title, thumbURL: thumb})
-		})
+
+	selectors := []itemParseConfig{
+		{linkSel: "a[href^='/videos']", titleSel: ".title, .card-title, h3, .name", titleFallback: fallbackImgAlt},
+		{linkSel: ".search-result__item a", titleSel: ".title, .card-title, h3, .name", thumbFromParent: true},
+		{linkSel: "a[href*='watch?v=']", titleSel: ".title, .home-rows-videos-title", titleFallback: fallbackTitleAttr},
 	}
-	if len(items) == 0 {
-		doc.Find("a[href*='watch?v=']").Each(func(i int, s *goquery.Selection) {
-			h := strings.TrimSpace(s.AttrOr("href", ""))
-			if h == "" {
-				return
-			}
-			if strings.HasPrefix(h, "/") {
-				h = baseURL + h
-			}
-			title := strings.TrimSpace(s.Find(".title, .home-rows-videos-title").First().Text())
-			if title == "" {
-				title = strings.TrimSpace(s.AttrOr("title", ""))
-			}
-			title = strings.ReplaceAll(title, "/", "／")
-			title = strings.TrimRight(title, ".")
-			vid := extractVideoIDFromURL(h)
-			title = fmt.Sprintf(titleWithVidFmt, vid, title)
-			thumb := strings.TrimSpace(s.Find("img").First().AttrOr("src", ""))
-			items = append(items, hanimeItem{href: h, title: title, thumbURL: thumb})
-		})
+
+	for _, cfg := range selectors {
+		items := collectItems(doc, cfg)
+		if len(items) > 0 {
+			return items, nil
+		}
 	}
-	return items, nil
+	return nil, nil
 }
 
 func (t *Task) parseTotalPages(html string) int {
@@ -272,13 +320,7 @@ func (t *Task) parseVideoPage(pageURL string) (*hanimeDetail, error) {
 	return parseHanimeVideoPageHTML(pageURL, html)
 }
 
-func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return nil, err
-	}
-	info := &hanimeDetail{}
-	// 标题
+func extractHanimeTitle(doc *goquery.Document, pageURL string) string {
 	title := strings.TrimSpace(doc.Find("#shareBtn-title").First().Text())
 	if title == "" {
 		title = strings.TrimSpace(doc.Find("meta[property='og:title']").AttrOr("content", ""))
@@ -287,17 +329,35 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		title = strings.TrimSpace(doc.Find("h1, .title, .video-title").First().Text())
 	}
 	vid := extractVideoIDFromURL(pageURL)
-	info.title = fmt.Sprintf(titleWithVidFmt, vid, title)
-	info.title = strings.ReplaceAll(info.title, "/", "／")
-	info.title = strings.TrimRight(info.title, ".")
-	// 作者/厂牌
-	info.artist = strings.TrimSpace(doc.Find("#video-artist-name").First().Text())
-	// 详情描述（视频详情面板中的文本）
+	title = fmt.Sprintf(titleWithVidFmt, vid, title)
+	title = strings.ReplaceAll(title, "/", "／")
+	title = strings.TrimRight(title, ".")
+	return title
+}
+
+func extractHanimeArtist(doc *goquery.Document) string {
+	return strings.TrimSpace(doc.Find("#video-artist-name").First().Text())
+}
+
+func extractHanimeDate(doc *goquery.Document) string {
+	date := ""
+	doc.Find(".video-details-wrapper .video-description-panel").First().Find("*").Each(func(i int, s *goquery.Selection) {
+		if date != "" {
+			return
+		}
+		v := strings.TrimSpace(s.Text())
+		if strings.Contains(v, "觀看次數") && len(v) > 10 {
+			date = strings.TrimSpace(v[len(v)-10:])
+		}
+	})
+	return date
+}
+
+func extractHanimeDescription(doc *goquery.Document) string {
 	detailLines := make([]string, 0, 4)
 	doc.Find(".video-details-wrapper .video-description-panel").First().Find("*").Each(func(i int, s *goquery.Selection) {
 		v := strings.TrimSpace(s.Text())
 		if strings.Contains(v, "觀看次數") && len(v) > 10 {
-			info.date = strings.TrimSpace(v[len(v)-10:])
 			return
 		}
 		if v != "" {
@@ -305,43 +365,51 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		}
 	})
 	if len(detailLines) == 0 {
-		// 回退：直接读取描述文本块
 		desc := strings.TrimSpace(doc.Find(".video-details-wrapper .video-caption-text").First().Text())
 		if desc != "" {
 			detailLines = append(detailLines, desc)
 		}
 	}
-	info.details = strings.Join(detailLines, "\n")
-	// 封面图
-	info.imageURL = strings.TrimSpace(doc.Find("meta[property='og:image']").AttrOr("content", ""))
-	if info.imageURL == "" {
-		poster := strings.TrimSpace(doc.Find("video").First().AttrOr("poster", ""))
-		info.imageURL = poster
+	return strings.Join(detailLines, "\n")
+}
+
+func extractHanimeCoverImage(doc *goquery.Document) string {
+	imageURL := strings.TrimSpace(doc.Find("meta[property='og:image']").AttrOr("content", ""))
+	if imageURL == "" {
+		imageURL = strings.TrimSpace(doc.Find("video").First().AttrOr("poster", ""))
 	}
-	// 标签
+	return imageURL
+}
+
+func extractHanimeTags(doc *goquery.Document) []string {
+	var tags []string
 	doc.Find(".tags a, .video-tags a").Each(func(i int, s *goquery.Selection) {
 		v := strings.TrimSpace(s.Text())
 		if v != "" {
-			info.tags = append(info.tags, v)
+			tags = append(tags, v)
 		}
 	})
-	// 若新站点结构（video-tags-wrapper）
-	if len(info.tags) == 0 {
-		doc.Find(".video-tags-wrapper .single-video-tag a").Each(func(i int, s *goquery.Selection) {
-			txt := strings.TrimSpace(s.Text())
-			if txt == "" {
-				return
-			}
-			if idx := strings.Index(txt, "("); idx > 0 {
-				txt = strings.TrimSpace(txt[:idx])
-			}
-			txt = strings.TrimSpace(strings.TrimSuffix(txt, " ")) // 去掉NBSP
-			if txt != "" {
-				info.tags = append(info.tags, txt)
-			}
-		})
+	if len(tags) > 0 {
+		return tags
 	}
-	// 播放列表（相关视频）
+	doc.Find(".video-tags-wrapper .single-video-tag a").Each(func(i int, s *goquery.Selection) {
+		txt := strings.TrimSpace(s.Text())
+		if txt == "" {
+			return
+		}
+		if idx := strings.Index(txt, "("); idx > 0 {
+			txt = strings.TrimSpace(txt[:idx])
+		}
+		txt = strings.TrimSpace(strings.TrimSuffix(txt, "\u00a0")) // 去掉NBSP
+		if txt != "" {
+			tags = append(tags, txt)
+		}
+	})
+	return tags
+}
+
+func extractHanimePlaylist(doc *goquery.Document) []hanimeItem {
+	var playlist []hanimeItem
 	doc.Find("#video-playlist-wrapper .related-watch-wrap, #playlist-scroll .related-watch-wrap").Each(func(i int, s *goquery.Selection) {
 		href := strings.TrimSpace(s.Find("a.overlay").AttrOr("href", ""))
 		if href == "" {
@@ -360,19 +428,25 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 		title = strings.ReplaceAll(title, "/", "／")
 		title = strings.TrimRight(title, ".")
 		thumb := ""
-		// 第二张图通常是缩略图
 		images := s.Find("img")
 		if images.Length() > 1 {
 			thumb = strings.TrimSpace(images.Eq(1).AttrOr("src", ""))
 		} else {
 			thumb = strings.TrimSpace(images.First().AttrOr("src", ""))
 		}
-		info.playlist = append(info.playlist, hanimeItem{href: href, title: title, thumbURL: thumb})
+		playlist = append(playlist, hanimeItem{href: href, title: title, thumbURL: thumb})
 	})
+	return playlist
+}
+
+func extractHanimeVideoURL(doc *goquery.Document) (string, error) {
+	vurl := strings.TrimSpace(doc.Find("video source").First().AttrOr("src", ""))
+	if vurl != "" {
+		return vurl, nil
+	}
 	scripts := doc.Find("script")
 	reM3U8 := regexp.MustCompile(`https?://[^\s'"]+\.m3u8[^\s'"]*`)
 	reMP4 := regexp.MustCompile(`https?://[^\s'"]+\.mp4[^\s'"]*`)
-	vurl := strings.TrimSpace(doc.Find("video source").First().AttrOr("src", ""))
 	scripts.Each(func(i int, s *goquery.Selection) {
 		if vurl != "" {
 			return
@@ -396,13 +470,35 @@ func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
 				m := regexp.MustCompile(`["'](https?://[^"']+)["']`).FindStringSubmatch(rest)
 				if len(m) >= 2 {
 					vurl = m[1]
-					return
 				}
 			}
 		}
 	})
 	if vurl == "" {
-		return nil, fmt.Errorf("video url not found")
+		return "", fmt.Errorf("video url not found")
+	}
+	return vurl, nil
+}
+
+func parseHanimeVideoPageHTML(pageURL, html string) (*hanimeDetail, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+
+	info := &hanimeDetail{
+		title:    extractHanimeTitle(doc, pageURL),
+		artist:   extractHanimeArtist(doc),
+		date:     extractHanimeDate(doc),
+		details:  extractHanimeDescription(doc),
+		imageURL: extractHanimeCoverImage(doc),
+		tags:     extractHanimeTags(doc),
+		playlist: extractHanimePlaylist(doc),
+	}
+
+	vurl, err := extractHanimeVideoURL(doc)
+	if err != nil {
+		return nil, err
 	}
 	info.videoURL = vurl
 	return info, nil
@@ -441,48 +537,51 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 		})
 	}
 	if info.videoURL != "" {
-		typ := "video"
-		if strings.Contains(info.videoURL, ".m3u8") {
-			typ = "video"
-		}
 		files = append(files, map[string]string{
 			"url":  info.videoURL,
 			"path": videoPath,
-			"type": typ,
+			"type": "video",
 		})
 	}
-	applyResolve := func() {
-		obj.Metadata[model.MetadataKeyTitle] = info.title
-		obj.Metadata["date"] = info.date
-		obj.SavePath = videoPath
-		if _, ok := obj.Extra["files"]; !ok {
-			obj.Extra["files"] = files
-		}
-		obj.Extra["tags"] = info.tags
-		if info.artist != "" {
-			obj.Extra["artist"] = info.artist
-		}
-		if info.details != "" {
-			obj.Extra["details"] = info.details
-		}
-		if len(info.playlist) > 0 {
-			pl := make([]map[string]string, 0, len(info.playlist))
-			for _, it := range info.playlist {
-				pl = append(pl, map[string]string{
-					"url":   it.href,
-					"title": it.title,
-					"thumb": it.thumbURL,
-				})
-			}
-			obj.Extra["playlist"] = pl
-		}
-	}
 	if lock {
-		t.WithLock(applyResolve)
+		t.resolveApplyLocked(obj, info, files, videoPath)
 	} else {
-		applyResolve()
+		t.resolveApply(obj, info, files, videoPath)
 	}
 	return nil
+}
+
+// resolveApply sets resolved metadata and extras onto the download object.
+func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
+	obj.Metadata[model.MetadataKeyTitle] = info.title
+	obj.Metadata["date"] = info.date
+	obj.SavePath = videoPath
+	if _, ok := obj.Extra["files"]; !ok {
+		obj.Extra["files"] = files
+	}
+	obj.Extra["tags"] = info.tags
+	if info.artist != "" {
+		obj.Extra["artist"] = info.artist
+	}
+	if info.details != "" {
+		obj.Extra["details"] = info.details
+	}
+	if len(info.playlist) > 0 {
+		pl := make([]map[string]string, 0, len(info.playlist))
+		for _, it := range info.playlist {
+			pl = append(pl, map[string]string{
+				"url":   it.href,
+				"title": it.title,
+				"thumb": it.thumbURL,
+			})
+		}
+		obj.Extra["playlist"] = pl
+	}
+}
+
+// resolveApplyLocked wraps resolveApply with the manager lock.
+func (t *Task) resolveApplyLocked(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
+	t.WithLock(func() { t.resolveApply(obj, info, files, videoPath) })
 }
 
 func extractVideoIDFromURL(u string) string {

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -91,7 +92,48 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		return fmt.Errorf("wget: failed to create directory: %w", err)
 	}
 
-	// Validate arguments to prevent argv injection
+	if err := validateWgetRequest(req); err != nil {
+		return err
+	}
+
+	logFile := e.openWgetLogFile(req.SavePath)
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	proxyURL := e.selectWgetProxy(ctx, req)
+	args := e.buildWgetArgs(req, proxyURL)
+
+	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
+	e.active.Store(req.URL, cmd)
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		e.active.Delete(req.URL)
+		return fmt.Errorf("wget: failed to get stderr pipe: %w", err)
+	}
+	cmd.Stdout = logFile
+
+	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, req.URL, "path", req.SavePath)
+	if err := cmd.Start(); err != nil {
+		e.active.Delete(req.URL)
+		return fmt.Errorf("wget: start failed: %w", err)
+	}
+
+	scanWgetProgress(stderr, logFile, req)
+
+	if err := cmd.Wait(); err != nil {
+		e.active.Delete(req.URL)
+		return fmt.Errorf("wget: execution failed: %w", err)
+	}
+	e.active.Delete(req.URL)
+
+	reportWgetFinalProgress(req)
+	return nil
+}
+
+// validateWgetRequest checks for argv injection and invalid inputs.
+func validateWgetRequest(req *download.Request) error {
 	if strings.HasPrefix(req.SavePath, "-") {
 		return fmt.Errorf("wget: invalid save path (starts with '-')")
 	}
@@ -100,33 +142,44 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 			return fmt.Errorf("wget: invalid header contains CR/LF")
 		}
 	}
-	if !strings.HasPrefix(strings.ToLower(req.URL), "http://") &&
-		!strings.HasPrefix(strings.ToLower(req.URL), "https://") &&
-		!strings.HasPrefix(strings.ToLower(req.URL), "ftp://") {
+	lowerURL := strings.ToLower(req.URL)
+	if !strings.HasPrefix(lowerURL, "http://") &&
+		!strings.HasPrefix(lowerURL, "https://") &&
+		!strings.HasPrefix(lowerURL, "ftp://") {
 		return fmt.Errorf("wget: invalid URL scheme: %s", req.URL)
 	}
+	return nil
+}
 
-	var f *os.File
-	if e.logDir != "" {
-		logFile := filepath.Join(e.logDir, filepath.Base(req.SavePath)+"."+time.Now().Format(logTimestampFmt)+".wget.log")
-		var err error
-		f, err = os.Create(logFile)
-		if err != nil {
-			slog.Warn("Failed to create wget log file", "file", logFile, logutil.LogKeyError, err)
-		} else {
-			defer f.Close()
-		}
+// openWgetLogFile opens a log file for wget output, or returns nil if logging is disabled.
+func (e *WgetExtractor) openWgetLogFile(savePath string) *os.File {
+	if e.logDir == "" {
+		return nil
 	}
-
-	proxyURL := ""
-	if e.selector != nil {
-		var err error
-		proxyURL, err = e.selector.SelectProxy(ctx, req.URL, req.Hint)
-		if err != nil {
-			slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
-		}
+	logFilePath := filepath.Join(e.logDir, filepath.Base(savePath)+"."+time.Now().Format(logTimestampFmt)+".wget.log")
+	f, err := os.Create(logFilePath)
+	if err != nil {
+		slog.Warn("Failed to create wget log file", "file", logFilePath, logutil.LogKeyError, err)
+		return nil
 	}
+	return f
+}
 
+// selectWgetProxy selects a proxy URL if a selector is configured.
+func (e *WgetExtractor) selectWgetProxy(ctx context.Context, req *download.Request) string {
+	if e.selector == nil {
+		return ""
+	}
+	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	if err != nil {
+		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
+		return ""
+	}
+	return proxyURL
+}
+
+// buildWgetArgs constructs the wget command-line arguments.
+func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []string {
 	args := []string{"-c", "-T", strconv.Itoa(e.timeoutSecs), "-t", strconv.Itoa(e.maxRetries)}
 	args = append(args, "--header", "User-Agent: "+e.userAgent)
 
@@ -143,58 +196,54 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	}
 
 	args = append(args, "-O", req.SavePath, targetURL)
+	return args
+}
 
-	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
-	e.active.Store(req.URL, cmd)
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		e.active.Delete(req.URL)
-		return fmt.Errorf("wget: failed to get stderr pipe: %w", err)
-	}
-	cmd.Stdout = f
-
-	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, req.URL, "path", req.SavePath)
-	if err := cmd.Start(); err != nil {
-		e.active.Delete(req.URL)
-		return fmt.Errorf("wget: start failed: %w", err)
-	}
-
+// scanWgetProgress reads wget stderr to report download progress.
+func scanWgetProgress(stderr io.Reader, logFile *os.File, req *download.Request) {
 	scanner := bufio.NewScanner(stderr)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if f != nil {
-			_, _ = f.WriteString(line + "\n")
+		if logFile != nil {
+			_, _ = logFile.WriteString(line + "\n")
 		}
-		if req.TrackProgress && req.OnProgress != nil {
-			if matches := reWgetProgress.FindStringSubmatch(line); len(matches) > 1 {
-				if p, err := strconv.Atoi(matches[1]); err == nil {
-					// 用 os.Stat 获取当前已下载字节数作为 downloaded
-					var downloaded int64
-					if info, statErr := os.Stat(req.SavePath); statErr == nil {
-						downloaded = info.Size()
-					}
-					req.OnProgress(float64(p), downloaded, 0)
-				}
-			}
+		if !req.TrackProgress || req.OnProgress == nil {
+			continue
+		}
+		if progress, downloaded, ok := parseWgetProgressLine(line, req.SavePath); ok {
+			req.OnProgress(progress, downloaded, 0)
 		}
 	}
+}
 
-	if err := cmd.Wait(); err != nil {
-		e.active.Delete(req.URL)
-		return fmt.Errorf("wget: execution failed: %w", err)
+// parseWgetProgressLine parses a wget progress line and returns the percentage,
+// downloaded bytes, and whether parsing succeeded.
+func parseWgetProgressLine(line string, savePath string) (progress float64, downloaded int64, ok bool) {
+	matches := reWgetProgress.FindStringSubmatch(line)
+	if len(matches) <= 1 {
+		return 0, 0, false
 	}
-	e.active.Delete(req.URL)
+	p, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	var size int64
+	if info, statErr := os.Stat(savePath); statErr == nil {
+		size = info.Size()
+	}
+	return float64(p), size, true
+}
 
-	if req.OnProgress != nil {
-		// wget 通过 exec 下载，完成后用文件实际大小填充 downloaded 与 total。
-		var size int64
-		if info, err := os.Stat(req.SavePath); err == nil {
-			size = info.Size()
-		}
-		req.OnProgress(100, size, size)
+// reportWgetFinalProgress reports 100% completion after a successful download.
+func reportWgetFinalProgress(req *download.Request) {
+	if req.OnProgress == nil {
+		return
 	}
-	return nil
+	var size int64
+	if info, err := os.Stat(req.SavePath); err == nil {
+		size = info.Size()
+	}
+	req.OnProgress(100, size, size)
 }
 
 // Cancel 取消正在进行的 wget 下载。

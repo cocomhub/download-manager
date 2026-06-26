@@ -40,15 +40,7 @@ func CountObjects(objects []*model.DownloadObject, query *core.StorageQuery) int
 	return count
 }
 
-func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
-	if obj == nil {
-		return false
-	}
-	if query == nil {
-		return true
-	}
-
-	filter := query.Filter
+func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) bool {
 	if len(filter.TaskIDs) > 0 && !containsString(filter.TaskIDs, obj.TaskID) {
 		return false
 	}
@@ -58,21 +50,34 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
+	return true
+}
+
+func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
+	if obj == nil {
+		return false
+	}
+	if query == nil {
+		return true
+	}
+	if !matchesFilterFields(obj, query.Filter) {
+		return false
+	}
 
 	// Lock the object to safely read Metadata and Extra maps,
 	// which may be concurrently written by applySharedState (base_task.go).
 	obj.RLock()
 	defer obj.RUnlock()
 
-	if len(filter.Metadata) > 0 {
-		for key, want := range filter.Metadata {
+	if len(query.Filter.Metadata) > 0 {
+		for key, want := range query.Filter.Metadata {
 			if obj.Metadata == nil || obj.Metadata[key] != want {
 				return false
 			}
 		}
 	}
 
-	search := strings.ToLower(strings.TrimSpace(filter.Search))
+	search := strings.ToLower(strings.TrimSpace(query.Filter.Search))
 	if search == "" {
 		return true
 	}

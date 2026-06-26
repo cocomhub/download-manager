@@ -133,78 +133,13 @@ func (d *NativeHTTPDownloader) Name() string {
 }
 
 func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	// 复合下载逻辑
 	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
-		var fileList []map[string]string
-
-		if fmt.Sprintf("%T", filesVal) == "primitive.A" {
-			filesVal = filesVal.([]any)
-		}
-
-		if files, ok := filesVal.([]map[string]string); ok {
-			fileList = files
-		} else if files, ok := filesVal.([]any); ok {
-			for _, f := range files {
-				if fm, ok := f.(map[string]any); ok {
-					m := make(map[string]string)
-					for k, v := range fm {
-						if s, ok := v.(string); ok {
-							m[k] = s
-						}
-					}
-					fileList = append(fileList, m)
-				}
-			}
-		} else {
-			slog.Error("Composite download with unknown files metadata type",
-				"type", fmt.Sprintf("%T", filesVal), logutil.LogKeyTaskID, obj.TaskID)
-			return fmt.Errorf("composite download error: unknown 'files' metadata type")
-		}
-
-		if len(fileList) == 0 {
-			return fmt.Errorf("%w: composite download error: 'files' metadata found but empty", dlcore.ErrNoTry)
-		}
-
-		slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyTaskID, obj.TaskID)
-		for _, fileMap := range fileList {
-			url := fileMap["url"]
-			path := fileMap["path"]
-			fType := fileMap[model.MetadataKeyType]
-
-			if url == "" || path == "" {
-				continue
-			}
-
-			dir := filepath.Dir(path)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed to create directory for composite file: %w", err)
-			}
-
-			trackProgress := (fType == "video" || len(fileList) == 1)
-
-			req := &dlcore.Request{
-				URL:           url,
-				SavePath:      path,
-				Headers:       headers,
-				TrackProgress: trackProgress,
-				OnProgress: func(p float64, downloaded, total int64) {
-					obj.SetProgress(int(p))
-				},
-				Metadata: fileMap,
-			}
-			dlCtx := d.ctx
-			if dlCtx == nil {
-				dlCtx = context.Background()
-			}
-			if err := d.coreClient.Download(dlCtx, req); err != nil {
-				return err
-			}
-		}
-		obj.SetProgress(100)
-		return nil
+		return d.compositeDownload(obj, filesVal, headers)
 	}
+	return d.singleFileDownload(obj, headers)
+}
 
-	// 单文件下载
+func (d *NativeHTTPDownloader) singleFileDownload(obj *model.DownloadObject, headers map[string]string) error {
 	req := &dlcore.Request{
 		URL:           obj.URL,
 		SavePath:      obj.SavePath,
@@ -215,14 +150,96 @@ func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[s
 		},
 		Metadata: obj.Metadata,
 	}
-	dlCtx := d.ctx
-	if dlCtx == nil {
-		dlCtx = context.Background()
-	}
+	dlCtx := d.resolveContext()
 	if err := d.coreClient.Download(dlCtx, req); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (d *NativeHTTPDownloader) compositeDownload(obj *model.DownloadObject, filesVal any, headers map[string]string) error {
+	fileList, err := parseFilesMetadata(filesVal, obj.TaskID)
+	if err != nil {
+		return err
+	}
+	if len(fileList) == 0 {
+		return fmt.Errorf("%w: composite download error: 'files' metadata found but empty", dlcore.ErrNoTry)
+	}
+
+	slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyTaskID, obj.TaskID)
+	for _, fileMap := range fileList {
+		url := fileMap["url"]
+		path := fileMap["path"]
+		fType := fileMap[model.MetadataKeyType]
+
+		if url == "" || path == "" {
+			continue
+		}
+
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory for composite file: %w", err)
+		}
+
+		trackProgress := (fType == "video" || len(fileList) == 1)
+
+		req := &dlcore.Request{
+			URL:           url,
+			SavePath:      path,
+			Headers:       headers,
+			TrackProgress: trackProgress,
+			OnProgress: func(p float64, downloaded, total int64) {
+				obj.SetProgress(int(p))
+			},
+			Metadata: fileMap,
+		}
+		dlCtx := d.resolveContext()
+		if err := d.coreClient.Download(dlCtx, req); err != nil {
+			return err
+		}
+	}
+	obj.SetProgress(100)
+	return nil
+}
+
+func parseFilesMetadata(filesVal any, taskID string) ([]map[string]string, error) {
+	if fmt.Sprintf("%T", filesVal) == "primitive.A" {
+		filesVal = filesVal.([]any)
+	}
+
+	if files, ok := filesVal.([]map[string]string); ok {
+		return files, nil
+	}
+
+	files, ok := filesVal.([]any)
+	if !ok {
+		slog.Error("Composite download with unknown files metadata type",
+			"type", fmt.Sprintf("%T", filesVal), logutil.LogKeyTaskID, taskID)
+		return nil, fmt.Errorf("composite download error: unknown 'files' metadata type")
+	}
+
+	fileList := make([]map[string]string, 0, len(files))
+	for _, f := range files {
+		fm, ok := f.(map[string]any)
+		if !ok {
+			continue
+		}
+		m := make(map[string]string, len(fm))
+		for k, v := range fm {
+			if s, ok := v.(string); ok {
+				m[k] = s
+			}
+		}
+		fileList = append(fileList, m)
+	}
+	return fileList, nil
+}
+
+func (d *NativeHTTPDownloader) resolveContext() context.Context {
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
 }
 
 var (

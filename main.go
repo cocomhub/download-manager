@@ -112,38 +112,22 @@ func parseBoolEnv(v string) bool {
 	return v == "1" || v == "true" || v == "TRUE" || v == "True" || v == "yes" || v == "Y" || v == "y"
 }
 
-func main() {
-	res, err := parseFlags(os.Args[1:])
-	if err == flag.ErrHelp {
-		fmt.Print(res.UsageMessage)
-		return
-	} else if err != nil {
-		fmt.Fprint(os.Stderr, res.UsageMessage)
-		os.Exit(2)
-	}
-
-	if res.ShowVersion {
-		fmt.Printf("Version: %s, Build At: %s\n", Version, BuildAt)
-		os.Exit(0)
-	}
-
+// loadConfig loads the YAML configuration and applies the runtime mode from CLI/env.
+func loadConfig(res parseResult) *config.Config {
 	cfg, err := config.Init(res.ConfigPath)
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Merge runtime mode with precedence (CLI > Env > Config)
 	if res.RunModeSet {
 		cfg.Runtime.Mode = res.RunMode
 	}
+	return cfg
+}
 
-	// Initialize Logger
-	logutil.InitLogger(cfg.Log)
-
-	slog.Info("runtime mode", "mode", cfg.Runtime.Mode, "download", cfg.Runtime.Download.Enabled, "scheduler", cfg.Runtime.Scheduler.Enabled)
-
-	// Ensure single instance with file lock
+// acquireLock resolves the lock file path and acquires a single-instance file lock.
+// It terminates the process on failure.
+func acquireLock(cfg *config.Config) *flock.Flock {
 	lockFile := cfg.Server.LockFile
 	if cfg.Runtime.Mode == config.RunModeUI {
 		lockFile = cfg.Server.UIOnlyLockFile
@@ -162,9 +146,48 @@ func main() {
 		slog.Error("Another instance is running", "lock", lockFile)
 		os.Exit(1)
 	}
+	return fl
+}
+
+// resolveHTTPPort returns the HTTP port based on the runtime mode, defaulting to 8080.
+func resolveHTTPPort(cfg *config.Config) int {
+	port := cfg.Server.HTTPPort
+	if cfg.Runtime.Mode == config.RunModeUI {
+		port = cfg.Server.UIOnlyPort
+	}
+	if port == 0 {
+		port = 8080 // Default port
+	}
+	return port
+}
+
+func main() {
+	res, err := parseFlags(os.Args[1:])
+	if err == flag.ErrHelp {
+		fmt.Print(res.UsageMessage)
+		return
+	} else if err != nil {
+		fmt.Fprint(os.Stderr, res.UsageMessage)
+		os.Exit(2)
+	}
+
+	if res.ShowVersion {
+		fmt.Printf("Version: %s, Build At: %s\n", Version, BuildAt)
+		os.Exit(0)
+	}
+
+	cfg := loadConfig(res)
+
+	// Initialize Logger
+	logutil.InitLogger(cfg.Log)
+
+	slog.Info("runtime mode", "mode", cfg.Runtime.Mode, "download", cfg.Runtime.Download.Enabled, "scheduler", cfg.Runtime.Scheduler.Enabled)
+
+	// Ensure single instance with file lock
+	fl := acquireLock(cfg)
 	defer func() {
 		if err := fl.Unlock(); err != nil {
-			slog.Warn("unlock failed", "lock", lockFile, logutil.LogKeyError, err)
+			slog.Warn("unlock failed", "lock", fl.Path(), logutil.LogKeyError, err)
 		}
 		_ = fl.Close()
 	}()
@@ -178,13 +201,7 @@ func main() {
 	server := api.NewServer(mgr)
 	router := server.Router()
 
-	port := cfg.Server.HTTPPort
-	if cfg.Runtime.Mode == config.RunModeUI {
-		port = cfg.Server.UIOnlyPort
-	}
-	if port == 0 {
-		port = 8080 // Default port
-	}
+	port := resolveHTTPPort(cfg)
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),

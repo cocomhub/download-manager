@@ -89,28 +89,7 @@ func (t *Task) Close() error {
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	runtimeObjects := t.SnapshotRuntimeObjects(true)
-	var activeCount int64
-	if t.Storage() != nil {
-		count, err := t.Storage().Count(&core.StorageQuery{
-			Filter: core.StorageFilter{
-				TaskIDs:  []string{t.ID()},
-				Statuses: []string{model.StatusDownloading},
-			},
-		})
-		if err == nil {
-			activeCount = count
-		}
-	}
-	if activeCount == 0 {
-		for _, obj := range runtimeObjects {
-			if obj.GetStatus() == model.StatusDownloading {
-				activeCount++
-			}
-		}
-	}
-
-	candidates := make([]*model.DownloadObject, 0)
-	toResolve := make([]*model.DownloadObject, 0)
+	activeCount := t.countActiveDownloads(runtimeObjects)
 
 	queryLimit := int64(max(t.Concurrency()*3+8, 16))
 	objects := runtimeObjects
@@ -118,57 +97,114 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		objects = stored
 	}
 
-	// Collect candidates
-	for _, obj := range objects {
-		if obj.GetStatus() != model.StatusCompleted && obj.GetStatus() != model.StatusCancelled {
-			if t.IsMarkedFailed(obj.URL) {
-				continue
-			}
-			if int64(len(candidates)+len(toResolve))+activeCount < int64(t.Concurrency()*2+2) {
-				_, ok := t.resolvedURLs.Load(obj.URL)
-				if _, hasFiles := obj.Extra["files"]; hasFiles && ok {
-					candidates = append(candidates, obj)
-				} else {
-					toResolve = append(toResolve, obj)
-				}
-			} else {
-				break
-			}
-		}
-	}
+	candidates, toResolve := t.collectCandidates(objects, activeCount)
 
-	// Resolve in parallel
-	if len(toResolve) > 0 {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		sem := make(chan struct{}, 5)
-
-		for _, obj := range toResolve {
-			wg.Add(1)
-			go func(o *model.DownloadObject) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				if err := t.resolveVideoDetails(o); err != nil {
-					t.Logger().Error("Failed to resolve video details", logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)
-					// resolveVideoDetails already calls MarkAsFailed for ErrNoFlashvars
-					// (which sets failed_permanent). Don't overwrite with generic StatusFailed.
-					if !errors.Is(err, ErrNoFlashvars) {
-						t.UpdateStatus(o, model.StatusFailed, err)
-					}
-				} else {
-					mu.Lock()
-					t.resolvedURLs.Store(o.URL, true)
-					candidates = append(candidates, o)
-					mu.Unlock()
-				}
-			}(obj)
-		}
-		wg.Wait()
+	if resolved := t.resolveObjects(toResolve); len(resolved) > 0 {
+		candidates = append(candidates, resolved...)
 	}
 
 	return candidates, nil
+}
+
+// countActiveDownloads counts currently downloading objects from storage,
+// falling back to runtime objects if the storage count is zero or unavailable.
+func (t *Task) countActiveDownloads(runtimeObjects []*model.DownloadObject) int64 {
+	if t.Storage() != nil {
+		count, err := t.Storage().Count(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs:  []string{t.ID()},
+				Statuses: []string{model.StatusDownloading},
+			},
+		})
+		if err == nil && count > 0 {
+			return count
+		}
+	}
+	// Fallback: count from runtime objects
+	var active int64
+	for _, obj := range runtimeObjects {
+		if obj.GetStatus() == model.StatusDownloading {
+			active++
+		}
+	}
+	return active
+}
+
+// isEligible returns true if the object should be considered for download.
+func (t *Task) isEligible(obj *model.DownloadObject) bool {
+	if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusCancelled {
+		return false
+	}
+	return !t.IsMarkedFailed(obj.URL)
+}
+
+// collectCandidates splits objects into those ready to download (candidates)
+// and those that need resolution first (toResolve).
+func (t *Task) collectCandidates(objects []*model.DownloadObject, activeCount int64) (candidates, toResolve []*model.DownloadObject) {
+	candidates = make([]*model.DownloadObject, 0)
+	toResolve = make([]*model.DownloadObject, 0)
+	limit := int64(t.Concurrency()*2 + 2)
+
+	for _, obj := range objects {
+		if !t.isEligible(obj) {
+			continue
+		}
+		if int64(len(candidates)+len(toResolve))+activeCount >= limit {
+			break
+		}
+		_, ok := t.resolvedURLs.Load(obj.URL)
+		if _, hasFiles := obj.Extra["files"]; hasFiles && ok {
+			candidates = append(candidates, obj)
+		} else {
+			toResolve = append(toResolve, obj)
+		}
+	}
+	return
+}
+
+// resolveObjects resolves video details for a batch of objects in parallel.
+func (t *Task) resolveObjects(objects []*model.DownloadObject) []*model.DownloadObject {
+	if len(objects) == 0 {
+		return nil
+	}
+
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		resolved []*model.DownloadObject
+	)
+	sem := make(chan struct{}, 5)
+
+	for _, obj := range objects {
+		wg.Add(1)
+		go func(o *model.DownloadObject) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			if err := t.resolveVideoDetails(o); err != nil {
+				t.handleResolveError(o, err)
+				return
+			}
+
+			mu.Lock()
+			t.resolvedURLs.Store(o.URL, true)
+			resolved = append(resolved, o)
+			mu.Unlock()
+		}(obj)
+	}
+	wg.Wait()
+	return resolved
+}
+
+// handleResolveError logs and updates status for a resolution failure.
+// ErrNoFlashvars is already handled by MarkAsFailed inside resolveVideoDetails
+// (which sets failed_permanent), so don't overwrite with generic StatusFailed.
+func (t *Task) handleResolveError(obj *model.DownloadObject, err error) {
+	t.Logger().Error("Failed to resolve video details", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+	if !errors.Is(err, ErrNoFlashvars) {
+		t.UpdateStatus(obj, model.StatusFailed, err)
+	}
 }
 
 // ResolveObject explicitly resolves an object (exposed for Manager)
@@ -191,26 +227,39 @@ func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) err
 
 // --- Scraping Logic ---
 
+// extractFromParam parses the "from:VALUE" parameter from a semicolon-separated
+// parameter string (e.g. "from:48;sort_by:post_date").
+func extractFromParam(params string) (int, bool) {
+	parts := strings.SplitSeq(params, ";")
+	for p := range parts {
+		after, ok := strings.CutPrefix(p, "from:")
+		if !ok {
+			continue
+		}
+		val, err := strconv.Atoi(after)
+		if err != nil {
+			continue
+		}
+		return val, true
+	}
+	return 0, false
+}
+
 func (t *Task) parseTotalPages(html string) int {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return 0
 	}
 
-	// Find .pagination .last
+	// Find .pagination .last (exact last page link)
 	var lastPage int
 	doc.Find(".pagination .last a").Each(func(i int, s *goquery.Selection) {
 		params, exists := s.Attr("data-parameters")
-		if exists {
-			parts := strings.SplitSeq(params, ";")
-			for p := range parts {
-				if after, ok := strings.CutPrefix(p, "from:"); ok {
-					valStr := after
-					if val, err := strconv.Atoi(valStr); err == nil {
-						lastPage = val
-					}
-				}
-			}
+		if !exists {
+			return
+		}
+		if val, ok := extractFromParam(params); ok {
+			lastPage = val
 		}
 	})
 
@@ -218,18 +267,11 @@ func (t *Task) parseTotalPages(html string) int {
 	if lastPage == 0 {
 		doc.Find(".pagination .page a").Each(func(i int, s *goquery.Selection) {
 			params, exists := s.Attr("data-parameters")
-			if exists {
-				parts := strings.SplitSeq(params, ";")
-				for p := range parts {
-					if after, ok := strings.CutPrefix(p, "from:"); ok {
-						valStr := after
-						if val, err := strconv.Atoi(valStr); err == nil {
-							if val > lastPage {
-								lastPage = val
-							}
-						}
-					}
-				}
+			if !exists {
+				return
+			}
+			if val, ok := extractFromParam(params); ok && val > lastPage {
+				lastPage = val
 			}
 		})
 	}
@@ -472,38 +514,15 @@ func (t *Task) parseVideoPage(pageURL string) (*detailedVideoInfo, error) {
 	info.title = strings.ReplaceAll(info.title, "/", "_")
 	info.title = strings.TrimRight(info.title, ".")
 
-	// Info items
-	doc.Find(".info>.item").Each(func(i int, s *goquery.Selection) {
-		switch i {
-		case 1:
-			// Title info
-		case 3:
-			s.Find("a").Each(func(_ int, tag *goquery.Selection) {
-				info.tags = append(info.tags, tag.Text())
-			})
-		}
+	// Info items — extract tags from the 4th .item (index 3)
+	doc.Find(".info>.item").Eq(3).Find("a").Each(func(_ int, tag *goquery.Selection) {
+		info.tags = append(info.tags, tag.Text())
 	})
 
 	// JS Extraction
-	scriptContent := ""
-
-	// Try finding the specific script (nth-child(3))
-	playerScripts := doc.Find(".player>.player-holder script")
-	if playerScripts.Length() >= 3 {
-		scriptContent = playerScripts.Eq(2).Text()
-	}
-
-	// Fallback: search for flashvars
-	if !strings.Contains(scriptContent, "flashvars") {
-		doc.Find("script").Each(func(i int, s *goquery.Selection) {
-			if strings.Contains(s.Text(), "var flashvars = {") {
-				scriptContent = s.Text()
-			}
-		})
-	}
-
-	if scriptContent == "" {
-		return nil, ErrNoFlashvars
+	scriptContent, ferr := extractFlashvars(doc)
+	if ferr != nil {
+		return nil, ferr
 	}
 
 	// Setup JS VM
@@ -522,21 +541,8 @@ func (t *Task) parseVideoPage(pageURL string) (*detailedVideoInfo, error) {
 	}
 
 	// Extract and run flashvars definition
-	start := strings.Index(scriptContent, "var flashvars = {")
-	if start == -1 {
-		return nil, fmt.Errorf("flashvars definition not found")
-	}
-
-	rest := scriptContent[start:]
-	end := strings.Index(rest, "};")
-	if end != -1 {
-		flashvarsDef := rest[:end+2]
-		_, err = vm.RunString(flashvarsDef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to run flashvars definition: %v", err)
-		}
-	} else {
-		return nil, fmt.Errorf("could not find end of flashvars definition")
+	if err := execFlashvarsJS(vm, scriptContent); err != nil {
+		return nil, err
 	}
 
 	// Run main()
@@ -559,6 +565,54 @@ func (t *Task) parseVideoPage(pageURL string) (*detailedVideoInfo, error) {
 	info.imageURL = resultArray[6].(string)
 
 	return info, nil
+}
+
+// extractFlashvars extracts the flashvars script content from the document.
+// It first tries the specific .player>.player-holder script, then falls back
+// to searching all scripts for the flashvars definition.
+func extractFlashvars(doc *goquery.Document) (string, error) {
+	// Try finding the specific script (nth-child(3))
+	playerScripts := doc.Find(".player>.player-holder script")
+	if playerScripts.Length() >= 3 {
+		if content := playerScripts.Eq(2).Text(); strings.Contains(content, "flashvars") {
+			return content, nil
+		}
+	}
+
+	// Fallback: search for flashvars in all scripts
+	var scriptContent string
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		if strings.Contains(s.Text(), "var flashvars = {") {
+			scriptContent = s.Text()
+		}
+	})
+	if scriptContent == "" {
+		return "", ErrNoFlashvars
+	}
+	return scriptContent, nil
+}
+
+// execFlashvarsJS parses the flashvars definition from scriptContent and
+// executes it in the provided JS VM.
+func execFlashvarsJS(vm *goja.Runtime, scriptContent string) error {
+	start := strings.Index(scriptContent, "var flashvars = {")
+	if start == -1 {
+		return fmt.Errorf("flashvars definition not found")
+	}
+
+	rest := scriptContent[start:]
+	end := strings.Index(rest, "};")
+	if end == -1 {
+		return fmt.Errorf("could not find end of flashvars definition")
+	}
+
+	flashvarsDef := rest[:end+2]
+	_, err := vm.RunString(flashvarsDef)
+	if err != nil {
+		return fmt.Errorf("failed to run flashvars definition: %v", err)
+	}
+
+	return nil
 }
 
 // playerUtilJS content (cleaned up and bX added)

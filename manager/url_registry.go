@@ -68,6 +68,16 @@ func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 	stores := append([]registeredStorage(nil), r.stores...)
 	r.mu.RUnlock()
 
+	best, owners := r.queryStores(stores, url)
+	if best == nil {
+		return nil, nil
+	}
+	return r.cacheAndReturn(url, best, owners)
+}
+
+// queryStores iterates all registered storages to find the best shared object for the given URL.
+// Returns the best object and the set of owners (task IDs with non-pending status).
+func (r *URLStateRegistry) queryStores(stores []registeredStorage, url string) (*model.DownloadObject, map[string]struct{}) {
 	var best *model.DownloadObject
 	owners := make(map[string]struct{})
 	for _, entry := range stores {
@@ -85,25 +95,26 @@ func (r *URLStateRegistry) Get(url string) (*model.DownloadObject, error) {
 			best = obj
 		}
 	}
-	if best == nil {
-		return nil, nil
-	}
+	return best, owners
+}
 
+// cacheAndReturn caches the best object under the registry's objects map (if not already present),
+// records owners, and returns a cloned copy.
+func (r *URLStateRegistry) cacheAndReturn(url string, best *model.DownloadObject, owners map[string]struct{}) (*model.DownloadObject, error) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if existing, ok := r.objects[url]; ok {
 		for owner := range owners {
 			r.addOwnerLocked(url, owner)
 		}
-		r.mu.Unlock()
 		return cloneObject(existing), nil
 	}
 	r.objects[url] = cloneObject(best)
 	for owner := range owners {
 		r.addOwnerLocked(url, owner)
 	}
-	cached := cloneObject(r.objects[url])
-	r.mu.Unlock()
-	return cached, nil
+	return cloneObject(r.objects[url]), nil
 }
 
 func (r *URLStateRegistry) Update(obj *model.DownloadObject) error {

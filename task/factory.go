@@ -38,31 +38,61 @@ func NewTask(cfg *config.Task, opts ...Option) (core.Task, error) {
 }
 
 func wireByCapabilities(cfg *config.Task, t core.Task) {
-	if cap, ok := t.(HeadersSetter); ok {
-		if cfg.Extra != nil {
-			if v, ok := cfg.Extra["headers"]; ok {
-				headers := map[string]string{}
-				switch m := v.(type) {
-				case map[string]string:
-					for k, val := range m {
-						if k != "" && val != "" {
-							headers[k] = val
-						}
-					}
-				case map[string]any:
-					for k, val := range m {
-						if k == "" || val == nil {
-							continue
-						}
-						if s, ok := val.(string); ok && s != "" {
-							headers[k] = s
-						}
-					}
-				}
-				if len(headers) > 0 {
-					cap.SetHeaders(headers)
-				}
-			}
+	cap, ok := t.(HeadersSetter)
+	if !ok {
+		return
+	}
+
+	headers := extractHeaders(cfg)
+	if len(headers) > 0 {
+		cap.SetHeaders(headers)
+	}
+}
+
+// extractHeaders extracts and normalizes the "headers" map from cfg.Extra.
+// It handles both map[string]string and map[string]any types, filtering out
+// empty keys, empty values, and nil values.
+func extractHeaders(cfg *config.Task) map[string]string {
+	if cfg.Extra == nil {
+		return nil
+	}
+
+	v, ok := cfg.Extra["headers"]
+	if !ok {
+		return nil
+	}
+
+	switch m := v.(type) {
+	case map[string]string:
+		return filterStringMap(m)
+	case map[string]any:
+		return convertAnyMap(m)
+	}
+	return nil
+}
+
+// filterStringMap copies a map[string]string, keeping only non-empty entries.
+func filterStringMap(m map[string]string) map[string]string {
+	headers := make(map[string]string, len(m))
+	for k, val := range m {
+		if k != "" && val != "" {
+			headers[k] = val
 		}
 	}
+	return headers
+}
+
+// convertAnyMap converts a map[string]any to map[string]string,
+// keeping only entries where the value is a non-empty string.
+func convertAnyMap(m map[string]any) map[string]string {
+	headers := make(map[string]string, len(m))
+	for k, val := range m {
+		if k == "" || val == nil {
+			continue
+		}
+		if s, ok := val.(string); ok && s != "" {
+			headers[k] = s
+		}
+	}
+	return headers
 }

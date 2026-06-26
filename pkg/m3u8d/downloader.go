@@ -176,87 +176,186 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 		reqs = append(reqs, req)
 	}
 
-	// 监控下载进度
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	responses := make([]*grab.Response, 0, len(reqs))
+	var allResponses []*grab.Response
 
-retry:
-	// 创建响应通道
+	// Allow one retry for failed downloads
+	for attempt := 0; attempt < 2; attempt++ {
+		batchResponses, errReqs, err := d.runDownloadBatch(ctx, client, reqs, ticker)
+		if err != nil {
+			return err
+		}
+
+		allResponses = append(allResponses, batchResponses...)
+
+		if len(errReqs) == 0 {
+			break
+		}
+		reqs = errReqs
+	}
+
+	return d.collectErrorMessages(allResponses)
+}
+
+func (d *M3U8Downloader) runDownloadBatch(ctx context.Context, client *grab.Client, reqs []*grab.Request, ticker *time.Ticker) ([]*grab.Response, []*grab.Request, error) {
 	respch := client.DoBatch(d.Config.Concurrency, reqs...)
 
+	var responses []*grab.Response
+	var errReqs []*grab.Request
 	completed := 0
-	inProgress := 0
-	errReqs := make([]*grab.Request, 0)
+
 	for completed < len(reqs) {
 		select {
 		case <-ticker.C:
-			// 显示进度
-			if d.Config.Verbose && inProgress > 0 {
-				fmt.Printf("下载中: %d 个文件\n", inProgress)
-			}
-
 		case resp := <-respch:
 			completed++
-
-			if resp != nil && resp.Err() != nil {
-				status := "unknown"
-				if resp.HTTPResponse != nil {
-					status = resp.HTTPResponse.Status
-				}
-				fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
-				if resp.HTTPResponse != nil && resp.HTTPResponse.StatusCode == 472 {
-					d.Config.Concurrency = 1
-				}
-				req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
-				if err != nil {
-					return err
-				}
-				req = req.WithContext(ctx)
-				errReqs = append(errReqs, req)
+			if resp == nil {
 				continue
 			}
 
-			if resp != nil {
-				responses = append(responses, resp)
-			}
-
-			if resp != nil && resp.HTTPResponse != nil && resp.HTTPResponse.Request != nil {
-				d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
-				d.downloadedCount++
-
-				if d.Config.Verbose {
-					if resp.Err() != nil {
-						fmt.Printf("下载失败: %s - %v\n", filepath.Base(resp.Filename), resp.Err())
-					} else {
-						fmt.Printf("下载完成: %s (%.2f%%)\n",
-							filepath.Base(resp.Filename),
-							100*float64(d.downloadedCount)/float64(d.totalFiles))
-					}
+			if resp.Err() != nil {
+				d.logDownloadFailure(resp)
+				d.maybeReduceConcurrency(resp)
+				retryReq, err := d.recreateFailedRequest(ctx, resp)
+				if err != nil {
+					return nil, nil, err
 				}
+				errReqs = append(errReqs, retryReq)
+				continue
 			}
+
+			responses = append(responses, resp)
+			d.markDownloadedAndLogProgress(resp)
 		}
 	}
 
-	if len(errReqs) > 0 {
-		reqs = errReqs
-		goto retry
-	}
+	return responses, errReqs, nil
+}
 
-	// 检查错误
+func (d *M3U8Downloader) logDownloadFailure(resp *grab.Response) {
+	status := "unknown"
+	if resp.HTTPResponse != nil {
+		status = resp.HTTPResponse.Status
+	}
+	fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
+}
+
+func (d *M3U8Downloader) maybeReduceConcurrency(resp *grab.Response) {
+	if resp.HTTPResponse != nil && resp.HTTPResponse.StatusCode == 472 {
+		d.Config.Concurrency = 1
+	}
+}
+
+func (d *M3U8Downloader) recreateFailedRequest(ctx context.Context, resp *grab.Response) (*grab.Request, error) {
+	req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
+	if err != nil {
+		return nil, err
+	}
+	return req.WithContext(ctx), nil
+}
+
+func (d *M3U8Downloader) markDownloadedAndLogProgress(resp *grab.Response) {
+	if resp.HTTPResponse != nil && resp.HTTPResponse.Request != nil {
+		d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
+		d.downloadedCount++
+	}
+	if d.Config.Verbose {
+		fmt.Printf("下载完成: %s (%.2f%%)\n",
+			filepath.Base(resp.Filename),
+			100*float64(d.downloadedCount)/float64(d.totalFiles))
+	}
+}
+
+func (d *M3U8Downloader) collectErrorMessages(responses []*grab.Response) error {
 	var errs []string
 	for _, resp := range responses {
 		if resp.Err() != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", filepath.Base(resp.Filename), resp.Err()))
 		}
 	}
-
 	if len(errs) > 0 {
 		return fmt.Errorf("部分文件下载失败: %s", strings.Join(errs, ", "))
 	}
-
 	return nil
+}
+
+// readAndBackupM3U8 reads the downloaded m3u8 file and creates a backup.
+func (d *M3U8Downloader) readAndBackupM3U8(localPath, m3u8URL string) ([]byte, *url.URL, error) {
+	content, err := os.ReadFile(localPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := os.Rename(localPath, localPath+".bak"); err != nil {
+		if d.Config.Verbose {
+			fmt.Printf("Warning: failed to backup m3u8 file: %v\n", err)
+		}
+	}
+
+	base, err := url.Parse(m3u8URL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return content, base, nil
+}
+
+// processCommentLine handles m3u8 comment lines, extracting key URLs and creating download tasks.
+func (d *M3U8Downloader) processCommentLine(line string, base *url.URL) (string, []DownloadTask) {
+	if !strings.Contains(line, "#EXT-X-KEY") {
+		return line, nil
+	}
+
+	keyURL, ok := extractKeyURL(line)
+	if !ok {
+		return line, nil
+	}
+
+	absKeyURL := resolveURL(base, keyURL)
+	keyFilename := filepath.Base(keyURL)
+	task := DownloadTask{
+		URL:       absKeyURL,
+		LocalPath: filepath.Join(d.Config.WorkDir, keyFilename),
+		Type:      "key",
+	}
+	localKeyPath := fmt.Sprintf("file://%s", filepath.Join(d.Config.WorkDir, keyFilename))
+	modifiedLine := strings.Replace(line, keyURL, localKeyPath, 1)
+	return modifiedLine, []DownloadTask{task}
+}
+
+// processResourceLine handles non-comment lines, resolving URLs and creating download tasks.
+func (d *M3U8Downloader) processResourceLine(ctx context.Context, line string, base *url.URL, workDir string, level int) (string, []DownloadTask, error) {
+	absURL := resolveURL(base, line)
+	filename := filepath.Base(line)
+
+	switch {
+	case strings.Contains(line, ".m3u8"):
+		subM3U8Path := filepath.Join(workDir, filename)
+		subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
+		if err != nil {
+			return "", nil, err
+		}
+		return filename, subTasks, nil
+
+	case strings.Contains(line, ".ts"):
+		return filename, []DownloadTask{{
+			URL:       absURL,
+			LocalPath: filepath.Join(workDir, filename),
+			Type:      "ts",
+		}}, nil
+
+	case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
+		return filename, []DownloadTask{{
+			URL:       absURL,
+			LocalPath: filepath.Join(workDir, filename),
+			Type:      "key",
+		}}, nil
+
+	default:
+		return line, nil, nil
+	}
 }
 
 // 解析m3u8文件
@@ -270,20 +369,8 @@ func (d *M3U8Downloader) parseM3U8(ctx context.Context, m3u8URL, localPath strin
 		return nil, fmt.Errorf("无法下载m3u8: %v", err)
 	}
 
-	// 读取m3u8内容
-	content, err := os.ReadFile(localPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := os.Rename(localPath, localPath+".bak"); err != nil {
-		if d.Config.Verbose {
-			fmt.Printf("Warning: failed to backup m3u8 file: %v\n", err)
-		}
-	}
-
-	// 计算基础URL
-	base, err := url.Parse(m3u8URL)
+	// 读取m3u8内容并备份
+	content, base, err := d.readAndBackupM3U8(localPath, m3u8URL)
 	if err != nil {
 		return nil, err
 	}
@@ -302,67 +389,19 @@ func (d *M3U8Downloader) parseM3U8(ctx context.Context, m3u8URL, localPath strin
 
 		// 注释行，直接保留
 		if strings.HasPrefix(line, "#") {
-			// 检查是否是密钥行
-			if strings.Contains(line, "#EXT-X-KEY") {
-				// 提取密钥URL
-				if keyURL, ok := extractKeyURL(line); ok {
-					absKeyURL := resolveURL(base, keyURL)
-					keyFilename := filepath.Base(keyURL)
-
-					tasks = append(tasks, DownloadTask{
-						URL:       absKeyURL,
-						LocalPath: filepath.Join(d.Config.WorkDir, keyFilename),
-						Type:      "key",
-					})
-
-					// 修改密钥行，指向本地文件
-					localKeyPath := fmt.Sprintf("file://%s", filepath.Join(d.Config.WorkDir, keyFilename))
-					line = strings.Replace(line, keyURL, localKeyPath, 1)
-				}
-			}
-			modifiedLines = append(modifiedLines, line)
+			modifiedLine, extraTasks := d.processCommentLine(line, base)
+			modifiedLines = append(modifiedLines, modifiedLine)
+			tasks = append(tasks, extraTasks...)
 			continue
 		}
 
 		// 处理资源行
-		absURL := resolveURL(base, line)
-		filename := filepath.Base(line)
-
-		// 检查文件类型
-		switch {
-		case strings.Contains(line, ".m3u8"):
-			// 嵌套m3u8
-			subM3U8Path := filepath.Join(d.Config.WorkDir, filename)
-			subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
-			if err != nil {
-				return nil, err
-			}
-			tasks = append(tasks, subTasks...)
-			// 修改为本地路径
-			modifiedLines = append(modifiedLines, filename)
-
-		case strings.Contains(line, ".ts"):
-			// ts文件
-			tasks = append(tasks, DownloadTask{
-				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, filename),
-				Type:      "ts",
-			})
-			modifiedLines = append(modifiedLines, filename)
-
-		case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
-			// 密钥文件
-			tasks = append(tasks, DownloadTask{
-				URL:       absURL,
-				LocalPath: filepath.Join(d.Config.WorkDir, filename),
-				Type:      "key",
-			})
-			modifiedLines = append(modifiedLines, filename)
-
-		default:
-			// 其他行，直接保留
-			modifiedLines = append(modifiedLines, line)
+		modifiedLine, extraTasks, err := d.processResourceLine(ctx, line, base, d.Config.WorkDir, level)
+		if err != nil {
+			return nil, err
 		}
+		modifiedLines = append(modifiedLines, modifiedLine)
+		tasks = append(tasks, extraTasks...)
 	}
 
 	// 更新m3u8文件

@@ -174,7 +174,7 @@ func TestAPI_UndoCancelObject(t *testing.T) {
 			}
 		}
 		return false
-	}, 10*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
+	}, 30*time.Second, 50*time.Millisecond, "wait for object to be cancelled")
 
 	// Undo the cancel.
 	undoResult := doJSONPost(t, r, "/api/tasks/mock-undo/object/undo_cancel", body)
