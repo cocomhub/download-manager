@@ -182,7 +182,7 @@ func (d *M3U8Downloader) downloadFilesConcurrently(ctx context.Context, files []
 	var allResponses []*grab.Response
 
 	// Allow one retry for failed downloads
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		batchResponses, errReqs, err := d.runDownloadBatch(ctx, client, reqs, ticker)
 		if err != nil {
 			return err

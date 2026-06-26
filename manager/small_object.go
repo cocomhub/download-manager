@@ -72,8 +72,6 @@ func (m *Manager) StartSmallObjectWorkers(n int) {
 	if n <= 0 {
 		n = 2
 	}
-	m.soQueue = make(chan smallObjectRequest, 128)
-	m.soStop = make(chan struct{})
 	for i := 0; i < n; i++ {
 		m.soWg.Add(1)
 		go m.soWorker(i)
@@ -83,9 +81,6 @@ func (m *Manager) StartSmallObjectWorkers(n int) {
 
 // StopSmallObjectWorkers 停止小对象下载 worker 协程池。
 func (m *Manager) StopSmallObjectWorkers() {
-	if m.soStop == nil {
-		return
-	}
 	close(m.soStop)
 	m.soWg.Wait()
 }

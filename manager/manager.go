@@ -175,7 +175,9 @@ func NewManager(cfg *config.Config) *Manager {
 		urlRegistry:     NewURLStateRegistry(),
 		resolveCache:    NewResolveCache(time.Hour, 10000),
 		resolveQueue:    make(chan resolveRequest, 128),
+		resolveStop:     make(chan struct{}),
 		soQueue:         make(chan smallObjectRequest, 128),
+		soStop:          make(chan struct{}),
 		initializedCh:   make(chan struct{}),
 	}
 	mgr.cfgVal.Store(cfg)
