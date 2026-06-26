@@ -208,8 +208,8 @@ func (c *Config) Clone() *Config {
 	return &cc
 }
 
-func (cc *Config) cloneTasks(src []Task) {
-	cc.Tasks = make([]Task, len(src))
+func (c *Config) cloneTasks(src []Task) {
+	c.Tasks = make([]Task, len(src))
 	for i, t := range src {
 		tc := t
 		if t.Extra != nil {
@@ -220,54 +220,54 @@ func (cc *Config) cloneTasks(src []Task) {
 			tc.Storage.Config = make(map[string]string, len(t.Storage.Config))
 			maps.Copy(tc.Storage.Config, t.Storage.Config)
 		}
-		cc.Tasks[i] = tc
+		c.Tasks[i] = tc
 	}
 }
 
-func (cc *Config) cloneContexts(src map[string]Context) {
+func (c *Config) cloneContexts(src map[string]Context) {
 	if src == nil {
 		return
 	}
-	cc.Contexts = make(map[string]Context, len(src))
+	c.Contexts = make(map[string]Context, len(src))
 	for k, ctx := range src {
 		ctxc := ctx
 		if ctx.Storage.Config != nil {
 			ctxc.Storage.Config = make(map[string]string, len(ctx.Storage.Config))
 			maps.Copy(ctxc.Storage.Config, ctx.Storage.Config)
 		}
-		cc.Contexts[k] = ctxc
+		c.Contexts[k] = ctxc
 	}
 }
 
-func (cc *Config) cloneDownloader(src Downloader) {
+func (c *Config) cloneDownloader(src Downloader) {
 	if src.Proxies != nil {
-		cc.Downloader.Proxies = make([]string, len(src.Proxies))
-		copy(cc.Downloader.Proxies, src.Proxies)
+		c.Downloader.Proxies = make([]string, len(src.Proxies))
+		copy(c.Downloader.Proxies, src.Proxies)
 	}
 	if src.DomainLimits != nil {
-		cc.Downloader.DomainLimits = make(map[string]int, len(src.DomainLimits))
-		maps.Copy(cc.Downloader.DomainLimits, src.DomainLimits)
+		c.Downloader.DomainLimits = make(map[string]int, len(src.DomainLimits))
+		maps.Copy(c.Downloader.DomainLimits, src.DomainLimits)
 	}
 	if src.Proxy.List != nil {
-		cc.Downloader.Proxy.List = make([]string, len(src.Proxy.List))
-		copy(cc.Downloader.Proxy.List, src.Proxy.List)
+		c.Downloader.Proxy.List = make([]string, len(src.Proxy.List))
+		copy(c.Downloader.Proxy.List, src.Proxy.List)
 	}
 	if src.FFmpeg.ExtraArgs != nil {
-		cc.Downloader.FFmpeg.ExtraArgs = make([]string, len(src.FFmpeg.ExtraArgs))
-		copy(cc.Downloader.FFmpeg.ExtraArgs, src.FFmpeg.ExtraArgs)
+		c.Downloader.FFmpeg.ExtraArgs = make([]string, len(src.FFmpeg.ExtraArgs))
+		copy(c.Downloader.FFmpeg.ExtraArgs, src.FFmpeg.ExtraArgs)
 	}
 	if src.Filesystem.AllowPaths != nil {
-		cc.Downloader.Filesystem.AllowPaths = make([]string, len(src.Filesystem.AllowPaths))
-		copy(cc.Downloader.Filesystem.AllowPaths, src.Filesystem.AllowPaths)
+		c.Downloader.Filesystem.AllowPaths = make([]string, len(src.Filesystem.AllowPaths))
+		copy(c.Downloader.Filesystem.AllowPaths, src.Filesystem.AllowPaths)
 	}
 }
 
-func (cc *Config) cloneMongo(src []MongoSource) {
+func (c *Config) cloneMongo(src []MongoSource) {
 	if src == nil {
 		return
 	}
-	cc.Mongo = make([]MongoSource, len(src))
-	copy(cc.Mongo, src)
+	c.Mongo = make([]MongoSource, len(src))
+	copy(c.Mongo, src)
 }
 
 func isFSConfigured(fs DcFilesystem) bool {

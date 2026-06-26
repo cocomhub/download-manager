@@ -516,7 +516,8 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 	}
 
 	logPath, logFileObj := openLogFile(c, rPath)
-	var f io.Writer = io.Discard
+	var f io.Writer
+	f = io.Discard
 	if logFileObj != nil {
 		defer logFileObj.Close()
 		f = logFileObj
@@ -550,8 +551,8 @@ func (h *httpHandler) Download(ctx context.Context, req *Request) error {
 		if completed {
 			return nil
 		}
-		if retry {
-			continue
+		if !retry {
+			return fmt.Errorf("unexpected state: neither completed nor retryable")
 		}
 	}
 }
