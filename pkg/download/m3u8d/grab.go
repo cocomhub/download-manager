@@ -33,7 +33,7 @@ func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []Dow
 		return err
 	}
 
-	for retryRound := 0; retryRound < maxRetryRounds; retryRound++ {
+	for retryRound := range maxRetryRounds {
 		errReqs, err := d.runDownloadBatch(ctx, client, reqs)
 		if err != nil {
 			return err

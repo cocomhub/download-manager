@@ -24,8 +24,6 @@ func (m *Manager) StartResolveWorkers(n int) {
 	if n <= 0 {
 		n = 3
 	}
-	m.resolveQueue = make(chan resolveRequest, 128)
-	m.resolveStop = make(chan struct{})
 	for i := 0; i < n; i++ {
 		m.resolveWg.Add(1)
 		go m.resolveWorker(i)
@@ -35,9 +33,6 @@ func (m *Manager) StartResolveWorkers(n int) {
 
 // StopResolveWorkers 停止 resolve worker 协程池。
 func (m *Manager) StopResolveWorkers() {
-	if m.resolveStop == nil {
-		return
-	}
 	close(m.resolveStop)
 	m.resolveWg.Wait()
 }
