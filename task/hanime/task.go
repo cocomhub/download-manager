@@ -82,25 +82,6 @@ func (t *Task) GetDownloadHeaders() map[string]string {
 	}
 }
 
-func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	objects := t.LoadPendingFromStorage(64)
-	if objects == nil {
-		objects = t.SnapshotRuntimeObjects(true)
-	}
-
-	pending := make([]*model.DownloadObject, 0)
-	for _, o := range objects {
-		if t.IsMarkedFailed(o.URL) {
-			continue
-		}
-		if o.GetStatus() == model.StatusCompleted || o.GetStatus() == model.StatusCancelled {
-			continue
-		}
-		pending = append(pending, o)
-	}
-	return pending, nil
-}
-
 type hanimeItem struct {
 	href     string
 	title    string

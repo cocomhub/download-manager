@@ -101,24 +101,6 @@ func (t *Task) GetDownloadHeaders() map[string]string {
 	}
 }
 
-func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	objects := t.LoadPendingFromStorage(64)
-	if objects == nil {
-		objects = t.SnapshotRuntimeObjects(true)
-	}
-	pending := make([]*model.DownloadObject, 0)
-	for _, o := range objects {
-		t.SyncSharedToObject(o)
-		if t.IsMarkedFailed(o.URL) {
-			continue
-		}
-		if o.GetStatus() == model.StatusPending || o.GetStatus() == model.StatusFailed || o.GetStatus() == model.StatusDownloading {
-			pending = append(pending, o)
-		}
-	}
-	return pending, nil
-}
-
 // ResolveObject resolves a vikacg object by re-scraping its detail page.
 // It populates the object with fresh content (images, title, metadata, files).
 func (t *Task) ResolveObject(_ context.Context, obj *model.DownloadObject) error {

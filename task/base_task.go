@@ -123,6 +123,30 @@ func (b *BaseTask) ResolveObject(_ context.Context, _ *model.DownloadObject) err
 	return nil
 }
 
+// GetDownloadObjects returns pending objects from storage for download scheduling.
+// Uses LoadPendingFromStorage with a fallback to SnapshotRuntimeObjects.
+// Filters out permanently failed, completed, and cancelled objects.
+// Tasks that need different behavior (e.g. urllist) override this.
+func (b *BaseTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
+	objects := b.LoadPendingFromStorage(64)
+	if objects == nil {
+		objects = b.SnapshotRuntimeObjects(true)
+	}
+	pending := make([]*model.DownloadObject, 0)
+	for _, o := range objects {
+		b.SyncSharedToObject(o)
+		if b.IsMarkedFailed(o.URL) {
+			continue
+		}
+		if o.GetStatus() == model.StatusPending ||
+			o.GetStatus() == model.StatusFailed ||
+			o.GetStatus() == model.StatusDownloading {
+			pending = append(pending, o)
+		}
+	}
+	return pending, nil
+}
+
 // UpdateStatus updates the object status, persists to store and shared registry,
 // and upserts the object into the runtime list.
 func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
