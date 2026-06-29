@@ -82,24 +82,6 @@ func (t *Task) Close() error {
 	return t.BaseTask.Close()
 }
 
-func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	objects := t.LoadPendingFromStorage(64)
-	if objects == nil {
-		objects = t.SnapshotRuntimeObjects(true)
-	}
-	pending := make([]*model.DownloadObject, 0)
-	for _, o := range objects {
-		if t.IsMarkedFailed(o.URL) {
-			continue
-		}
-		if o.GetStatus() == model.StatusCompleted || o.GetStatus() == model.StatusCancelled {
-			continue
-		}
-		pending = append(pending, o)
-	}
-	return pending, nil
-}
-
 // ResolveObject explicitly resolves an object (exposed for Manager)
 func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) error {
 	// Check shared state for resolved files first
