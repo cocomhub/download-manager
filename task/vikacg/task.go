@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -39,12 +38,11 @@ func init() {
 
 type Task struct {
 	*task.BaseTask
-	userID        int64
-	pageCount     int64
-	authToken     string
-	cookie        string
-	userAgent     string
-	resolved2URLs sync.Map
+	userID    int64
+	pageCount int64
+	authToken string
+	cookie    string
+	userAgent string
 }
 
 var _ core.Task = &Task{}
@@ -114,30 +112,26 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
-		if o.Status == model.StatusPending || o.Status == model.StatusFailed {
-			// Re-scrape pending/failed objects to get fresh content (images, title, etc.)
-			if _, loaded := t.resolved2URLs.LoadOrStore(o.URL, struct{}{}); !loaded {
-				if newObj, err := t.scrapeAndBuild(o.URL); err == nil {
-					newObj.TaskID = t.ID()
-					newObj.SetStatus(model.StatusPending)
-					t.PersistTaskObject(newObj)
-					t.RememberRuntimeObject(newObj, true)
-					pending = append(pending, newObj)
-					continue
-				} else {
-					t.Logger().Warn("vikacg re-scrape failed, will retry next cycle", logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)
-					t.resolved2URLs.Delete(o.URL)
-				}
-			}
+		if o.GetStatus() == model.StatusPending || o.GetStatus() == model.StatusFailed || o.GetStatus() == model.StatusDownloading {
 			pending = append(pending, o)
 		}
 	}
 	return pending, nil
 }
 
-// ResolveObject implements core.Task.ResolveObject.
-// vikacg 在 scrapeAndBuild 中已填充完整数据，返回 nil。
-func (t *Task) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+// ResolveObject resolves a vikacg object by re-scraping its detail page.
+// It populates the object with fresh content (images, title, metadata, files).
+func (t *Task) ResolveObject(_ context.Context, obj *model.DownloadObject) error {
+	newObj, err := t.scrapeAndBuild(obj.URL)
+	if err != nil {
+		return err
+	}
+	// Copy resolved data into the existing object (not replace it)
+	obj.Lock()
+	obj.SavePath = newObj.SavePath
+	obj.Metadata = newObj.Metadata
+	obj.Extra = newObj.Extra
+	obj.Unlock()
 	return nil
 }
 

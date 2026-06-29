@@ -48,9 +48,6 @@ func (m *Manager) applyGroupPriorityPolicies(t core.Task, obj *model.DownloadObj
 // resolveGroupPriorityParams validates preconditions and extracts task metadata parameters.
 // Returns false when any precondition fails, in which case the policy should be skipped.
 func resolveGroupPriorityParams(t core.Task, obj *model.DownloadObject) (taskType, group, taskID string, ok bool) {
-	if t.Type() != core.TaskTypeTktube {
-		return
-	}
 	if obj == nil || obj.GetStatus() != model.StatusCompleted {
 		return
 	}

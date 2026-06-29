@@ -57,7 +57,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		defer cancel()
 		if err := t.ResolveObject(ctx, obj); err != nil {
 			slog.Error("Download: resolve expired and re-resolve failed", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-			t.UpdateStatus(obj, model.StatusFailed, err)
+			if obj.GetStatus() != model.StatusFailedPermanent {
+				t.UpdateStatus(obj, model.StatusFailed, err)
+			}
 			return
 		}
 		m.resolveCache.MarkResolved(obj.URL)
