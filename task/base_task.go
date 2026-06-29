@@ -117,6 +117,12 @@ func (b *BaseTask) Close() error {
 	return nil
 }
 
+// ResolveObject provides a default no-op implementation.
+// Tasks that need detail resolution (hanime, vikacg, tktube) override this.
+func (b *BaseTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
+}
+
 // UpdateStatus updates the object status, persists to store and shared registry,
 // and upserts the object into the runtime list.
 func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {

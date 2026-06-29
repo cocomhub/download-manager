@@ -5,12 +5,10 @@ package tktube
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -19,7 +17,6 @@ import (
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
-	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/task"
 	"github.com/dop251/goja"
@@ -40,8 +37,6 @@ type Task struct {
 	keyword   string
 	pageStart int
 	pageEnd   int
-
-	resolvedURLs sync.Map
 }
 
 // Ensure Task implements core.Task
@@ -88,110 +83,21 @@ func (t *Task) Close() error {
 }
 
 func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
-	runtimeObjects := t.SnapshotRuntimeObjects(true)
-	activeCount := t.countActiveDownloads(runtimeObjects)
-
-	queryLimit := int64(max(t.Concurrency()*3+8, 16))
-	objects := runtimeObjects
-	if stored := t.LoadPendingFromStorage(queryLimit); stored != nil {
-		objects = stored
+	objects := t.LoadPendingFromStorage(64)
+	if objects == nil {
+		objects = t.SnapshotRuntimeObjects(true)
 	}
-
-	candidates, toResolve := t.collectCandidates(objects, activeCount)
-
-	if resolved := t.resolveObjects(toResolve); len(resolved) > 0 {
-		candidates = append(candidates, resolved...)
-	}
-
-	return candidates, nil
-}
-
-// countActiveDownloads counts currently downloading objects from runtime objects.
-func (t *Task) countActiveDownloads(runtimeObjects []*model.DownloadObject) int64 {
-	var active int64
-	for _, obj := range runtimeObjects {
-		if obj.GetStatus() == model.StatusDownloading {
-			active++
-		}
-	}
-	return active
-}
-
-// isEligible returns true if the object should be considered for download.
-func (t *Task) isEligible(obj *model.DownloadObject) bool {
-	if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusCancelled {
-		return false
-	}
-	return !t.IsMarkedFailed(obj.URL)
-}
-
-// collectCandidates splits objects into those ready to download (candidates)
-// and those that need resolution first (toResolve).
-func (t *Task) collectCandidates(objects []*model.DownloadObject, activeCount int64) (candidates, toResolve []*model.DownloadObject) {
-	candidates = make([]*model.DownloadObject, 0)
-	toResolve = make([]*model.DownloadObject, 0)
-	limit := int64(t.Concurrency()*2 + 2)
-
-	for _, obj := range objects {
-		if !t.isEligible(obj) {
+	pending := make([]*model.DownloadObject, 0)
+	for _, o := range objects {
+		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
-		if int64(len(candidates)+len(toResolve))+activeCount >= limit {
-			break
+		if o.GetStatus() == model.StatusCompleted || o.GetStatus() == model.StatusCancelled {
+			continue
 		}
-		_, ok := t.resolvedURLs.Load(obj.URL)
-		if _, hasFiles := obj.Extra["files"]; hasFiles && ok {
-			candidates = append(candidates, obj)
-		} else {
-			toResolve = append(toResolve, obj)
-		}
+		pending = append(pending, o)
 	}
-	return
-}
-
-// resolveObjects resolves video details for a batch of objects in parallel.
-func (t *Task) resolveObjects(objects []*model.DownloadObject) []*model.DownloadObject {
-	if len(objects) == 0 {
-		return nil
-	}
-
-	var (
-		wg       sync.WaitGroup
-		mu       sync.Mutex
-		resolved []*model.DownloadObject
-	)
-	sem := make(chan struct{}, 5)
-
-	for _, obj := range objects {
-		wg.Add(1)
-		go func(o *model.DownloadObject) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if err := t.resolveVideoDetails(o); err != nil {
-				t.handleResolveError(o, err)
-				return
-			}
-
-			mu.Lock()
-			t.resolvedURLs.Store(o.URL, true)
-			resolved = append(resolved, o)
-			mu.Unlock()
-		}(obj)
-	}
-	wg.Wait()
-	return resolved
-}
-
-// handleResolveError logs and updates status for a resolution failure.
-// ErrNoFlashvars is already handled by MarkAsFailed inside resolveVideoDetails
-// (which sets failed_permanent), so don't overwrite with generic StatusFailed.
-func (t *Task) handleResolveError(obj *model.DownloadObject, err error) {
-	t.Logger().Error("Failed to resolve video details", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-	if !errors.Is(err, ErrNoFlashvars) {
-		t.UpdateStatus(obj, model.StatusFailed, err)
-	}
+	return pending, nil
 }
 
 // ResolveObject explicitly resolves an object (exposed for Manager)

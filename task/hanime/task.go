@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cocomhub/download-manager/config"
@@ -89,62 +88,17 @@ func (t *Task) GetDownloadObjects() ([]*model.DownloadObject, error) {
 		objects = t.SnapshotRuntimeObjects(true)
 	}
 
-	candidates, toResolve := t.separateDownloadCandidates(objects)
-
-	if len(toResolve) > 0 {
-		candidates = t.resolveDownloadCandidates(candidates, toResolve)
-	}
-
-	return candidates, nil
-}
-
-// separateDownloadCandidates splits objects into candidates (already resolved)
-// and toResolve (needs resolution), respecting the concurrency capacity limit.
-func (t *Task) separateDownloadCandidates(objects []*model.DownloadObject) (candidates, toResolve []*model.DownloadObject) {
-	maxToResolve := t.Concurrency()*2 + 2
-
-	candidates = make([]*model.DownloadObject, 0)
-	for _, obj := range objects {
-		if obj.GetStatus() == model.StatusDownloading {
-			candidates = append(candidates, obj)
-		}
-	}
-	toResolve = make([]*model.DownloadObject, 0)
-
-	activeCount := len(candidates)
-	for _, obj := range objects {
-		if t.IsMarkedFailed(obj.URL) {
+	pending := make([]*model.DownloadObject, 0)
+	for _, o := range objects {
+		if t.IsMarkedFailed(o.URL) {
 			continue
 		}
-		if obj.GetStatus() == model.StatusCompleted || obj.GetStatus() == model.StatusCancelled {
+		if o.GetStatus() == model.StatusCompleted || o.GetStatus() == model.StatusCancelled {
 			continue
 		}
-		if _, hasFiles := obj.Extra["files"]; hasFiles {
-			candidates = append(candidates, obj)
-			continue
-		}
-		if len(candidates)+len(toResolve)+activeCount < maxToResolve {
-			toResolve = append(toResolve, obj)
-		}
+		pending = append(pending, o)
 	}
-	return
-}
-
-// resolveDownloadCandidates resolves each unresolved object and appends
-// successful ones to candidates, returning the updated candidates slice.
-func (t *Task) resolveDownloadCandidates(candidates, toResolve []*model.DownloadObject) []*model.DownloadObject {
-	for _, obj := range toResolve {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := t.ResolveObject(ctx, obj); err == nil {
-			cancel()
-			candidates = append(candidates, obj)
-		} else {
-			cancel()
-			t.Logger().Error("hanime resolve object failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-			t.UpdateStatus(obj, model.StatusFailed, err)
-		}
-	}
-	return candidates
+	return pending, nil
 }
 
 type hanimeItem struct {

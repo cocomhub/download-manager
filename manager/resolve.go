@@ -71,7 +71,11 @@ func (m *Manager) processResolve(req resolveRequest) {
 
 	if err := t.ResolveObject(ctx, req.obj); err != nil {
 		slog.Error("Resolve failed", logutil.LogKeyTaskID, req.taskID, logutil.LogKeyURL, req.obj.URL, logutil.LogKeyError, err)
-		_ = t.UpdateStatus(req.obj, model.StatusFailed, err)
+		// 如果对象已被 task 标记为 permanent failure（如 tktube 的 ErrNoFlashvars），
+		// 不要用 StatusFailed 覆盖，避免 downgrade 后重复进入 resolve 循环。
+		if req.obj.GetStatus() != model.StatusFailedPermanent {
+			_ = t.UpdateStatus(req.obj, model.StatusFailed, err)
+		}
 		m.resolveCache.Invalidate(req.obj.URL)
 		return
 	}
