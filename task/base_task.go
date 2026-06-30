@@ -434,40 +434,13 @@ func (b *BaseTask) SetScanner(s *PagingScanner) {
 	b.scanner = s
 }
 
-// Scrape implements core.Scraper by delegating to PagingScanner (if set)
-// or to scrape.Driver via buildScrapeHooks (legacy path).
+// Scrape implements core.Scraper by delegating to PagingScanner (if set).
 func (b *BaseTask) Scrape(ctx context.Context) error {
-	// New path: PagingScanner
-	if b.scanner != nil {
-		b.scanner.SetDriver(b.scrapeDriver)
-		return b.scanner.Run(ctx)
-	}
-	// Legacy path: buildScrapeHooks
-	if b.scrapeDriver == nil {
+	if b.scanner == nil {
 		return nil
 	}
-	hooks := b.buildScrapeHooks()
-	opts := scrape.Options{
-		MaxRetries:     3,
-		MaxEmptyPages:  3,
-		MaxTailRefresh: 5,
-	}
-	result := b.scrapeDriver.Scrape(ctx, b.ID(), hooks, opts)
-	if !result.AllSucceeded && result.LastFailedPage > 0 {
-		b.logger.Warn("Scrape incomplete", "failed_page", result.LastFailedPage, "total_pages", result.DetectedPages)
-	}
-	for _, item := range result.Items {
-		if obj, ok := item.(*model.DownloadObject); ok {
-			b.RememberRuntimeObject(obj, true)
-		}
-	}
-	return nil
-}
-
-// buildScrapeHooks returns scrape.PageHooks from the embedding task.
-// Override in embedding task; default returns empty hooks.
-func (b *BaseTask) buildScrapeHooks() scrape.PageHooks {
-	return scrape.PageHooks{}
+	b.scanner.SetDriver(b.scrapeDriver)
+	return b.scanner.Run(ctx)
 }
 
 // LoadPendingFromStorage queries storage for pending and failed objects,

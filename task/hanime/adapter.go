@@ -39,13 +39,5 @@ func (a *hanimeAdapter) BuildObject(items any, index int) (*model.DownloadObject
 	return a.t.createObjectFromItem(list[index]), nil
 }
 
-func (a *hanimeAdapter) ResolveDetail(obj *model.DownloadObject) error {
-	return a.t.resolveObject(obj, true)
-}
-
-func (a *hanimeAdapter) GetDownloadHeaders() map[string]string {
-	return a.t.GetDownloadHeaders()
-}
-
 // Ensure adapter implements task.SiteAdapter.
 var _ task.SiteAdapter = (*hanimeAdapter)(nil)

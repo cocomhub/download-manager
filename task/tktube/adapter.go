@@ -39,13 +39,5 @@ func (a *tktubeAdapter) BuildObject(items any, index int) (*model.DownloadObject
 	return a.t.createObjectFromVideoItem(list[index]), nil
 }
 
-func (a *tktubeAdapter) ResolveDetail(obj *model.DownloadObject) error {
-	return a.t.resolveVideoDetails(obj)
-}
-
-func (a *tktubeAdapter) GetDownloadHeaders() map[string]string {
-	return a.t.GetDownloadHeaders()
-}
-
 // Ensure adapter implements task.SiteAdapter.
 var _ task.SiteAdapter = (*tktubeAdapter)(nil)

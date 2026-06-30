@@ -5,8 +5,8 @@ package task
 
 import "github.com/cocomhub/download-manager/model"
 
-// SiteAdapter defines the site-specific pagination scraping, object building,
-// and detail resolution behaviors needed by PagingScanner.
+// SiteAdapter defines the site-specific pagination scraping and object building
+// behaviors needed by PagingScanner.
 //
 // Each task type (tktube/hanime/vikacg) provides its own implementation,
 // bridging existing internal methods to this interface without requiring
@@ -40,14 +40,4 @@ type SiteAdapter interface {
 	// The items parameter is the same value returned by ParsePage;
 	// implementations type-assert it to their concrete slice type.
 	BuildObject(items any, index int) (*model.DownloadObject, error)
-
-	// --- Detail resolution (optional) ---
-
-	// ResolveDetail fetches and populates detailed fields on obj.
-	// For tasks where list page ≡ detail page (e.g. vikacg), return nil.
-	// Return an error when the object should be skipped.
-	ResolveDetail(obj *model.DownloadObject) error
-
-	// GetDownloadHeaders returns HTTP headers used during download.
-	GetDownloadHeaders() map[string]string
 }

@@ -94,14 +94,5 @@ func (a *vikacgAdapter) BuildObject(items any, index int) (*model.DownloadObject
 	return a.t.scrapeAndBuild(u)
 }
 
-func (a *vikacgAdapter) ResolveDetail(obj *model.DownloadObject) error {
-	// vikacg populates all fields in BuildObject; no extra detail step needed.
-	return nil
-}
-
-func (a *vikacgAdapter) GetDownloadHeaders() map[string]string {
-	return a.t.GetDownloadHeaders()
-}
-
 // Ensure adapter implements task.SiteAdapter.
 var _ task.SiteAdapter = (*vikacgAdapter)(nil)
