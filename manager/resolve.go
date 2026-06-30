@@ -33,7 +33,7 @@ func (m *Manager) StartResolveWorkers(n int) {
 
 // StopResolveWorkers 停止 resolve worker 协程池。
 func (m *Manager) StopResolveWorkers() {
-	close(m.resolveStop)
+	m.resolveCancel()
 	m.resolveWg.Wait()
 }
 
@@ -51,7 +51,7 @@ func (m *Manager) resolveWorker(id int) {
 	slog.Debug("Resolve worker started", "id", id)
 	for {
 		select {
-		case <-m.resolveStop:
+		case <-m.resolveCtx.Done():
 			return
 		case req := <-m.resolveQueue:
 			m.processResolve(req)

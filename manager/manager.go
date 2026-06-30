@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -102,14 +103,16 @@ type Manager struct {
 	compositeResolveCount sync.Map // URL -> *atomic.Int64 (retry count, max 10)
 
 	// Async resolve pool
-	resolveCache *ResolveCache
-	resolveQueue chan resolveRequest
-	resolveStop  chan struct{}
-	resolveWg    sync.WaitGroup
+	resolveCache  *ResolveCache
+	resolveQueue  chan resolveRequest
+	resolveCtx    context.Context
+	resolveCancel context.CancelFunc
+	resolveWg     sync.WaitGroup
 
 	// Small-object pool
 	soQueue   chan smallObjectRequest
-	soStop    chan struct{}
+	soCtx     context.Context
+	soCancel  context.CancelFunc
 	soWg      sync.WaitGroup
 	soTracker sync.Map // map[objKey]*objectTracker
 
@@ -175,11 +178,11 @@ func NewManager(cfg *config.Config) *Manager {
 		urlRegistry:     NewURLStateRegistry(),
 		resolveCache:    NewResolveCache(time.Hour, 10000),
 		resolveQueue:    make(chan resolveRequest, 128),
-		resolveStop:     make(chan struct{}),
 		soQueue:         make(chan smallObjectRequest, 128),
-		soStop:          make(chan struct{}),
 		initializedCh:   make(chan struct{}),
 	}
+	mgr.resolveCtx, mgr.resolveCancel = context.WithCancel(context.Background())
+	mgr.soCtx, mgr.soCancel = context.WithCancel(context.Background())
 	mgr.cfgVal.Store(cfg)
 	tracker := scrape.NewFileTracker(filepath.Join(cfg.Server.WorkDir, "cache", "task"))
 	mgr.scrapeDriver = scrape.NewDriver(tracker, scrape.NewDefaultPager())

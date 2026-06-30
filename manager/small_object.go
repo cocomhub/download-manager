@@ -81,7 +81,7 @@ func (m *Manager) StartSmallObjectWorkers(n int) {
 
 // StopSmallObjectWorkers 停止小对象下载 worker 协程池。
 func (m *Manager) StopSmallObjectWorkers() {
-	close(m.soStop)
+	m.soCancel()
 	m.soWg.Wait()
 }
 
@@ -121,7 +121,7 @@ func (m *Manager) soWorker(id int) {
 	slog.Debug("Small-object worker started", "id", id)
 	for {
 		select {
-		case <-m.soStop:
+		case <-m.soCtx.Done():
 			return
 		case req := <-m.soQueue:
 			m.processSO(req)
