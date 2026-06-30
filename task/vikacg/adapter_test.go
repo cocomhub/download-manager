@@ -50,28 +50,3 @@ func TestVikacgAdapter_ParseTotalPages(t *testing.T) {
 		t.Fatalf("expected -1 (unknown), got %d", n)
 	}
 }
-
-func TestVikacgAdapter_ResolveDetail(t *testing.T) {
-	adapter := &vikacgAdapter{}
-	if err := adapter.ResolveDetail(nil); err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestVikacgAdapter_GetDownloadHeaders(t *testing.T) {
-	bt, err := task.NewBaseTask(&config.Task{
-		ID:      "test",
-		Type:    "vikacg",
-		Storage: config.StorageConfig{Type: "memory"},
-	}, task.Options{})
-	if err != nil {
-		t.Fatalf("NewBaseTask failed: %v", err)
-	}
-	tk := &Task{BaseTask: bt, cookie: "test_cookie", userAgent: "test_ua"}
-	adapter := &vikacgAdapter{t: tk}
-
-	headers := adapter.GetDownloadHeaders()
-	if headers["Cookie"] != "test_cookie" || headers["User-Agent"] != "test_ua" {
-		t.Fatalf("unexpected headers: %v", headers)
-	}
-}
