@@ -113,6 +113,11 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/metrics", s.metricsHandler).Methods("GET")
 	r.HandleFunc("/api/metrics/failures", s.failuresHandler).Methods("GET")
 
+	// Task UI Assets (custom JS/CSS registered by task types)
+	r.HandleFunc("/api/ui/types", s.serveUITypes).Methods("GET")
+	r.HandleFunc("/api/ui/{type}/config", s.serveUIConfig).Methods("GET")
+	r.HandleFunc("/api/ui/{type}/assets/{path:.*}", s.serveUIAsset).Methods("GET")
+
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
 	// In a real app, this path should be configurable or dynamic per task

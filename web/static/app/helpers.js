@@ -60,31 +60,20 @@
           if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
           return ''
         },
-        getTaskDisplayName: function (task) {
-          if (!task) return ''
-          if (task.name && task.name !== task.id) return task.name
-          return task.id
-        },
-        getTaskTypeBadge: function (task) {
-          if (!task || !task.type) return ''
-          return task.type.length > 12 ? task.type.slice(0, 12) + '…' : task.type
-        },
-
-        // Group helpers
         getScopedTaskInfo: function (obj) {
-          if (!obj) return { taskId: '', taskType: '' }
           return { taskId: obj.task_id || '', taskType: (obj.metadata && obj.metadata.task_type) || '' }
         },
-        getObjectVariantPriority: function (obj) {
-          if (!obj || !obj.extra) return 0
-          return obj.extra.variant_priority || 0
+
+        // ---- Type detection ----
+        isVideo: function (obj) {
+          if (!obj || !obj.save_path) return false
+          var ext = obj.save_path.split('.').pop()
+          return ext === 'mp4' || ext === 'webm' || ext === 'mkv'
         },
-        isGroupCancelTarget: function (obj) {
-          return obj && (obj.status === 'pending' || obj.status === 'failed') &&
-            !this.getObjectVariantPriority(obj) === 0
-        },
-        metadataContentGroup: function (obj) {
-          return (obj && obj.metadata && obj.metadata.content_group) || ''
+        getVideoUrl: function (obj) {
+          if (!obj) return ''
+          if (obj.save_path) return this.pathToUrl(obj.save_path)
+          return obj.url || ''
         },
 
         // Vikacg helpers
@@ -135,181 +124,176 @@
           this.vikacgActiveImgIdx = 0
           this.showVikacgModal = true
         },
-        closeVikacg: function () {
-          this.showVikacgModal = false
-          this.vikacgModalObj = null
-          this.vikacgActiveImgIdx = 0
-        },
 
         // Hanime helpers
         isHanime: function (obj) {
-          var u = ((obj && obj.metadata && obj.metadata.page_url) || (obj && obj.url) || '').toLowerCase()
-          return u.indexOf('hanime.tv') >= 0 || u.indexOf('hanime1') >= 0
+          var u = (obj && obj.metadata && obj.metadata.page_url) || (obj && obj.url) || ''
+          return u.indexOf('hanime1.me') >= 0
         },
         getHanimeTitle: function (obj) {
-          if (obj && obj.metadata && obj.metadata.title) return obj.metadata.title
-          if (obj && obj.extra && obj.extra.title) return obj.extra.title
-          return this.getTitle(obj)
+          return (obj && obj.metadata && obj.metadata.title) || ''
         },
         getHanimeTags: function (obj) {
-          var tags = []
-          if (obj && obj.extra && Array.isArray(obj.extra.tags)) tags.push.apply(tags, obj.extra.tags)
-          if (obj && obj.metadata && Array.isArray(obj.metadata.tags)) tags.push.apply(tags, obj.metadata.tags)
-          var set = {}, out = []
-          tags.forEach(function (t) {
-            var s = (t || '').toString().trim()
-            if (s && !set[s]) { set[s] = true; out.push(s) }
-          })
-          return out
+          if (obj && obj.extra && Array.isArray(obj.extra.tags)) return obj.extra.tags
+          return []
         },
         getHanimeArtist: function (obj) {
-          if (obj && obj.extra && obj.extra.artist) return obj.extra.artist
-          if (obj && obj.metadata && obj.metadata.artist) return obj.metadata.artist
-          if (obj && obj.metadata && Array.isArray(obj.metadata.authors) && obj.metadata.authors.length > 0) return obj.metadata.authors.join(', ')
-          return ''
+          return (obj && obj.metadata && obj.metadata.artist) || ''
         },
         getHanimeDescription: function (obj) {
-          var s = ''
-          if (obj && obj.extra && obj.extra.description) s = obj.extra.description
-          else if (obj && obj.metadata && obj.metadata.description) s = obj.metadata.description
-          else if (obj && obj.extra && obj.extra.content_text) s = obj.extra.content_text
-          if (typeof s !== 'string') s = ''
-          return s
+          return (obj && obj.extra && obj.extra.content_text) || ''
         },
         getHanimeOriginLink: function (obj) {
-          if (obj && obj.metadata && obj.metadata.page_url) return obj.metadata.page_url
-          if (obj && obj.extra && obj.extra.origin_url) return obj.extra.origin_url
-          return (obj && obj.url) || ''
+          return (obj && obj.metadata && obj.metadata.page_url) || ''
         },
         getHanimeCover: function (obj) {
-          var imgs = []
-          var pushUrl = function (u) { if (typeof u === 'string' && u) imgs.push(u) }
-          if (obj && obj.extra) {
-            if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
-            if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
-            if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
-            if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
-            if (obj.extra.cover) pushUrl(obj.extra.cover)
-            if (obj.extra.local_cover) pushUrl(this.pathToUrl(obj.extra.local_cover))
-            if (Array.isArray(obj.extra.files)) {
-              obj.extra.files.forEach(function (f) {
-                var name = (f.name || f.path || '').toString().toLowerCase()
-                if (f.type === 'image' && (name.indexOf('cover') >= 0 || name.indexOf('thumb') >= 0)) {
-                  if (f.path) imgs.push(this.pathToUrl(f.path))
-                }
-              }.bind(this))
-            }
-            if (imgs.length === 0 && Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
+          var srcs = this.getHanimePoster(obj)
+          return srcs.length ? srcs[0] : ''
+        },
+        getHanimePoster: function (obj) {
+          if (obj && obj.extra && Array.isArray(obj.extra.images)) return obj.extra.images
+          if (obj && obj.extra && Array.isArray(obj.extra.files)) {
+            var imgs = []
+            obj.extra.files.forEach(function (f) {
+              if (f.type === 'image' && f.path) imgs.push(this.pathToUrl(f.path))
+            }.bind(this))
+            return imgs
           }
-          var uniq = [], seen = {}
-          imgs.forEach(function (u) { if (u && !seen[u]) { seen[u] = true; uniq.push(u) } })
-          return uniq
-        },
-        openHanime: function (obj) {
-          this.hanimeModalObj = obj
-          this.hanimeActiveCoverIdx = 0
-          this.hanimeActivePosterIdx = 0
-          this.hanimeVideoError = false
-          this.showHanimeModal = true
-        },
-        closeHanime: function () {
-          this.showHanimeModal = false
-          this.hanimeModalObj = null
-        },
-        canPlayHanimeVideo: function (obj) {
-          var u = this.getHanimeVideoURL(obj)
-          if (!u) return false
-          if (/\.m3u8(\?.*)?$/i.test(u)) {
-            var ua = navigator.userAgent || ''
-            var isSafari = /safari/i.test(ua) && !/chrome|crios|chromium|edg/i.test(ua)
-            return isSafari
-          }
-          return true
+          return []
         },
         getHanimeVideoURL: function (obj) {
-          if (!obj) return ''
-          var u = ''
-          if (obj.metadata && obj.metadata.video_url) u = obj.metadata.video_url
-          if (!u && obj.extra && obj.extra.video_url) u = obj.extra.video_url
-          if (obj.status === 'completed') {
-            if (this.isVideo(obj)) return this.getVideoUrl(obj)
-            if (obj.extra && Array.isArray(obj.extra.files)) {
-              var f = obj.extra.files.find(function (x) { return x && (x.type === 'video' || (x.path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(x.path.toString()))) })
-              if (f && f.path) return this.pathToUrl(f.path)
-            }
-            if (obj.extra && obj.extra.local_url) return this.pathToUrl(obj.extra.local_url)
-            if (obj.extra && obj.extra.file_url) return this.pathToUrl(obj.extra.file_url)
-            if (obj.path) return this.pathToUrl(obj.path)
-            if (obj.save_path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(obj.save_path.toString())) return this.pathToUrl(obj.save_path)
-          }
-          if (typeof u === 'string' && u) return u
+          if (obj && obj.extra && obj.extra.video_url) return obj.extra.video_url
+          if (obj && obj.save_path && this.isVideo(obj)) return this.pathToUrl(obj.save_path)
           return ''
+        },
+        canPlayHanimeVideo: function (obj) {
+          return !!this.getHanimeVideoURL(obj)
         },
         getHanimeDetails: function (obj) {
-          var s = ''
-          if (obj && obj.extra && obj.extra.details) s = obj.extra.details
-          else if (obj && obj.metadata && obj.metadata.details) s = obj.metadata.details
-          else if (obj && obj.metadata && obj.metadata.description) s = obj.metadata.description
-          else if (obj && obj.extra && obj.extra.description) s = obj.extra.description
-          if (typeof s !== 'string') s = ''
-          return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+          return (obj && obj.metadata && obj.metadata.detail) || ''
         },
         getHanimeDate: function (obj) {
-          if (obj && obj.extra && obj.extra.date) return obj.extra.date
-          if (obj && obj.metadata && obj.metadata.date) return obj.metadata.date
-          return ''
+          return (obj && obj.metadata && obj.metadata.date) || ''
         },
         getHanimePlaylist: function (obj) {
-          var src = (obj && obj.extra && obj.extra.playlist) || (obj && obj.metadata && obj.metadata.playlist) || []
-          var items = []
-          var norm = function (it) {
-            if (!it) return null
-            if (typeof it === 'string') {
-              var s = it.trim()
-              if (!s) return null
-              if (/^https?:\/\//i.test(s) || s.startsWith('/')) return { title: '', thumbnail: '', url: s }
-              if (obj && obj.status === 'completed') return { title: '', thumbnail: '', url: this.pathToUrl(s) }
-              return { title: s, thumbnail: '', url: '' }
-            }
-            if (typeof it === 'object') {
-              var title = it.title || it.name || it.label || ''
-              var url = it.url || it.href || it.link || it.src || ''
-              var thumb = it.thumbnail || it.thumb || it.image || it.cover || ''
-              if (!url) {
-                if (it.path && obj && obj.status === 'completed') url = this.pathToUrl(it.path)
-                else if (it.local_url && obj && obj.status === 'completed') url = this.pathToUrl(it.local_url)
-                else if (it.file_url && obj && obj.status === 'completed') url = this.pathToUrl(it.file_url)
-              } else {
-                var pLike = typeof url === 'string' && url && !/^https?:\/\//i.test(url) && !url.startsWith('/')
-                if (pLike && obj && obj.status === 'completed') url = this.pathToUrl(url)
-              }
-              if (typeof title !== 'string') title = ''
-              if (typeof url !== 'string') url = ''
-              if (typeof thumb !== 'string') thumb = ''
-              if (!title && !url) return null
-              return { title: title, thumbnail: thumb, url: url }
-            }
-            return null
-          }.bind(this)
-          if (Array.isArray(src)) {
-            src.forEach(function (x) { var n = norm(x); if (n) items.push(n) })
-          } else { var n = norm(src); if (n) items.push(n) }
-          var seen = {}, out = []
-          items.forEach(function (it) {
-            var k = (it.title || '') + '|' + (it.url || '') + '|' + (it.thumbnail || '')
-            if (!seen[k]) { seen[k] = true; out.push(it) }
-          })
-          return out
+          if (obj && obj.extra && Array.isArray(obj.extra.playlist)) return obj.extra.playlist
+          if (obj && obj.extra && Array.isArray(obj.extra.links)) return obj.extra.links
+          return []
         },
         getHanimeGenres: function (obj) {
+          if (obj && obj.metadata && obj.metadata.genre) return [obj.metadata.genre]
+          return []
+        },
+        canOpenVikacg: function (obj) { return this.isVikacg(obj) },
+        canOpenHanime: function (obj) { return this.isHanime(obj) },
+
+        // ---- Task type badge / display name ----
+        getTaskTypeBadge: function (task) {
+          var known = {
+            'tktube': 'TKTube',
+            'hanime': 'Hanime',
+            'vikacg': 'VikACG',
+            'url_list': 'URL',
+            'mxs': '漫小肆'
+          }
+          return known[task && task.type] || (task && task.type) || '?'
+        },
+        getTaskDisplayName: function (task) {
+          if (!task) return ''
+          // Try task summary display_name or extra label first
+          if (task.display_name) return task.display_name
+          // Fall back to id
+          return task.id || ''
+        },
+
+        // ---- External Task UI (custom JS/CSS registered by task types) ----
+        isCustomUI: function (obj) {
+          return !!(
+            obj && obj.metadata && obj.metadata.task_type &&
+            window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(obj.metadata.task_type)
+          )
+        },
+        getCustomUILabel: function (obj) {
+          var type = obj && obj.metadata && obj.metadata.task_type
+          return (type && window.__dm_uiBridge && window.__dm_uiBridge.getLabel(type)) || '浏览'
+        },
+        openCustomUI: function (obj) {
+          var type = obj && obj.metadata && obj.metadata.task_type
+          if (type && window.__dm_uiBridge) window.__dm_uiBridge.open(type, obj)
+        },
+
+        // Object variant / content group helpers
+        getObjectVariantPriority: function (obj) {
+          if (obj && obj.extra) {
+            if (obj.extra.variant_priority !== undefined) return obj.extra.variant_priority
+            if (obj.extra.priority !== undefined) return obj.extra.priority
+          }
+          if (obj && obj.metadata && obj.metadata.resolution) {
+            var r = obj.metadata.resolution
+            if (/1080/.test(r)) return 30
+            if (/720/.test(r)) return 20
+            if (/480/.test(r)) return 10
+          }
+          return 0
+        },
+        isGroupRepresentative: function (obj) { return !!(obj && obj.extra && (obj.extra.group_rep || obj.extra.is_representative)) },
+        isGroupCancelTarget: function (obj) {
+          return obj && obj.status === 'pending' && !this.isGroupRepresentative(obj) && (obj.extra && obj.extra.group_size)
+        },
+        getObjectVariantLabel: function (obj) {
+          if (obj && obj.metadata && obj.metadata.resolution) return obj.metadata.resolution
+          if (obj && obj.metadata && obj.metadata.variant_label) return obj.metadata.variant_label
+          return 'standard'
+        },
+        getCoverImage: function (obj) {
+          if (this.isVikacg(obj)) {
+            var images = this.getVikacgImages(obj)
+            return images.length ? images[0] : ''
+          }
+          if (this.isHanime(obj)) return this.getHanimeCover(obj)
+          if (obj && obj.extra) {
+            if (obj.extra.thumb_url) return obj.extra.thumb_url
+            if (obj.extra.preview_url) return obj.extra.preview_url
+            if (obj.extra.cover_url) return obj.extra.cover_url
+            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
+            if (Array.isArray(obj.extra.files)) {
+              for (var i = 0; i < obj.extra.files.length; i++) {
+                var f = obj.extra.files[i]
+                if (f.type === 'image' && f.path) return this.pathToUrl(f.path)
+              }
+            }
+          }
+          return ''
+        },
+        getPreviewUrl: function (obj) {
+          if (obj && obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+          return ''
+        },
+
+        // ---- Meta helpers (non-standard keys from vikacg, etc.) ----
+        getVariantTagText: function (obj) {
+          return this.getObjectVariantLabel(obj)
+        },
+        getObjectByUrl: function (url) {
+          if (this.selectedTask && this.selectedTask.objects) {
+            return this.selectedTask.objects.find(function (o) { return o.url === url })
+          }
+          return null
+        },
+
+        // ---- Generic multi-source tag aggregator ----
+        getAllTags: function (obj) {
           var vals = []
-          var pushVal = function (v) {
-            if (Array.isArray(v)) { v.forEach(function (s) { pushVal(s) }); return }
-            if (typeof v === 'string') {
-              v.split(/[，、,|/]/).forEach(function (x) {
-                var t = x.trim()
-                if (t) vals.push(t)
-              })
+          function pushVal(x) {
+            if (typeof x === 'string') { vals.push(x); return }
+            if (Array.isArray(x)) {
+              x.forEach(function (v) { if (typeof v === 'string' && v.trim()) vals.push(v.trim()) })
+              return
+            }
+            if (typeof x === 'object') {
+              var xs = String(x)
+              var parts = xs.split(/[,，、;；\s]+/)
+              parts.forEach(function (v) { if (v.trim()) vals.push(v.trim()) })
             }
           }
           if (obj && obj.extra) {
@@ -595,4 +579,29 @@
       }})
     }
   }
+
+  // ---- External Task UI Bridge ----
+  window.__dm_uiBridge = (function () {
+    var plugins = {}
+    var taskViews = {}
+    return {
+      register: function (taskType, handler) {
+        handler.label = handler.label || '浏览'
+        plugins[taskType] = handler
+      },
+      hasPlugin: function (taskType) { return !!plugins[taskType] },
+      getLabel: function (taskType) { var p = plugins[taskType]; return p ? p.label : '浏览' },
+      open: function (taskType, obj) {
+        var p = plugins[taskType]
+        if (p && p.open) p.open(obj)
+      },
+      // Task-level view: replaces the default grid for a task type
+      registerTaskView: function (taskType, handler) {
+        taskViews[taskType] = handler
+      },
+      getTaskView: function (taskType) {
+        return taskViews[taskType] || null
+      }
+    }
+  })()
 })()
