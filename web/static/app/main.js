@@ -84,14 +84,6 @@
         tktubeAggDelayMs: 200,
         lastAggFetchTs: 0,
         tktubeAggMinIntervalMs: 3000,
-        showVikacgModal: false,
-        vikacgModalObj: null,
-        vikacgActiveImgIdx: 0,
-        showHanimeModal: false,
-        hanimeModalObj: null,
-        hanimeActiveCoverIdx: 0,
-        hanimeActivePosterIdx: 0,
-        hanimeVideoError: false,
         showGroupModal: false,
         groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' },
 
@@ -208,6 +200,7 @@
       selectedTask: function () {
         this.$nextTick(function () {
           this.renderCustomTaskView()
+          this.renderPluginCards()
         }.bind(this))
       },
       viewMode: function (val) {
@@ -300,7 +293,7 @@
         this.customUITitle = ''
         this.customUIData = null
         var el = document.getElementById('custom-ui-content')
-        if (el) el.textContent = ''
+        if (el) el.innerHTML = ''
       }
     }
   })

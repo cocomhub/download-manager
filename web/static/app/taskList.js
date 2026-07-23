@@ -15,7 +15,13 @@
           var self = this
           AppAPI.tasks().then(function (data) {
             self.tasks = data || []
-            if (typeof syncTaskTypes === 'function') syncTaskTypes(self.tasks)
+            if (typeof syncTaskTypes === 'function') {
+              syncTaskTypes(self.tasks)
+              // Refresh the task type filter dropdown to pick up dynamically registered types
+              if (typeof getAvailableTaskTypes === 'function') {
+                self.taskTypes = getAvailableTaskTypes()
+              }
+            }
             AppAPI.activeDownloads().then(function (dl) { self.activeDownloads = dl || [] }).catch(function () {})
             if (self.selectedTaskId) self.fetchTaskDetails(self.selectedTaskId, true)
           }).catch(function (e) { console.error(e) }).finally(function () { self.loading = false })

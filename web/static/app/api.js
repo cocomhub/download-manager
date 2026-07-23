@@ -92,6 +92,13 @@
       })
     },
 
+    get: function (url) {
+      return fetch(url, { method: 'GET' }).then(function (r) {
+        if (!r.ok) throw new Error('GET request failed: ' + url)
+        return r.json()
+      })
+    },
+
     post: function (url, body) {
       return fetch(url, {
         method: 'POST',

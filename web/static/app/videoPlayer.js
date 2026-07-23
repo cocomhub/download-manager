@@ -233,15 +233,28 @@
         },
 
         getCoverImage: function (obj) {
-          // 优先：本地已下载的封面图片
-          if (obj && obj.extra && obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
-          // 其次：源站缩略图 URL（图片格式，如 jpg/png/webp）
-          if (obj && obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
-          // 再次：preview_url（可能是视频 mp4，img 无法渲染但作为最后 fallback）
-          if (obj && obj.extra && obj.extra.preview_url) return obj.extra.preview_url
-          if (obj && obj.extra && obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
-          // Hanime 兼容：从 page_url 拼接缩略图
-          if (obj && obj.metadata && obj.metadata.page_url) {
+          if (!obj) return ''
+          // Local downloaded files (priority for completed objects)
+          if (obj.extra) {
+            if (obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
+            if (obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
+          }
+          // 3. Remote cover URLs from scrapers
+          if (obj.extra) {
+            if (obj.extra.thumb_url) return obj.extra.thumb_url
+            if (obj.extra.cover_url) return obj.extra.cover_url
+            if (obj.extra.preview_url) return obj.extra.preview_url
+            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
+          }
+          // 4. VikACG: find first image-type file from extra.files
+          if (obj.extra && Array.isArray(obj.extra.files)) {
+            for (var fi = 0; fi < obj.extra.files.length; fi++) {
+              var f = obj.extra.files[fi]
+              if (f && f.type === 'image' && f.path) return this.pathToUrl(f.path)
+            }
+          }
+          // 5. Hanime compat: construct thumbnail from page_url
+          if (obj.metadata && obj.metadata.page_url) {
             var u = obj.metadata.page_url
             if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) return 'https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg'
           }
