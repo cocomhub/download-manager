@@ -17,12 +17,14 @@
       return fetch('/api/tasks').then(function (r) { return r.json() })
     },
 
-    taskDetails: function (id, page, limit, search, sortBy) {
+    taskDetails: function (id, page, limit, search, sortBy, signal) {
       var url = '/api/tasks/' + encodeURIComponent(id) + '?page=' + page
       if (limit === 'all') { url += '&limit=all' } else { url += '&limit=' + (limit || 50) }
       if (search) { url += '&search=' + encodeURIComponent(search) }
       if (sortBy && sortBy !== 'default') { url += '&sort=' + sortBy }
-      return fetch(url).then(function (r) {
+      var opts = { method: 'GET' }
+      if (signal) opts.signal = signal
+      return fetch(url, opts).then(function (r) {
         if (!r.ok) throw new Error('Failed to fetch task details')
         return r.json()
       })

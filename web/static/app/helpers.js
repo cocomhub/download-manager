@@ -9,6 +9,30 @@
 ;(function () {
   'use strict'
 
+  // ---- External Task UI Bridge ----
+  window.__dm_uiBridge = (function () {
+    var plugins = {}
+    var taskViews = {}
+    return {
+      register: function (taskType, handler) {
+        handler.label = handler.label || '浏览'
+        plugins[taskType] = handler
+      },
+      hasPlugin: function (taskType) { return !!plugins[taskType] },
+      getLabel: function (taskType) { var p = plugins[taskType]; return p ? p.label : '浏览' },
+      open: function (taskType, obj) {
+        var p = plugins[taskType]
+        if (p && p.open) p.open(obj)
+      },
+      registerTaskView: function (taskType, handler) {
+        taskViews[taskType] = handler
+      },
+      getTaskView: function (taskType) {
+        return taskViews[taskType] || null
+      }
+    }
+  })()
+
   window.AppHelpers = {
     register: function (app) {
       app.mixin({methods: {
@@ -60,6 +84,16 @@
           if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
           return ''
         },
+        isVideo: function (obj) {
+          if (!obj || !obj.save_path) return false
+          var ext = obj.save_path.split('.').pop()
+          return ext === 'mp4' || ext === 'webm' || ext === 'mkv'
+        },
+        getVideoUrl: function (obj) {
+          if (!obj) return ''
+          if (obj.save_path) return this.pathToUrl(obj.save_path)
+          return obj.url || ''
+        },
         getTaskDisplayName: function (task) {
           if (!task) return ''
           if (task.name && task.name !== task.id) return task.name
@@ -67,7 +101,14 @@
         },
         getTaskTypeBadge: function (task) {
           if (!task || !task.type) return ''
-          return task.type.length > 12 ? task.type.slice(0, 12) + '…' : task.type
+          var known = {
+            'tktube': 'TKTube',
+            'hanime': 'Hanime',
+            'vikacg': 'VikACG',
+            'url_list': 'URL',
+            'mxs': '漫小肆'
+          }
+          return known[task.type] || (task.type.length > 12 ? task.type.slice(0, 12) + '…' : task.type)
         },
 
         // Group helpers
@@ -591,6 +632,49 @@
             catch (e) { self.showToast('复制失败', 'error') }
             document.body.removeChild(ta)
           }
+        },
+
+        // ---- Custom UI / External Task Plugin methods ----
+        isCustomUI: function (obj) {
+          return !!(
+            obj && obj.metadata && obj.metadata.task_type &&
+            window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(obj.metadata.task_type)
+          )
+        },
+        getCustomUILabel: function (obj) {
+          var type = obj && obj.metadata && obj.metadata.task_type
+          return (type && window.__dm_uiBridge && window.__dm_uiBridge.getLabel(type)) || '浏览'
+        },
+        openCustomUI: function (obj) {
+          var type = obj && obj.metadata && obj.metadata.task_type
+          if (type && window.__dm_uiBridge) window.__dm_uiBridge.open(type, obj)
+        },
+        getCoverImage: function (obj) {
+          if (this.isVikacg(obj)) {
+            var images = this.getVikacgImages(obj)
+            return images.length ? images[0] : ''
+          }
+          if (this.isHanime(obj)) {
+            var srcs = this.getHanimePoster(obj)
+            return srcs.length ? srcs[0] : ''
+          }
+          if (obj && obj.extra) {
+            if (obj.extra.thumb_url) return obj.extra.thumb_url
+            if (obj.extra.preview_url) return obj.extra.preview_url
+            if (obj.extra.cover_url) return obj.extra.cover_url
+            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
+            if (Array.isArray(obj.extra.files)) {
+              for (var i = 0; i < obj.extra.files.length; i++) {
+                var f = obj.extra.files[i]
+                if (f.type === 'image' && f.path) return this.pathToUrl(f.path)
+              }
+            }
+          }
+          return ''
+        },
+        getPreviewUrl: function (obj) {
+          if (obj && obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+          return ''
         }
       }})
     }
