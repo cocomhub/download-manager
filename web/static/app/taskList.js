@@ -15,7 +15,6 @@
           var self = this
           AppAPI.tasks().then(function (data) {
             self.tasks = data || []
-            if (typeof syncTaskTypes === 'function') syncTaskTypes(self.tasks)
             AppAPI.activeDownloads().then(function (dl) { self.activeDownloads = dl || [] }).catch(function () {})
             if (self.selectedTaskId) self.fetchTaskDetails(self.selectedTaskId, true)
           }).catch(function (e) { console.error(e) }).finally(function () { self.loading = false })
@@ -31,19 +30,6 @@
           this.pagination.page = 1
           this.viewMode = 'grid'
           this.fetchTaskDetails(id, false)
-          // Safety timeout: force-reset loading state after 15s
-          var self = this
-          setTimeout(function () {
-            if (self.isLoadingTask && self.selectedTaskId === id) {
-              self.isLoadingTask = false
-              console.warn('fetchTaskDetails safety timeout for', id)
-            }
-          }, 15000)
-          // Load task-type-specific UI (e.g. reader.js for mxs)
-          var task = this.tasks.find(function (t) { return t.id === id })
-          if (task && task.type) {
-            this.loadTaskUI(task.type)
-          }
         },
 
         toggleSelectAll: function () {
@@ -91,10 +77,8 @@
           }
           var self = this
           var limit = this.pagination.limit
-          var signal = this.abortController ? this.abortController.signal : null
-          AppAPI.taskDetails(id, this.pagination.page, limit, this.searchQuery, this.sortBy, signal)
+          AppAPI.taskDetails(id, this.pagination.page, limit, this.searchQuery, this.sortBy)
             .then(function (data) {
-              self.isLoadingTask = false
               self.selectedTask = data
               if (data.concurrency !== undefined) self.taskConfigForm.concurrency = data.concurrency
               if (data.refresh_interval !== undefined) self.taskConfigForm.refresh_interval = data.refresh_interval
@@ -105,12 +89,9 @@
               }
             }).catch(function (e) {
               if (e.name === 'AbortError') return
-              self.isLoadingTask = false
-              console.error('fetchTaskDetails error:', e)
+              console.error(e)
             }).finally(function () {
-              if (!background) {
-                self.abortController = null
-              }
+              if (!background) { self.isLoadingTask = false; self.abortController = null }
             })
         },
 
