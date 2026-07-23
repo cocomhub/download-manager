@@ -84,16 +84,6 @@
           if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
           return ''
         },
-        isVideo: function (obj) {
-          if (!obj || !obj.save_path) return false
-          var ext = obj.save_path.split('.').pop()
-          return ext === 'mp4' || ext === 'webm' || ext === 'mkv'
-        },
-        getVideoUrl: function (obj) {
-          if (!obj) return ''
-          if (obj.save_path) return this.pathToUrl(obj.save_path)
-          return obj.url || ''
-        },
         getTaskDisplayName: function (task) {
           if (!task) return ''
           if (task.name && task.name !== task.id) return task.name
@@ -648,33 +638,6 @@
         openCustomUI: function (obj) {
           var type = obj && obj.metadata && obj.metadata.task_type
           if (type && window.__dm_uiBridge) window.__dm_uiBridge.open(type, obj)
-        },
-        getCoverImage: function (obj) {
-          if (this.isVikacg(obj)) {
-            var images = this.getVikacgImages(obj)
-            return images.length ? images[0] : ''
-          }
-          if (this.isHanime(obj)) {
-            var srcs = this.getHanimePoster(obj)
-            return srcs.length ? srcs[0] : ''
-          }
-          if (obj && obj.extra) {
-            if (obj.extra.thumb_url) return obj.extra.thumb_url
-            if (obj.extra.preview_url) return obj.extra.preview_url
-            if (obj.extra.cover_url) return obj.extra.cover_url
-            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
-            if (Array.isArray(obj.extra.files)) {
-              for (var i = 0; i < obj.extra.files.length; i++) {
-                var f = obj.extra.files[i]
-                if (f.type === 'image' && f.path) return this.pathToUrl(f.path)
-              }
-            }
-          }
-          return ''
-        },
-        getPreviewUrl: function (obj) {
-          if (obj && obj.extra && obj.extra.preview_url) return obj.extra.preview_url
-          return ''
         }
       }})
     }
