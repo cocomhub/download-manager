@@ -84,7 +84,6 @@
 
         fetchTaskDetails: function (id, background) {
           if (!id) return
-          var requestId = ++this._requestCounter || (this._requestCounter = 1)
           if (!background) {
             this.isLoadingTask = true
             if (this.abortController) this.abortController.abort()
@@ -95,7 +94,6 @@
           var signal = this.abortController ? this.abortController.signal : null
           AppAPI.taskDetails(id, this.pagination.page, limit, this.searchQuery, this.sortBy, signal)
             .then(function (data) {
-              if (requestId !== self._requestCounter) return
               self.isLoadingTask = false
               self.selectedTask = data
               if (data.concurrency !== undefined) self.taskConfigForm.concurrency = data.concurrency
@@ -106,12 +104,11 @@
                 self.pagination.limit = (data.limit === -1 || data.limit === 0) ? 'all' : data.limit
               }
             }).catch(function (e) {
-              if (requestId !== self._requestCounter) return
               if (e.name === 'AbortError') return
               self.isLoadingTask = false
               console.error('fetchTaskDetails error:', e)
             }).finally(function () {
-              if (requestId === self._requestCounter) {
+              if (!background) {
                 self.abortController = null
               }
             })
