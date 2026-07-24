@@ -17,12 +17,14 @@
       return fetch('/api/tasks').then(function (r) { return r.json() })
     },
 
-    taskDetails: function (id, page, limit, search, sortBy) {
+    taskDetails: function (id, page, limit, search, sortBy, signal) {
       var url = '/api/tasks/' + encodeURIComponent(id) + '?page=' + page
       if (limit === 'all') { url += '&limit=all' } else { url += '&limit=' + (limit || 50) }
       if (search) { url += '&search=' + encodeURIComponent(search) }
       if (sortBy && sortBy !== 'default') { url += '&sort=' + sortBy }
-      return fetch(url).then(function (r) {
+      var opts = { method: 'GET' }
+      if (signal) opts.signal = signal
+      return fetch(url, opts).then(function (r) {
         if (!r.ok) throw new Error('Failed to fetch task details')
         return r.json()
       })
@@ -86,6 +88,13 @@
       if (params && params.task_id) q.set('task_id', params.task_id)
       return fetch('/api/metrics/failures?' + q.toString()).then(function (r) {
         if (!r.ok) throw new Error('Failures fetch failed')
+        return r.json()
+      })
+    },
+
+    get: function (url) {
+      return fetch(url, { method: 'GET' }).then(function (r) {
+        if (!r.ok) throw new Error('GET request failed: ' + url)
         return r.json()
       })
     },

@@ -485,6 +485,7 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
 	obj.Metadata[model.MetadataKeyTitle] = info.title
 	obj.Metadata["date"] = info.date
+	obj.Metadata["task_type"] = t.Type()
 	obj.SavePath = videoPath
 	if _, ok := obj.Extra["files"]; !ok {
 		obj.Extra["files"] = files

@@ -154,11 +154,12 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		URL:      pageURL,
 		SavePath: savePath,
 		Metadata: map[string]string{
-			"title":   title,
-			"type":    "composite",
-			"date":    date,
-			"section": section,
-			"updated": updated,
+			"title":     title,
+			"type":      "composite",
+			"date":      date,
+			"section":   section,
+			"updated":   updated,
+			"task_type": TaskType,
 		},
 		Extra: map[string]any{
 			"tags":         tagAny,

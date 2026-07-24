@@ -723,9 +723,11 @@
                         </div>
                         <p class="mt-2 text-xs text-gray-500">详情信息只读，配置修改请使用右下角“任务配置”。</p>
                     </div>
+                    <!-- Custom Task View (registered by task type plugins) -->
+                    <div v-if="showCustomTaskView" class="h-full" id="custom-task-container"></div>
                     <!-- Grid View -->
-                    <div v-if="viewMode === 'grid'" class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                        <div v-for="obj in filteredObjects" :key="obj.url" :data-testid="'object-' + obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" :draggable="sortBy==='default' && !('ontouchstart' in window)" @dragstart="dragStart($event, obj)"
+                    <div v-if="viewMode === 'grid' && !showCustomTaskView" class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
+                        <div v-for="obj in filteredObjects" :key="obj.url" :data-testid="'object-' + obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" :draggable="sortBy==='default' && !isTouchDevice()" @dragstart="dragStart($event, obj)"
                             @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
 
                             <!-- Cover Image Area -->
@@ -804,6 +806,7 @@
                                         播放
                                     </button>
                                     <a v-if="obj.status === 'completed' && !isVideo(obj) && !isVikacg(obj)" :href="getFileUrl(obj)" target="_blank" class="text-xs px-2 py-1 rounded bg-white text-indigo-600 hover:bg-indigo-50 transition">打开</a>
+                                    <button v-if="isCustomUI(obj) && obj.status === 'completed'" @click.stop="openCustomUI(obj)" class="text-xs px-2 py-1 rounded bg-white text-green-600 hover:bg-green-50 transition"><i class="fas fa-book-open mr-1"></i> {{ getCustomUILabel(obj) }}</button>
                                 </div>
                             </div>
                         </div>
@@ -868,6 +871,7 @@
                                         </button>
                                 <button v-if="isVideo(obj) && obj.status === 'completed'" @click="playVideo(obj)" class="text-blue-600 hover:text-blue-900 mr-3"><i class="fas fa-play"></i> Play</button>
                                 <a v-if="obj.status === 'completed' && !isVideo(obj) && !isVikacg(obj)" :href="getFileUrl(obj)" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">Open</a>
+                                <button v-if="isCustomUI(obj) && obj.status === 'completed'" @click="openCustomUI(obj)" class="text-green-600 hover:text-green-900 mr-3"><i class="fas fa-book-open mr-1"></i> {{ getCustomUILabel(obj) }}</button>
                                 <button v-if="uiMode === 'manage' && obj.status !== 'completed' && obj.status !== 'cancelled'" @click="cancelObject(obj)" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-red-600 hover:text-red-900 mr-3 disabled:opacity-50"><i class="fas fa-ban"></i> 取消</button>
                                 <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click="undoCancelObject(obj)" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-blue-600 hover:text-blue-900 mr-3 disabled:opacity-50"><i class="fas fa-undo"></i> 撤销取消</button>
                             </td>
@@ -1226,6 +1230,18 @@
                     </div>
                     <button @click="closeHanime" class="px-3 py-1.5 rounded bg-white border hover:bg-gray-100 text-sm">关闭</button>
                 </div>
+            </div>
+        </div>
+        <!-- Custom UI Modal (loaded by external task plugins) -->
+        <div v-if="showCustomUIModal" class="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-bold text-gray-800">{{ customUITitle }}</h3>
+                    </div>
+                    <button @click="closeCustomUI" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div id="custom-ui-content" class="flex-1 overflow-y-auto p-0"></div>
             </div>
         </div>
         <!-- Hover Preview Config Toggle -->

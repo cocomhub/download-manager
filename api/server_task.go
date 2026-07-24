@@ -26,6 +26,7 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 				"download":  true,
 				"scheduler": true,
 			},
+			"download_root": s.mgr.GetDownloadRootDir(),
 		})
 		return
 	}
@@ -35,10 +36,9 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 			"download":  cfg.Runtime.Download.Enabled,
 			"scheduler": cfg.Runtime.Scheduler.Enabled,
 		},
+		"download_root": s.mgr.GetDownloadRootDir(),
 	})
 }
-
-// healthHandler returns the health status of the manager.
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(hdrContentType, "application/json")
 	status := s.mgr.GetHealthStatus()

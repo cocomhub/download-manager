@@ -15,6 +15,13 @@
           var self = this
           AppAPI.tasks().then(function (data) {
             self.tasks = data || []
+            if (typeof syncTaskTypes === 'function') {
+              syncTaskTypes(self.tasks)
+              // Refresh the task type filter dropdown to pick up dynamically registered types
+              if (typeof getAvailableTaskTypes === 'function') {
+                self.taskTypes = getAvailableTaskTypes()
+              }
+            }
             AppAPI.activeDownloads().then(function (dl) { self.activeDownloads = dl || [] }).catch(function () {})
             if (self.selectedTaskId) self.fetchTaskDetails(self.selectedTaskId, true)
           }).catch(function (e) { console.error(e) }).finally(function () { self.loading = false })
@@ -30,6 +37,19 @@
           this.pagination.page = 1
           this.viewMode = 'grid'
           this.fetchTaskDetails(id, false)
+          // Safety timeout: force-reset loading state after 15s
+          var self = this
+          setTimeout(function () {
+            if (self.isLoadingTask && self.selectedTaskId === id) {
+              self.isLoadingTask = false
+              console.warn('fetchTaskDetails safety timeout for', id)
+            }
+          }, 15000)
+          // Load task-type-specific UI (e.g. reader.js for mxs)
+          var task = this.tasks.find(function (t) { return t.id === id })
+          if (task && task.type) {
+            this.loadTaskUI(task.type)
+          }
         },
 
         toggleSelectAll: function () {
@@ -77,7 +97,8 @@
           }
           var self = this
           var limit = this.pagination.limit
-          AppAPI.taskDetails(id, this.pagination.page, limit, this.searchQuery, this.sortBy)
+          var signal = this.abortController ? this.abortController.signal : null
+          AppAPI.taskDetails(id, this.pagination.page, limit, this.searchQuery, this.sortBy, signal)
             .then(function (data) {
               self.selectedTask = data
               if (data.concurrency !== undefined) self.taskConfigForm.concurrency = data.concurrency
@@ -89,7 +110,7 @@
               }
             }).catch(function (e) {
               if (e.name === 'AbortError') return
-              console.error(e)
+              console.error('fetchTaskDetails error:', e)
             }).finally(function () {
               if (!background) { self.isLoadingTask = false; self.abortController = null }
             })

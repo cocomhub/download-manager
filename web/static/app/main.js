@@ -84,14 +84,6 @@
         tktubeAggDelayMs: 200,
         lastAggFetchTs: 0,
         tktubeAggMinIntervalMs: 3000,
-        showVikacgModal: false,
-        vikacgModalObj: null,
-        vikacgActiveImgIdx: 0,
-        showHanimeModal: false,
-        hanimeModalObj: null,
-        hanimeActiveCoverIdx: 0,
-        hanimeActivePosterIdx: 0,
-        hanimeVideoError: false,
         showGroupModal: false,
         groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' },
 
@@ -113,7 +105,14 @@
 
         // Mobile responsive
         mobileSidebarOpen: false,
-        mobileToolbarOpen: false
+        mobileToolbarOpen: false,
+
+        // External task UI
+        _registeredUITypes: [],
+        showCustomUIModal: false,
+        customUITitle: '',
+        customUIData: null,
+        showCustomTaskView: false
       }
     },
 
@@ -196,6 +195,13 @@
       selectedType: function () {
         if (typeof window.__dm_updateURLWithType === 'function') window.__dm_updateURLWithType(this.selectedType)
         if (this.viewMode === 'tktube') { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) }
+        this.loadTaskUI(this.selectedType)
+      },
+      selectedTask: function () {
+        this.$nextTick(function () {
+          this.renderCustomTaskView()
+          this.renderPluginCards()
+        }.bind(this))
       },
       viewMode: function (val) {
         if (val === 'dashboard') {
@@ -204,6 +210,9 @@
         } else {
           this.stopDashboardPolling()
         }
+        this.$nextTick(function () {
+          this.renderCustomTaskView()
+        }.bind(this))
       }
     },
 
@@ -215,6 +224,7 @@
       this.loadVideoSettings()
       this.initUiDefaults()
       this.showAddTaskModal = false
+      this.loadCustomUIFeatures()
     },
 
     beforeUnmount: function () {
@@ -222,6 +232,69 @@
       if (this.eventSource) this.eventSource.close()
       if (this.abortController) this.abortController.abort()
       this.stopDashboardPolling()
+    },
+
+    methods: {
+      // ---- External Task UI ----
+      loadCustomUIFeatures: function () {
+        var self = this
+        fetch('/api/ui/types').then(function (r) { return r.json() }).then(function (types) {
+          self._registeredUITypes = types || []
+        }).catch(function (e) { console.warn('loadCustomUIFeatures failed:', e) })
+      },
+      loadTaskUI: function (taskType) {
+        if (!taskType || taskType === 'all') return
+        if (!this._registeredUITypes || this._registeredUITypes.indexOf(taskType) < 0) return
+        var self = this
+        fetch('/api/ui/' + encodeURIComponent(taskType) + '/config').then(function (r) { return r.json() }).then(function (cfg) {
+          if (cfg.css) {
+            cfg.css.forEach(function (p) {
+              var href = '/api/ui/' + encodeURIComponent(taskType) + '/assets/' + encodeURIComponent(p)
+              if (!document.querySelector('link[href="' + href + '"]')) {
+                var link = document.createElement('link')
+                link.rel = 'stylesheet'
+                link.href = href
+                document.head.appendChild(link)
+              }
+            })
+          }
+          if (cfg.js) {
+            cfg.js.forEach(function (p) {
+              var src = '/api/ui/' + encodeURIComponent(taskType) + '/assets/' + encodeURIComponent(p)
+              if (!document.querySelector('script[src="' + src + '"]')) {
+                var script = document.createElement('script')
+                script.src = src
+                script.onload = function () { self.$forceUpdate() }
+                document.body.appendChild(script)
+              }
+            })
+          }
+        }).catch(function (e) { console.warn('loadTaskUI failed:', e) })
+      },
+      renderCustomTaskView: function () {
+        var task = this.selectedTask
+        if (!task || this.uiMode !== 'watch') {
+          this.showCustomTaskView = false
+          return
+        }
+        var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(task.type)
+        if (view) {
+          this.showCustomTaskView = true
+          var self = this
+          this.$nextTick(function () {
+            view.render(task)
+          })
+        } else {
+          this.showCustomTaskView = false
+        }
+      },
+      closeCustomUI: function () {
+        this.showCustomUIModal = false
+        this.customUITitle = ''
+        this.customUIData = null
+        var el = document.getElementById('custom-ui-content')
+        if (el) el.innerHTML = ''
+      }
     }
   })
 
