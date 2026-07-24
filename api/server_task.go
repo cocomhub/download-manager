@@ -28,6 +28,7 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 			},
 			"download_root": s.mgr.GetDownloadRootDir(),
 		})
+		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"mode": cfg.Runtime.Mode,
