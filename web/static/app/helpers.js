@@ -346,6 +346,10 @@
             self.showToast('配置已保存', 'success')
             self.showConfigModal = false
             self.initUiDefaults()
+            // Apply frontend log level immediately
+            if (self.configForm.log_level !== undefined && typeof Log !== 'undefined' && Log.setLevel) {
+              Log.setLevel(self.configForm.log_level)
+            }
           }).catch(function (e) { self.showToast('保存失败: ' + e.message, 'error') })
         },
         openConfigHistory: function () {

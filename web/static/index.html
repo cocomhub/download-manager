@@ -1159,11 +1159,14 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Level</label>
                                 <select v-model="configForm.log_level" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="trace">trace</option>
                                     <option value="debug">debug</option>
                                     <option value="info">info</option>
                                     <option value="warn">warn</option>
                                     <option value="error">error</option>
+                                    <option value="">off</option>
                                 </select>
+                                <p class="text-xs text-gray-500 mt-1">Controls both server-side and frontend (browser console) log output.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Log File Path</label>

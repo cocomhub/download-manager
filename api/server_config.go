@@ -30,6 +30,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"diff_ignore_comment": cfg.Server.UIDefaults.DiffIgnoreComment,
 			"status_style":        cfg.Server.UIDefaults.StatusStyle,
 		},
+		"log_level": cfg.Runtime.LogLevel,
 	}
 	json.NewEncoder(w).Encode(resp)
 }
@@ -37,9 +38,10 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 // updateServerConfig updates the server configuration.
 func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TaskScan   config.TaskScan   `json:"task_scan"`
-		Downloader config.Downloader `json:"downloader"`
-		UIDefaults config.UIDefaults `json:"ui_defaults"`
+		TaskScan     config.TaskScan   `json:"task_scan"`
+		Downloader   config.Downloader `json:"downloader"`
+		UIDefaults   config.UIDefaults `json:"ui_defaults"`
+		LogLevel     string            `json:"log_level"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
@@ -69,6 +71,10 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	cc.Downloader.Progress = req.Downloader.Progress
 	cc.Downloader.FFmpeg = req.Downloader.FFmpeg
 	cc.Server.UIDefaults = req.UIDefaults
+	// Update frontend log level
+	if req.LogLevel != "" {
+		cc.Runtime.LogLevel = req.LogLevel
+	}
 	if err := s.mgr.UpdateConfig(cc, &manager.AuditInfo{
 		Author:  "ui",
 		Source:  "api/config/server",
