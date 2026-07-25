@@ -563,25 +563,18 @@
         var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
         var useVideo = !!videoUrl && (!isHLS || isSafari)
 
+        // Must wrap in a component so Vue 3 properly processes event handlers
         var Wrapper = {
-          methods: {
-            close: function (e) { e.stopPropagation(); if (onClose) onClose() },
-            copyTitle: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) },
-            copyOrigin: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) },
-            openOrigin: function () { window.open(origin, '_blank', 'noopener,noreferrer') },
-            handleOverlay: function (e) { if (e.target === e.currentTarget && onClose) onClose() }
-          },
           render: function () {
             var h = Vue.h
-            var self = this
             return h('div', {
               class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
-              on: { click: self.handleOverlay }
+              on: { click: function (e) { if (e.target === e.currentTarget && onClose) onClose() } }
             }, [
               h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col' }, [
                 h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
                   h('h3', { class: 'text-lg font-bold text-gray-800' }, getTitle(obj) || 'Hanime'),
-                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: self.close } }, [h('i', { class: 'fas fa-times' })]),
+                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); onClose() } } }, [h('i', { class: 'fas fa-times' })]),
                 ]),
                 h('div', { class: 'flex-1 overflow-y-auto' }, [
                   useVideo ? h('div', { class: 'bg-black flex items-center justify-center' }, [
@@ -597,8 +590,8 @@
                       attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
                       class: 'px-2 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700'
                     }, '打开原页面'),
-                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: self.copyTitle } }, '复制标题'),
-                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: self.copyOrigin } }, '复制链接'),
+                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) } } }, '复制标题'),
+                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) } } }, '复制链接'),
                   ]) : null,
                   h('div', { class: 'p-4' }, [
                     (genres.length || dateVal || tags.length || artist) ? h('div', { class: 'text-xs text-gray-500 mb-3 flex flex-wrap gap-1' }, [
@@ -632,10 +625,10 @@
                       attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
                       class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
                     }, '打开原页面') : null,
-                    h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.copyTitle } }, '复制标题'),
-                    origin ? h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.copyOrigin } }, '复制链接') : null,
+                    h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) } } }, '复制标题'),
+                    origin ? h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) } } }, '复制链接') : null,
                   ]),
-                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.close } }, '关闭'),
+                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function (e) { e.stopPropagation(); onClose() } } }, '关闭'),
                 ]),
               ])
             ])
