@@ -267,13 +267,13 @@
     var leftCol = document.createElement('div')
     leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
-    // Media area
+    // Video area - fixed height container
     var mediaArea = document.createElement('div')
-    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
     if (useVideo) {
       var posterImg = document.createElement('img')
       posterImg.src = firstPoster || videoUrl
-      posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
       posterImg.alt = getTitle(obj) || 'Hanime'
       mediaArea.appendChild(posterImg)
 
@@ -286,7 +286,7 @@
       video.src = videoUrl
       video.poster = firstPoster
       video.controls = true
-      video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+      video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
 
       var playHandler = function () {
         posterImg.style.display = 'none'
@@ -300,7 +300,7 @@
     } else if (covers.length > 0) {
       var posterImg = document.createElement('img')
       posterImg.src = firstPoster
-      posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
       mediaArea.appendChild(posterImg)
 
       if (!canPlay) {
@@ -325,38 +325,11 @@
     }
     leftCol.appendChild(mediaArea)
 
-    // Origin link bar
-    if (origin) {
-      var originBar = document.createElement('div')
-      originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
-      var originBtn = document.createElement('a')
-      originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
-      originBtn.target = '_blank'
-      originBtn.rel = 'noopener noreferrer'
-      originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
-      originBtn.textContent = '打开原页面'
-      originBar.appendChild(originBtn)
-
-      var copyBtn = document.createElement('button')
-      copyBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-      copyBtn.textContent = '复制标题'
-      copyBtn.onclick = function () { copyToClipboard(getTitle(obj)) }
-      originBar.appendChild(copyBtn)
-
-      var copyLinkBtn = document.createElement('button')
-      copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-      copyLinkBtn.textContent = '复制链接'
-      copyLinkBtn.onclick = function () { copyToClipboard(origin) }
-      originBar.appendChild(copyLinkBtn)
-
-      leftCol.appendChild(originBar)
-    }
-
     // Content area (tags + details below media)
     var content = document.createElement('div')
     content.style.cssText = 'padding:16px'
 
-    // Metadata row
+    // Metadata row (genres, date, artist only — tags shown as chips below)
     var metaRow = document.createElement('div')
     metaRow.style.cssText = 'font-size:13px;color:#6b7280;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px'
 
@@ -375,18 +348,8 @@
       dateSpan.textContent = dateVal
       metaRow.appendChild(dateSpan)
     }
-    if (tags.length) {
-      if (genres.length || dateVal) {
-        var sep2 = document.createElement('span')
-        sep2.textContent = ' · '
-        metaRow.appendChild(sep2)
-      }
-      var tagsSpan = document.createElement('span')
-      tagsSpan.textContent = tags.join(', ')
-      metaRow.appendChild(tagsSpan)
-    }
     if (artist) {
-      if (genres.length || dateVal || tags.length) {
+      if (genres.length || dateVal) {
         var sep3 = document.createElement('span')
         sep3.textContent = ' · '
         metaRow.appendChild(sep3)
@@ -495,6 +458,14 @@
       openBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'
       openBtn.textContent = '打开原页面'
       fLeft.appendChild(openBtn)
+
+      var copyLinkBtn = document.createElement('button')
+      copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+      copyLinkBtn.textContent = '复制链接'
+      copyLinkBtn.onclick = function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
+      }
+      fLeft.appendChild(copyLinkBtn)
     }
 
     var copyTitleBtn = document.createElement('button')
@@ -505,16 +476,6 @@
       if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t)
     }
     fLeft.appendChild(copyTitleBtn)
-
-    if (origin) {
-      var copyLinkBtn = document.createElement('button')
-      copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
-      copyLinkBtn.textContent = '复制链接'
-      copyLinkBtn.onclick = function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
-      }
-      fLeft.appendChild(copyLinkBtn)
-    }
 
     footer.appendChild(fLeft)
 
@@ -647,11 +608,11 @@
 
         // Media area — show poster with play overlay, click to play
         var mediaArea = document.createElement('div')
-        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
         if (useVideo) {
           var posterImg = document.createElement('img')
           posterImg.src = firstPoster || videoUrl
-          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
           posterImg.alt = getTitle(obj) || 'Hanime'
           mediaArea.appendChild(posterImg)
 
@@ -664,7 +625,7 @@
           video.src = videoUrl
           video.poster = firstPoster
           video.controls = true
-          video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+          video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
 
           var playHandler = function () {
             posterImg.style.display = 'none'
@@ -678,43 +639,16 @@
         } else if (covers.length > 0) {
           var posterImg = document.createElement('img')
           posterImg.src = firstPoster
-          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
           mediaArea.appendChild(posterImg)
         }
         leftCol.appendChild(mediaArea)
-
-        // Origin link bar
-        if (origin) {
-          var originBar = document.createElement('div')
-          originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
-          var originBtn = document.createElement('a')
-          originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
-          originBtn.target = '_blank'
-          originBtn.rel = 'noopener noreferrer'
-          originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
-          originBtn.textContent = '打开原页面'
-          originBar.appendChild(originBtn)
-
-          var copyBtn = document.createElement('button')
-          copyBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-          copyBtn.textContent = '复制标题'
-          copyBtn.onclick = function () { copyToClipboard(getTitle(obj)) }
-          originBar.appendChild(copyBtn)
-
-          var copyLinkBtn = document.createElement('button')
-          copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-          copyLinkBtn.textContent = '复制链接'
-          copyLinkBtn.onclick = function () { copyToClipboard(origin) }
-          originBar.appendChild(copyLinkBtn)
-
-          leftCol.appendChild(originBar)
-        }
 
         // Content area (tags + details below media)
         var content = document.createElement('div')
         content.style.cssText = 'padding:16px'
 
-        // Metadata row
+        // Metadata row (genres, date, artist only)
         var metaRow = document.createElement('div')
         metaRow.style.cssText = 'font-size:13px;color:#6b7280;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px'
         if (genres.length) { var gs = document.createElement('span'); gs.textContent = genres.join(', '); metaRow.appendChild(gs) }
@@ -764,9 +698,9 @@
         var fLeft = document.createElement('div'); fLeft.style.cssText = 'display:flex;gap:8px'
         if (origin) {
           var openBtn = document.createElement('a'); openBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'; openBtn.target = '_blank'; openBtn.rel = 'noopener noreferrer'; openBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; openBtn.textContent = '打开原页面'; fLeft.appendChild(openBtn)
+          var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(origin) }; fLeft.appendChild(copyLinkBtn)
         }
         var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { copyToClipboard(getTitle(obj)) }; fLeft.appendChild(copyTitleBtn)
-        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(origin) }; fLeft.appendChild(copyLinkBtn) }
         footer.appendChild(fLeft)
         var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = function (e) { e.stopPropagation(); onClose() }; footer.appendChild(closeBtn)
         panel.appendChild(footer)

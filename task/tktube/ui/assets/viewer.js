@@ -88,10 +88,10 @@
     // Local files take priority
     if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
     if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
-    // Remote cover URLs
-    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    // Remote cover URLs (cover_url takes priority over thumb_url)
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
     // Check extra.files for image-type cover/thumb
     if (obj.extra && Array.isArray(obj.extra.files)) {
       for (var fi = 0; fi < obj.extra.files.length; fi++) {
@@ -239,14 +239,14 @@
     var leftCol = document.createElement('div')
     leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
-    // Video area
+    // Video area - fixed height
     var mediaArea = document.createElement('div')
-    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
 
     if (useVideo) {
       var posterImg = document.createElement('img')
       posterImg.src = coverUrl || videoUrl
-      posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
       posterImg.alt = title
       mediaArea.appendChild(posterImg)
 
@@ -259,7 +259,7 @@
       video.src = videoUrl
       video.poster = coverUrl
       video.controls = true
-      video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+      video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
 
       var playHandler = function () {
         posterImg.style.display = 'none'
@@ -271,34 +271,16 @@
       playOverlay.onclick = playHandler
       mediaArea.appendChild(video)
     } else if (videoUrl) {
-      // HLS or unsupported format — show download link
+      // HLS or unsupported format — show poster
       var posterImg = document.createElement('img')
       posterImg.src = coverUrl || ''
-      posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
       posterImg.alt = title
       if (posterImg.src) mediaArea.appendChild(posterImg)
-
-      var hlsMsg = document.createElement('div')
-      hlsMsg.style.cssText = 'text-align:center;padding:12px;background:#fef3c7;color:#92400e;font-size:14px'
-
-      if (isHLS && !isSafari) {
-        hlsMsg.textContent = 'HLS 流无法在此浏览器直接播放。'
-        var downLink = document.createElement('a')
-        downLink.href = videoUrl
-        downLink.target = '_blank'
-        downLink.rel = 'noopener noreferrer'
-        downLink.style.cssText = 'color:#2563eb;text-decoration:underline'
-        downLink.textContent = '下载视频文件'
-        hlsMsg.appendChild(document.createTextNode(' '))
-        hlsMsg.appendChild(downLink)
-      } else {
-        hlsMsg.textContent = '暂无可用视频源'
-      }
-      leftCol.appendChild(hlsMsg)
     } else {
       // No video — show placeholder
       var placeholder = document.createElement('div')
-      placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:200px;color:#9ca3af;font-size:14px'
+      placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:14px'
       placeholder.innerHTML = '<i class="fas fa-video" style="font-size:48px;margin-right:12px;opacity:0.5"></i> 无可用视频'
       mediaArea.appendChild(placeholder)
     }
@@ -332,39 +314,7 @@
       leftCol.appendChild(infoBar)
     }
 
-    // Origin link bar
-    if (origin) {
-      var originBar = document.createElement('div')
-      originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
-      var originBtn = document.createElement('a')
-      originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
-      originBtn.target = '_blank'
-      originBtn.rel = 'noopener noreferrer'
-      originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
-      originBtn.textContent = '打开原页面'
-      originBar.appendChild(originBtn)
-
-      var copyTitleBtn = document.createElement('button')
-      copyTitleBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-      copyTitleBtn.textContent = '复制标题'
-      copyTitleBtn.onclick = function () {
-        var t = getTitle(obj)
-        if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t)
-      }
-      originBar.appendChild(copyTitleBtn)
-
-      var copyLinkBtn = document.createElement('button')
-      copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-      copyLinkBtn.textContent = '复制链接'
-      copyLinkBtn.onclick = function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
-      }
-      originBar.appendChild(copyLinkBtn)
-
-      leftCol.appendChild(originBar)
-    }
-
-    // Content area
+    // Content area (no origin bar — buttons in footer)
     var content = document.createElement('div')
     content.style.cssText = 'padding:16px'
 
@@ -435,6 +385,25 @@
       originFooterBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'
       originFooterBtn.textContent = '打开原页面'
       fLeft.appendChild(originFooterBtn)
+    }
+
+    var copyTitleBtn = document.createElement('button')
+    copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+    copyTitleBtn.textContent = '复制标题'
+    copyTitleBtn.onclick = function () {
+      var t = getTitle(obj)
+      if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t)
+    }
+    fLeft.appendChild(copyTitleBtn)
+
+    if (origin) {
+      var copyLinkBtn = document.createElement('button')
+      copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+      copyLinkBtn.textContent = '复制链接'
+      copyLinkBtn.onclick = function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
+      }
+      fLeft.appendChild(copyLinkBtn)
     }
 
     footer.appendChild(fLeft)
@@ -838,14 +807,14 @@
         var leftCol = document.createElement('div')
         leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
-        // Video area
+        // Video area - fixed height
         var mediaArea = document.createElement('div')
-        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
 
         if (useVideo) {
           var posterImg = document.createElement('img')
           posterImg.src = coverUrl || videoUrl
-          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
           posterImg.alt = title
           mediaArea.appendChild(posterImg)
 
@@ -858,7 +827,7 @@
           video.src = videoUrl
           video.poster = coverUrl
           video.controls = true
-          video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+          video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
 
           var playHandler = function () {
             posterImg.style.display = 'none'
@@ -872,12 +841,12 @@
         } else if (videoUrl) {
           var posterImg = document.createElement('img')
           posterImg.src = coverUrl || ''
-          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
           posterImg.alt = title
           if (posterImg.src) mediaArea.appendChild(posterImg)
         } else {
           var placeholder = document.createElement('div')
-          placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:200px;color:#9ca3af;font-size:14px'
+          placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:14px'
           placeholder.innerHTML = '<i class="fas fa-video" style="font-size:48px;margin-right:12px;opacity:0.5"></i> 无可用视频'
           mediaArea.appendChild(placeholder)
         }
@@ -892,33 +861,7 @@
         if (contentGroup) { var groupEl = document.createElement('span'); groupEl.innerHTML = '<i class="fas fa-folder" style="margin-right:4px"></i> ' + contentGroup; infoBar.appendChild(groupEl) }
         if (infoBar.children.length > 0) leftCol.appendChild(infoBar)
 
-        // Origin link bar
-        if (origin) {
-          var originBar = document.createElement('div')
-          originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
-          var originBtn = document.createElement('a')
-          originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
-          originBtn.target = '_blank'; originBtn.rel = 'noopener noreferrer'
-          originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
-          originBtn.textContent = '打开原页面'
-          originBar.appendChild(originBtn)
-
-          var copyTitleBtn = document.createElement('button')
-          copyTitleBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-          copyTitleBtn.textContent = '复制标题'
-          copyTitleBtn.onclick = function () { copyToClipboard(getTitle(obj)) }
-          originBar.appendChild(copyTitleBtn)
-
-          var copyLinkBtn = document.createElement('button')
-          copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
-          copyLinkBtn.textContent = '复制链接'
-          copyLinkBtn.onclick = function () { copyToClipboard(origin) }
-          originBar.appendChild(copyLinkBtn)
-
-          leftCol.appendChild(originBar)
-        }
-
-        // Content area
+        // Content area (no origin bar — buttons in footer)
         var content = document.createElement('div')
         content.style.cssText = 'padding:16px'
         if (details) { var de = document.createElement('div'); de.style.cssText = 'font-size:14px;color:#374151;line-height:1.6;white-space:pre-line;margin-bottom:12px'; de.textContent = details; content.appendChild(de) }
@@ -958,6 +901,8 @@
         if (origin) {
           var originFooterBtn = document.createElement('a'); originFooterBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'; originFooterBtn.target = '_blank'; originFooterBtn.rel = 'noopener noreferrer'; originFooterBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'; originFooterBtn.textContent = '打开原页面'; fLeft.appendChild(originFooterBtn)
         }
+        var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { copyToClipboard(getTitle(obj)) }; fLeft.appendChild(copyTitleBtn)
+        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(origin) }; fLeft.appendChild(copyLinkBtn) }
         footer.appendChild(fLeft)
         var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = function (e) { e.stopPropagation(); onClose() }; footer.appendChild(closeBtn)
         panel.appendChild(footer)
