@@ -371,6 +371,11 @@
         handleCardClick: function (obj) {
           if (!obj) return
           Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
+          // cancelled + redirect_url → open origin page
+          if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
+            window.open(obj.extra.redirect_url, '_blank')
+            return
+          }
           if (obj.status === 'completed') {
             // Delegate to task-type plugin viewer if one is registered
             var type = obj.metadata && obj.metadata.task_type
@@ -381,7 +386,10 @@
             // Fall back to built-in video player
             if (this.isVideo(obj)) {
               this.playVideo(obj)
+              return
             }
+            // Fallback: open the file
+            window.open(this.getFileUrl(obj), '_blank')
           }
         },
         openGroupModal: function (obj) {

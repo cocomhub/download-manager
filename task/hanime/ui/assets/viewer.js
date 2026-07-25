@@ -578,6 +578,14 @@
               ]) : (covers.length > 0 ? h('div', { class: 'bg-black flex items-center justify-center p-4 min-h-[200px]' }, [
                 h('img', { attrs: { src: firstPoster }, class: 'max-w-full max-h-[50vh] object-contain' })
               ]) : null),
+              // HLS fallback warning — ff78f9b compat
+              (!useVideo && isHLS && origin) ? h('div', { class: 'bg-amber-50 border-b border-amber-200 px-3 py-2 text-sm text-amber-800 flex items-center justify-between' }, [
+                h('span', '暂无可用视频源，请打开原页面查看'),
+                h('a', {
+                  attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
+                  class: 'px-2 py-1 rounded bg-amber-600 text-white text-xs hover:bg-amber-700'
+                }, '打开原页面'),
+              ]) : null,
               origin ? h('div', { class: 'flex gap-2 p-3 bg-gray-50 border-b flex-wrap' }, [
                 h('a', {
                   attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
