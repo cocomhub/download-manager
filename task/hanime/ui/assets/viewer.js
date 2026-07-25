@@ -564,7 +564,6 @@
         var useVideo = !!videoUrl && (!isHLS || isSafari)
 
         var Wrapper = {
-          data: function () { return {} },
           render: function () {
             var h = Vue.h
             return h('div', {
