@@ -540,7 +540,7 @@
       type: 'hanime',
       label: 'Hanime',
       icon: 'fa-film',
-      viewerLabel: '播放',
+      viewerLabel: '查看',
       shouldShowViewer: function (obj) { return obj.status === 'completed' },
       onClick: function (obj, helpers) {
         if (obj.status !== 'completed') return false
@@ -564,6 +564,7 @@
         var useVideo = !!videoUrl && (!isHLS || isSafari)
 
         var Wrapper = {
+          data: function () { return {} },
           render: function () {
             var h = Vue.h
             return h('div', {
