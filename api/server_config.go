@@ -38,10 +38,10 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 // updateServerConfig updates the server configuration.
 func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TaskScan     config.TaskScan   `json:"task_scan"`
-		Downloader   config.Downloader `json:"downloader"`
-		UIDefaults   config.UIDefaults `json:"ui_defaults"`
-		LogLevel     string            `json:"log_level"`
+		TaskScan   config.TaskScan   `json:"task_scan"`
+		Downloader config.Downloader `json:"downloader"`
+		UIDefaults config.UIDefaults `json:"ui_defaults"`
+		LogLevel   string            `json:"log_level"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))

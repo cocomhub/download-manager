@@ -341,7 +341,7 @@
         },
         saveConfig: function () {
           var self = this
-          AppAPI.put('/api/config/server', this.configForm).then(function (res) {
+          AppAPI.post('/api/config/server', this.configForm).then(function (res) {
             if (!res.ok) throw new Error('保存失败')
             self.showToast('配置已保存', 'success')
             self.showConfigModal = false
