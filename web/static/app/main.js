@@ -352,6 +352,115 @@
       closeCustomUI: function () {
         var el = document.getElementById('custom-ui-content')
         if (el) el.innerHTML = ''
+      },
+
+      // ---- Default object info viewer (no-task-type fallback) ----
+      openObjectInfoViewer: function (obj) {
+        if (!obj) return
+        Log.info('openObjectInfoViewer', { url: obj.url, status: obj.status, title: this.getTitle(obj) })
+        var self = this
+        var container = document.createElement('div')
+        document.body.appendChild(container)
+        var vm = Vue.createApp({
+          render: function (h) {
+            var title = self.getTitle(obj) || obj.url || ''
+            var fileUrl = self.getFileUrl(obj)
+            var tags = self.getTags(obj)
+            var dateVal = self.getDate(obj)
+            var duration = self.getDuration(obj)
+
+            function onClose () {
+              vm.unmount()
+              if (container.parentNode) container.parentNode.removeChild(container)
+            }
+
+            return h('div', {
+              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
+              on: { click: function (e) { if (e.target === e.currentTarget) onClose() } }
+            }, [
+              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col' }, [
+                // Header
+                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
+                  h('h3', { class: 'text-lg font-bold text-gray-800 truncate' }, title || '对象信息'),
+                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); onClose() } } }, [
+                    h('i', { class: 'fas fa-times' })
+                  ]),
+                ]),
+                // Body
+                h('div', { class: 'flex-1 overflow-y-auto p-4 space-y-3' }, [
+                  // Status badge
+                  h('div', { class: 'flex items-center gap-2' }, [
+                    h('span', { class: 'text-xs text-gray-500' }, '状态：'),
+                    h('span', {
+                      class: 'px-2 py-0.5 text-xs font-semibold rounded-full',
+                      style: {
+                        backgroundColor: obj.status === 'completed' ? '#d1fae5' : obj.status === 'failed' ? '#fee2e2' : obj.status === 'downloading' ? '#fef3c7' : '#f3f4f6',
+                        color: obj.status === 'completed' ? '#065f46' : obj.status === 'failed' ? '#991b1b' : obj.status === 'downloading' ? '#92400e' : '#374151'
+                      }
+                    }, obj.status || '')
+                  ]),
+                  // URL
+                  obj.url ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, 'URL：'),
+                    h('span', { class: 'text-gray-700 break-all' }, obj.url)
+                  ]) : null,
+                  // Save path
+                  obj.save_path ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '文件路径：'),
+                    h('span', { class: 'text-gray-700 break-all' }, obj.save_path)
+                  ]) : null,
+                  // Date
+                  dateVal ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '日期：'),
+                    h('span', { class: 'text-gray-700' }, dateVal)
+                  ]) : null,
+                  // Duration
+                  duration ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '时长：'),
+                    h('span', { class: 'text-gray-700' }, duration)
+                  ]) : null,
+                  // Tags
+                  tags.length ? h('div', { class: 'flex flex-wrap gap-1' }, tags.map(function (tag) {
+                    return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag)
+                  })) : null,
+                  // Metadata
+                  obj.metadata ? h('div', { class: 'border-t pt-3 mt-2' }, [
+                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '元数据'),
+                    Object.keys(obj.metadata).filter(function (k) { return !['title', 'date', 'duration'].includes(k) }).map(function (k) {
+                      return h('div', { class: 'text-xs text-gray-600' }, k + ': ' + (obj.metadata[k] || ''))
+                    })
+                  ]) : null,
+                  // Extra
+                  obj.extra ? h('div', { class: 'border-t pt-3 mt-2' }, [
+                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '扩展信息'),
+                    Object.keys(obj.extra).filter(function (k) { return k !== 'tags' && k !== 'images' && k !== 'files' }).map(function (k) {
+                      var v = obj.extra[k]
+                      if (typeof v === 'object') v = JSON.stringify(v, null, 2)
+                      return h('div', { class: 'text-xs text-gray-600 break-all' }, k + ': ' + v)
+                    })
+                  ]) : null,
+                ]),
+                // Footer
+                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
+                  h('div', { class: 'flex gap-2' }, [
+                    fileUrl ? h('a', {
+                      attrs: { href: fileUrl, target: '_blank', rel: 'noopener noreferrer' },
+                      class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
+                    }, '打开文件') : null,
+                    obj.metadata && obj.metadata.page_url ? h('a', {
+                      attrs: { href: obj.metadata.page_url, target: '_blank', rel: 'noopener noreferrer' },
+                      class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100'
+                    }, '打开原页面') : null,
+                  ]),
+                  h('button', {
+                    class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
+                    on: { click: function (e) { e.stopPropagation(); onClose() } }
+                  }, '关闭'),
+                ]),
+              ])
+            ])
+          }
+        }).mount(container)
       }
     }
   })

@@ -378,9 +378,9 @@
         handleCardClick: function (obj) {
           if (!obj) return
           Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
-          // cancelled + redirect_url → open origin page
+          // cancelled + redirect_url → show info modal with link
           if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
-            window.open(obj.extra.redirect_url, '_blank', 'noopener,noreferrer')
+            this.openObjectInfoViewer(obj)
             return
           }
           if (obj.status === 'completed') {
@@ -397,12 +397,12 @@
               }
               if (handler.onClick(obj, helpers)) return
             }
-            // Default: play video or open file
+            // Default: play video or show object info modal
             if (this.isVideo(obj)) {
               this.playVideo(obj)
               return
             }
-            window.open(this.getFileUrl(obj), '_blank', 'noopener,noreferrer')
+            this.openObjectInfoViewer(obj)
           }
         },
         openGroupModal: function (obj) {
