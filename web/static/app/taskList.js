@@ -13,6 +13,7 @@
       app.mixin({methods: {
         fetchTasks: function () {
           var self = this
+          Log.debug('fetchTasks started')
           AppAPI.tasks().then(function (data) {
             self.tasks = data || []
             if (typeof syncTaskTypes === 'function') {
@@ -28,6 +29,7 @@
         },
 
         selectTask: function (id) {
+          Log.info('selectTask', { id: id })
           this.mobileSidebarOpen = false
           this.selectedTaskId = id
           this.selectedTaskIds = this.selectedTaskIds.filter(function (x) { return x !== id })
@@ -48,6 +50,7 @@
           // Load task-type-specific UI (e.g. reader.js for mxs)
           var task = this.tasks.find(function (t) { return t.id === id })
           if (task && task.type) {
+            Log.debug('selectTask loading task UI', { type: task.type })
             this.loadTaskUI(task.type)
           }
         },
@@ -90,6 +93,7 @@
 
         fetchTaskDetails: function (id, background) {
           if (!id) return
+          Log.debug('fetchTaskDetails', { id: id, background: !!background, page: this.pagination.page })
           if (!background) {
             this.isLoadingTask = true
             if (this.abortController) this.abortController.abort()
