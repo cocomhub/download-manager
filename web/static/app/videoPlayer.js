@@ -257,31 +257,63 @@
 
         getCoverImage: function (obj) {
           if (!obj) return ''
-          // Local downloaded files (priority for completed objects)
-          if (obj.extra) {
-            if (obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
-            if (obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
+          // Collect all candidate URLs from various sources, then pick first
+          var candidates = []
+          function pushUrl (u) {
+            if (typeof u === 'string' && u) candidates.push(u)
           }
-          // 3. Remote cover URLs from scrapers
           if (obj.extra) {
-            if (obj.extra.thumb_url) return obj.extra.thumb_url
-            if (obj.extra.cover_url) return obj.extra.cover_url
-            if (obj.extra.preview_url) return obj.extra.preview_url
-            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
-          }
-          // 4. VikACG: find first image-type file from extra.files
-          if (obj.extra && Array.isArray(obj.extra.files)) {
-            for (var fi = 0; fi < obj.extra.files.length; fi++) {
-              var f = obj.extra.files[fi]
-              if (f && f.type === 'image' && f.path) return this.pathToUrl(f.path)
+            // Local downloaded files (highest priority)
+            if (obj.extra.local_cover) { candidates = [this.pathToUrl(obj.extra.local_cover)]; return candidates[0] }
+            if (obj.extra.local_preview) { candidates = [this.pathToUrl(obj.extra.local_preview)]; return candidates[0] }
+            // Remote cover URL fields (Hanime compat: cover_images, cover_urls, covers, cover_url, cover)
+            if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
+            if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
+            if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
+            if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
+            if (obj.extra.cover) pushUrl(obj.extra.cover)
+            // Remote cover URL fields (scraper compat)
+            if (obj.extra.thumb_url) pushUrl(obj.extra.thumb_url)
+            if (obj.extra.preview_url) pushUrl(obj.extra.preview_url)
+            // Generic images array
+            if (Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
+            // Local files: find image-type files with cover/thumb in name
+            if (Array.isArray(obj.extra.files)) {
+              for (var fi = 0; fi < obj.extra.files.length; fi++) {
+                var f = obj.extra.files[fi]
+                if (f && f.type === 'image' && f.path) {
+                  var fname = (f.name || f.path || '').toString().toLowerCase()
+                  if (fname.indexOf('cover') >= 0 || fname.indexOf('thumb') >= 0) {
+                    pushUrl(this.pathToUrl(f.path))
+                  }
+                }
+              }
+              // Fallback: first image-type file
+              if (candidates.length === 0) {
+                for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
+                  var f2 = obj.extra.files[fi2]
+                  if (f2 && f2.type === 'image' && f2.path) {
+                    pushUrl(this.pathToUrl(f2.path))
+                    break
+                  }
+                }
+              }
             }
           }
-          // 5. Hanime compat: construct thumbnail from page_url
-          if (obj.metadata && obj.metadata.page_url) {
+          // Hanime compat: construct thumbnail from page_url
+          if (candidates.length === 0 && obj.metadata && obj.metadata.page_url) {
             var u = obj.metadata.page_url
-            if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) return 'https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg'
+            if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) {
+              pushUrl('https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg')
+            }
           }
-          return ''
+          // Dedup
+          var seen = {}, out = []
+          for (var ci = 0; ci < candidates.length; ci++) {
+            var c = candidates[ci]
+            if (c && !seen[c]) { seen[c] = true; out.push(c) }
+          }
+          return out.length > 0 ? out[0] : ''
         },
 
         onCoverError: function (event) {
