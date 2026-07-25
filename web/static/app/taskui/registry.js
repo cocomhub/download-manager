@@ -86,5 +86,9 @@
       var h = registry[type]
       return h && typeof h.renderCardExtra === 'function'
     },
+    hasOnClick: function (type) {
+      var h = registry[type]
+      return h && typeof h.onClick === 'function'
+    },
   }
 })()

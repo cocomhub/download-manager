@@ -367,6 +367,13 @@
           this.showConfigHistoryModal = true
         },
 
+        // ---- TaskUI helper predicates ----
+        hasOnClick: function (obj) {
+          if (!obj) return false
+          var type = obj.metadata && obj.metadata.task_type
+          return type && TaskUI.hasOnClick(type)
+        },
+
         // ---- Card / group modal ----
         handleCardClick: function (obj) {
           if (!obj) return

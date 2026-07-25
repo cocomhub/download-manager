@@ -419,6 +419,98 @@
           return true
         }
         return false
+      },
+      renderViewer: function (h, obj, onClose) {
+        var images = getImages(obj)
+        if (images.length === 0) {
+          if (onClose) onClose()
+          return h('div')
+        }
+
+        // Wrapper component with reactive state for image navigation
+        var Wrapper = {
+          data: function () {
+            return { currentIdx: 0 }
+          },
+          methods: {
+            prev: function () { this.currentIdx = (this.currentIdx - 1 + images.length) % images.length },
+            next: function () { this.currentIdx = (this.currentIdx + 1) % images.length },
+            goTo: function (idx) { this.currentIdx = idx },
+            handleKeydown: function (e) {
+              if (e.key === 'Escape') { if (onClose) onClose(); return }
+              if (e.key === 'ArrowLeft') { e.preventDefault(); this.prev() }
+              if (e.key === 'ArrowRight') { e.preventDefault(); this.next() }
+            }
+          },
+          mounted: function () { document.addEventListener('keydown', this.handleKeydown) },
+          beforeUnmount: function () { document.removeEventListener('keydown', this.handleKeydown) },
+          render: function (h) {
+            var self = this
+            var currentIdx = this.currentIdx
+            var currentSrc = images[currentIdx] || ''
+            var title = getTitle(obj) || 'VikACG'
+            var section = obj && obj.metadata && obj.metadata.section
+            var dateVal = getDate(obj)
+            var html = getContentHtml(obj)
+            var excerpt = getExcerpt(obj)
+            var tags = getTags(obj)
+            var links = getLinks(obj)
+            var pageUrl = obj && obj.metadata && obj.metadata.page_url
+
+            return h('div', {
+              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
+              on: { click: function (e) { if (e.target === e.currentTarget && onClose) onClose() } }
+            }, [
+              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col' }, [
+                // Header
+                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
+                  h('div', { class: 'flex items-center gap-3' }, [
+                    h('h3', { class: 'text-lg font-bold text-gray-800' }, title),
+                    section ? h('span', { class: 'px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-600' }, section) : null,
+                    dateVal ? h('span', { class: 'text-xs text-gray-500' }, dateVal) : null,
+                  ]),
+                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, [
+                    h('i', { class: 'fas fa-times' })
+                  ]),
+                ]),
+                // Body
+                h('div', { class: 'flex-1 overflow-y-auto' }, [
+                  // Image area
+                  h('div', { class: 'relative bg-black flex items-center justify-center', style: { minHeight: '300px' } }, [
+                    h('img', {
+                      attrs: { src: currentSrc, alt: title },
+                      class: 'w-full object-contain',
+                      style: { maxHeight: '60vh' },
+                      on: { error: function (e) { e.target.style.display = 'none' } }
+                    }),
+                    images.length > 1 ? [
+                      h('button', { class: 'absolute left-2 top-1/2 transform -translate-y-1/2 bg-white/80 rounded-full w-9 h-9 flex items-center justify-center text-gray-700 hover:bg-white shadow', on: { click: function (e) { e.stopPropagation(); self.prev() } } }, [h('i', { class: 'fas fa-chevron-left' })]),
+                      h('button', { class: 'absolute right-2 top-1/2 transform -translate-y-1/2 bg-white/80 rounded-full w-9 h-9 flex items-center justify-center text-gray-700 hover:bg-white shadow', on: { click: function (e) { e.stopPropagation(); self.next() } } }, [h('i', { class: 'fas fa-chevron-right' })]),
+                    ] : null,
+                  ]),
+                  images.length > 1 ? h('div', { class: 'text-xs text-gray-500 text-center py-1 bg-gray-50' }, (currentIdx + 1) + ' / ' + images.length) : null,
+                  images.length > 1 ? h('div', { class: 'flex gap-2 p-2 overflow-x-auto bg-gray-100' }, images.map(function (src, idx) {
+                    return h('img', { attrs: { src: src, alt: 'Thumb ' + (idx + 1) }, class: 'w-16 h-16 object-cover rounded cursor-pointer', style: { border: '2px solid ' + (idx === currentIdx ? '#3b82f6' : '#e5e7eb'), boxShadow: idx === currentIdx ? '0 0 0 2px #3b82f6' : 'none' }, on: { click: function () { self.goTo(idx) } } })
+                  })) : null,
+                  h('div', { class: 'p-4' }, [
+                    html ? h('div', { class: 'text-sm text-gray-700 leading-relaxed' }, html.replace(/<[^>]+>/g, ' ')) : excerpt ? h('div', { class: 'text-sm text-gray-700 whitespace-pre-line leading-relaxed' }, excerpt) : null,
+                    tags.length ? h('div', { class: 'flex flex-wrap gap-1 mb-3 mt-3' }, tags.map(function (tag) { return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag) })) : null,
+                    links.length ? [h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '相关链接'), h('ul', { class: 'space-y-1' }, links.map(function (l) { return h('li', [h('a', { attrs: { href: /^https?:\/\//i.test(l.href) ? l.href : '#', target: '_blank', rel: 'noopener noreferrer' }, class: 'text-xs text-blue-600 hover:text-blue-800 break-all' }, l.text || l.href)]) }))] : null,
+                  ]),
+                ]),
+                // Footer
+                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
+                  h('div', { class: 'flex gap-2' }, [
+                    pageUrl ? h('button', { class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700', on: { click: function () { window.open(pageUrl, '_blank', 'noopener,noreferrer') } } }, '打开原页面') : null,
+                    pageUrl ? h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pageUrl) } } }, '复制链接') : null,
+                  ]),
+                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, '关闭'),
+                ]),
+              ])
+            ])
+          }
+        }
+        return h(Wrapper)
       }
     })
   }
