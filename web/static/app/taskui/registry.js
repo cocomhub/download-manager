@@ -20,9 +20,15 @@
       type: handler.type || '',
       label: handler.label || handler.type || '',
       icon: handler.icon || 'fa-cube',
-      renderForm: typeof handler.renderForm === 'function' ? handler.renderForm : null,
-      renderMeta: typeof handler.renderMeta === 'function' ? handler.renderMeta : null,
-      renderCardExtra: typeof handler.renderCardExtra === 'function' ? handler.renderCardExtra : null,
+      renderForm: typeof handler.renderForm === 'function'
+        ? function (formData, formErrors) { return handler.renderForm(Vue.h, formData, formErrors) }
+        : null,
+      renderMeta: typeof handler.renderMeta === 'function'
+        ? function (task) { return handler.renderMeta(Vue.h, task) }
+        : null,
+      renderCardExtra: typeof handler.renderCardExtra === 'function'
+        ? function (obj) { return handler.renderCardExtra(Vue.h, obj) }
+        : null,
       renderViewer: typeof handler.renderViewer === 'function'
         ? function (obj, onClose) { return handler.renderViewer(Vue.h, obj, onClose) }
         : null,

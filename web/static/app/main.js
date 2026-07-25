@@ -177,8 +177,8 @@
         if (handler && handler.renderForm) {
           var self = this
           return {
-            render: function (h) {
-              return handler.renderForm(h, self.newTask, {})
+            render: function () {
+              return handler.renderForm(self.newTask, {})
             }
           }
         }
@@ -194,8 +194,8 @@
         if (handler && handler.renderMeta) {
           var task = this.selectedTask
           return {
-            render: function (h) {
-              return handler.renderMeta(h, task)
+            render: function () {
+              return handler.renderMeta(task)
             }
           }
         }
@@ -343,8 +343,8 @@
         var handler = TaskUI.get(type)
         if (handler && handler.renderCardExtra) {
           return {
-            render: function (h) {
-              return handler.renderCardExtra(h, obj)
+            render: function () {
+              return handler.renderCardExtra(obj)
             }
           }
         }
