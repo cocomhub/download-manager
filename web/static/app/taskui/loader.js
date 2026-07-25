@@ -10,16 +10,30 @@
   'use strict'
 
   var loadedTypes = {}
+  var failedTypes = {}
 
   function loadTaskUI(taskType, callback) {
     if (!taskType || taskType === 'all') return
+    // Already loaded successfully
     if (loadedTypes[taskType]) {
+      if (callback) callback()
+      return
+    }
+    // Previously failed — don't retry
+    if (failedTypes[taskType]) {
       if (callback) callback()
       return
     }
 
     fetch('/api/ui/' + encodeURIComponent(taskType) + '/config')
-      .then(function (r) { return r.json() })
+      .then(function (r) {
+        if (!r.ok) {
+          // 404 means no UI assets for this type — cache as failed
+          failedTypes[taskType] = true
+          throw new Error('HTTP ' + r.status)
+        }
+        return r.json()
+      })
       .then(function (cfg) {
         var pending = 0
         function onLoad() {
@@ -68,7 +82,8 @@
         }
       })
       .catch(function (e) {
-        console.warn('loadTaskUI failed for', taskType, e)
+        // Cache failure so we don't retry on every task click
+        failedTypes[taskType] = true
         if (callback) callback()
       })
   }
@@ -76,4 +91,5 @@
   window.TaskUI = window.TaskUI || {}
   window.TaskUI.loadTaskUI = loadTaskUI
   window.TaskUI._loadedTypes = loadedTypes
+  window.TaskUI._failedTypes = failedTypes
 })()

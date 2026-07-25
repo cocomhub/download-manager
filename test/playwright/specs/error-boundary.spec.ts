@@ -44,7 +44,7 @@ test.describe('UI-only Mode & Error Boundaries', () => {
       .rejects.toThrow(/405/);
   });
 
-  test('T14d: no uncaught JS errors on task selection', async ({ page }) => {
+  test('T14d: no uncaught JS errors on task selection across all types', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
@@ -53,7 +53,7 @@ test.describe('UI-only Mode & Error Boundaries', () => {
     await expect(page.locator('[data-testid="task-test-tktube"]')).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(500);
 
-    // Select a tktube task — triggers loadTaskUI path
+    // Select a tktube task — triggers loadTaskUI for a registered type
     await page.locator('[data-testid="task-test-tktube"]').click();
     await page.waitForTimeout(1000);
 
@@ -65,7 +65,35 @@ test.describe('UI-only Mode & Error Boundaries', () => {
     await page.locator('[data-testid="task-test-hanime"]').click();
     await page.waitForTimeout(1000);
 
+    // Select a mock-type task (test-mixed) — triggers 404 for unregistered UI type
+    await page.locator('[data-testid="task-test-mixed"]').click();
+    await page.waitForTimeout(1000);
+
     // Assert no JS errors occurred
+    expect(errors).toEqual([]);
+  });
+
+  test('T14e: no uncaught JS errors on new task form type switch', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.goto('/');
+    await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
+
+    // Open the new task dialog
+    const addBtn = page.getByText('新建任务');
+    await addBtn.click();
+    await page.waitForTimeout(500);
+
+    // Switch between task types in the form — triggers renderForm switching
+    const typeSelect = page.locator('select').filter({ has: page.locator('option[value="url_list"]') });
+    if (await typeSelect.isVisible()) {
+      await typeSelect.selectOption('tktube');
+      await page.waitForTimeout(500);
+      await typeSelect.selectOption('url_list');
+      await page.waitForTimeout(500);
+    }
+
     expect(errors).toEqual([]);
   });
 });
