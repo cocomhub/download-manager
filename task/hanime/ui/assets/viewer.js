@@ -764,6 +764,23 @@
         // Backdrop click
         overlay.addEventListener('click', function (e) { if (e.target === overlay) onClose() })
 
+        // Escape key
+        var keyHandler = function(e) {
+          if (e.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', keyHandler)
+
+        // Override onClose to clean up
+        var origOnClose_ = onClose
+        onClose = function () {
+          document.removeEventListener('keydown', keyHandler)
+          if (modalRef.overlay && modalRef.overlay.parentNode) {
+            modalRef.overlay.parentNode.removeChild(modalRef.overlay)
+          }
+          document.body.style.overflow = ''
+          if (origOnClose_) origOnClose_()
+        }
+
         // Append to document
         document.body.appendChild(overlay)
         document.body.style.overflow = 'hidden'

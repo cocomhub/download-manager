@@ -66,6 +66,18 @@ func loadFull(mgr *manager.Manager) error {
 							"label":     "vikacg-image",
 							"task_type": "vikacg",
 						},
+						"extra": map[string]any{
+							"images": []any{
+								"http://fixture/vikacg/image-0.jpg",
+								"http://fixture/vikacg/image-1.jpg",
+								"http://fixture/vikacg/image-2.jpg",
+								"http://fixture/vikacg/image-3.jpg",
+								"http://fixture/vikacg/image-4.jpg",
+								"http://fixture/vikacg/image-5.jpg",
+								"http://fixture/vikacg/image-6.jpg",
+								"http://fixture/vikacg/image-7.jpg",
+							},
+						},
 					},
 				},
 				"mock_behavior": map[string]any{

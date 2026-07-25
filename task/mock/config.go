@@ -21,6 +21,7 @@ type MockRule struct {
 	InitialProgress int               `yaml:"initial_progress,omitempty" json:"initial_progress,omitempty"`
 	Status          string            `yaml:"status,omitempty" json:"status,omitempty"`
 	Metadata        map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Extra           map[string]any    `yaml:"extra,omitempty" json:"extra,omitempty"`
 }
 
 // Validate validates the rule and returns an error if invalid.
@@ -65,6 +66,11 @@ func (r *MockRule) generateObjects(taskID string, urlSuffixOffset int) []*model.
 
 		if r.Metadata != nil {
 			maps.Copy(obj.Metadata, r.Metadata)
+		}
+
+		if r.Extra != nil {
+			obj.Extra = make(map[string]any)
+			maps.Copy(obj.Extra, r.Extra)
 		}
 
 		obj.SetGroupSize(int(r.FileSize))
@@ -158,7 +164,19 @@ func mapToMockRule(m map[string]any) (MockRule, error) {
 	r.Status, _ = m["status"].(string)
 	r.Slugs = stringSliceFromAny(m["slugs"])
 	r.Metadata = stringMapFromAny(m["metadata"])
+	r.Extra = anyMapFromAny(m["extra"])
 	return r, nil
+}
+
+func anyMapFromAny(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	raw, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return raw
 }
 
 func intFromAny(v any) int {
