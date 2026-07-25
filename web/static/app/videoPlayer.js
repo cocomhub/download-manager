@@ -257,27 +257,16 @@
 
         getCoverImage: function (obj) {
           if (!obj) return ''
-          // Collect all candidate URLs from various sources, then pick first
+          // Collect all candidate URLs, then pick first
           var candidates = []
           function pushUrl (u) {
             if (typeof u === 'string' && u) candidates.push(u)
           }
           if (obj.extra) {
-            // Local downloaded files (highest priority)
+            // 1. Explicit local cover/preview (highest priority)
             if (obj.extra.local_cover) { candidates = [this.pathToUrl(obj.extra.local_cover)]; return candidates[0] }
             if (obj.extra.local_preview) { candidates = [this.pathToUrl(obj.extra.local_preview)]; return candidates[0] }
-            // Remote cover URL fields (Hanime compat: cover_images, cover_urls, covers, cover_url, cover)
-            if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
-            if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
-            if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
-            if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
-            if (obj.extra.cover) pushUrl(obj.extra.cover)
-            // Remote cover URL fields (scraper compat)
-            if (obj.extra.thumb_url) pushUrl(obj.extra.thumb_url)
-            if (obj.extra.preview_url) pushUrl(obj.extra.preview_url)
-            // Generic images array
-            if (Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
-            // Local files: find image-type files with cover/thumb in name
+            // 2. Local files: find image-type files with cover/thumb in filename
             if (Array.isArray(obj.extra.files)) {
               for (var fi = 0; fi < obj.extra.files.length; fi++) {
                 var f = obj.extra.files[fi]
@@ -288,7 +277,7 @@
                   }
                 }
               }
-              // Fallback: first image-type file
+              // 3. Fallback: first image-type file
               if (candidates.length === 0) {
                 for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
                   var f2 = obj.extra.files[fi2]
@@ -299,8 +288,19 @@
                 }
               }
             }
+            // 4. Remote cover URL fields (Hanime compat)
+            if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
+            if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
+            if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
+            if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
+            if (obj.extra.cover) pushUrl(obj.extra.cover)
+            // 5. Remote scraper cover fields
+            if (obj.extra.thumb_url) pushUrl(obj.extra.thumb_url)
+            if (obj.extra.preview_url) pushUrl(obj.extra.preview_url)
+            // 6. Generic images array
+            if (Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
           }
-          // Hanime compat: construct thumbnail from page_url
+          // 7. Hanime fallback: construct thumbnail from page_url
           if (candidates.length === 0 && obj.metadata && obj.metadata.page_url) {
             var u = obj.metadata.page_url
             if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) {
