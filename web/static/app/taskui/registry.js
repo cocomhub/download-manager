@@ -38,20 +38,33 @@
     register: function (type, handler) {
       if (!type || !handler) return
       registry[type] = normalizeHandler(handler)
+      Log.debug('TaskUI.register', { type: type, hasForm: !!handler.renderForm, hasViewer: !!handler.renderViewer, hasMeta: !!handler.renderMeta, hasCardExtra: !!handler.renderCardExtra })
     },
     get: function (type) {
-      return registry[type] || null
+      var h = registry[type] || null
+      if (h) {
+        Log.trace('TaskUI.get', { type: type, found: true })
+      } else {
+        Log.trace('TaskUI.get', { type: type, found: false })
+      }
+      return h
     },
     list: function () {
-      return Object.keys(registry)
+      var keys = Object.keys(registry)
+      Log.debug('TaskUI.list', { count: keys.length, types: keys })
+      return keys
     },
     hasForm: function (type) {
       var h = registry[type]
-      return h && typeof h.renderForm === 'function'
+      var result = h && typeof h.renderForm === 'function'
+      Log.trace('TaskUI.hasForm', { type: type, result: result })
+      return result
     },
     hasViewer: function (type) {
       var h = registry[type]
-      return h && typeof h.renderViewer === 'function'
+      var result = h && typeof h.renderViewer === 'function'
+      Log.trace('TaskUI.hasViewer', { type: type, result: result })
+      return result
     },
     hasMeta: function (type) {
       var h = registry[type]

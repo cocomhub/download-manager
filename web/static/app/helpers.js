@@ -177,25 +177,28 @@
         // SSE
         initSSE: function () {
           if (this.eventSource) this.eventSource.close()
+          Log.debug('initSSE connecting')
           var self = this
           this.eventSource = new EventSource('/api/events')
           this.eventSource.onmessage = function (event) {
             try {
               var data = JSON.parse(event.data)
+              Log.trace('SSE event', { type: data.type, taskId: data.payload && data.payload.task_id })
               self.handleEvent(data)
-            } catch (e) { console.error('SSE Parse Error', e) }
+            } catch (e) { Log.error('SSE Parse Error', { error: e.message }) }
           }
           this.eventSource.onerror = function () {
-            console.error('SSE Error')
+            Log.warn('SSE connection error, reconnecting...')
             self.showToast('Connection lost. Reconnecting...', 'error')
           }
           this.eventSource.onopen = function () {
-            // SSE 重连成功后刷新任务列表，解决断连后数据陈旧的问题
+            Log.debug('SSE connected')
             self.fetchTasks()
           }
         },
         handleEvent: function (event) {
           var self = this
+          Log.trace('handleEvent', { type: event.type, taskId: event.payload && event.payload.task_id, url: event.payload && event.payload.url })
           if (event.type === 'object_update' || event.type === 'shared_object_update') {
             var obj = event.payload
             if (obj.status === 'downloading') {
@@ -291,6 +294,7 @@
         // ---- Create task modal ----
         openAddTask: function ($event) {
           if ($event) $event.preventDefault()
+          Log.debug('openAddTask', { currentType: this.newTask.type })
           this.showAddTaskModal = true
         },
         saveNewTask: function () {
@@ -300,6 +304,7 @@
             save_dir: this.newTask.save_dir,
             storage: { type: this.newTask.storage_type }
           }
+          Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
           if (this.newTask.storage_type === 'file' && this.newTask.storage_config.path) {
             payload.storage.path = this.newTask.storage_config.path
           }
@@ -333,10 +338,12 @@
 
         // ---- Config panel ----
         openConfig: function () {
+          Log.info('openConfig')
           this.showConfigModal = true
           var self = this
           AppAPI.serverConfig().then(function (data) {
             self.configForm = data || {}
+            Log.debug('openConfig loaded', { log_level: data && data.log_level })
           }).catch(function () {})
         },
         saveConfig: function () {
@@ -386,11 +393,13 @@
 
         // ---- Tktube / Aggregate view ----
         openTktubeAggregate: function () {
+          Log.info('openTktubeAggregate', { selectedType: this.selectedType, viewMode: this.viewMode })
           this.viewMode = 'tktube'
           this.fetchAggregateByType(this.selectedType || 'all')
         },
         fetchAggregateByType: function (type) {
           if (this.tktubeLoading) return
+          Log.debug('fetchAggregateByType', { type: type, page: this.tktubePagination.page, sort: this.tktubeSortBy, groupBy: this.tktubeGroupBy })
           this.tktubeLoading = true
           var self = this
           AppAPI.aggregate({

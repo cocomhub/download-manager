@@ -279,8 +279,9 @@
       // ---- TaskUI integration ----
       loadTaskUIForType: function (taskType) {
         var self = this
-        Log.debug('loadTaskUIForType', { type: taskType })
+        Log.info('loadTaskUIForType', { type: taskType, registeredCount: TaskUI.list().length })
         TaskUI.loadTaskUI(taskType, function () {
+          Log.debug('loadTaskUIForType callback — forceUpdate', { type: taskType })
           self.$forceUpdate()
         })
       },
