@@ -39,6 +39,7 @@
   }
 
   function renderTextField(h, field, data, errors) {
+    if (typeof h !== 'function') return null
     return renderFieldWrapper(h, field, errors, [
       h('input', {
         class: 'w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500' + (errors[field.key] ? ' border-red-500' : ''),
@@ -50,6 +51,7 @@
   }
 
   function renderNumberField(h, field, data, errors) {
+    if (typeof h !== 'function') return null
     return renderFieldWrapper(h, field, errors, [
       h('input', {
         class: 'w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500' + (errors[field.key] ? ' border-red-500' : ''),
@@ -61,6 +63,7 @@
   }
 
   function renderSelectField(h, field, data, errors) {
+    if (typeof h !== 'function') return null
     return renderFieldWrapper(h, field, errors, [
       h('select', {
         class: 'w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500' + (errors[field.key] ? ' border-red-500' : ''),
@@ -76,6 +79,7 @@
   }
 
   function renderTextareaField(h, field, data, errors) {
+    if (typeof h !== 'function') return null
     return renderFieldWrapper(h, field, errors, [
       h('textarea', {
         class: 'w-full border border-gray-300 rounded-md p-2 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500' + (errors[field.key] ? ' border-red-500' : ''),
@@ -87,6 +91,7 @@
   }
 
   function renderCheckboxField(h, field, data, errors) {
+    if (typeof h !== 'function') return null
     return h('div', { class: 'flex items-center gap-2' }, [
       h('input', {
         attrs: { type: 'checkbox', id: 'field-' + field.key },
@@ -98,6 +103,7 @@
   }
 
   function renderFieldWrapper(h, field, errors, children) {
+    if (typeof h !== 'function') return null
     var errorMsg = errors[field.key]
     return h('div', [
       field.label ? h('label', {

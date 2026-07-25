@@ -37,7 +37,7 @@
     var fields = config.fields || []
 
     return function renderMeta(h, task) {
-      if (!task) return h('div', { class: 'text-xs text-gray-500' }, '无数据')
+      if (!task || typeof h !== 'function') return null
       return h('div', { class: 'grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600' }, fields.map(function (field) {
         var renderer = META_RENDERERS[field.type] || renderMetaText
         return renderer(h, field, task)
@@ -46,6 +46,7 @@
   }
 
   function renderMetaText(h, field, task) {
+    if (typeof h !== 'function') return null
     var value = resolvePath(task, field.path)
     if (value === undefined || value === null) value = '-'
     return h('div', [
@@ -55,6 +56,7 @@
   }
 
   function renderMetaCount(h, field, task) {
+    if (typeof h !== 'function') return null
     var value = resolvePath(task, field.path)
     var count = 0
     if (Array.isArray(value)) count = value.length
@@ -66,6 +68,7 @@
   }
 
   function renderMetaJson(h, field, task) {
+    if (typeof h !== 'function') return null
     var value = resolvePath(task, field.path)
     var text = '-'
     try { text = JSON.stringify(value, null, 2) } catch (e) {}
