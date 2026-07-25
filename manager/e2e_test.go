@@ -71,7 +71,7 @@ func TestE2E_RetryFailedObjects(t *testing.T) {
 
 // TestE2E_CancelDuringDownload verifies cancel of an in-flight download.
 func TestE2E_CancelDuringDownload(t *testing.T) {
-	dl := mockdl.New(mockdl.ModeSimulateProgress, mockdl.WithDelay(100*time.Millisecond))
+	dl := mockdl.New(mockdl.ModePauseOnProgress)
 	mgr, _ := newMockManager(t, "e2e-cancel-dl", 5, dl)
 	_ = startManager(t, mgr)
 

@@ -121,6 +121,13 @@
         },
         getFileUrl: function (obj) {
           if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
+          // Check extra.files for first file (ff78f9b compat)
+          if (obj && obj.extra && Array.isArray(obj.extra.files)) {
+            for (var fi = 0; fi < obj.extra.files.length; fi++) {
+              var f = obj.extra.files[fi]
+              if (f && f.path) return this.pathToUrl(f.path)
+            }
+          }
           return ''
         },
         getTaskDisplayName: function (task) {
@@ -367,21 +374,53 @@
           this.showConfigHistoryModal = true
         },
 
+        // ---- TaskUI helper predicates ----
+        hasOnClick: function (obj) {
+          if (!obj) return false
+          var type = obj.metadata && obj.metadata.task_type
+          return type && TaskUI.hasOnClick(type)
+        },
+
         // ---- Card / group modal ----
         handleCardClick: function (obj) {
           if (!obj) return
           Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
+          // cancelled + redirect_url → show info modal with link
+          if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
+            this.openObjectInfoViewer(obj)
+            return
+          }
           if (obj.status === 'completed') {
-            // Delegate to task-type plugin viewer if one is registered
             var type = obj.metadata && obj.metadata.task_type
-            if (type && TaskUI.hasViewer(type)) {
-              this.openTaskTypeViewer(obj)
+            // Ensure task-type plugin UI is loaded before dispatching
+            if (type && !TaskUI.get(type)) {
+              Log.info('handleCardClick: plugin not loaded yet, loading and retrying', { type: type })
+              var self = this
+              this.loadTaskUIForType(type, function () {
+                // Retry after load
+                Log.info('handleCardClick: plugin loaded, retrying click', { type: type })
+                self.handleCardClick(obj)
+              })
               return
             }
-            // Fall back to built-in video player
+            // Delegate to task-type plugin onClick if registered
+            var handler = type ? TaskUI.get(type) : null
+            if (handler && handler.onClick) {
+              var helpers = {
+                openTaskTypeViewer: this.openTaskTypeViewer.bind(this),
+                playVideo: this.playVideo.bind(this),
+                getFileUrl: this.getFileUrl.bind(this),
+                pathToUrl: this.pathToUrl.bind(this),
+                getTitle: this.getTitle.bind(this)
+              }
+              if (handler.onClick(obj, helpers)) return
+            }
+            // Default: play video or show object info modal
             if (this.isVideo(obj)) {
               this.playVideo(obj)
+              return
             }
+            this.openObjectInfoViewer(obj)
           }
         },
         openGroupModal: function (obj) {

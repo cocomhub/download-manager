@@ -28,6 +28,32 @@
     return (obj && obj.metadata && obj.metadata.duration) || ''
   }
 
+  function getOriginLink (obj) {
+    if (obj && obj.metadata && obj.metadata.page_url) return obj.metadata.page_url
+    if (obj && obj.extra && obj.extra.origin_url) return obj.extra.origin_url
+    return (obj && obj.url) || ''
+  }
+
+  function getTags (obj) {
+    var tags = []
+    if (obj && obj.extra && Array.isArray(obj.extra.tags)) tags.push.apply(tags, obj.extra.tags)
+    if (obj && obj.metadata && Array.isArray(obj.metadata.tags)) tags.push.apply(tags, obj.metadata.tags)
+    var set = {}, out = []
+    tags.forEach(function (t) {
+      var s = (t || '').toString().trim()
+      if (s && !set[s]) { set[s] = true; out.push(s) }
+    })
+    return out
+  }
+
+  function getDetails (obj) {
+    var s = ''
+    if (obj && obj.extra && obj.extra.description) s = obj.extra.description
+    else if (obj && obj.metadata && obj.metadata.description) s = obj.metadata.description
+    else if (obj && obj.metadata && obj.metadata.details) s = obj.metadata.details
+    return (typeof s === 'string' ? s : '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+
   function fileUrl (path) {
     if (!path) return ''
     var normalized = path.replace(/\\/g, '/')
@@ -39,8 +65,112 @@
     return '/files/' + normalized.split('/').filter(function(s){return s&&s!=='..'}).map(encodeURIComponent).join('/')
   }
 
+  function getVideoUrl (obj) {
+    if (!obj) return ''
+    // Check extra.files for video type
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && (f.type === 'video' || (f.path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(f.path)))) {
+          if (f.path) return fileUrl(f.path)
+        }
+      }
+    }
+    // Check save_path
+    if (obj.save_path) return fileUrl(obj.save_path)
+    // Fall back to URL
+    if (obj.url) return obj.url
+    return ''
+  }
+
+  function getCoverImage (obj) {
+    if (!obj) return ''
+    // Local files — cover before preview/thumb
+    if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
+    if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
+    // Remote URLs — cover fields before thumb fields
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    // Check extra.files for image-type — cover before thumb
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      // First pass: cover-named files
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('cover') >= 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Second pass: thumb-named files (non-cover)
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('thumb') >= 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Fallback: first image
+      for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
+        var f2 = obj.extra.files[fi2]
+        if (f2 && f2.type === 'image' && f2.path) return fileUrl(f2.path)
+      }
+    }
+    return ''
+  }
+
+  function getThumbImage (obj) {
+    if (!obj) return ''
+    // Local files — preview/thumb before cover
+    if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
+    if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
+    // Remote URLs — thumb fields before cover fields
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    // Check extra.files for image-type — thumb before cover
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      // First pass: thumb-named files (non-cover)
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('thumb') >= 0 && fname.indexOf('cover') < 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Second pass: cover-named files
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('cover') >= 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Fallback: first image
+      for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
+        var f2 = obj.extra.files[fi2]
+        if (f2 && f2.type === 'image' && f2.path) return fileUrl(f2.path)
+      }
+    }
+    return ''
+  }
+
   function getFileUrl (obj) {
     if (obj && obj.save_path) return fileUrl(obj.save_path)
+    if (obj && obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.path) return fileUrl(f.path)
+      }
+    }
     return ''
   }
 
@@ -64,6 +194,312 @@
     }
   }
 
+  // ---- Theme colors ----
+  var THEME = {
+    primary: '#3b82f6',
+    primaryDark: '#2563eb',
+    bg: '#ffffff',
+    bgAlt: '#f9fafb',
+    border: '#e5e7eb',
+    text: '#1f2937',
+    textSecondary: '#6b7280',
+    textMuted: '#9ca3af'
+  }
+
+  // ---- Modal ----
+
+  var activeModal = null
+
+  function closeModal () {
+    if (activeModal) {
+      var video = activeModal.querySelector('video')
+      if (video) { video.pause(); video.src = '' }
+      document.body.removeChild(activeModal)
+      activeModal = null
+      document.body.style.overflow = ''
+    }
+  }
+
+  function createModal (obj) {
+    closeModal()
+
+    var videoUrl = getVideoUrl(obj)
+    var coverUrl = getCoverImage(obj)
+    var title = getTitle(obj) || 'TKTube'
+    var res = getResolution(obj)
+    var dur = getDuration(obj)
+    var dateVal = getDate(obj)
+    var contentGroup = getContentGroup(obj)
+    var origin = getOriginLink(obj)
+    var details = getDetails(obj)
+    var tags = getTags(obj)
+    var fileUrlVal = getFileUrl(obj)
+
+    var isHLS = /\.m3u8(\?.*)?$/i.test(videoUrl)
+    var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
+    var useVideo = !!videoUrl && (!isHLS || isSafari)
+
+    // Add CSS for semi-transparent video controls
+    var style = document.createElement('style')
+    style.textContent = '.dm-video-player::-webkit-media-controls { opacity:0.6 !important; transition:opacity 0.3s } .dm-video-player::-webkit-media-controls:hover { opacity:1 !important } .dm-video-player::-webkit-media-controls-panel { background:rgba(0,0,0,0.3) !important }'
+    document.head.appendChild(style)
+
+    // Overlay
+    var overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+
+    // Panel
+    var panel = document.createElement('div')
+    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+    overlay.appendChild(panel)
+
+    // Header
+    var header = document.createElement('div')
+    header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+    var hTitle = document.createElement('h3')
+    hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+    hTitle.textContent = title
+    header.appendChild(hTitle)
+
+    var headerRight = document.createElement('div')
+    headerRight.style.cssText = 'display:flex;align-items:center;gap:12px;flex-shrink:0'
+
+    if (contentGroup) {
+      var groupBadge = document.createElement('span')
+      groupBadge.style.cssText = 'font-size:11px;background:#eff6ff;color:#2563eb;padding:2px 8px;border-radius:4px'
+      groupBadge.textContent = contentGroup
+      headerRight.appendChild(groupBadge)
+    }
+
+    if (res) {
+      var resBadge = document.createElement('span')
+      resBadge.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'
+      resBadge.textContent = res
+      headerRight.appendChild(resBadge)
+    }
+
+    var hClose = document.createElement('button')
+    hClose.innerHTML = '<i class="fas fa-times"></i>'
+    hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px;margin-left:8px'
+    hClose.onclick = closeModal
+    headerRight.appendChild(hClose)
+
+    header.appendChild(headerRight)
+    panel.appendChild(header)
+
+    // Body - two-column layout: left = video + info, right = related videos (placeholder)
+    var body = document.createElement('div')
+    body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+    // Left column: video + info
+    var leftCol = document.createElement('div')
+    leftCol.style.cssText = 'flex:1;overflow-y:auto'
+
+    // Video area - 16:9 aspect ratio
+    var mediaArea = document.createElement('div')
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+
+    if (useVideo) {
+      var posterImg = document.createElement('img')
+      posterImg.src = coverUrl || videoUrl
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
+      posterImg.alt = title
+      mediaArea.appendChild(posterImg)
+
+      var playOverlay = document.createElement('div')
+      playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2);cursor:pointer'
+      playOverlay.innerHTML = '<i class="fas fa-play" style="font-size:48px;color:#fff;opacity:0.8;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></i>'
+      mediaArea.appendChild(playOverlay)
+
+      var video = document.createElement('video')
+      video.src = videoUrl
+      video.poster = coverUrl
+      video.controls = true
+      video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+      // Semi-transparent video controls to avoid blocking subtitles
+      video.classList.add('dm-video-player')
+
+      var playHandler = function () {
+        posterImg.style.display = 'none'
+        playOverlay.style.display = 'none'
+        video.style.display = 'block'
+        video.play().catch(function () {})
+      }
+      posterImg.onclick = playHandler
+      playOverlay.onclick = playHandler
+      mediaArea.appendChild(video)
+    } else if (videoUrl) {
+      // HLS or unsupported format — show poster
+      var posterImg = document.createElement('img')
+      posterImg.src = coverUrl || ''
+      posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
+      posterImg.alt = title
+      if (posterImg.src) mediaArea.appendChild(posterImg)
+    } else {
+      // No video — show placeholder
+      var placeholder = document.createElement('div')
+      placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:14px'
+      placeholder.innerHTML = '<i class="fas fa-video" style="font-size:48px;margin-right:12px;opacity:0.5"></i> 无可用视频'
+      mediaArea.appendChild(placeholder)
+    }
+    leftCol.appendChild(mediaArea)
+
+    // Info bar
+    var infoBar = document.createElement('div')
+    infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+
+    if (dur) {
+      var durEl = document.createElement('span')
+      durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + dur
+      infoBar.appendChild(durEl)
+    }
+    if (dateVal) {
+      var dateEl = document.createElement('span')
+      dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + dateVal
+      infoBar.appendChild(dateEl)
+    }
+    if (res) {
+      var resEl = document.createElement('span')
+      resEl.innerHTML = '<i class="fas fa-expand" style="margin-right:4px"></i> ' + res
+      infoBar.appendChild(resEl)
+    }
+    if (contentGroup) {
+      var groupEl = document.createElement('span')
+      groupEl.innerHTML = '<i class="fas fa-folder" style="margin-right:4px"></i> ' + contentGroup
+      infoBar.appendChild(groupEl)
+    }
+    if (infoBar.children.length > 0) {
+      leftCol.appendChild(infoBar)
+    }
+
+    // Content area (no origin bar — buttons in footer)
+    var content = document.createElement('div')
+    content.style.cssText = 'padding:16px'
+
+    // Details
+    if (details) {
+      var detailsEl = document.createElement('div')
+      detailsEl.style.cssText = 'font-size:14px;color:#374151;line-height:1.6;white-space:pre-line;margin-bottom:12px'
+      detailsEl.textContent = details
+      content.appendChild(detailsEl)
+    }
+
+    // Tags chips
+    if (tags.length > 0) {
+      var tagWrap = document.createElement('div')
+      tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px'
+      tags.forEach(function (tag) {
+        var t = document.createElement('span')
+        t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'
+        t.textContent = '#' + tag
+        tagWrap.appendChild(t)
+      })
+      content.appendChild(tagWrap)
+    }
+
+    leftCol.appendChild(content)
+    body.appendChild(leftCol)
+
+    // Right column: related videos sidebar (placeholder for future)
+    var rightCol = document.createElement('div')
+    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
+    var relatedSection = document.createElement('div')
+    relatedSection.style.cssText = 'padding:16px'
+    var relatedTitle = document.createElement('h4')
+    relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
+    relatedTitle.textContent = '关联视频'
+    relatedSection.appendChild(relatedTitle)
+    var relatedPlaceholder = document.createElement('div')
+    relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
+    relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
+    relatedSection.appendChild(relatedPlaceholder)
+    rightCol.appendChild(relatedSection)
+    body.appendChild(rightCol)
+
+    panel.appendChild(body)
+
+    // Footer
+    var footer = document.createElement('div')
+    footer.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+
+    var fLeft = document.createElement('div')
+    fLeft.style.cssText = 'display:flex;gap:8px'
+
+    if (fileUrlVal) {
+      var openFileBtn = document.createElement('a')
+      openFileBtn.href = fileUrlVal
+      openFileBtn.target = '_blank'
+      openFileBtn.rel = 'noopener noreferrer'
+      openFileBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'
+      openFileBtn.textContent = '打开文件'
+      fLeft.appendChild(openFileBtn)
+    }
+
+    if (origin) {
+      var originFooterBtn = document.createElement('a')
+      originFooterBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
+      originFooterBtn.target = '_blank'
+      originFooterBtn.rel = 'noopener noreferrer'
+      originFooterBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'
+      originFooterBtn.textContent = '打开原页面'
+      fLeft.appendChild(originFooterBtn)
+    }
+
+    var copyTitleBtn = document.createElement('button')
+    copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+    copyTitleBtn.textContent = '复制标题'
+    copyTitleBtn.onclick = function () {
+      var t = getTitle(obj)
+      if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t)
+    }
+    fLeft.appendChild(copyTitleBtn)
+
+    if (origin) {
+      var copyLinkBtn = document.createElement('button')
+      copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+      copyLinkBtn.textContent = '复制链接'
+      copyLinkBtn.onclick = function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
+      }
+      fLeft.appendChild(copyLinkBtn)
+    }
+
+    footer.appendChild(fLeft)
+
+    var closeBtn = document.createElement('button')
+    closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'
+    closeBtn.textContent = '关闭'
+    closeBtn.onclick = closeModal
+    footer.appendChild(closeBtn)
+
+    panel.appendChild(footer)
+
+    // Backdrop click
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) closeModal()
+    })
+
+    // Escape
+    function keyHandler (e) {
+      if (e.key === 'Escape') closeModal()
+    }
+    document.addEventListener('keydown', keyHandler)
+
+    // Override closeModal for cleanup
+    closeModal = function () {
+      document.removeEventListener('keydown', keyHandler)
+      document.body.style.overflow = ''
+      if (activeModal) {
+        document.body.removeChild(activeModal)
+        activeModal = null
+      }
+    }
+
+    document.body.appendChild(overlay)
+    activeModal = overlay
+    document.body.style.overflow = 'hidden'
+  }
+
   // ---- Sorting ----
   function priorityScore (obj) {
     if (obj && obj.extra) {
@@ -77,19 +513,7 @@
     return 0
   }
 
-  // ---- Theme colors ----
-  var THEME = {
-    primary: '#3b82f6',
-    primaryDark: '#2563eb',
-    bg: '#ffffff',
-    bgAlt: '#f9fafb',
-    border: '#e5e7eb',
-    text: '#1f2937',
-    textSecondary: '#6b7280',
-    textMuted: '#9ca3af'
-  }
-
-  // ---- Render ----
+  // ---- Task view (legacy) ----
 
   function renderTaskView (task) {
     var container = document.getElementById('custom-task-container')
@@ -214,20 +638,7 @@
     var coverArea = document.createElement('div')
     coverArea.style.cssText = 'position:relative;background:#f3f4f6;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;overflow:hidden'
 
-    var coverUrl = ''
-    // Local files take priority when object is completed
-    if (obj && obj.status === 'completed') {
-      if (obj.extra && obj.extra.local_preview) coverUrl = fileUrl(obj.extra.local_preview)
-      else if (obj.extra && obj.extra.local_cover) coverUrl = fileUrl(obj.extra.local_cover)
-      else if (obj.save_path) coverUrl = fileUrl(obj.save_path)
-    }
-    // Fall back to remote URLs if no local file available
-    if (!coverUrl && obj && obj.extra) {
-      if (obj.extra.thumb_url) coverUrl = obj.extra.thumb_url
-      else if (obj.extra.preview_url) coverUrl = obj.extra.preview_url
-      else if (obj.extra.cover_url) coverUrl = obj.extra.cover_url
-    }
-
+    var coverUrl = getThumbImage(obj)
     if (coverUrl) {
       var img = document.createElement('img')
       img.src = coverUrl
@@ -306,37 +717,11 @@
 
     card.appendChild(info)
 
-    // Click to open/play
+    // Click to open modal
     card.style.cursor = 'pointer'
     card.onclick = function () {
       if (obj.status === 'completed') {
-        var url = getFileUrl(obj)
-        if (url) {
-          var ext = (obj.save_path || '').split('.').pop().toLowerCase()
-          if (ext === 'mp4' || ext === 'webm' || ext === 'mkv') {
-            // Open video inline (DOM-based approach, safe)
-            var videoWin = window.open('', '_blank')
-            if (videoWin) {
-              var doc = videoWin.document
-              doc.body.style.margin = '0'
-              doc.body.style.background = '#000'
-              doc.body.style.display = 'flex'
-              doc.body.style.alignItems = 'center'
-              doc.body.style.justifyContent = 'center'
-              doc.body.style.height = '100vh'
-              var video = doc.createElement('video')
-              video.src = url
-              video.controls = true
-              video.autoplay = true
-              video.style.maxWidth = '100%'
-              video.style.maxHeight = '100%'
-              doc.body.appendChild(video)
-              doc.close()
-            }
-          } else {
-            window.open(url, '_blank')
-          }
-        }
+        createModal(obj)
       }
     }
 
@@ -349,6 +734,7 @@
       type: 'tktube',
       label: 'TKTube',
       icon: 'fa-video',
+      viewerLabel: '查看',
       renderForm: TaskUI.defineForm({
         fields: [
           { type: 'text', key: 'keyword', label: '关键字', required: true, placeholder: '例如：RCTD' },
@@ -379,6 +765,232 @@
         if (formData.max_concurrent) extra.max_concurrent = formData.max_concurrent
         if (formData.refresh_interval) extra.refresh_interval = formData.refresh_interval
         return extra
+      },
+      shouldShowViewer: function (obj) { return obj.status === 'completed' },
+      onClick: function (obj, helpers) {
+        if (obj.status !== 'completed') return false
+        helpers.openTaskTypeViewer(obj)
+        return true
+      },
+      renderViewer: function (h, obj, onClose) {
+        // Shared clipboard helper
+        function copyToClipboard(text) {
+          if (!text) return
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () {})
+          } else {
+            var ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try { document.execCommand('copy') } catch (e) {}
+            document.body.removeChild(ta)
+          }
+        }
+
+        var videoUrl = getVideoUrl(obj)
+        var coverUrl = getCoverImage(obj)
+        var title = getTitle(obj) || 'TKTube'
+        var res = getResolution(obj)
+        var dur = getDuration(obj)
+        var dateVal = getDate(obj)
+        var contentGroup = getContentGroup(obj)
+        var origin = getOriginLink(obj)
+        var details = getDetails(obj)
+        var tags = getTags(obj)
+        var fileUrlVal = getFileUrl(obj)
+
+        var isHLS = /\.m3u8(\?.*)?$/i.test(videoUrl)
+        var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
+        var useVideo = !!videoUrl && (!isHLS || isSafari)
+
+        // Build DOM modal directly
+        var overlay = document.createElement('div')
+        overlay.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm'
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+
+        var panel = document.createElement('div')
+        panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+
+        var modalRef = { overlay: overlay, panel: panel }
+
+        var originalOnClose = onClose
+        onClose = function () {
+          if (modalRef.overlay && modalRef.overlay.parentNode) {
+            modalRef.overlay.parentNode.removeChild(modalRef.overlay)
+          }
+          document.body.style.overflow = ''
+          if (originalOnClose) originalOnClose()
+        }
+        overlay.appendChild(panel)
+
+        // Header
+        var header = document.createElement('div')
+        header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+        var hTitle = document.createElement('h3')
+        hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        hTitle.textContent = title
+        header.appendChild(hTitle)
+
+        var headerRight = document.createElement('div')
+        headerRight.style.cssText = 'display:flex;align-items:center;gap:12px;flex-shrink:0'
+        if (contentGroup) {
+          var groupBadge = document.createElement('span')
+          groupBadge.style.cssText = 'font-size:11px;background:#eff6ff;color:#2563eb;padding:2px 8px;border-radius:4px'
+          groupBadge.textContent = contentGroup
+          headerRight.appendChild(groupBadge)
+        }
+        if (res) {
+          var resBadge = document.createElement('span')
+          resBadge.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'
+          resBadge.textContent = res
+          headerRight.appendChild(resBadge)
+        }
+        var hClose = document.createElement('button')
+        hClose.innerHTML = '<i class="fas fa-times"></i>'
+        hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px;margin-left:8px'
+        hClose.onclick = function (e) { e.stopPropagation(); onClose() }
+        headerRight.appendChild(hClose)
+        header.appendChild(headerRight)
+        panel.appendChild(header)
+
+        // Body - two-column layout: left = video + info, right = related videos (placeholder)
+        var body = document.createElement('div')
+        body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+        // Left column: video + info
+        var leftCol = document.createElement('div')
+        leftCol.style.cssText = 'flex:1;overflow-y:auto'
+
+        // Video area - fixed height
+        var mediaArea = document.createElement('div')
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+
+        if (useVideo) {
+          var posterImg = document.createElement('img')
+          posterImg.src = coverUrl || videoUrl
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain;cursor:pointer'
+          posterImg.alt = title
+          mediaArea.appendChild(posterImg)
+
+          var playOverlay = document.createElement('div')
+          playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2);cursor:pointer'
+          playOverlay.innerHTML = '<i class="fas fa-play" style="font-size:48px;color:#fff;opacity:0.8;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></i>'
+          mediaArea.appendChild(playOverlay)
+
+          var video = document.createElement('video')
+          video.src = videoUrl
+          video.poster = coverUrl
+          video.controls = true
+          video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+          video.classList.add('dm-video-player')
+
+          var playHandler = function () {
+            posterImg.style.display = 'none'
+            playOverlay.style.display = 'none'
+            video.style.display = 'block'
+            video.play().catch(function () {})
+          }
+          posterImg.onclick = playHandler
+          playOverlay.onclick = playHandler
+          mediaArea.appendChild(video)
+        } else if (videoUrl) {
+          var posterImg = document.createElement('img')
+          posterImg.src = coverUrl || ''
+          posterImg.style.cssText = 'width:100%;height:100%;object-fit:contain'
+          posterImg.alt = title
+          if (posterImg.src) mediaArea.appendChild(posterImg)
+        } else {
+          var placeholder = document.createElement('div')
+          placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;font-size:14px'
+          placeholder.innerHTML = '<i class="fas fa-video" style="font-size:48px;margin-right:12px;opacity:0.5"></i> 无可用视频'
+          mediaArea.appendChild(placeholder)
+        }
+        leftCol.appendChild(mediaArea)
+
+        // Info bar
+        var infoBar = document.createElement('div')
+        infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+        if (dur) { var durEl = document.createElement('span'); durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + dur; infoBar.appendChild(durEl) }
+        if (dateVal) { var dateEl = document.createElement('span'); dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + dateVal; infoBar.appendChild(dateEl) }
+        if (res) { var resEl = document.createElement('span'); resEl.innerHTML = '<i class="fas fa-expand" style="margin-right:4px"></i> ' + res; infoBar.appendChild(resEl) }
+        if (contentGroup) { var groupEl = document.createElement('span'); groupEl.innerHTML = '<i class="fas fa-folder" style="margin-right:4px"></i> ' + contentGroup; infoBar.appendChild(groupEl) }
+        if (infoBar.children.length > 0) leftCol.appendChild(infoBar)
+
+        // Content area (no origin bar — buttons in footer)
+        var content = document.createElement('div')
+        content.style.cssText = 'padding:16px'
+        if (details) { var de = document.createElement('div'); de.style.cssText = 'font-size:14px;color:#374151;line-height:1.6;white-space:pre-line;margin-bottom:12px'; de.textContent = details; content.appendChild(de) }
+        if (tags.length > 0) {
+          var tagWrap = document.createElement('div'); tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px'
+          tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
+          content.appendChild(tagWrap)
+        }
+        leftCol.appendChild(content)
+        body.appendChild(leftCol)
+
+        // Right column: related videos sidebar (placeholder)
+        var rightCol = document.createElement('div')
+        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
+        var relatedSection = document.createElement('div')
+        relatedSection.style.cssText = 'padding:16px'
+        var relatedTitle = document.createElement('h4')
+        relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
+        relatedTitle.textContent = '关联视频'
+        relatedSection.appendChild(relatedTitle)
+        var relatedPlaceholder = document.createElement('div')
+        relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
+        relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
+        relatedSection.appendChild(relatedPlaceholder)
+        rightCol.appendChild(relatedSection)
+        body.appendChild(rightCol)
+
+        panel.appendChild(body)
+
+        // Footer
+        var footer = document.createElement('div')
+        footer.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+        var fLeft = document.createElement('div'); fLeft.style.cssText = 'display:flex;gap:8px'
+        if (fileUrlVal) {
+          var openFileBtn = document.createElement('a'); openFileBtn.href = fileUrlVal; openFileBtn.target = '_blank'; openFileBtn.rel = 'noopener noreferrer'; openFileBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; openFileBtn.textContent = '打开文件'; fLeft.appendChild(openFileBtn)
+        }
+        if (origin) {
+          var originFooterBtn = document.createElement('a'); originFooterBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'; originFooterBtn.target = '_blank'; originFooterBtn.rel = 'noopener noreferrer'; originFooterBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'; originFooterBtn.textContent = '打开原页面'; fLeft.appendChild(originFooterBtn)
+        }
+        var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { copyToClipboard(getTitle(obj)) }; fLeft.appendChild(copyTitleBtn)
+        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(origin) }; fLeft.appendChild(copyLinkBtn) }
+        footer.appendChild(fLeft)
+        var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = function (e) { e.stopPropagation(); onClose() }; footer.appendChild(closeBtn)
+        panel.appendChild(footer)
+
+        // Backdrop click
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) onClose() })
+
+        // Escape key
+        function keyHandler(e) {
+          if (e.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', keyHandler)
+
+        // Override onClose to clean up key listener
+        var origOnClose_ = onClose
+        onClose = function () {
+          document.removeEventListener('keydown', keyHandler)
+          if (modalRef.overlay && modalRef.overlay.parentNode) {
+            modalRef.overlay.parentNode.removeChild(modalRef.overlay)
+          }
+          document.body.style.overflow = ''
+          if (origOnClose_) origOnClose_()
+        }
+
+        // Mount
+        document.body.appendChild(overlay)
+        document.body.style.overflow = 'hidden'
+
+        return h('div')
       }
     })
   }

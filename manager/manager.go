@@ -466,6 +466,11 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 	if objs == nil {
 		objs = make([]*model.DownloadObject, 0)
 	}
+	// Ensure every object has task_type metadata for frontend plugin dispatch
+	taskType := t.Type()
+	for _, o := range objs {
+		o.EnsureTaskType(taskType)
+	}
 	if limit <= 0 {
 		limit = total
 	}

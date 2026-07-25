@@ -40,6 +40,7 @@ func loadFull(mgr *manager.Manager) error {
 						"status":       "completed",
 						"metadata": map[string]any{
 							"content_group": "group-a",
+							"task_type":     "tktube",
 							"resolution":    "1080p",
 							"label":         "tktube-video",
 						},
@@ -62,7 +63,20 @@ func loadFull(mgr *manager.Manager) error {
 						"count":        8,
 						"status":       "completed",
 						"metadata": map[string]any{
-							"label": "vikacg-image",
+							"label":     "vikacg-image",
+							"task_type": "vikacg",
+						},
+						"extra": map[string]any{
+							"images": []any{
+								"http://fixture/vikacg/image-0.jpg",
+								"http://fixture/vikacg/image-1.jpg",
+								"http://fixture/vikacg/image-2.jpg",
+								"http://fixture/vikacg/image-3.jpg",
+								"http://fixture/vikacg/image-4.jpg",
+								"http://fixture/vikacg/image-5.jpg",
+								"http://fixture/vikacg/image-6.jpg",
+								"http://fixture/vikacg/image-7.jpg",
+							},
 						},
 					},
 				},
@@ -83,7 +97,8 @@ func loadFull(mgr *manager.Manager) error {
 						"count":        6,
 						"status":       "completed",
 						"metadata": map[string]any{
-							"label": "hanime-video",
+							"label":     "hanime-video",
+							"task_type": "hanime",
 						},
 					},
 				},

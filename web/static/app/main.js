@@ -177,8 +177,8 @@
         if (handler && handler.renderForm) {
           var self = this
           return {
-            render: function (h) {
-              return handler.renderForm(h, self.newTask, {})
+            render: function () {
+              return handler.renderForm(self.newTask, {})
             }
           }
         }
@@ -194,8 +194,8 @@
         if (handler && handler.renderMeta) {
           var task = this.selectedTask
           return {
-            render: function (h) {
-              return handler.renderMeta(h, task)
+            render: function () {
+              return handler.renderMeta(task)
             }
           }
         }
@@ -277,11 +277,12 @@
 
     methods: {
       // ---- TaskUI integration ----
-      loadTaskUIForType: function (taskType) {
+      loadTaskUIForType: function (taskType, callback) {
         var self = this
         var handler = TaskUI.get(taskType)
         if (handler) {
           Log.info('loadTaskUIForType ALREADY REGISTERED — using plugin', { type: taskType, features: { form: !!handler.renderForm, meta: !!handler.renderMeta, viewer: !!handler.renderViewer, cardExtra: !!handler.renderCardExtra } })
+          if (callback) callback()
           return
         }
         Log.info('loadTaskUIForType NOT REGISTERED — loading viewer.js', { type: taskType })
@@ -293,6 +294,7 @@
             Log.warn('loadTaskUIForType LOADED — but no plugin registered', { type: taskType })
           }
           self.$forceUpdate()
+          if (callback) callback()
         })
       },
       // 保留 loadTaskUI 别名，兼容 taskList.js 等通过 mixin 共享 this 的模块
@@ -316,19 +318,38 @@
       openTaskTypeViewer: function (obj) {
         var type = obj && obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
-        Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, title: obj && obj.metadata && obj.metadata.title })
+        Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, renderViewer: !!(handler && handler.renderViewer), title: obj && obj.metadata && obj.metadata.title })
         if (handler && handler.renderViewer) {
           var self = this
           var container = document.createElement('div')
           document.body.appendChild(container)
-          var vm = Vue.createApp({
-            render: function (h) {
-              return handler.renderViewer(h, obj, function () {
-                vm.unmount()
-                if (container.parentNode) container.parentNode.removeChild(container)
-              })
-            }
-          }).mount(container)
+          try {
+            var vm = Vue.createApp({
+              render: function () {
+                var h = Vue.h
+                try {
+                  var result = handler.renderViewer(obj, function () {
+                    try { vm.unmount() } catch (e) { Log.error('openTaskTypeViewer unmount error', { error: e.message }) }
+                    try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
+                  })
+                  Log.info('openTaskTypeViewer renderViewer returned', { type: typeof result, isVNode: !!(result && result.type) })
+                  return result
+                } catch (e) {
+                  Log.error('openTaskTypeViewer renderViewer error', { error: e.message, stack: e.stack })
+                  return h('div', { class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4' }, [
+                    h('div', { class: 'bg-white rounded-lg p-6 text-center' }, [
+                      h('p', { class: 'text-red-600 mb-2' }, '查看器加载失败: ' + e.message),
+                      h('button', { class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm', on: { click: function () { try { vm.unmount() } catch (e) {}; try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {} } } }, '关闭')
+                    ])
+                  ])
+                }
+              }
+            }).mount(container)
+          } catch (e) {
+            Log.error('openTaskTypeViewer createApp error', { error: e.message, stack: e.stack })
+          }
+        } else {
+          Log.warn('openTaskTypeViewer no renderViewer', { type: type, hasHandler: !!handler })
         }
       },
       showTaskTypeCardExtra: function (obj) {
@@ -342,8 +363,8 @@
         var handler = TaskUI.get(type)
         if (handler && handler.renderCardExtra) {
           return {
-            render: function (h) {
-              return handler.renderCardExtra(h, obj)
+            render: function () {
+              return handler.renderCardExtra(obj)
             }
           }
         }
@@ -352,6 +373,116 @@
       closeCustomUI: function () {
         var el = document.getElementById('custom-ui-content')
         if (el) el.innerHTML = ''
+      },
+
+      // ---- Default object info viewer (no-task-type fallback) ----
+      openObjectInfoViewer: function (obj) {
+        if (!obj) return
+        Log.info('openObjectInfoViewer', { url: obj.url, status: obj.status, title: this.getTitle(obj) })
+        var self = this
+        var container = document.createElement('div')
+        document.body.appendChild(container)
+        var vm = Vue.createApp({
+          render: function () {
+            var h = Vue.h
+            var title = self.getTitle(obj) || obj.url || ''
+            var fileUrl = self.getFileUrl(obj)
+            var tags = self.getTags(obj)
+            var dateVal = self.getDate(obj)
+            var duration = self.getDuration(obj)
+
+            function onClose () {
+              vm.unmount()
+              if (container.parentNode) container.parentNode.removeChild(container)
+            }
+
+            return h('div', {
+              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
+              on: { click: function (e) { if (e.target === e.currentTarget) onClose() } }
+            }, [
+              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col' }, [
+                // Header
+                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
+                  h('h3', { class: 'text-lg font-bold text-gray-800 truncate' }, title || '对象信息'),
+                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); onClose() } } }, [
+                    h('i', { class: 'fas fa-times' })
+                  ]),
+                ]),
+                // Body
+                h('div', { class: 'flex-1 overflow-y-auto p-4 space-y-3' }, [
+                  // Status badge
+                  h('div', { class: 'flex items-center gap-2' }, [
+                    h('span', { class: 'text-xs text-gray-500' }, '状态：'),
+                    h('span', {
+                      class: 'px-2 py-0.5 text-xs font-semibold rounded-full',
+                      style: {
+                        backgroundColor: obj.status === 'completed' ? '#d1fae5' : obj.status === 'failed' ? '#fee2e2' : obj.status === 'downloading' ? '#fef3c7' : '#f3f4f6',
+                        color: obj.status === 'completed' ? '#065f46' : obj.status === 'failed' ? '#991b1b' : obj.status === 'downloading' ? '#92400e' : '#374151'
+                      }
+                    }, obj.status || '')
+                  ]),
+                  // URL
+                  obj.url ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, 'URL：'),
+                    h('span', { class: 'text-gray-700 break-all' }, obj.url)
+                  ]) : null,
+                  // Save path
+                  obj.save_path ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '文件路径：'),
+                    h('span', { class: 'text-gray-700 break-all' }, obj.save_path)
+                  ]) : null,
+                  // Date
+                  dateVal ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '日期：'),
+                    h('span', { class: 'text-gray-700' }, dateVal)
+                  ]) : null,
+                  // Duration
+                  duration ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '时长：'),
+                    h('span', { class: 'text-gray-700' }, duration)
+                  ]) : null,
+                  // Tags
+                  tags.length ? h('div', { class: 'flex flex-wrap gap-1' }, tags.map(function (tag) {
+                    return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag)
+                  })) : null,
+                  // Metadata
+                  obj.metadata ? h('div', { class: 'border-t pt-3 mt-2' }, [
+                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '元数据'),
+                    Object.keys(obj.metadata).filter(function (k) { return !['title', 'date', 'duration'].includes(k) }).map(function (k) {
+                      return h('div', { class: 'text-xs text-gray-600' }, k + ': ' + (obj.metadata[k] || ''))
+                    })
+                  ]) : null,
+                  // Extra
+                  obj.extra ? h('div', { class: 'border-t pt-3 mt-2' }, [
+                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '扩展信息'),
+                    Object.keys(obj.extra).filter(function (k) { return k !== 'tags' && k !== 'images' && k !== 'files' }).map(function (k) {
+                      var v = obj.extra[k]
+                      if (typeof v === 'object') v = JSON.stringify(v, null, 2)
+                      return h('div', { class: 'text-xs text-gray-600 break-all' }, k + ': ' + v)
+                    })
+                  ]) : null,
+                ]),
+                // Footer
+                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
+                  h('div', { class: 'flex gap-2' }, [
+                    fileUrl ? h('a', {
+                      attrs: { href: fileUrl, target: '_blank', rel: 'noopener noreferrer' },
+                      class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
+                    }, '打开文件') : null,
+                    obj.metadata && obj.metadata.page_url ? h('a', {
+                      attrs: { href: obj.metadata.page_url, target: '_blank', rel: 'noopener noreferrer' },
+                      class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100'
+                    }, '打开原页面') : null,
+                  ]),
+                  h('button', {
+                    class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
+                    on: { click: function (e) { e.stopPropagation(); onClose() } }
+                  }, '关闭'),
+                ]),
+              ])
+            ])
+          }
+        }).mount(container)
       }
     }
   })

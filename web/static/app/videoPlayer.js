@@ -221,44 +221,99 @@
         },
 
         isVideo: function (obj) {
-          if (!obj || !obj.url) return false
-          var url = obj.url.toLowerCase()
-          return url.indexOf('.mp4') > 0 || url.indexOf('.webm') > 0 || url.indexOf('.m3u8') > 0
+          if (!obj) return false
+          // Check extra.files for video type (ff78f9b compat)
+          if (obj.extra && Array.isArray(obj.extra.files) && obj.extra.files.some(function (f) { return f && f.type === 'video' })) return true
+          // Check save_path extension
+          if (obj.save_path) {
+            var sp = obj.save_path.toLowerCase()
+            if (sp.indexOf('.mp4') > 0 || sp.indexOf('.webm') > 0 || sp.indexOf('.m3u8') > 0 || sp.indexOf('.mkv') > 0 || sp.indexOf('.ts') > 0) return true
+          }
+          // Check URL extension
+          if (obj.url) {
+            var url = obj.url.toLowerCase()
+            return url.indexOf('.mp4') > 0 || url.indexOf('.webm') > 0 || url.indexOf('.m3u8') > 0
+          }
+          return false
         },
 
         getVideoUrl: function (obj) {
-          if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
-          if (obj && obj.url) return obj.url
+          if (!obj) return ''
+          // Check extra.files for video type (ff78f9b compat)
+          if (obj.extra && Array.isArray(obj.extra.files)) {
+            for (var fi = 0; fi < obj.extra.files.length; fi++) {
+              var f = obj.extra.files[fi]
+              if (f && (f.type === 'video' || (f.path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(f.path)))) {
+                if (f.path) return this.pathToUrl(f.path)
+              }
+            }
+          }
+          // Check save_path
+          if (obj.save_path) return this.pathToUrl(obj.save_path)
+          // Fall back to URL
+          if (obj.url) return obj.url
           return ''
         },
 
         getCoverImage: function (obj) {
           if (!obj) return ''
-          // Local downloaded files (priority for completed objects)
-          if (obj.extra) {
-            if (obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
-            if (obj.extra.local_preview) return this.pathToUrl(obj.extra.local_preview)
+          // Collect all candidate URLs, then pick first
+          var candidates = []
+          function pushUrl (u) {
+            if (typeof u === 'string' && u) candidates.push(u)
           }
-          // 3. Remote cover URLs from scrapers
           if (obj.extra) {
-            if (obj.extra.thumb_url) return obj.extra.thumb_url
-            if (obj.extra.cover_url) return obj.extra.cover_url
-            if (obj.extra.preview_url) return obj.extra.preview_url
-            if (Array.isArray(obj.extra.images) && obj.extra.images.length) return obj.extra.images[0]
+            // 1. Explicit local cover/preview (highest priority)
+            if (obj.extra.local_cover) { candidates = [this.pathToUrl(obj.extra.local_cover)]; return candidates[0] }
+            if (obj.extra.local_preview) { candidates = [this.pathToUrl(obj.extra.local_preview)]; return candidates[0] }
+            // 2. Local files: find image-type files with cover/thumb in filename
+            if (Array.isArray(obj.extra.files)) {
+              for (var fi = 0; fi < obj.extra.files.length; fi++) {
+                var f = obj.extra.files[fi]
+                if (f && f.type === 'image' && f.path) {
+                  var fname = (f.name || f.path || '').toString().toLowerCase()
+                  if (fname.indexOf('cover') >= 0 || fname.indexOf('thumb') >= 0) {
+                    pushUrl(this.pathToUrl(f.path))
+                  }
+                }
+              }
+              // 3. Fallback: first image-type file
+              if (candidates.length === 0) {
+                for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
+                  var f2 = obj.extra.files[fi2]
+                  if (f2 && f2.type === 'image' && f2.path) {
+                    pushUrl(this.pathToUrl(f2.path))
+                    break
+                  }
+                }
+              }
+            }
+            // 4. Remote cover URL fields (Hanime compat)
+            if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(pushUrl)
+            if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(pushUrl)
+            if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(pushUrl)
+            if (obj.extra.cover_url) pushUrl(obj.extra.cover_url)
+            if (obj.extra.cover) pushUrl(obj.extra.cover)
+            // 5. Remote scraper cover fields
+            if (obj.extra.thumb_url) pushUrl(obj.extra.thumb_url)
+            if (obj.extra.preview_url) pushUrl(obj.extra.preview_url)
+            // 6. Generic images array
+            if (Array.isArray(obj.extra.images)) obj.extra.images.forEach(pushUrl)
           }
-          // 4. VikACG: find first image-type file from extra.files
-          if (obj.extra && Array.isArray(obj.extra.files)) {
-            for (var fi = 0; fi < obj.extra.files.length; fi++) {
-              var f = obj.extra.files[fi]
-              if (f && f.type === 'image' && f.path) return this.pathToUrl(f.path)
+          // 7. Hanime fallback: construct thumbnail from page_url
+          if (candidates.length === 0 && obj.metadata && obj.metadata.page_url) {
+            var u = obj.metadata.page_url
+            if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) {
+              pushUrl('https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg')
             }
           }
-          // 5. Hanime compat: construct thumbnail from page_url
-          if (obj.metadata && obj.metadata.page_url) {
-            var u = obj.metadata.page_url
-            if (u.indexOf('hanime1') > 0 && u.indexOf('/watch/') > 0) return 'https://i1.hanime1.me/thumbnails/' + u.split('/watch/').pop() + '.jpg'
+          // Dedup
+          var seen = {}, out = []
+          for (var ci = 0; ci < candidates.length; ci++) {
+            var c = candidates[ci]
+            if (c && !seen[c]) { seen[c] = true; out.push(c) }
           }
-          return ''
+          return out.length > 0 ? out[0] : ''
         },
 
         onCoverError: function (event) {

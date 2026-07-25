@@ -177,10 +177,13 @@
 
     panel.appendChild(header)
 
-    // Body
+    // Body - two-column layout: left = image gallery + details, right = related links
     var body = document.createElement('div')
-    body.className = 'flex-1 overflow-y-auto p-0'
-    body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+    body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+    // Left column: image gallery + details
+    var leftCol = document.createElement('div')
+    leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
     // Image area
     var imgArea = document.createElement('div')
@@ -215,8 +218,8 @@
     counterEl.style.cssText = 'font-size:12px;color:#6b7280;text-align:center;padding:4px 0;background:#f9fafb'
     function updateCounter () { counterEl.textContent = (currentIdx + 1) + ' / ' + images.length }
     updateCounter()
-    body.appendChild(imgArea)
-    body.appendChild(counterEl)
+    leftCol.appendChild(imgArea)
+    leftCol.appendChild(counterEl)
 
     // Thumbnails
     if (images.length > 1) {
@@ -242,10 +245,10 @@
         thumbRow.appendChild(thumb)
       })
 
-      body.appendChild(thumbRow)
+      leftCol.appendChild(thumbRow)
     }
 
-    // Content area
+    // Content area (tags + excerpt below image)
     var contentDiv = document.createElement('div')
     contentDiv.className = 'p-4'
     contentDiv.style.cssText = 'padding:16px'
@@ -274,7 +277,7 @@
     if (tags.length > 0) {
       var tagWrap = document.createElement('div')
       tagWrap.className = 'flex flex-wrap gap-1 mb-3'
-      tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px'
+      tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;margin-top:12px'
       tags.forEach(function (tag) {
         var t = document.createElement('span')
         t.className = 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded'
@@ -285,35 +288,49 @@
       contentDiv.appendChild(tagWrap)
     }
 
-    // Links
+    leftCol.appendChild(contentDiv)
+    body.appendChild(leftCol)
+
+    // Right column: related links sidebar
+    var rightCol = document.createElement('div')
+    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
+
     var links = getLinks(obj)
     if (links.length > 0) {
-      var linkTitle = document.createElement('p')
-      linkTitle.className = 'text-xs font-semibold text-gray-500 mb-1'
-      linkTitle.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px'
-      linkTitle.textContent = '相关链接'
-      contentDiv.appendChild(linkTitle)
+      var linkSection = document.createElement('div')
+      linkSection.style.cssText = 'padding:16px'
+
+      var linkTitle = document.createElement('h4')
+      linkTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
+      linkTitle.textContent = '相关链接 (' + links.length + ')'
+      linkSection.appendChild(linkTitle)
 
       var linkList = document.createElement('ul')
-      linkList.className = 'space-y-1'
-      linkList.style.cssText = 'list-style:none;padding:0;margin:0'
+      linkList.style.cssText = 'list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px'
       links.forEach(function (l) {
         var li = document.createElement('li')
         var a = document.createElement('a')
-        // Only allow http/https schemes
-          a.href = /^https?:\/\//i.test(l.href) ? l.href : "#"
+        a.href = /^https?:\/\//i.test(l.href) ? l.href : "#"
         a.target = '_blank'
         a.rel = 'noopener noreferrer'
         a.className = 'text-xs text-blue-600 hover:text-blue-800 break-all'
-        a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all'
+        a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all;display:block;padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none'
         a.textContent = l.text || l.href
+        a.onmouseenter = function () { a.style.background = '#f3f4f6' }
+        a.onmouseleave = function () { a.style.background = 'transparent' }
         li.appendChild(a)
         linkList.appendChild(li)
       })
-      contentDiv.appendChild(linkList)
+      linkSection.appendChild(linkList)
+      rightCol.appendChild(linkSection)
+    } else {
+      var emptySection = document.createElement('div')
+      emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'
+      emptySection.textContent = '暂无关联内容'
+      rightCol.appendChild(emptySection)
     }
+    body.appendChild(rightCol)
 
-    body.appendChild(contentDiv)
     panel.appendChild(body)
 
     // Footer
@@ -404,6 +421,236 @@
       viewerLabel: '浏览',
       shouldShowViewer: function (obj) {
         return obj.status === 'completed' && obj.extra && (Array.isArray(obj.extra.images) || Array.isArray(obj.extra.files))
+      },
+      onClick: function (obj, helpers) {
+        if (obj.status !== 'completed') return false
+        var images = getImages(obj)
+        if (images.length > 0) {
+          helpers.openTaskTypeViewer(obj)
+          return true
+        }
+        // No images — open origin page
+        var pageUrl = obj && obj.metadata && obj.metadata.page_url
+        if (pageUrl) {
+          window.open(pageUrl, '_blank', 'noopener,noreferrer')
+          return true
+        }
+        return false
+      },
+      renderViewer: function (h, obj, onClose) {
+        var images = getImages(obj)
+        if (images.length === 0) {
+          if (onClose) onClose()
+          return h('div')
+        }
+
+        // Shared clipboard helper
+        function copyToClipboard(text) {
+          if (!text) return
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () {})
+          } else {
+            var ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try { document.execCommand('copy') } catch (e) {}
+            document.body.removeChild(ta)
+          }
+        }
+
+        // Build DOM modal directly
+        var overlay = document.createElement('div')
+        overlay.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm'
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+
+        var panel = document.createElement('div')
+        panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        overlay.appendChild(panel)
+
+        var currentIdx = 0
+        var title = getTitle(obj) || 'VikACG'
+        var section = obj && obj.metadata && obj.metadata.section
+        var dateVal = getDate(obj)
+        var html = getContentHtml(obj)
+        var excerpt = getExcerpt(obj)
+        var tags = getTags(obj)
+        var links = getLinks(obj)
+        var pageUrl = obj && obj.metadata && obj.metadata.page_url
+
+        // Close handler
+        function closeHandler() {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
+          document.body.style.overflow = ''
+          if (onClose) onClose()
+        }
+
+        // Header
+        var header = document.createElement('div')
+        header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+        var titleGroup = document.createElement('div')
+        titleGroup.style.cssText = 'display:flex;align-items:center;gap:12px'
+        var hTitle = document.createElement('h3')
+        hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0'
+        hTitle.textContent = title
+        titleGroup.appendChild(hTitle)
+        if (section) { var secBadge = document.createElement('span'); secBadge.style.cssText = 'padding:2px 8px;font-size:12px;border-radius:4px;background:#eff6ff;color:#2563eb'; secBadge.textContent = section; titleGroup.appendChild(secBadge) }
+        if (dateVal) { var dateSpan = document.createElement('span'); dateSpan.style.cssText = 'font-size:12px;color:#6b7280'; dateSpan.textContent = dateVal; titleGroup.appendChild(dateSpan) }
+        header.appendChild(titleGroup)
+        var hClose = document.createElement('button')
+        hClose.innerHTML = '<i class="fas fa-times"></i>'
+        hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px'
+        hClose.onclick = function (e) { e.stopPropagation(); closeHandler() }
+        header.appendChild(hClose)
+        panel.appendChild(header)
+
+        // Body - two-column layout: left = image gallery + details, right = related links
+        var body = document.createElement('div')
+        body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+        // Left column: image gallery + details
+        var leftCol = document.createElement('div')
+        leftCol.style.cssText = 'flex:1;overflow-y:auto'
+
+        // Image area
+        var imgArea = document.createElement('div')
+        imgArea.style.cssText = 'position:relative;background:#000;display:flex;align-items:center;justify-content:center;min-height:300px'
+        var imgEl = document.createElement('img')
+        imgEl.src = images[0]
+        imgEl.alt = title
+        imgEl.style.cssText = 'width:100%;object-fit:contain;max-height:60vh'
+        imgEl.onerror = function (e) { e.target.style.display = 'none' }
+        imgArea.appendChild(imgEl)
+
+        // Image navigation
+        function updateCounter() { counterEl.textContent = (currentIdx + 1) + ' / ' + images.length }
+        function updateThumbs() { var thumbs = thumbRow.querySelectorAll('img'); thumbs.forEach(function (img, idx) { img.style.borderColor = idx === currentIdx ? '#3b82f6' : '#e5e7eb'; img.style.boxShadow = idx === currentIdx ? '0 0 0 2px #3b82f6' : 'none' }) }
+
+        if (images.length > 1) {
+          var prevBtn = document.createElement('button')
+          prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>'
+          prevBtn.style.cssText = 'position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.8);border:none;border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#374151'
+          prevBtn.onclick = function (e) { e.stopPropagation(); currentIdx = (currentIdx - 1 + images.length) % images.length; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+          imgArea.appendChild(prevBtn)
+
+          var nextBtn = document.createElement('button')
+          nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>'
+          nextBtn.style.cssText = 'position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.8);border:none;border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#374151'
+          nextBtn.onclick = function (e) { e.stopPropagation(); currentIdx = (currentIdx + 1) % images.length; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+          imgArea.appendChild(nextBtn)
+        }
+        leftCol.appendChild(imgArea)
+
+        // Counter
+        var counterEl = document.createElement('div')
+        counterEl.style.cssText = 'font-size:12px;color:#6b7280;text-align:center;padding:4px 0;background:#f9fafb'
+        updateCounter()
+        leftCol.appendChild(counterEl)
+
+        // Thumbnails
+        var thumbRow = document.createElement('div')
+        thumbRow.style.cssText = 'display:flex;gap:8px;padding:8px;overflow-x:auto;background:#f3f4f6'
+        if (images.length > 1) {
+          images.forEach(function (src, idx) {
+            var thumb = document.createElement('img')
+            thumb.src = src
+            thumb.alt = 'Thumb ' + (idx + 1)
+            thumb.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;cursor:pointer;border:2px solid ' + (idx === 0 ? '#3b82f6' : '#e5e7eb')
+            thumb.onclick = function () { currentIdx = idx; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+            thumbRow.appendChild(thumb)
+          })
+          leftCol.appendChild(thumbRow)
+        }
+
+        // Content area (tags + excerpt below image)
+        var contentDiv = document.createElement('div')
+        contentDiv.style.cssText = 'padding:16px'
+        if (html) {
+          var prose = document.createElement('div')
+          prose.style.cssText = 'font-size:14px;color:#374151;line-height:1.6'
+          prose.textContent = html.replace(/<[^>]+>/g, ' ')
+          contentDiv.appendChild(prose)
+        } else if (excerpt) {
+          var excerptEl = document.createElement('div')
+          excerptEl.style.cssText = 'font-size:14px;color:#374151;white-space:pre-line;line-height:1.6'
+          excerptEl.textContent = excerpt
+          contentDiv.appendChild(excerptEl)
+        }
+        if (tags.length > 0) {
+          var tagWrap = document.createElement('div')
+          tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;margin-top:12px'
+          tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
+          contentDiv.appendChild(tagWrap)
+        }
+        leftCol.appendChild(contentDiv)
+        body.appendChild(leftCol)
+
+        // Right column: related links sidebar
+        var rightCol = document.createElement('div')
+        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
+        if (links.length > 0) {
+          var linkSection = document.createElement('div'); linkSection.style.cssText = 'padding:16px'
+          var linkTitle = document.createElement('h4'); linkTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'; linkTitle.textContent = '相关链接 (' + links.length + ')'; linkSection.appendChild(linkTitle)
+          var linkList = document.createElement('ul'); linkList.style.cssText = 'list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px'
+          links.forEach(function (l) {
+            var li = document.createElement('li')
+            var a = document.createElement('a')
+            a.href = /^https?:\/\//i.test(l.href) ? l.href : '#'
+            a.target = '_blank'; a.rel = 'noopener noreferrer'
+            a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all;display:block;padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none'
+            a.textContent = l.text || l.href
+            a.onmouseenter = function () { a.style.background = '#f3f4f6' }
+            a.onmouseleave = function () { a.style.background = 'transparent' }
+            li.appendChild(a); linkList.appendChild(li)
+          })
+          linkSection.appendChild(linkList); rightCol.appendChild(linkSection)
+        } else {
+          var emptySection = document.createElement('div'); emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'; emptySection.textContent = '暂无关联内容'; rightCol.appendChild(emptySection)
+        }
+        body.appendChild(rightCol)
+
+        panel.appendChild(body)
+
+        // Footer
+        var footer = document.createElement('div')
+        footer.style.cssText = 'padding:12px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+        var fLeft = document.createElement('div'); fLeft.style.cssText = 'display:flex;gap:8px'
+        if (pageUrl) {
+          var originBtn = document.createElement('button'); originBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:14px'; originBtn.textContent = '打开原页面'; originBtn.onclick = function () { window.open(pageUrl, '_blank', 'noopener,noreferrer') }; fLeft.appendChild(originBtn)
+          var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(pageUrl) }; fLeft.appendChild(copyLinkBtn)
+        }
+        footer.appendChild(fLeft)
+        var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = closeHandler; footer.appendChild(closeBtn)
+        panel.appendChild(footer)
+
+        // Backdrop click
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) closeHandler() })
+
+        // Keyboard nav
+        function keyHandler(e) {
+          if (e.key === 'Escape') { closeHandler(); return }
+          if (e.key === 'ArrowLeft' && images.length > 1) { currentIdx = (currentIdx - 1 + images.length) % images.length; imgEl.src = images[currentIdx]; updateCounter(); if (typeof updateThumbs === 'function') updateThumbs() }
+          if (e.key === 'ArrowRight' && images.length > 1) { currentIdx = (currentIdx + 1) % images.length; imgEl.src = images[currentIdx]; updateCounter(); if (typeof updateThumbs === 'function') updateThumbs() }
+        }
+        document.addEventListener('keydown', keyHandler)
+
+        // Override closeHandler to clean up
+        var origClose = closeHandler
+        closeHandler = function () {
+          document.removeEventListener('keydown', keyHandler)
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
+          document.body.style.overflow = ''
+          if (onClose) onClose()
+        }
+
+        // Mount
+        document.body.appendChild(overlay)
+        document.body.style.overflow = 'hidden'
+
+        return h('div')
       }
     })
   }
