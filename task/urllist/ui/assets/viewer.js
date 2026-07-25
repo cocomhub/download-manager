@@ -28,6 +28,11 @@
       fields: [
         { type: 'count', key: 'urls', label: 'URL 数量', path: 'extra.urls' }
       ]
-    })
+    }),
+    collectExtra: function (formData) {
+      var extra = {}
+      if (formData.urls_text) extra.urls_text = formData.urls_text
+      return extra
+    }
   })
 })()

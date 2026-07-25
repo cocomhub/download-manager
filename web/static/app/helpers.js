@@ -131,6 +131,10 @@
         },
         getTaskTypeBadge: function (task) {
           if (!task || !task.type) return ''
+          // 优先从 TaskUI 注册表获取标签
+          var handler = TaskUI.get(task.type)
+          if (handler && handler.label) return handler.label
+          // 回退硬编码映射
           var known = {
             'tktube': 'TKTube',
             'hanime': 'Hanime',
@@ -302,7 +306,8 @@
             id: this.newTask.id,
             type: this.newTask.type,
             save_dir: this.newTask.save_dir,
-            storage: { type: this.newTask.storage_type }
+            storage: { type: this.newTask.storage_type },
+            extra: {}
           }
           Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
           if (this.newTask.storage_type === 'file' && this.newTask.storage_config.path) {
@@ -313,14 +318,13 @@
             if (this.newTask.storage_config.database) payload.storage.database = this.newTask.storage_config.database
             if (this.newTask.storage_config.collection) payload.storage.collection = this.newTask.storage_config.collection
           }
-          if (this.newTask.type === 'url_list') {
-            payload.urls_text = this.newTask.urls_text
-          }
-          if (this.newTask.type === 'tktube') {
-            if (this.newTask.keyword) payload.keyword = this.newTask.keyword
-            if (this.newTask.subtype) payload.subtype = this.newTask.subtype
-            if (this.newTask.max_concurrent) payload.max_concurrent = this.newTask.max_concurrent
-            if (this.newTask.refresh_interval) payload.refresh_interval = this.newTask.refresh_interval
+          // 通过 task 插件收集类型特定字段
+          var handler = TaskUI.get(this.newTask.type)
+          if (handler && handler.collectExtra) {
+            var extra = handler.collectExtra(this.newTask)
+            if (extra) {
+              payload.extra = Object.assign(payload.extra, extra)
+            }
           }
           if (!payload.id || !payload.type) {
             this.showToast('请填写任务ID和类型', 'error')

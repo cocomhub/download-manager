@@ -27,7 +27,14 @@
       renderAggregate: typeof handler.renderAggregate === 'function' ? handler.renderAggregate : null,
       shouldShowViewer: typeof handler.shouldShowViewer === 'function' ? handler.shouldShowViewer : defaultShouldShowViewer,
       viewerLabel: handler.viewerLabel || '查看',
+      // collectExtra: 将 formData 映射为 API 请求的 payload 字段
+      // 返回 { urls_text, keyword, ... } 或 { extra: { ... } } 等
+      collectExtra: typeof handler.collectExtra === 'function' ? handler.collectExtra : defaultCollectExtra,
     }
+  }
+
+  function defaultCollectExtra(formData) {
+    return {}
   }
 
   function defaultShouldShowViewer(obj) {

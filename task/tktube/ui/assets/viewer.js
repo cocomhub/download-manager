@@ -371,7 +371,15 @@
           { type: 'text', key: 'max_concurrent', label: '并发', path: 'extra.max_concurrent' },
           { type: 'text', key: 'refresh_interval', label: '刷新间隔', path: 'extra.refresh_interval' },
         ]
-      })
+      }),
+      collectExtra: function (formData) {
+        var extra = {}
+        if (formData.keyword) extra.keyword = formData.keyword
+        if (formData.subtype) extra.subtype = formData.subtype
+        if (formData.max_concurrent) extra.max_concurrent = formData.max_concurrent
+        if (formData.refresh_interval) extra.refresh_interval = formData.refresh_interval
+        return extra
+      }
     })
   }
 
