@@ -343,7 +343,7 @@
     return card
   }
 
-  // Register as task view
+  // Register as task view (legacy compat)
   window.__dm_uiBridge.registerTaskView('tktube', {
     render: function (task) {
       renderTaskView(task)

@@ -395,7 +395,7 @@
     document.body.style.overflow = 'hidden'
   }
 
-  // Register with the bridge
+  // Register with the bridge (legacy compat)
   window.__dm_uiBridge.register('vikacg', {
     label: '浏览',
     open: function (obj) {
