@@ -8,6 +8,9 @@
  * 默认不开启（level = ''），通过服务端 runtime.log_level 配置控制。
  * 日志级别在 initRuntime() 时从 /api/runtime 获取并设置。
  *
+ * 输出格式：[HH:MM:SS.mmm][LEVEL][file:line] message
+ * file:line 指向调用日志函数的代码位置（而非 logger.js 自身）。
+ *
  * 用法：
  *   Log.trace('message', { data: 1 });
  *   Log.debug('message');
@@ -30,8 +33,6 @@
 
   var currentLevel = '' // 空字符串 = 不输出任何日志
 
-  var LEVEL_NAMES = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']
-
   function shouldLog(level) {
     if (!currentLevel) return false
     var min = LEVELS[currentLevel]
@@ -47,9 +48,48 @@
       d.getMilliseconds().toString().padStart(3, '0')
   }
 
+  /**
+   * 获取调用日志的源码位置（跳过 logger.js 内部的堆栈帧）。
+   * 返回 "file:line" 格式字符串，如 "taskList.js:33"。
+   * 解析失败时返回空字符串。
+   */
+  function getCallerSource() {
+    try {
+      var err = new Error()
+      var stack = err.stack
+      if (!stack) return ''
+      var lines = stack.split('\n')
+      // 跳过前 2 帧：log() 和 trace/debug/info/warn/error()
+      // 第 3 帧是真正的调用者
+      var callerLine = ''
+      var skip = 0
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim()
+        if (!line || line.indexOf('Error') === 0) continue
+        skip++
+        if (skip <= 2) continue
+        callerLine = line
+        break
+      }
+      if (!callerLine) return ''
+      // 解析 "at functionName (file:line:col)" 或 "at file:line:col"
+      var match = callerLine.match(/\((.+?):(\d+):(\d+)\)/) || callerLine.match(/at (.+?):(\d+):(\d+)/)
+      if (match) {
+        var file = match[1].split('/').pop() // 取文件名
+        return file + ':' + match[2]
+      }
+      // 回退：取第一个冒号前的部分
+      match = callerLine.match(/at\s+(.+)/)
+      if (match) return match[1].split('/').pop()
+    } catch (e) {}
+    return ''
+  }
+
   function log(level, msg, data) {
     if (!shouldLog(level)) return
+    var source = getCallerSource()
     var prefix = '[' + formatTime() + '][' + level.toUpperCase() + ']'
+    if (source) prefix += '[' + source + ']'
     var idx = LEVELS[level]
     switch (idx) {
       case 0: // trace
