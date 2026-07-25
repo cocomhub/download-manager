@@ -29,9 +29,11 @@
     tasks.forEach(function (task) {
       if (!task || !task.type) return
       if (!seen[task.type]) {
-        var label = task.type
-          .replace(/_/g, ' ')
-          .replace(/\b\w/g, function (c) { return c.toUpperCase() })
+        // 优先使用 TaskUI 注册的标签，回退到自动生成
+        var handler = typeof TaskUI !== 'undefined' && TaskUI.get(task.type)
+        var label = handler && handler.label ? handler.label : (
+          task.type.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase() })
+        )
         seen[task.type] = { id: task.type, label: label }
       }
     })

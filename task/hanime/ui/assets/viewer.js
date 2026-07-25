@@ -534,7 +534,117 @@
     document.body.style.overflow = 'hidden'
   }
 
-  // Register with the bridge
+  // Register with TaskUI (new plugin system)
+  if (typeof TaskUI !== 'undefined' && TaskUI.register) {
+    TaskUI.register('hanime', {
+      type: 'hanime',
+      label: 'Hanime',
+      icon: 'fa-film',
+      viewerLabel: '播放',
+      shouldShowViewer: function (obj) { return obj.status === 'completed' },
+      renderViewer: function (h, obj, onClose) {
+        var videoUrl = getVideoURL(obj)
+        var covers = getCoverImages(obj)
+        var firstPoster = covers.length > 0 ? covers[0] : ''
+        var playlist = getPlaylist(obj)
+        var details = getDetails(obj)
+        var genres = getGenres(obj)
+        var dateVal = getDate(obj)
+        var tags = getTags(obj)
+        var artist = getArtist(obj)
+        var origin = getOriginLink(obj)
+
+        var isHLS = /\.m3u8(\?.*)?$/i.test(videoUrl)
+        var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
+        var useVideo = !!videoUrl && (!isHLS || isSafari)
+
+        return h('div', {
+          class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
+          on: {
+            click: function (e) { if (e.target === e.currentTarget && onClose) onClose() },
+          }
+        }, [
+          h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col' }, [
+            h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
+              h('h3', { class: 'text-lg font-bold text-gray-800' }, getTitle(obj) || 'Hanime'),
+              onClose ? h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); onClose() } } }, [h('i', { class: 'fas fa-times' })]) : null,
+            ]),
+            h('div', { class: 'flex-1 overflow-y-auto' }, [
+              useVideo ? h('div', { class: 'bg-black flex items-center justify-center' }, [
+                h('video', {
+                  attrs: { src: videoUrl, poster: firstPoster, controls: true, autoplay: true },
+                  class: 'w-full max-h-[55vh] outline-none'
+                })
+              ]) : (covers.length > 0 ? h('div', { class: 'bg-black flex items-center justify-center p-4 min-h-[200px]' }, [
+                h('img', { attrs: { src: firstPoster }, class: 'max-w-full max-h-[50vh] object-contain' })
+              ]) : null),
+              origin ? h('div', { class: 'flex gap-2 p-3 bg-gray-50 border-b flex-wrap' }, [
+                h('a', {
+                  attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
+                  class: 'px-2 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700'
+                }, '打开原页面'),
+                h('button', {
+                  class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100',
+                  on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) } }
+                }, '复制标题'),
+                h('button', {
+                  class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100',
+                  on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) } }
+                }, '复制链接'),
+              ]) : null,
+              h('div', { class: 'p-4' }, [
+                (genres.length || dateVal || tags.length || artist) ? h('div', { class: 'text-xs text-gray-500 mb-3 flex flex-wrap gap-1' }, [
+                  genres.length ? h('span', genres.join(', ')) : null,
+                  dateVal ? h('span', (genres.length ? ' · ' : '') + dateVal) : null,
+                  tags.length ? h('span', ((genres.length || dateVal) ? ' · ' : '') + tags.join(', ')) : null,
+                  artist ? h('span', ((genres.length || dateVal || tags.length) ? ' · ' : '') + artist) : null,
+                ]) : null,
+                details ? h('div', { class: 'text-sm text-gray-700 whitespace-pre-line mb-3' }, details) : null,
+                tags.length ? h('div', { class: 'flex flex-wrap gap-1 mb-3' }, tags.map(function (tag) {
+                  return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag)
+                })) : null,
+              ]),
+              playlist.length ? h('div', { class: 'p-3 border-t bg-gray-50' }, [
+                h('h4', { class: 'text-sm font-semibold text-gray-700 mb-2' }, '播放列表 (' + playlist.length + ')'),
+                h('div', { class: 'flex flex-col gap-1 max-h-[200px] overflow-y-auto' }, playlist.map(function (item, idx) {
+                  return h('div', {
+                    class: 'flex items-center gap-2 p-2 border rounded bg-white text-xs hover:bg-gray-50 cursor-pointer',
+                    on: { click: function () { if (item.url) window.open(item.url, '_blank', 'noopener,noreferrer') } }
+                  }, [
+                    h('span', { class: 'w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-600 flex-shrink-0' }, String(idx + 1)),
+                    item.thumbnail ? h('img', { attrs: { src: item.thumbnail }, class: 'w-10 h-7 object-cover rounded flex-shrink-0' }) : null,
+                    h('span', { class: 'flex-1 truncate text-gray-700' }, item.title || 'Item ' + (idx + 1)),
+                  ])
+                }))
+              ]) : null,
+            ]),
+            h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
+              h('div', { class: 'flex gap-2' }, [
+                origin ? h('a', {
+                  attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
+                  class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
+                }, '打开原页面') : null,
+                h('button', {
+                  class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
+                  on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) } }
+                }, '复制标题'),
+                origin ? h('button', {
+                  class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
+                  on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) } }
+                }, '复制链接') : null,
+              ]),
+              onClose ? h('button', {
+                class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
+                on: { click: function (e) { e.stopPropagation(); onClose() } }
+              }, '关闭') : null,
+            ]),
+          ])
+        ])
+      }
+    })
+  }
+
+  // Register with the bridge (legacy compat)
   window.__dm_uiBridge.register('hanime', {
     label: '播放',
     open: function (obj) {

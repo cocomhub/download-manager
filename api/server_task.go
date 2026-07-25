@@ -27,6 +27,7 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 				"scheduler": true,
 			},
 			"download_root": s.mgr.GetDownloadRootDir(),
+			"log_level":     cfg.Runtime.LogLevel,
 		})
 		return
 	}
@@ -37,6 +38,7 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 			"scheduler": cfg.Runtime.Scheduler.Enabled,
 		},
 		"download_root": s.mgr.GetDownloadRootDir(),
+		"log_level":     cfg.Runtime.LogLevel,
 	})
 }
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {

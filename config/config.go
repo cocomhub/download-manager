@@ -35,6 +35,7 @@ const (
 )
 
 type Runtime struct {
+	LogLevel string  `yaml:"log_level" json:"log_level"` // frontend log level: trace|debug|info|warn|error|"" (off)
 	Mode     RunMode `yaml:"mode" json:"mode"`
 	Download struct {
 		Enabled bool `yaml:"enabled" json:"enabled"`
@@ -317,6 +318,12 @@ func (c *Config) validateRuntimeMode() {
 	if c.Runtime.Mode != RunModeFull && c.Runtime.Mode != RunModeUI {
 		slog.Warn("invalid runtime mode, fallback to full", "mode", string(c.Runtime.Mode))
 		c.Runtime.Mode = RunModeFull
+	}
+	// Validate log_level: only accept known levels or empty (off)
+	validLevels := map[string]bool{"trace": true, "debug": true, "info": true, "warn": true, "error": true, "": true}
+	if !validLevels[c.Runtime.LogLevel] {
+		slog.Warn("invalid runtime log_level, fallback to empty (off)", "log_level", c.Runtime.LogLevel)
+		c.Runtime.LogLevel = ""
 	}
 }
 

@@ -65,6 +65,10 @@
               self.runtime = d
               // Expose download root globally for plugin JS files
               if (d.download_root) window.__dm_downloadRoot = d.download_root.replace(/\\/g, '/')
+              // Initialize frontend logger with server-configured log level
+              if (d.log_level && typeof Log !== 'undefined' && Log.setLevel) {
+                Log.setLevel(d.log_level)
+              }
             }
           }).catch(function () {})
         },
@@ -127,6 +131,10 @@
         },
         getTaskTypeBadge: function (task) {
           if (!task || !task.type) return ''
+          // 优先从 TaskUI 注册表获取标签
+          var handler = TaskUI.get(task.type)
+          if (handler && handler.label) return handler.label
+          // 回退硬编码映射
           var known = {
             'tktube': 'TKTube',
             'hanime': 'Hanime',
@@ -170,40 +178,31 @@
           return (obj && obj.metadata && obj.metadata.content_group) || ''
         },
 
-        // Vikacg helpers
-        isVikacg: function (obj) {
-          var u = (obj && obj.metadata && obj.metadata.page_url) || (obj && obj.url) || ''
-          return u.indexOf('vikacg.com') >= 0
-        },
-        getVikacgExcerpt: function (obj) {
-          var s = (obj && obj.extra && obj.extra.content_text) || ''
-          if (!s) return ''
-          var t = s.replace(/\s+/g, ' ').trim()
-          return t.length > 200 ? t.slice(0, 200) + '...' : t
-        },
-
         // SSE
         initSSE: function () {
           if (this.eventSource) this.eventSource.close()
+          Log.debug('initSSE connecting')
           var self = this
           this.eventSource = new EventSource('/api/events')
           this.eventSource.onmessage = function (event) {
             try {
               var data = JSON.parse(event.data)
+              Log.trace('SSE event', { type: data.type, taskId: data.payload && data.payload.task_id })
               self.handleEvent(data)
-            } catch (e) { console.error('SSE Parse Error', e) }
+            } catch (e) { Log.error('SSE Parse Error', { error: e.message }) }
           }
           this.eventSource.onerror = function () {
-            console.error('SSE Error')
+            Log.warn('SSE connection error, reconnecting...')
             self.showToast('Connection lost. Reconnecting...', 'error')
           }
           this.eventSource.onopen = function () {
-            // SSE 重连成功后刷新任务列表，解决断连后数据陈旧的问题
+            Log.debug('SSE connected')
             self.fetchTasks()
           }
         },
         handleEvent: function (event) {
           var self = this
+          Log.trace('handleEvent', { type: event.type, taskId: event.payload && event.payload.task_id, url: event.payload && event.payload.url })
           if (event.type === 'object_update' || event.type === 'shared_object_update') {
             var obj = event.payload
             if (obj.status === 'downloading') {
@@ -224,20 +223,20 @@
               var currentObj = this.selectedTask.objects.find(function (o) { return o.url === obj.url })
               if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata }
             }
-            if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
+            if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
               var objType = (obj && typeof obj.type === 'string') ? obj.type : null
               if (!objType) {
                 var task = this.tasks.find(function (t) { return t.id === obj.task_id })
                 if (task && typeof task.type === 'string') objType = task.type
               }
               if (this.selectedType !== 'all' && objType && objType !== this.selectedType) return
-              var idxAgg = this.tktubeObjects.findIndex(function (o) { return o.url === obj.url && o.task_id === obj.task_id })
+              var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === obj.url && o.task_id === obj.task_id })
               if (idxAgg >= 0) {
-                var existing = this.tktubeObjects[idxAgg]
+                var existing = this.aggObjects[idxAgg]
                 existing.status = obj.status
                 existing.progress = obj.progress
                 if (obj.metadata) existing.metadata = obj.metadata
-                this.tktubeObjects.splice(idxAgg, 1, existing)
+                this.aggObjects.splice(idxAgg, 1, existing)
               }
             }
           } else if (event.type === 'task_update') {
@@ -259,9 +258,9 @@
                   var currentObj = this.selectedTask.objects.find(function (o) { return o.url === item.url })
                   if (currentObj) { currentObj.progress = item.progress }
                 }
-                if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
-                  var idxAgg = this.tktubeObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
-                  if (idxAgg >= 0) { this.tktubeObjects[idxAgg].progress = item.progress }
+                if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
+                  var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
+                  if (idxAgg >= 0) { this.aggObjects[idxAgg].progress = item.progress }
                 }
               }
             }
@@ -299,6 +298,7 @@
         // ---- Create task modal ----
         openAddTask: function ($event) {
           if ($event) $event.preventDefault()
+          Log.debug('openAddTask', { currentType: this.newTask.type })
           this.showAddTaskModal = true
         },
         saveNewTask: function () {
@@ -306,8 +306,10 @@
             id: this.newTask.id,
             type: this.newTask.type,
             save_dir: this.newTask.save_dir,
-            storage: { type: this.newTask.storage_type }
+            storage: { type: this.newTask.storage_type },
+            extra: {}
           }
+          Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
           if (this.newTask.storage_type === 'file' && this.newTask.storage_config.path) {
             payload.storage.path = this.newTask.storage_config.path
           }
@@ -316,14 +318,13 @@
             if (this.newTask.storage_config.database) payload.storage.database = this.newTask.storage_config.database
             if (this.newTask.storage_config.collection) payload.storage.collection = this.newTask.storage_config.collection
           }
-          if (this.newTask.type === 'url_list') {
-            payload.urls_text = this.newTask.urls_text
-          }
-          if (this.newTask.type === 'tktube') {
-            if (this.newTask.keyword) payload.keyword = this.newTask.keyword
-            if (this.newTask.subtype) payload.subtype = this.newTask.subtype
-            if (this.newTask.max_concurrent) payload.max_concurrent = this.newTask.max_concurrent
-            if (this.newTask.refresh_interval) payload.refresh_interval = this.newTask.refresh_interval
+          // 通过 task 插件收集类型特定字段
+          var handler = TaskUI.get(this.newTask.type)
+          if (handler && handler.collectExtra) {
+            var extra = handler.collectExtra(this.newTask)
+            if (extra) {
+              payload.extra = Object.assign(payload.extra, extra)
+            }
           }
           if (!payload.id || !payload.type) {
             this.showToast('请填写任务ID和类型', 'error')
@@ -341,19 +342,25 @@
 
         // ---- Config panel ----
         openConfig: function () {
+          Log.info('openConfig')
           this.showConfigModal = true
           var self = this
           AppAPI.serverConfig().then(function (data) {
             self.configForm = data || {}
+            Log.debug('openConfig loaded', { log_level: data && data.log_level })
           }).catch(function () {})
         },
         saveConfig: function () {
           var self = this
-          AppAPI.put('/api/config/server', this.configForm).then(function (res) {
+          AppAPI.post('/api/config/server', this.configForm).then(function (res) {
             if (!res.ok) throw new Error('保存失败')
             self.showToast('配置已保存', 'success')
             self.showConfigModal = false
             self.initUiDefaults()
+            // Apply frontend log level immediately
+            if (self.configForm.log_level !== undefined && typeof Log !== 'undefined' && Log.setLevel) {
+              Log.setLevel(self.configForm.log_level)
+            }
           }).catch(function (e) { self.showToast('保存失败: ' + e.message, 'error') })
         },
         openConfigHistory: function () {
@@ -363,11 +370,12 @@
         // ---- Card / group modal ----
         handleCardClick: function (obj) {
           if (!obj) return
+          Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
           if (obj.status === 'completed') {
-            // Delegate to task-type plugin modal if one is registered
+            // Delegate to task-type plugin viewer if one is registered
             var type = obj.metadata && obj.metadata.task_type
-            if (type && window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(type)) {
-              window.__dm_uiBridge.open(type, obj)
+            if (type && TaskUI.hasViewer(type)) {
+              this.openTaskTypeViewer(obj)
               return
             }
             // Fall back to built-in video player
@@ -387,29 +395,31 @@
           this.groupModal = { taskId: '', taskType: '' }
         },
 
-        // ---- Tktube / Aggregate view ----
-        openTktubeAggregate: function () {
-          this.viewMode = 'tktube'
+        // ---- Aggregate view ----
+        openAggregateView: function () {
+          Log.info('openAggregateView', { selectedType: this.selectedType, viewMode: this.viewMode })
+          this.viewMode = 'aggregate'
           this.fetchAggregateByType(this.selectedType || 'all')
         },
         fetchAggregateByType: function (type) {
-          if (this.tktubeLoading) return
-          this.tktubeLoading = true
+          if (this.aggLoading) return
+          Log.debug('fetchAggregateByType', { type: type, page: this.aggPagination.page, sort: this.aggSortBy, groupBy: this.aggGroupBy })
+          this.aggLoading = true
           var self = this
           AppAPI.aggregate({
             types: type || 'all',
-            sort: this.tktubeSortBy || '',
-            groupBy: this.tktubeGroupBy || false,
-            page: this.tktubePagination.page,
-            limit: this.tktubePagination.limit
+            sort: this.aggSortBy || '',
+            groupBy: this.aggGroupBy || false,
+            page: this.aggPagination.page,
+            limit: this.aggPagination.limit
           }).then(function (data) {
-            self.tktubeObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
-            self.tktubePagination.total = (data && data.total) || self.tktubeObjects.length
-            self.showTktubeView = true
+            self.aggObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
+            self.aggPagination.total = (data && data.total) || self.aggObjects.length
+            self.showAggView = true
           }).catch(function () {
             self.showToast('加载聚合视图失败', 'error')
           }).finally(function () {
-            self.tktubeLoading = false
+            self.aggLoading = false
           })
         },
         cancelAggObject: function (obj) {
@@ -421,12 +431,12 @@
             self.showToast('已取消: ' + (obj.metadata && obj.metadata.title || obj.url), 'info')
           }).catch(function (e) { self.showToast('取消失败: ' + e.message, 'error') })
         },
-        changeTktubePage: function (page) {
-          this.tktubePagination.page = page
+        changeAggPage: function (page) {
+          this.aggPagination.page = page
           this.fetchAggregateByType(this.selectedType || 'all')
         },
-        changeTktubeLimit: function () {
-          this.tktubePagination.page = 1
+        changeAggLimit: function () {
+          this.aggPagination.page = 1
           this.fetchAggregateByType(this.selectedType || 'all')
         },
 
@@ -454,45 +464,9 @@
         },
 
         // ---- Custom UI / External Task Plugin methods ----
-        isCustomUI: function (obj) {
-          return !!(
-            obj && obj.metadata && obj.metadata.task_type &&
-            window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(obj.metadata.task_type)
-          )
-        },
-        getCustomUILabel: function (obj) {
-          var type = obj && obj.metadata && obj.metadata.task_type
-          return (type && window.__dm_uiBridge && window.__dm_uiBridge.getLabel(type)) || '浏览'
-        },
-        openCustomUI: function (obj) {
-          var type = obj && obj.metadata && obj.metadata.task_type
-          if (type && window.__dm_uiBridge) window.__dm_uiBridge.open(type, obj)
-        },
-        // Post-render hook: let task-type plugins replace card DOM via bridge.renderCard
-        renderPluginCards: function () {
-          var self = this
-          if (!window.__dm_uiBridge) return
-          // Collect cards that need plugin rendering
-          var cards = []
-          ;(self.filteredObjects || []).forEach(function (obj) {
-            var type = obj.metadata && obj.metadata.task_type
-            if (type && window.__dm_uiBridge.hasCardRenderer(type)) {
-              cards.push({ obj: obj, type: type })
-            }
-          })
-          if (cards.length === 0) return
-          self.$nextTick(function () {
-            cards.forEach(function (item) {
-              // Find the card element by data-testid (escape special chars for CSS selector)
-              var escapedUrl = item.obj.url.replace(/["\\]/g, '').replace(/[!\"#$%&'()*+,.\/:;<=>?@[\]^`{|}~]/g, '\\$&')
-              var cardEl = document.querySelector('[data-testid="object-' + escapedUrl + '"]')
-              if (cardEl && !cardEl.hasAttribute('data-plugin-card')) {
-                cardEl.setAttribute('data-plugin-card', item.type)
-                window.__dm_uiBridge.renderCard(item.type, item.obj, cardEl)
-              }
-            })
-          })
-        }
+        // isCustomUI / getCustomUILabel / openCustomUI / renderPluginCards
+        // 已迁移到 TaskUI 注册表，保留兼容性 shim
+
       }})
     }
   }

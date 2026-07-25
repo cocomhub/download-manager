@@ -26,6 +26,7 @@ import (
 	_ "github.com/cocomhub/download-manager/task/tktube"
 	_ "github.com/cocomhub/download-manager/task/tktube/ui"
 	_ "github.com/cocomhub/download-manager/task/urllist"
+	_ "github.com/cocomhub/download-manager/task/urllist/ui"
 	_ "github.com/cocomhub/download-manager/task/vikacg"
 	_ "github.com/cocomhub/download-manager/task/vikacg/ui"
 	"github.com/gofrs/flock"

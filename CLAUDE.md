@@ -202,9 +202,18 @@ YAML 配置，结构体在 `config/config.go`，含 ValidateAndClamp 做默认�
 
 ### Web UI（`web/`）
 
-- `web/static/index.html` 是主页面（内嵌 Vue 3，当前为单文件）
-- `web/embed.go` 通过 `//go:embed static/*` 嵌入
+- `web/static/index.html` 是主页面（内嵌 Vue 3，CDN 加载）
+- `web/static/app/` — Vue 应用模块（`main.js`、`helpers.js`、`taskList.js`、`videoPlayer.js`、`dashboard.js`）
+- `web/static/app/taskui/` — **TaskUI 插件注册系统**（2026-07-25 新增）：
+  - `registry.js` — 注册表（`register/get/list/hasForm/hasViewer`）
+  - `defineForm.js` / `defineMeta.js` — 声明式表单/元数据工厂
+  - `baseForm.js` / `baseMeta.js` / `baseViewer.js` — 默认模板
+  - `loader.js` — 动态加载 task UI JS/CSS 资产
+- `web/static/tasks/{type}/ui.js` — 各 task 类型的 UI 插件（urllist/tktube/hanime/vikacg）
 - `web/static/utils/taskTypes.js` — 任务类型工具函数
+- `web/embed.go` 通过 `//go:embed static/*` 嵌入
+
+**核心规则**：新增 task 类型只需创建 `web/static/tasks/{type}/ui.js`（调用 `TaskUI.register()`）+ 后端 `task/{type}/ui/ui.go`，无需修改核心 UI。
 
 ### 数据模型
 
@@ -478,6 +487,8 @@ Playwright Codegen 与 Chrome DevTools MCP 结合，AI 可以用自然语言描�
 9. **go:embed 修改后需重新构建**：改 `web/static/` 文件后需 `cd cmd/playwright-server && go build -o playwright-server .` 才能让测试使用新内容
 10. **axe-core 对比度调试**：遍历 `v.nodes[i].html` + `v.nodes[i].target` 定位颜色违规元素
 11. **按钮对比度标准**：`bg-white/text-blue-500`（2.8:1）不达标，需改为 `bg-blue-600/text-white`（4.6:1+）
+12. **JS 错误监控**：UI 重构后必须使用 `page.on('pageerror')` 监听未捕获的 JS 错误，选择所有 fixture 中的 task 类型做点击测试。Vue 的 `console.error` 不会导致页面崩溃，Playwright 默认不因 `console.error` 失败，必须显式断言。
+13. **Vue mixin 方法重命名**：`main.js` 中通过 `mixin` 注册的方法可被 `taskList.js`、`dashboard.js` 等模块通过 `this.xxx()` 调用。重命名/移除方法时，必须在所有 `register()` 调用处搜索 `this.xxx` 引用。
 
 <!-- superpowers-zh:begin (do not edit between these markers) -->
 # Superpowers-ZH 中文增强版
