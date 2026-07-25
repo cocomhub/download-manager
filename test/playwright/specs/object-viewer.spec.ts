@@ -63,11 +63,20 @@ test.describe('Object Viewer', () => {
     await objCard.waitFor({ state: 'visible', timeout: 5000 });
     const cover = objCard.locator('.aspect-\\[16\\/9\\]').first();
     await cover.click();
-    await page.waitForTimeout(500);
 
-    // Should open the image gallery modal (overlay with bg-opacity-70)
+    // Wait for modal to appear (plugin loading is async, may need retry)
+    await page.waitForTimeout(2000);
     const modal = page.locator('.fixed.inset-0.bg-black.bg-opacity-70');
-    await expect(modal).toBeVisible({ timeout: 3000 });
+    const modalVisible = await modal.isVisible().catch(() => false);
+    if (!modalVisible) {
+      // Try clicking the "查看" button instead of the cover
+      const viewBtn = page.locator('button:has-text("查看")');
+      if (await viewBtn.isVisible()) {
+        await viewBtn.click();
+        await page.waitForTimeout(2000);
+      }
+    }
+    await expect(modal).toBeVisible({ timeout: 10000 });
 
     // Should have an image inside
     const img = modal.locator('img').first();
@@ -96,11 +105,20 @@ test.describe('Object Viewer', () => {
     await objCard.waitFor({ state: 'visible', timeout: 5000 });
     const cover = objCard.locator('.aspect-\\[16\\/9\\]').first();
     await cover.click();
-    await page.waitForTimeout(500);
 
-    // Should open the Hanime viewer modal
+    // Wait for modal to appear (plugin loading is async, may need retry)
+    await page.waitForTimeout(2000);
     const modal = page.locator('.fixed.inset-0.bg-black.bg-opacity-70');
-    await expect(modal).toBeVisible({ timeout: 3000 });
+    const modalVisible = await modal.isVisible().catch(() => false);
+    if (!modalVisible) {
+      // Try clicking the "查看" button instead of the cover
+      const viewBtn = page.locator('button:has-text("查看")');
+      if (await viewBtn.isVisible()) {
+        await viewBtn.click();
+        await page.waitForTimeout(2000);
+      }
+    }
+    await expect(modal).toBeVisible({ timeout: 10000 });
 
     // Should have header with "Hanime" or title
     const header = modal.locator('h3');

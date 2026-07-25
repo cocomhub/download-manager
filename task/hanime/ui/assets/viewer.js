@@ -572,7 +572,21 @@
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
 
         var panel = document.createElement('div')
+        panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
         panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+
+        // Store reference for cleanup
+        var modalRef = { overlay: overlay, panel: panel }
+
+        // Override onClose to remove DOM elements
+        var originalOnClose = onClose
+        onClose = function () {
+          if (modalRef.overlay && modalRef.overlay.parentNode) {
+            modalRef.overlay.parentNode.removeChild(modalRef.overlay)
+          }
+          document.body.style.overflow = ''
+          if (originalOnClose) originalOnClose()
+        }
         overlay.appendChild(panel)
 
         // Header
