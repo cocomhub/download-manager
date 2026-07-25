@@ -223,20 +223,20 @@
               var currentObj = this.selectedTask.objects.find(function (o) { return o.url === obj.url })
               if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata }
             }
-            if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
+            if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
               var objType = (obj && typeof obj.type === 'string') ? obj.type : null
               if (!objType) {
                 var task = this.tasks.find(function (t) { return t.id === obj.task_id })
                 if (task && typeof task.type === 'string') objType = task.type
               }
               if (this.selectedType !== 'all' && objType && objType !== this.selectedType) return
-              var idxAgg = this.tktubeObjects.findIndex(function (o) { return o.url === obj.url && o.task_id === obj.task_id })
+              var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === obj.url && o.task_id === obj.task_id })
               if (idxAgg >= 0) {
-                var existing = this.tktubeObjects[idxAgg]
+                var existing = this.aggObjects[idxAgg]
                 existing.status = obj.status
                 existing.progress = obj.progress
                 if (obj.metadata) existing.metadata = obj.metadata
-                this.tktubeObjects.splice(idxAgg, 1, existing)
+                this.aggObjects.splice(idxAgg, 1, existing)
               }
             }
           } else if (event.type === 'task_update') {
@@ -258,9 +258,9 @@
                   var currentObj = this.selectedTask.objects.find(function (o) { return o.url === item.url })
                   if (currentObj) { currentObj.progress = item.progress }
                 }
-                if (this.viewMode === 'tktube' && Array.isArray(this.tktubeObjects) && this.tktubeObjects.length > 0) {
-                  var idxAgg = this.tktubeObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
-                  if (idxAgg >= 0) { this.tktubeObjects[idxAgg].progress = item.progress }
+                if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
+                  var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
+                  if (idxAgg >= 0) { this.aggObjects[idxAgg].progress = item.progress }
                 }
               }
             }
@@ -395,31 +395,31 @@
           this.groupModal = { taskId: '', taskType: '' }
         },
 
-        // ---- Tktube / Aggregate view ----
-        openTktubeAggregate: function () {
-          Log.info('openTktubeAggregate', { selectedType: this.selectedType, viewMode: this.viewMode })
-          this.viewMode = 'tktube'
+        // ---- Aggregate view ----
+        openAggregateView: function () {
+          Log.info('openAggregateView', { selectedType: this.selectedType, viewMode: this.viewMode })
+          this.viewMode = 'aggregate'
           this.fetchAggregateByType(this.selectedType || 'all')
         },
         fetchAggregateByType: function (type) {
-          if (this.tktubeLoading) return
-          Log.debug('fetchAggregateByType', { type: type, page: this.tktubePagination.page, sort: this.tktubeSortBy, groupBy: this.tktubeGroupBy })
-          this.tktubeLoading = true
+          if (this.aggLoading) return
+          Log.debug('fetchAggregateByType', { type: type, page: this.aggPagination.page, sort: this.aggSortBy, groupBy: this.aggGroupBy })
+          this.aggLoading = true
           var self = this
           AppAPI.aggregate({
             types: type || 'all',
-            sort: this.tktubeSortBy || '',
-            groupBy: this.tktubeGroupBy || false,
-            page: this.tktubePagination.page,
-            limit: this.tktubePagination.limit
+            sort: this.aggSortBy || '',
+            groupBy: this.aggGroupBy || false,
+            page: this.aggPagination.page,
+            limit: this.aggPagination.limit
           }).then(function (data) {
-            self.tktubeObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
-            self.tktubePagination.total = (data && data.total) || self.tktubeObjects.length
-            self.showTktubeView = true
+            self.aggObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
+            self.aggPagination.total = (data && data.total) || self.aggObjects.length
+            self.showAggView = true
           }).catch(function () {
             self.showToast('加载聚合视图失败', 'error')
           }).finally(function () {
-            self.tktubeLoading = false
+            self.aggLoading = false
           })
         },
         cancelAggObject: function (obj) {
@@ -431,12 +431,12 @@
             self.showToast('已取消: ' + (obj.metadata && obj.metadata.title || obj.url), 'info')
           }).catch(function (e) { self.showToast('取消失败: ' + e.message, 'error') })
         },
-        changeTktubePage: function (page) {
-          this.tktubePagination.page = page
+        changeAggPage: function (page) {
+          this.aggPagination.page = page
           this.fetchAggregateByType(this.selectedType || 'all')
         },
-        changeTktubeLimit: function () {
-          this.tktubePagination.page = 1
+        changeAggLimit: function () {
+          this.aggPagination.page = 1
           this.fetchAggregateByType(this.selectedType || 'all')
         },
 

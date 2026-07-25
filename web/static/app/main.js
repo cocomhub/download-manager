@@ -71,19 +71,19 @@
         noteForm: { message: '', author: '', messageText: '' },
         loading: false,
         isLoadingTask: false,
-        tktubeObjects: [],
-        tktubeSearchQuery: '',
-        tktubeStatusFilter: 'all',
-        tktubeLoading: false,
-        tktubeGroupBy: false,
+        aggObjects: [],
+        aggSearchQuery: '',
+        aggStatusFilter: 'all',
+        aggLoading: false,
+        aggGroupBy: false,
         aggViewMode: 'grid',
         uiMode: 'manage',
-        tktubePagination: { page: 1, limit: 50, total: 0 },
-        tktubeSortBy: 'date_desc',
-        tktubeAggConcurrency: 2,
-        tktubeAggDelayMs: 200,
+        aggPagination: { page: 1, limit: 50, total: 0 },
+        aggSortBy: 'date_desc',
+        aggConcurrency: 2,
+        aggDelayMs: 200,
         lastAggFetchTs: 0,
-        tktubeAggMinIntervalMs: 3000,
+        aggMinIntervalMs: 3000,
         showGroupModal: false,
         groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' },
 
@@ -138,8 +138,8 @@
         if (this.statusFilter === 'all') return list
         return list.filter(function (o) { return o.status === this.statusFilter }.bind(this))
       },
-      tktubeFilteredObjects: function () { return this.tktubeObjects || [] },
-      tktubePagedObjects: function () { return this.tktubeFilteredObjects || [] },
+      aggFilteredObjects: function () { return this.aggObjects || [] },
+      aggPagedObjects: function () { return this.aggFilteredObjects || [] },
       groupModalSafety: function () {
         var list = Array.isArray(this.groupModal.list) ? this.groupModal.list : []
         var priorityCounts = {}
@@ -224,12 +224,12 @@
         if (this.searchTimer) clearTimeout(this.searchTimer)
         this.searchTimer = setTimeout(function () { self.pagination.page = 1; self.fetchTaskDetails(self.selectedTaskId) }, 500)
       },
-      tktubeSearchQuery: function () { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) },
-      tktubeStatusFilter: function () { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) },
-      tktubeGroupBy: function () { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) },
+      aggSearchQuery: function () { this.aggPagination.page = 1; this.fetchAggregateByType(this.selectedType) },
+      aggStatusFilter: function () { this.aggPagination.page = 1; this.fetchAggregateByType(this.selectedType) },
+      aggGroupBy: function () { this.aggPagination.page = 1; this.fetchAggregateByType(this.selectedType) },
       selectedType: function () {
         if (typeof window.__dm_updateURLWithType === 'function') window.__dm_updateURLWithType(this.selectedType)
-        if (this.viewMode === 'tktube') { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) }
+        if (this.viewMode === 'aggregate') { this.aggPagination.page = 1; this.fetchAggregateByType(this.selectedType) }
         this.loadTaskUIForType(this.selectedType)
       },
       selectedTask: function () {
