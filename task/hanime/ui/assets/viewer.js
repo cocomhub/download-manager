@@ -59,20 +59,68 @@
   function getCoverImages (obj) {
     var imgs = []
     var push = function (u) { if (typeof u === 'string' && u) imgs.push(u) }
-    // Local downloaded files take priority when object is completed
+    // Local downloaded files — cover before thumb
     if (obj && obj.status === 'completed' && obj.extra) {
       if (obj.extra.local_cover) push(fileUrl(obj.extra.local_cover))
       if (Array.isArray(obj.extra.files)) {
+        // First pass: cover-named files
         obj.extra.files.forEach(function (f) {
           var name = (f.name || f.path || '').toString().toLowerCase()
-          if (f.type === 'image' && (name.indexOf('cover') >= 0 || name.indexOf('thumb') >= 0)) {
+          if (f.type === 'image' && name.indexOf('cover') >= 0) {
+            if (f.path) push(fileUrl(f.path))
+          }
+        })
+        // Second pass: thumb-named files (non-cover)
+        obj.extra.files.forEach(function (f) {
+          var name = (f.name || f.path || '').toString().toLowerCase()
+          if (f.type === 'image' && name.indexOf('thumb') >= 0 && name.indexOf('cover') < 0) {
             if (f.path) push(fileUrl(f.path))
           }
         })
       }
     }
-    // Fall back to remote origin URLs (even for non-completed objects)
+    // Fall back to remote origin URLs (cover fields before thumb fields)
     if (imgs.length === 0 && obj && obj.extra) {
+      if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(push)
+      if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(push)
+      if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(push)
+      if (obj.extra.cover_url) push(obj.extra.cover_url)
+      if (obj.extra.cover) push(obj.extra.cover)
+      // thumb fields after cover fields
+      if (obj.extra.thumb_url) push(obj.extra.thumb_url)
+    }
+    var uniq = [], seen = {}
+    imgs.forEach(function (u) { if (u && !seen[u]) { seen[u] = true; uniq.push(u) } })
+    return uniq
+  }
+
+  function getThumbImages (obj) {
+    var imgs = []
+    var push = function (u) { if (typeof u === 'string' && u) imgs.push(u) }
+    // Local downloaded files — thumb before cover
+    if (obj && obj.status === 'completed' && obj.extra) {
+      if (obj.extra.local_preview) push(fileUrl(obj.extra.local_preview))
+      if (obj.extra.local_cover) push(fileUrl(obj.extra.local_cover))
+      if (Array.isArray(obj.extra.files)) {
+        // First pass: thumb-named files (non-cover)
+        obj.extra.files.forEach(function (f) {
+          var name = (f.name || f.path || '').toString().toLowerCase()
+          if (f.type === 'image' && name.indexOf('thumb') >= 0 && name.indexOf('cover') < 0) {
+            if (f.path) push(fileUrl(f.path))
+          }
+        })
+        // Second pass: cover-named files
+        obj.extra.files.forEach(function (f) {
+          var name = (f.name || f.path || '').toString().toLowerCase()
+          if (f.type === 'image' && name.indexOf('cover') >= 0) {
+            if (f.path) push(fileUrl(f.path))
+          }
+        })
+      }
+    }
+    // Fall back to remote origin URLs (thumb fields before cover fields)
+    if (imgs.length === 0 && obj && obj.extra) {
+      if (obj.extra.thumb_url) push(obj.extra.thumb_url)
       if (Array.isArray(obj.extra.cover_images)) obj.extra.cover_images.forEach(push)
       if (Array.isArray(obj.extra.cover_urls)) obj.extra.cover_urls.forEach(push)
       if (Array.isArray(obj.extra.covers)) obj.extra.covers.forEach(push)
@@ -236,6 +284,11 @@
     var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
     var useVideo = canPlay && (!isHLS || isSafari)
 
+    // Add CSS for semi-transparent video controls
+    var style = document.createElement('style')
+    style.textContent = '.dm-video-player::-webkit-media-controls { opacity:0.6 !important; transition:opacity 0.3s } .dm-video-player::-webkit-media-controls:hover { opacity:1 !important } .dm-video-player::-webkit-media-controls-panel { background:rgba(0,0,0,0.3) !important }'
+    document.head.appendChild(style)
+
     // Overlay
     var overlay = document.createElement('div')
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
@@ -267,9 +320,9 @@
     var leftCol = document.createElement('div')
     leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
-    // Video area - fixed height container
+    // Video area - 16:9 aspect ratio
     var mediaArea = document.createElement('div')
-    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
     if (useVideo) {
       var posterImg = document.createElement('img')
       posterImg.src = firstPoster || videoUrl
@@ -287,6 +340,8 @@
       video.poster = firstPoster
       video.controls = true
       video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+      // Semi-transparent video controls to avoid blocking subtitles
+      video.classList.add('dm-video-player')
 
       var playHandler = function () {
         posterImg.style.display = 'none'
@@ -608,7 +663,7 @@
 
         // Media area — show poster with play overlay, click to play
         var mediaArea = document.createElement('div')
-        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
         if (useVideo) {
           var posterImg = document.createElement('img')
           posterImg.src = firstPoster || videoUrl
@@ -626,6 +681,7 @@
           video.poster = firstPoster
           video.controls = true
           video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+          video.classList.add('dm-video-player')
 
           var playHandler = function () {
             posterImg.style.display = 'none'

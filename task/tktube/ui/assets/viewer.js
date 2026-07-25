@@ -85,20 +85,71 @@
 
   function getCoverImage (obj) {
     if (!obj) return ''
-    // Local files take priority
+    // Local files — cover before preview/thumb
     if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
     if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
-    // Remote cover URLs (cover_url takes priority over thumb_url)
+    // Remote URLs — cover fields before thumb fields
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
     if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
-    // Check extra.files for image-type cover/thumb
+    // Check extra.files for image-type — cover before thumb
     if (obj.extra && Array.isArray(obj.extra.files)) {
+      // First pass: cover-named files
       for (var fi = 0; fi < obj.extra.files.length; fi++) {
         var f = obj.extra.files[fi]
         if (f && f.type === 'image' && f.path) {
           var fname = (f.name || f.path || '').toString().toLowerCase()
-          if (fname.indexOf('cover') >= 0 || fname.indexOf('thumb') >= 0) {
+          if (fname.indexOf('cover') >= 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Second pass: thumb-named files (non-cover)
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('thumb') >= 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Fallback: first image
+      for (var fi2 = 0; fi2 < obj.extra.files.length; fi2++) {
+        var f2 = obj.extra.files[fi2]
+        if (f2 && f2.type === 'image' && f2.path) return fileUrl(f2.path)
+      }
+    }
+    return ''
+  }
+
+  function getThumbImage (obj) {
+    if (!obj) return ''
+    // Local files — preview/thumb before cover
+    if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
+    if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
+    // Remote URLs — thumb fields before cover fields
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    // Check extra.files for image-type — thumb before cover
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      // First pass: thumb-named files (non-cover)
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('thumb') >= 0 && fname.indexOf('cover') < 0) {
+            return fileUrl(f.path)
+          }
+        }
+      }
+      // Second pass: cover-named files
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('cover') >= 0) {
             return fileUrl(f.path)
           }
         }
@@ -188,6 +239,11 @@
     var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
     var useVideo = !!videoUrl && (!isHLS || isSafari)
 
+    // Add CSS for semi-transparent video controls
+    var style = document.createElement('style')
+    style.textContent = '.dm-video-player::-webkit-media-controls { opacity:0.6 !important; transition:opacity 0.3s } .dm-video-player::-webkit-media-controls:hover { opacity:1 !important } .dm-video-player::-webkit-media-controls-panel { background:rgba(0,0,0,0.3) !important }'
+    document.head.appendChild(style)
+
     // Overlay
     var overlay = document.createElement('div')
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
@@ -239,9 +295,9 @@
     var leftCol = document.createElement('div')
     leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
-    // Video area - fixed height
+    // Video area - 16:9 aspect ratio
     var mediaArea = document.createElement('div')
-    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
 
     if (useVideo) {
       var posterImg = document.createElement('img')
@@ -260,6 +316,8 @@
       video.poster = coverUrl
       video.controls = true
       video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+      // Semi-transparent video controls to avoid blocking subtitles
+      video.classList.add('dm-video-player')
 
       var playHandler = function () {
         posterImg.style.display = 'none'
@@ -580,7 +638,7 @@
     var coverArea = document.createElement('div')
     coverArea.style.cssText = 'position:relative;background:#f3f4f6;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;overflow:hidden'
 
-    var coverUrl = getCoverImage(obj)
+    var coverUrl = getThumbImage(obj)
     if (coverUrl) {
       var img = document.createElement('img')
       img.src = coverUrl
@@ -809,7 +867,7 @@
 
         // Video area - fixed height
         var mediaArea = document.createElement('div')
-        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;height:400px;overflow:hidden'
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
 
         if (useVideo) {
           var posterImg = document.createElement('img')
@@ -828,6 +886,7 @@
           video.poster = coverUrl
           video.controls = true
           video.style.cssText = 'width:100%;height:100%;outline:none;display:none'
+          video.classList.add('dm-video-player')
 
           var playHandler = function () {
             posterImg.style.display = 'none'
