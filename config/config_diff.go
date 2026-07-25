@@ -45,6 +45,7 @@ func taskIndex(tasks []Task, id string) int {
 func (c Config) Diff(b Config) []Change {
 	var changes []Change
 	changes = append(changes, diffServerFields(c, b)...)
+	changes = append(changes, diffRuntimeFields(c, b)...)
 	changes = append(changes, diffLogFields(c, b)...)
 	changes = append(changes, diffDownloaderBasic(c, b)...)
 	changes = append(changes, diffFilesystemFields(c, b)...)
@@ -116,6 +117,14 @@ func diffServerFields(c, b Config) []Change {
 	}
 	if c.Server.UIDefaults.StatusStyle != b.Server.UIDefaults.StatusStyle {
 		changes = append(changes, Change{Path: "server.ui_defaults.status_style", A: c.Server.UIDefaults.StatusStyle, B: b.Server.UIDefaults.StatusStyle})
+	}
+	return changes
+}
+
+func diffRuntimeFields(c, b Config) []Change {
+	var changes []Change
+	if c.Runtime.LogLevel != b.Runtime.LogLevel {
+		changes = append(changes, Change{Path: "runtime.log_level", A: c.Runtime.LogLevel, B: b.Runtime.LogLevel})
 	}
 	return changes
 }
