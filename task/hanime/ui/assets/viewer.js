@@ -259,63 +259,80 @@
     header.appendChild(hClose)
     panel.appendChild(header)
 
-    // Body (scrollable)
+    // Body - two-column layout: left = media + details, right = playlist
     var body = document.createElement('div')
-    body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+    body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+    // Left column: media + details
+    var leftCol = document.createElement('div')
+    leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
     // Media area
+    var mediaArea = document.createElement('div')
+    mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
     if (useVideo) {
-      var videoWrap = document.createElement('div')
-      videoWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center'
+      var posterImg = document.createElement('img')
+      posterImg.src = firstPoster || videoUrl
+      posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+      posterImg.alt = getTitle(obj) || 'Hanime'
+      mediaArea.appendChild(posterImg)
+
+      var playOverlay = document.createElement('div')
+      playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2);cursor:pointer'
+      playOverlay.innerHTML = '<i class="fas fa-play" style="font-size:48px;color:#fff;opacity:0.8;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></i>'
+      mediaArea.appendChild(playOverlay)
+
       var video = document.createElement('video')
       video.src = videoUrl
       video.poster = firstPoster
       video.controls = true
-      video.autoplay = true
-      video.style.cssText = 'width:100%;max-height:55vh;outline:none'
-      videoWrap.appendChild(video)
-      body.appendChild(videoWrap)
+      video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+
+      var playHandler = function () {
+        posterImg.style.display = 'none'
+        playOverlay.style.display = 'none'
+        video.style.display = 'block'
+        video.play().catch(function () {})
+      }
+      posterImg.onclick = playHandler
+      playOverlay.onclick = playHandler
+      mediaArea.appendChild(video)
     } else if (covers.length > 0) {
-      var posterWrap = document.createElement('div')
-      posterWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;padding:16px;min-height:200px'
       var posterImg = document.createElement('img')
       posterImg.src = firstPoster
       posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
-      posterWrap.appendChild(posterImg)
-      body.appendChild(posterWrap)
+      mediaArea.appendChild(posterImg)
 
       if (!canPlay) {
         var noPlay = document.createElement('div')
         noPlay.style.cssText = 'text-align:center;padding:12px;background:#fef3c7;color:#92400e;font-size:14px'
         noPlay.textContent = '暂无可用视频源'
-        body.appendChild(noPlay)
+        leftCol.appendChild(noPlay)
       } else if (isHLS && !isSafari) {
         var hlsMsg = document.createElement('div')
         hlsMsg.style.cssText = 'text-align:center;padding:8px;background:#fef3c7;color:#92400e;font-size:12px'
-        // Safe DOM construction
-          hlsMsg.textContent = 'HLS 流无法在此浏览器直接播放。'
-          var downLink = document.createElement('a')
-          // Only allow http/https schemes
-          downLink.href = /^https?:\/\//i.test(videoUrl) ? videoUrl : "#"
-          downLink.target = '_blank'
+        hlsMsg.textContent = 'HLS 流无法在此浏览器直接播放。'
+        var downLink = document.createElement('a')
+        downLink.href = /^https?:\/\//i.test(videoUrl) ? videoUrl : "#"
+        downLink.target = '_blank'
         downLink.rel = 'noopener noreferrer'
-          downLink.style.cssText = 'color:#2563eb;text-decoration:underline'
-          downLink.textContent = '下载视频文件'
-          hlsMsg.appendChild(document.createTextNode(' '))
-          hlsMsg.appendChild(downLink)
-        body.appendChild(hlsMsg)
+        downLink.style.cssText = 'color:#2563eb;text-decoration:underline'
+        downLink.textContent = '下载视频文件'
+        hlsMsg.appendChild(document.createTextNode(' '))
+        hlsMsg.appendChild(downLink)
+        leftCol.appendChild(hlsMsg)
       }
     }
+    leftCol.appendChild(mediaArea)
 
     // Origin link bar
     if (origin) {
       var originBar = document.createElement('div')
       originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
       var originBtn = document.createElement('a')
-      // Only allow http/https schemes
-          originBtn.href = /^https?:\/\//i.test(origin) ? origin : "#"
+      originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
       originBtn.target = '_blank'
-          originBtn.rel = 'noopener noreferrer'
+      originBtn.rel = 'noopener noreferrer'
       originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
       originBtn.textContent = '打开原页面'
       originBar.appendChild(originBtn)
@@ -323,24 +340,19 @@
       var copyBtn = document.createElement('button')
       copyBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
       copyBtn.textContent = '复制标题'
-      copyBtn.onclick = function () {
-        var t = getTitle(obj)
-        if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t)
-      }
+      copyBtn.onclick = function () { copyToClipboard(getTitle(obj)) }
       originBar.appendChild(copyBtn)
 
       var copyLinkBtn = document.createElement('button')
       copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
       copyLinkBtn.textContent = '复制链接'
-      copyLinkBtn.onclick = function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin)
-      }
+      copyLinkBtn.onclick = function () { copyToClipboard(origin) }
       originBar.appendChild(copyLinkBtn)
 
-      body.appendChild(originBar)
+      leftCol.appendChild(originBar)
     }
 
-    // Content area
+    // Content area (tags + details below media)
     var content = document.createElement('div')
     content.style.cssText = 'padding:16px'
 
@@ -406,26 +418,26 @@
       content.appendChild(tagWrap)
     }
 
-    body.appendChild(content)
+    leftCol.appendChild(content)
+    body.appendChild(leftCol)
 
-    // Playlist
+    // Right column: playlist sidebar
+    var rightCol = document.createElement('div')
+    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
     if (playlist.length > 0) {
       var listSection = document.createElement('div')
-      listSection.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb'
+      listSection.style.cssText = 'padding:12px 16px'
       var listTitle = document.createElement('h4')
       listTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
       listTitle.textContent = '播放列表 (' + playlist.length + ')'
       listSection.appendChild(listTitle)
 
       var listWrap = document.createElement('div')
-      listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto'
+      listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px'
 
       playlist.forEach(function (item, idx) {
         var itemEl = document.createElement('div')
-        itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px'
-        itemEl.style.cssText += ';background:#fff'
-        itemEl.onmouseenter = function () { itemEl.style.background = '#f9fafb' }
-        itemEl.onmouseleave = function () { itemEl.style.background = '#fff' }
+        itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px;background:#fff'
 
         var numSpan = document.createElement('span')
         numSpan.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;flex-shrink:0'
@@ -456,8 +468,15 @@
       })
 
       listSection.appendChild(listWrap)
-      body.appendChild(listSection)
+      rightCol.appendChild(listSection)
+    } else {
+      // Empty state for right column
+      var emptySection = document.createElement('div')
+      emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'
+      emptySection.textContent = '暂无关联内容'
+      rightCol.appendChild(emptySection)
     }
+    body.appendChild(rightCol)
 
     panel.appendChild(body)
 
@@ -470,8 +489,7 @@
 
     if (origin) {
       var openBtn = document.createElement('a')
-      // Only allow http/https schemes
-          openBtn.href = /^https?:\/\//i.test(origin) ? origin : "#"
+      openBtn.href = /^https?:\/\//i.test(origin) ? origin : "#"
       openBtn.target = '_blank'
       openBtn.rel = 'noopener noreferrer'
       openBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'
@@ -619,9 +637,13 @@
         header.appendChild(hClose)
         panel.appendChild(header)
 
-        // Body (scrollable)
+        // Body - two-column layout: left = media + details, right = playlist
         var body = document.createElement('div')
-        body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+        body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+        // Left column: media + details
+        var leftCol = document.createElement('div')
+        leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
         // Media area — show poster with play overlay, click to play
         var mediaArea = document.createElement('div')
@@ -659,7 +681,7 @@
           posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
           mediaArea.appendChild(posterImg)
         }
-        body.appendChild(mediaArea)
+        leftCol.appendChild(mediaArea)
 
         // Origin link bar
         if (origin) {
@@ -685,10 +707,10 @@
           copyLinkBtn.onclick = function () { copyToClipboard(origin) }
           originBar.appendChild(copyLinkBtn)
 
-          body.appendChild(originBar)
+          leftCol.appendChild(originBar)
         }
 
-        // Content area
+        // Content area (tags + details below media)
         var content = document.createElement('div')
         content.style.cssText = 'padding:16px'
 
@@ -709,14 +731,17 @@
           tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
           content.appendChild(tagWrap)
         }
-        body.appendChild(content)
+        leftCol.appendChild(content)
+        body.appendChild(leftCol)
 
-        // Playlist
+        // Right column: playlist sidebar
+        var rightCol = document.createElement('div')
+        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
         if (playlist.length > 0) {
           var listSection = document.createElement('div')
-          listSection.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb'
+          listSection.style.cssText = 'padding:12px 16px'
           var listTitle = document.createElement('h4'); listTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'; listTitle.textContent = '播放列表 (' + playlist.length + ')'; listSection.appendChild(listTitle)
-          var listWrap = document.createElement('div'); listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto'
+          var listWrap = document.createElement('div'); listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px'
           playlist.forEach(function (item, idx) {
             var itemEl = document.createElement('div'); itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px;background:#fff'
             var numSpan = document.createElement('span'); numSpan.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;flex-shrink:0'; numSpan.textContent = idx + 1; itemEl.appendChild(numSpan)
@@ -725,8 +750,11 @@
             if (item.url) { itemEl.onclick = function () { window.open(item.url, '_blank', 'noopener,noreferrer') } }
             listWrap.appendChild(itemEl)
           })
-          listSection.appendChild(listWrap); body.appendChild(listSection)
+          listSection.appendChild(listWrap); rightCol.appendChild(listSection)
+        } else {
+          var emptySection = document.createElement('div'); emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'; emptySection.textContent = '暂无关联内容'; rightCol.appendChild(emptySection)
         }
+        body.appendChild(rightCol)
 
         panel.appendChild(body)
 

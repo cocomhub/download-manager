@@ -177,10 +177,13 @@
 
     panel.appendChild(header)
 
-    // Body
+    // Body - two-column layout: left = image gallery + details, right = related links
     var body = document.createElement('div')
-    body.className = 'flex-1 overflow-y-auto p-0'
-    body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+    body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+    // Left column: image gallery + details
+    var leftCol = document.createElement('div')
+    leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
     // Image area
     var imgArea = document.createElement('div')
@@ -215,8 +218,8 @@
     counterEl.style.cssText = 'font-size:12px;color:#6b7280;text-align:center;padding:4px 0;background:#f9fafb'
     function updateCounter () { counterEl.textContent = (currentIdx + 1) + ' / ' + images.length }
     updateCounter()
-    body.appendChild(imgArea)
-    body.appendChild(counterEl)
+    leftCol.appendChild(imgArea)
+    leftCol.appendChild(counterEl)
 
     // Thumbnails
     if (images.length > 1) {
@@ -242,10 +245,10 @@
         thumbRow.appendChild(thumb)
       })
 
-      body.appendChild(thumbRow)
+      leftCol.appendChild(thumbRow)
     }
 
-    // Content area
+    // Content area (tags + excerpt below image)
     var contentDiv = document.createElement('div')
     contentDiv.className = 'p-4'
     contentDiv.style.cssText = 'padding:16px'
@@ -274,7 +277,7 @@
     if (tags.length > 0) {
       var tagWrap = document.createElement('div')
       tagWrap.className = 'flex flex-wrap gap-1 mb-3'
-      tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px'
+      tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;margin-top:12px'
       tags.forEach(function (tag) {
         var t = document.createElement('span')
         t.className = 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded'
@@ -285,35 +288,49 @@
       contentDiv.appendChild(tagWrap)
     }
 
-    // Links
+    leftCol.appendChild(contentDiv)
+    body.appendChild(leftCol)
+
+    // Right column: related links sidebar
+    var rightCol = document.createElement('div')
+    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
+
     var links = getLinks(obj)
     if (links.length > 0) {
-      var linkTitle = document.createElement('p')
-      linkTitle.className = 'text-xs font-semibold text-gray-500 mb-1'
-      linkTitle.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px'
-      linkTitle.textContent = '相关链接'
-      contentDiv.appendChild(linkTitle)
+      var linkSection = document.createElement('div')
+      linkSection.style.cssText = 'padding:16px'
+
+      var linkTitle = document.createElement('h4')
+      linkTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
+      linkTitle.textContent = '相关链接 (' + links.length + ')'
+      linkSection.appendChild(linkTitle)
 
       var linkList = document.createElement('ul')
-      linkList.className = 'space-y-1'
-      linkList.style.cssText = 'list-style:none;padding:0;margin:0'
+      linkList.style.cssText = 'list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px'
       links.forEach(function (l) {
         var li = document.createElement('li')
         var a = document.createElement('a')
-        // Only allow http/https schemes
-          a.href = /^https?:\/\//i.test(l.href) ? l.href : "#"
+        a.href = /^https?:\/\//i.test(l.href) ? l.href : "#"
         a.target = '_blank'
         a.rel = 'noopener noreferrer'
         a.className = 'text-xs text-blue-600 hover:text-blue-800 break-all'
-        a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all'
+        a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all;display:block;padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none'
         a.textContent = l.text || l.href
+        a.onmouseenter = function () { a.style.background = '#f3f4f6' }
+        a.onmouseleave = function () { a.style.background = 'transparent' }
         li.appendChild(a)
         linkList.appendChild(li)
       })
-      contentDiv.appendChild(linkList)
+      linkSection.appendChild(linkList)
+      rightCol.appendChild(linkSection)
+    } else {
+      var emptySection = document.createElement('div')
+      emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'
+      emptySection.textContent = '暂无关联内容'
+      rightCol.appendChild(emptySection)
     }
+    body.appendChild(rightCol)
 
-    body.appendChild(contentDiv)
     panel.appendChild(body)
 
     // Footer
@@ -490,9 +507,13 @@
         header.appendChild(hClose)
         panel.appendChild(header)
 
-        // Body
+        // Body - two-column layout: left = image gallery + details, right = related links
         var body = document.createElement('div')
-        body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+        body.style.cssText = 'flex:1;overflow:hidden;padding:0;display:flex'
+
+        // Left column: image gallery + details
+        var leftCol = document.createElement('div')
+        leftCol.style.cssText = 'flex:1;overflow-y:auto'
 
         // Image area
         var imgArea = document.createElement('div')
@@ -521,13 +542,13 @@
           nextBtn.onclick = function (e) { e.stopPropagation(); currentIdx = (currentIdx + 1) % images.length; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
           imgArea.appendChild(nextBtn)
         }
-        body.appendChild(imgArea)
+        leftCol.appendChild(imgArea)
 
         // Counter
         var counterEl = document.createElement('div')
         counterEl.style.cssText = 'font-size:12px;color:#6b7280;text-align:center;padding:4px 0;background:#f9fafb'
         updateCounter()
-        body.appendChild(counterEl)
+        leftCol.appendChild(counterEl)
 
         // Thumbnails
         var thumbRow = document.createElement('div')
@@ -541,10 +562,10 @@
             thumb.onclick = function () { currentIdx = idx; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
             thumbRow.appendChild(thumb)
           })
-          body.appendChild(thumbRow)
+          leftCol.appendChild(thumbRow)
         }
 
-        // Content area
+        // Content area (tags + excerpt below image)
         var contentDiv = document.createElement('div')
         contentDiv.style.cssText = 'padding:16px'
         if (html) {
@@ -564,21 +585,33 @@
           tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
           contentDiv.appendChild(tagWrap)
         }
+        leftCol.appendChild(contentDiv)
+        body.appendChild(leftCol)
+
+        // Right column: related links sidebar
+        var rightCol = document.createElement('div')
+        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
         if (links.length > 0) {
-          var linkTitle = document.createElement('p'); linkTitle.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px'; linkTitle.textContent = '相关链接'; contentDiv.appendChild(linkTitle)
-          var linkList = document.createElement('ul'); linkList.style.cssText = 'list-style:none;padding:0;margin:0'
+          var linkSection = document.createElement('div'); linkSection.style.cssText = 'padding:16px'
+          var linkTitle = document.createElement('h4'); linkTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'; linkTitle.textContent = '相关链接 (' + links.length + ')'; linkSection.appendChild(linkTitle)
+          var linkList = document.createElement('ul'); linkList.style.cssText = 'list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px'
           links.forEach(function (l) {
             var li = document.createElement('li')
             var a = document.createElement('a')
             a.href = /^https?:\/\//i.test(l.href) ? l.href : '#'
             a.target = '_blank'; a.rel = 'noopener noreferrer'
-            a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all'
+            a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all;display:block;padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none'
             a.textContent = l.text || l.href
+            a.onmouseenter = function () { a.style.background = '#f3f4f6' }
+            a.onmouseleave = function () { a.style.background = 'transparent' }
             li.appendChild(a); linkList.appendChild(li)
           })
-          contentDiv.appendChild(linkList)
+          linkSection.appendChild(linkList); rightCol.appendChild(linkSection)
+        } else {
+          var emptySection = document.createElement('div'); emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'; emptySection.textContent = '暂无关联内容'; rightCol.appendChild(emptySection)
         }
-        body.appendChild(contentDiv)
+        body.appendChild(rightCol)
+
         panel.appendChild(body)
 
         // Footer
