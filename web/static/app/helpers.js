@@ -373,7 +373,7 @@
           Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
           // cancelled + redirect_url → open origin page
           if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
-            window.open(obj.extra.redirect_url, '_blank')
+            window.open(obj.extra.redirect_url, '_blank', 'noopener,noreferrer')
             return
           }
           if (obj.status === 'completed') {
@@ -389,7 +389,7 @@
               return
             }
             // Fallback: open the file
-            window.open(this.getFileUrl(obj), '_blank')
+            window.open(this.getFileUrl(obj), '_blank', 'noopener,noreferrer')
           }
         },
         openGroupModal: function (obj) {

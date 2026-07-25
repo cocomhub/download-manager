@@ -477,7 +477,8 @@
                     h('img', {
                       attrs: { src: currentSrc, alt: title },
                       class: 'w-full object-contain',
-                      style: { maxHeight: '60vh' }
+                      style: { maxHeight: '60vh' },
+                      on: { error: function (e) { e.target.style.display = 'none' } }
                     }),
                     // Navigation arrows
                     images.length > 1 ? [
