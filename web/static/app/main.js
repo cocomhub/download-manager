@@ -316,20 +316,38 @@
       openTaskTypeViewer: function (obj) {
         var type = obj && obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
-        Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, title: obj && obj.metadata && obj.metadata.title })
+        Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, renderViewer: !!(handler && handler.renderViewer), title: obj && obj.metadata && obj.metadata.title })
         if (handler && handler.renderViewer) {
           var self = this
           var container = document.createElement('div')
           document.body.appendChild(container)
-          var vm = Vue.createApp({
-            render: function () {
-              var h = Vue.h
-              return handler.renderViewer(obj, function () {
-                vm.unmount()
-                if (container.parentNode) container.parentNode.removeChild(container)
-              })
-            }
-          }).mount(container)
+          try {
+            var vm = Vue.createApp({
+              render: function () {
+                var h = Vue.h
+                try {
+                  var result = handler.renderViewer(obj, function () {
+                    try { vm.unmount() } catch (e) { Log.error('openTaskTypeViewer unmount error', { error: e.message }) }
+                    try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
+                  })
+                  Log.info('openTaskTypeViewer renderViewer returned', { type: typeof result, isVNode: !!(result && result.type) })
+                  return result
+                } catch (e) {
+                  Log.error('openTaskTypeViewer renderViewer error', { error: e.message, stack: e.stack })
+                  return h('div', { class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4' }, [
+                    h('div', { class: 'bg-white rounded-lg p-6 text-center' }, [
+                      h('p', { class: 'text-red-600 mb-2' }, '查看器加载失败: ' + e.message),
+                      h('button', { class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm', on: { click: function () { try { vm.unmount() } catch (e) {}; try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {} } } }, '关闭')
+                    ])
+                  ])
+                }
+              }
+            }).mount(container)
+          } catch (e) {
+            Log.error('openTaskTypeViewer createApp error', { error: e.message, stack: e.stack })
+          }
+        } else {
+          Log.warn('openTaskTypeViewer no renderViewer', { type: type, hasHandler: !!handler })
         }
       },
       showTaskTypeCardExtra: function (obj) {
