@@ -23,7 +23,9 @@
       renderForm: typeof handler.renderForm === 'function' ? handler.renderForm : null,
       renderMeta: typeof handler.renderMeta === 'function' ? handler.renderMeta : null,
       renderCardExtra: typeof handler.renderCardExtra === 'function' ? handler.renderCardExtra : null,
-      renderViewer: typeof handler.renderViewer === 'function' ? handler.renderViewer : null,
+      renderViewer: typeof handler.renderViewer === 'function'
+        ? function (obj, onClose) { return handler.renderViewer(Vue.h, obj, onClose) }
+        : null,
       renderAggregate: typeof handler.renderAggregate === 'function' ? handler.renderAggregate : null,
       onClick: typeof handler.onClick === 'function' ? handler.onClick : null,
       shouldShowViewer: typeof handler.shouldShowViewer === 'function' ? handler.shouldShowViewer : defaultShouldShowViewer,

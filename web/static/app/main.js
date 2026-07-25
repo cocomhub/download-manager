@@ -324,7 +324,7 @@
           var vm = Vue.createApp({
             render: function () {
               var h = Vue.h
-              return handler.renderViewer(h, obj, function () {
+              return handler.renderViewer(obj, function () {
                 vm.unmount()
                 if (container.parentNode) container.parentNode.removeChild(container)
               })

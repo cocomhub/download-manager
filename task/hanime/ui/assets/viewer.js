@@ -548,7 +548,6 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
-        h = typeof h === 'function' ? h : Vue.h
         var videoUrl = getVideoURL(obj)
         var covers = getCoverImages(obj)
         var firstPoster = covers.length > 0 ? covers[0] : ''
