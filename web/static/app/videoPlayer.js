@@ -221,14 +221,37 @@
         },
 
         isVideo: function (obj) {
-          if (!obj || !obj.url) return false
-          var url = obj.url.toLowerCase()
-          return url.indexOf('.mp4') > 0 || url.indexOf('.webm') > 0 || url.indexOf('.m3u8') > 0
+          if (!obj) return false
+          // Check extra.files for video type (ff78f9b compat)
+          if (obj.extra && Array.isArray(obj.extra.files) && obj.extra.files.some(function (f) { return f && f.type === 'video' })) return true
+          // Check save_path extension
+          if (obj.save_path) {
+            var sp = obj.save_path.toLowerCase()
+            if (sp.indexOf('.mp4') > 0 || sp.indexOf('.webm') > 0 || sp.indexOf('.m3u8') > 0 || sp.indexOf('.mkv') > 0 || sp.indexOf('.ts') > 0) return true
+          }
+          // Check URL extension
+          if (obj.url) {
+            var url = obj.url.toLowerCase()
+            return url.indexOf('.mp4') > 0 || url.indexOf('.webm') > 0 || url.indexOf('.m3u8') > 0
+          }
+          return false
         },
 
         getVideoUrl: function (obj) {
-          if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
-          if (obj && obj.url) return obj.url
+          if (!obj) return ''
+          // Check extra.files for video type (ff78f9b compat)
+          if (obj.extra && Array.isArray(obj.extra.files)) {
+            for (var fi = 0; fi < obj.extra.files.length; fi++) {
+              var f = obj.extra.files[fi]
+              if (f && (f.type === 'video' || (f.path && /\.(mp4|webm|mkv|m3u8|ts)$/i.test(f.path)))) {
+                if (f.path) return this.pathToUrl(f.path)
+              }
+            }
+          }
+          // Check save_path
+          if (obj.save_path) return this.pathToUrl(obj.save_path)
+          // Fall back to URL
+          if (obj.url) return obj.url
           return ''
         },
 

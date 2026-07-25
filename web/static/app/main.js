@@ -322,7 +322,8 @@
           var container = document.createElement('div')
           document.body.appendChild(container)
           var vm = Vue.createApp({
-            render: function (h) {
+            render: function () {
+              var h = Vue.h
               return handler.renderViewer(h, obj, function () {
                 vm.unmount()
                 if (container.parentNode) container.parentNode.removeChild(container)

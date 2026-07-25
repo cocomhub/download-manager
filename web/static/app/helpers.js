@@ -121,6 +121,13 @@
         },
         getFileUrl: function (obj) {
           if (obj && obj.save_path) return this.pathToUrl(obj.save_path)
+          // Check extra.files for first file (ff78f9b compat)
+          if (obj && obj.extra && Array.isArray(obj.extra.files)) {
+            for (var fi = 0; fi < obj.extra.files.length; fi++) {
+              var f = obj.extra.files[fi]
+              if (f && f.path) return this.pathToUrl(f.path)
+            }
+          }
           return ''
         },
         getTaskDisplayName: function (task) {
