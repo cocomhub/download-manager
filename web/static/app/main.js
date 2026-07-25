@@ -279,9 +279,19 @@
       // ---- TaskUI integration ----
       loadTaskUIForType: function (taskType) {
         var self = this
-        Log.info('loadTaskUIForType', { type: taskType, registeredCount: TaskUI.list().length })
+        var handler = TaskUI.get(taskType)
+        if (handler) {
+          Log.info('loadTaskUIForType ALREADY REGISTERED — using plugin', { type: taskType, features: { form: !!handler.renderForm, meta: !!handler.renderMeta, viewer: !!handler.renderViewer, cardExtra: !!handler.renderCardExtra } })
+          return
+        }
+        Log.info('loadTaskUIForType NOT REGISTERED — loading viewer.js', { type: taskType })
         TaskUI.loadTaskUI(taskType, function () {
-          Log.debug('loadTaskUIForType callback — forceUpdate', { type: taskType })
+          var h = TaskUI.get(taskType)
+          if (h) {
+            Log.info('loadTaskUIForType LOADED — plugin now available', { type: taskType, features: { form: !!h.renderForm, meta: !!h.renderMeta, viewer: !!h.renderViewer, cardExtra: !!h.renderCardExtra } })
+          } else {
+            Log.warn('loadTaskUIForType LOADED — but no plugin registered', { type: taskType })
+          }
           self.$forceUpdate()
         })
       },

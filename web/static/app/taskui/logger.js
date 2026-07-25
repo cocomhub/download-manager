@@ -59,15 +59,19 @@
       var stack = err.stack
       if (!stack) return ''
       var lines = stack.split('\n')
-      // 跳过前 2 帧：log() 和 trace/debug/info/warn/error()
-      // 第 3 帧是真正的调用者
+      // 堆栈结构（Chrome）：
+      //   0: Error
+      //   1: getCallerSource
+      //   2: log
+      //   3: info/debug/trace/warn/error
+      //   4: 实际调用者 ← 需要这一帧
       var callerLine = ''
       var skip = 0
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim()
         if (!line || line.indexOf('Error') === 0) continue
         skip++
-        if (skip <= 2) continue
+        if (skip <= 3) continue // 跳过 Error + getCallerSource + log + info
         callerLine = line
         break
       }
