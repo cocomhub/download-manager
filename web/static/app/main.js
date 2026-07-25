@@ -111,6 +111,8 @@
         // _registeredUITypes 已移除，由 TaskUI 注册表替代
         // showCustomUIModal、customUITitle、customUIData 已移除，由 TaskUI 查看器替代
         // showCustomTaskView 已移除，由 TaskUI 替代
+        // 保留 loadTaskUI 别名，兼容 taskList.js 等模块通过 this.loadTaskUI() 调用
+        // 实际实现在 taskList.js 中已改为直接调用 TaskUI.loadTaskUI()
       }
     },
 
@@ -280,6 +282,10 @@
         TaskUI.loadTaskUI(taskType, function () {
           self.$forceUpdate()
         })
+      },
+      // 保留 loadTaskUI 别名，兼容 taskList.js 等通过 mixin 共享 this 的模块
+      loadTaskUI: function (taskType) {
+        this.loadTaskUIForType(taskType)
       },
       showTaskTypeViewer: function (obj) {
         if (!obj) return false

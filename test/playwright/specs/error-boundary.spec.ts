@@ -43,4 +43,29 @@ test.describe('UI-only Mode & Error Boundaries', () => {
     await expect(apiPostUI('/api/tasks/test-tktube/cancel'))
       .rejects.toThrow(/405/);
   });
+
+  test('T14d: no uncaught JS errors on task selection', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.goto('/');
+    // Wait for sidebar to render all tasks
+    await expect(page.locator('[data-testid="task-test-tktube"]')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Select a tktube task — triggers loadTaskUI path
+    await page.locator('[data-testid="task-test-tktube"]').click();
+    await page.waitForTimeout(1000);
+
+    // Select a vikacg task — different task type
+    await page.locator('[data-testid="task-test-vikacg"]').click();
+    await page.waitForTimeout(1000);
+
+    // Select a hanime task — different task type
+    await page.locator('[data-testid="task-test-hanime"]').click();
+    await page.waitForTimeout(1000);
+
+    // Assert no JS errors occurred
+    expect(errors).toEqual([]);
+  });
 });
