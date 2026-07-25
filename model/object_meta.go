@@ -159,7 +159,12 @@ func (o *DownloadObject) SetContentGroup(group string) {
 
 // GetMetaTitle returns title from Metadata.
 func (o *DownloadObject) GetMetaTitle() string {
-	if o == nil || o.Metadata == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
 		return ""
 	}
 	return o.Metadata[MetadataKeyTitle]
@@ -170,6 +175,8 @@ func (o *DownloadObject) SetMetaTitle(title string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
@@ -178,7 +185,12 @@ func (o *DownloadObject) SetMetaTitle(title string) {
 
 // GetMetaDate returns date from Metadata.
 func (o *DownloadObject) GetMetaDate() string {
-	if o == nil || o.Metadata == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
 		return ""
 	}
 	return o.Metadata["date"]
@@ -189,6 +201,8 @@ func (o *DownloadObject) SetMetaDate(date string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
@@ -197,7 +211,12 @@ func (o *DownloadObject) SetMetaDate(date string) {
 
 // GetMetaDuration returns duration from Metadata.
 func (o *DownloadObject) GetMetaDuration() string {
-	if o == nil || o.Metadata == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
 		return ""
 	}
 	return o.Metadata["duration"]
@@ -208,6 +227,8 @@ func (o *DownloadObject) SetMetaDuration(dur string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
@@ -216,7 +237,12 @@ func (o *DownloadObject) SetMetaDuration(dur string) {
 
 // GetMetaContentGroup returns content_group from Metadata.
 func (o *DownloadObject) GetMetaContentGroup() string {
-	if o == nil || o.Metadata == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
 		return ""
 	}
 	return o.Metadata[MetadataKeyContentGroup]
@@ -227,6 +253,8 @@ func (o *DownloadObject) SetMetaContentGroup(group string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
@@ -235,7 +263,12 @@ func (o *DownloadObject) SetMetaContentGroup(group string) {
 
 // GetMetaTaskType returns task_type from Metadata.
 func (o *DownloadObject) GetMetaTaskType() string {
-	if o == nil || o.Metadata == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
 		return ""
 	}
 	return o.Metadata["task_type"]
@@ -246,6 +279,8 @@ func (o *DownloadObject) SetMetaTaskType(t string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Metadata == nil {
 		o.Metadata = make(map[string]string)
 	}
@@ -257,8 +292,13 @@ func (o *DownloadObject) EnsureTaskType(taskType string) {
 	if o == nil {
 		return
 	}
-	if o.GetMetaTaskType() != "" {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Metadata != nil && o.Metadata["task_type"] != "" {
 		return
 	}
-	o.SetMetaTaskType(taskType)
+	if o.Metadata == nil {
+		o.Metadata = make(map[string]string)
+	}
+	o.Metadata["task_type"] = taskType
 }
