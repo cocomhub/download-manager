@@ -444,7 +444,8 @@
           },
           mounted: function () { document.addEventListener('keydown', this.handleKeydown) },
           beforeUnmount: function () { document.removeEventListener('keydown', this.handleKeydown) },
-          render: function (h) {
+          render: function () {
+            var h = Vue.h
             var self = this
             var currentIdx = this.currentIdx
             var currentSrc = images[currentIdx] || ''
