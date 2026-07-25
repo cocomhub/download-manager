@@ -65,6 +65,10 @@
               self.runtime = d
               // Expose download root globally for plugin JS files
               if (d.download_root) window.__dm_downloadRoot = d.download_root.replace(/\\/g, '/')
+              // Initialize frontend logger with server-configured log level
+              if (d.log_level && typeof Log !== 'undefined' && Log.setLevel) {
+                Log.setLevel(d.log_level)
+              }
             }
           }).catch(function () {})
         },
@@ -351,6 +355,7 @@
         // ---- Card / group modal ----
         handleCardClick: function (obj) {
           if (!obj) return
+          Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
           if (obj.status === 'completed') {
             // Delegate to task-type plugin viewer if one is registered
             var type = obj.metadata && obj.metadata.task_type

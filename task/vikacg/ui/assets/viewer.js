@@ -395,6 +395,19 @@
     document.body.style.overflow = 'hidden'
   }
 
+  // Register with TaskUI (new plugin system)
+  if (typeof TaskUI !== 'undefined' && TaskUI.register) {
+    TaskUI.register('vikacg', {
+      type: 'vikacg',
+      label: 'VikACG',
+      icon: 'fa-image',
+      viewerLabel: '浏览',
+      shouldShowViewer: function (obj) {
+        return obj.status === 'completed' && obj.extra && (Array.isArray(obj.extra.images) || Array.isArray(obj.extra.files))
+      }
+    })
+  }
+
   // Register with the bridge (legacy compat)
   window.__dm_uiBridge.register('vikacg', {
     label: '浏览',

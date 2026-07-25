@@ -279,6 +279,7 @@
       // ---- TaskUI integration ----
       loadTaskUIForType: function (taskType) {
         var self = this
+        Log.debug('loadTaskUIForType', { type: taskType })
         TaskUI.loadTaskUI(taskType, function () {
           self.$forceUpdate()
         })
@@ -291,16 +292,20 @@
         if (!obj) return false
         var type = obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
-        return handler && handler.renderViewer !== null && handler.shouldShowViewer(obj)
+        var result = handler && handler.renderViewer !== null && handler.shouldShowViewer(obj)
+        Log.debug('showTaskTypeViewer', { type: type, hasHandler: !!handler, result: result })
+        return result
       },
       taskTypeViewerLabel: function (obj) {
         var type = obj && obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
-        return (handler && handler.viewerLabel) || '查看'
+        var label = (handler && handler.viewerLabel) || '查看'
+        return label
       },
       openTaskTypeViewer: function (obj) {
         var type = obj && obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
+        Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, title: obj && obj.metadata && obj.metadata.title })
         if (handler && handler.renderViewer) {
           var self = this
           var container = document.createElement('div')

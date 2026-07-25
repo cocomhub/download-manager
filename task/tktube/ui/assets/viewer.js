@@ -343,6 +343,38 @@
     return card
   }
 
+  // Register with TaskUI (new plugin system)
+  if (typeof TaskUI !== 'undefined' && TaskUI.register) {
+    TaskUI.register('tktube', {
+      type: 'tktube',
+      label: 'TKTube',
+      icon: 'fa-video',
+      renderForm: TaskUI.defineForm({
+        fields: [
+          { type: 'text', key: 'keyword', label: '关键字', required: true, placeholder: '例如：RCTD' },
+          {
+            type: 'select', key: 'subtype', label: '子类型',
+            options: [
+              { value: 'tag', label: '标签' },
+              { value: 'model', label: '模特' },
+              { value: 'search', label: '搜索' }
+            ]
+          },
+          { type: 'number', key: 'max_concurrent', label: '并发数', min: 1, max: 10, default: 2 },
+          { type: 'number', key: 'refresh_interval', label: '刷新间隔（秒）', min: 10, default: 3600 },
+        ]
+      }),
+      renderMeta: TaskUI.defineMeta({
+        fields: [
+          { type: 'text', key: 'keyword', label: '关键字', path: 'extra.keyword' },
+          { type: 'text', key: 'subtype', label: '子类型', path: 'extra.subtype' },
+          { type: 'text', key: 'max_concurrent', label: '并发', path: 'extra.max_concurrent' },
+          { type: 'text', key: 'refresh_interval', label: '刷新间隔', path: 'extra.refresh_interval' },
+        ]
+      })
+    })
+  }
+
   // Register as task view (legacy compat)
   window.__dm_uiBridge.registerTaskView('tktube', {
     render: function (task) {

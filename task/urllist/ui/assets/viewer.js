@@ -4,11 +4,30 @@
 /**
  * url_list 类型 UI 资产
  * 注册到 TaskUI 注册表，使用声明式表单/元数据配置。
- * 查看器默认使用通用文件浏览。
  */
 ;(function () {
   'use strict'
 
-  // url_list 的 UI 已在 tasks/urllist/ui.js 中通过 TaskUI.register 注册。
-  // 此文件保持最小化，作为后端嵌入资产的入口。
+  TaskUI.register('url_list', {
+    type: 'url_list',
+    label: 'URL 列表',
+    icon: 'fa-link',
+    renderForm: TaskUI.defineForm({
+      fields: [
+        {
+          type: 'textarea',
+          key: 'urls_text',
+          label: 'URL 列表（每行一个）',
+          rows: 10,
+          required: true,
+          placeholder: 'https://example.com/file1.zip\nhttps://example.com/file2.zip'
+        }
+      ]
+    }),
+    renderMeta: TaskUI.defineMeta({
+      fields: [
+        { type: 'count', key: 'urls', label: 'URL 数量', path: 'extra.urls' }
+      ]
+    })
+  })
 })()
