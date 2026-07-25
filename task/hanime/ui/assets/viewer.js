@@ -548,6 +548,22 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
+        // Shared clipboard helper
+        function copyToClipboard(text) {
+          if (!text) return
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () {})
+          } else {
+            var ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try { document.execCommand('copy') } catch (e) {}
+            document.body.removeChild(ta)
+          }
+        }
         // Use DOM-based approach (same as createModal) since Vue 3 CDN
         // createApp's render function cannot properly bind on:{} event
         // handlers when returning VNode trees from plugin functions.
@@ -607,27 +623,43 @@
         var body = document.createElement('div')
         body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
 
-        // Media area
+        // Media area — show poster with play overlay, click to play
+        var mediaArea = document.createElement('div')
+        mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;min-height:200px'
         if (useVideo) {
-          var videoWrap = document.createElement('div')
-          videoWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center'
+          var posterImg = document.createElement('img')
+          posterImg.src = firstPoster || videoUrl
+          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain;cursor:pointer'
+          posterImg.alt = getTitle(obj) || 'Hanime'
+          mediaArea.appendChild(posterImg)
+
+          var playOverlay = document.createElement('div')
+          playOverlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.2);cursor:pointer'
+          playOverlay.innerHTML = '<i class="fas fa-play" style="font-size:48px;color:#fff;opacity:0.8;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></i>'
+          mediaArea.appendChild(playOverlay)
+
           var video = document.createElement('video')
           video.src = videoUrl
           video.poster = firstPoster
           video.controls = true
-          video.autoplay = true
-          video.style.cssText = 'width:100%;max-height:55vh;outline:none'
-          videoWrap.appendChild(video)
-          body.appendChild(videoWrap)
+          video.style.cssText = 'width:100%;max-height:55vh;outline:none;display:none'
+
+          var playHandler = function () {
+            posterImg.style.display = 'none'
+            playOverlay.style.display = 'none'
+            video.style.display = 'block'
+            video.play().catch(function () {})
+          }
+          posterImg.onclick = playHandler
+          playOverlay.onclick = playHandler
+          mediaArea.appendChild(video)
         } else if (covers.length > 0) {
-          var posterWrap = document.createElement('div')
-          posterWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;padding:16px;min-height:200px'
           var posterImg = document.createElement('img')
           posterImg.src = firstPoster
           posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
-          posterWrap.appendChild(posterImg)
-          body.appendChild(posterWrap)
+          mediaArea.appendChild(posterImg)
         }
+        body.appendChild(mediaArea)
 
         // Origin link bar
         if (origin) {
@@ -644,13 +676,13 @@
           var copyBtn = document.createElement('button')
           copyBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
           copyBtn.textContent = '复制标题'
-          copyBtn.onclick = function () { var t = getTitle(obj); if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t) }
+          copyBtn.onclick = function () { copyToClipboard(getTitle(obj)) }
           originBar.appendChild(copyBtn)
 
           var copyLinkBtn = document.createElement('button')
           copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
           copyLinkBtn.textContent = '复制链接'
-          copyLinkBtn.onclick = function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) }
+          copyLinkBtn.onclick = function () { copyToClipboard(origin) }
           originBar.appendChild(copyLinkBtn)
 
           body.appendChild(originBar)
@@ -705,8 +737,8 @@
         if (origin) {
           var openBtn = document.createElement('a'); openBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'; openBtn.target = '_blank'; openBtn.rel = 'noopener noreferrer'; openBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; openBtn.textContent = '打开原页面'; fLeft.appendChild(openBtn)
         }
-        var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { var t = getTitle(obj); if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t) }; fLeft.appendChild(copyTitleBtn)
-        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) }; fLeft.appendChild(copyLinkBtn) }
+        var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { copyToClipboard(getTitle(obj)) }; fLeft.appendChild(copyTitleBtn)
+        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(origin) }; fLeft.appendChild(copyLinkBtn) }
         footer.appendChild(fLeft)
         var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = function (e) { e.stopPropagation(); onClose() }; footer.appendChild(closeBtn)
         panel.appendChild(footer)

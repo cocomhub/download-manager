@@ -427,91 +427,197 @@
           return h('div')
         }
 
-        // Wrapper component with reactive state for image navigation
-        var Wrapper = {
-          data: function () {
-            return { currentIdx: 0 }
-          },
-          methods: {
-            prev: function () { this.currentIdx = (this.currentIdx - 1 + images.length) % images.length },
-            next: function () { this.currentIdx = (this.currentIdx + 1) % images.length },
-            goTo: function (idx) { this.currentIdx = idx },
-            handleKeydown: function (e) {
-              if (e.key === 'Escape') { if (onClose) onClose(); return }
-              if (e.key === 'ArrowLeft') { e.preventDefault(); this.prev() }
-              if (e.key === 'ArrowRight') { e.preventDefault(); this.next() }
-            }
-          },
-          mounted: function () { document.addEventListener('keydown', this.handleKeydown) },
-          beforeUnmount: function () { document.removeEventListener('keydown', this.handleKeydown) },
-          render: function () {
-            var h = Vue.h
-            var self = this
-            var currentIdx = this.currentIdx
-            var currentSrc = images[currentIdx] || ''
-            var title = getTitle(obj) || 'VikACG'
-            var section = obj && obj.metadata && obj.metadata.section
-            var dateVal = getDate(obj)
-            var html = getContentHtml(obj)
-            var excerpt = getExcerpt(obj)
-            var tags = getTags(obj)
-            var links = getLinks(obj)
-            var pageUrl = obj && obj.metadata && obj.metadata.page_url
-
-            return h('div', {
-              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
-              on: { click: function (e) { if (e.target === e.currentTarget && onClose) onClose() } }
-            }, [
-              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col' }, [
-                // Header
-                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
-                  h('div', { class: 'flex items-center gap-3' }, [
-                    h('h3', { class: 'text-lg font-bold text-gray-800' }, title),
-                    section ? h('span', { class: 'px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-600' }, section) : null,
-                    dateVal ? h('span', { class: 'text-xs text-gray-500' }, dateVal) : null,
-                  ]),
-                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, [
-                    h('i', { class: 'fas fa-times' })
-                  ]),
-                ]),
-                // Body
-                h('div', { class: 'flex-1 overflow-y-auto' }, [
-                  // Image area
-                  h('div', { class: 'relative bg-black flex items-center justify-center', style: { minHeight: '300px' } }, [
-                    h('img', {
-                      attrs: { src: currentSrc, alt: title },
-                      class: 'w-full object-contain',
-                      style: { maxHeight: '60vh' },
-                      on: { error: function (e) { e.target.style.display = 'none' } }
-                    }),
-                    images.length > 1 ? [
-                      h('button', { class: 'absolute left-2 top-1/2 transform -translate-y-1/2 bg-white/80 rounded-full w-9 h-9 flex items-center justify-center text-gray-700 hover:bg-white shadow', on: { click: function (e) { e.stopPropagation(); self.prev() } } }, [h('i', { class: 'fas fa-chevron-left' })]),
-                      h('button', { class: 'absolute right-2 top-1/2 transform -translate-y-1/2 bg-white/80 rounded-full w-9 h-9 flex items-center justify-center text-gray-700 hover:bg-white shadow', on: { click: function (e) { e.stopPropagation(); self.next() } } }, [h('i', { class: 'fas fa-chevron-right' })]),
-                    ] : null,
-                  ]),
-                  images.length > 1 ? h('div', { class: 'text-xs text-gray-500 text-center py-1 bg-gray-50' }, (currentIdx + 1) + ' / ' + images.length) : null,
-                  images.length > 1 ? h('div', { class: 'flex gap-2 p-2 overflow-x-auto bg-gray-100' }, images.map(function (src, idx) {
-                    return h('img', { attrs: { src: src, alt: 'Thumb ' + (idx + 1) }, class: 'w-16 h-16 object-cover rounded cursor-pointer', style: { border: '2px solid ' + (idx === currentIdx ? '#3b82f6' : '#e5e7eb'), boxShadow: idx === currentIdx ? '0 0 0 2px #3b82f6' : 'none' }, on: { click: function () { self.goTo(idx) } } })
-                  })) : null,
-                  h('div', { class: 'p-4' }, [
-                    html ? h('div', { class: 'text-sm text-gray-700 leading-relaxed' }, html.replace(/<[^>]+>/g, ' ')) : excerpt ? h('div', { class: 'text-sm text-gray-700 whitespace-pre-line leading-relaxed' }, excerpt) : null,
-                    tags.length ? h('div', { class: 'flex flex-wrap gap-1 mb-3 mt-3' }, tags.map(function (tag) { return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag) })) : null,
-                    links.length ? [h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '相关链接'), h('ul', { class: 'space-y-1' }, links.map(function (l) { return h('li', [h('a', { attrs: { href: /^https?:\/\//i.test(l.href) ? l.href : '#', target: '_blank', rel: 'noopener noreferrer' }, class: 'text-xs text-blue-600 hover:text-blue-800 break-all' }, l.text || l.href)]) }))] : null,
-                  ]),
-                ]),
-                // Footer
-                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
-                  h('div', { class: 'flex gap-2' }, [
-                    pageUrl ? h('button', { class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700', on: { click: function () { window.open(pageUrl, '_blank', 'noopener,noreferrer') } } }, '打开原页面') : null,
-                    pageUrl ? h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pageUrl) } } }, '复制链接') : null,
-                  ]),
-                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, '关闭'),
-                ]),
-              ])
-            ])
+        // Shared clipboard helper
+        function copyToClipboard(text) {
+          if (!text) return
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () {})
+          } else {
+            var ta = document.createElement('textarea')
+            ta.value = text
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            try { document.execCommand('copy') } catch (e) {}
+            document.body.removeChild(ta)
           }
         }
-        return h(Wrapper)
+
+        // Build DOM modal directly
+        var overlay = document.createElement('div')
+        overlay.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm'
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+
+        var panel = document.createElement('div')
+        panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        overlay.appendChild(panel)
+
+        var currentIdx = 0
+        var title = getTitle(obj) || 'VikACG'
+        var section = obj && obj.metadata && obj.metadata.section
+        var dateVal = getDate(obj)
+        var html = getContentHtml(obj)
+        var excerpt = getExcerpt(obj)
+        var tags = getTags(obj)
+        var links = getLinks(obj)
+        var pageUrl = obj && obj.metadata && obj.metadata.page_url
+
+        // Close handler
+        function closeHandler() {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
+          document.body.style.overflow = ''
+          if (onClose) onClose()
+        }
+
+        // Header
+        var header = document.createElement('div')
+        header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+        var titleGroup = document.createElement('div')
+        titleGroup.style.cssText = 'display:flex;align-items:center;gap:12px'
+        var hTitle = document.createElement('h3')
+        hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0'
+        hTitle.textContent = title
+        titleGroup.appendChild(hTitle)
+        if (section) { var secBadge = document.createElement('span'); secBadge.style.cssText = 'padding:2px 8px;font-size:12px;border-radius:4px;background:#eff6ff;color:#2563eb'; secBadge.textContent = section; titleGroup.appendChild(secBadge) }
+        if (dateVal) { var dateSpan = document.createElement('span'); dateSpan.style.cssText = 'font-size:12px;color:#6b7280'; dateSpan.textContent = dateVal; titleGroup.appendChild(dateSpan) }
+        header.appendChild(titleGroup)
+        var hClose = document.createElement('button')
+        hClose.innerHTML = '<i class="fas fa-times"></i>'
+        hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px'
+        hClose.onclick = function (e) { e.stopPropagation(); closeHandler() }
+        header.appendChild(hClose)
+        panel.appendChild(header)
+
+        // Body
+        var body = document.createElement('div')
+        body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+
+        // Image area
+        var imgArea = document.createElement('div')
+        imgArea.style.cssText = 'position:relative;background:#000;display:flex;align-items:center;justify-content:center;min-height:300px'
+        var imgEl = document.createElement('img')
+        imgEl.src = images[0]
+        imgEl.alt = title
+        imgEl.style.cssText = 'width:100%;object-fit:contain;max-height:60vh'
+        imgEl.onerror = function (e) { e.target.style.display = 'none' }
+        imgArea.appendChild(imgEl)
+
+        // Image navigation
+        function updateCounter() { counterEl.textContent = (currentIdx + 1) + ' / ' + images.length }
+        function updateThumbs() { var thumbs = thumbRow.querySelectorAll('img'); thumbs.forEach(function (img, idx) { img.style.borderColor = idx === currentIdx ? '#3b82f6' : '#e5e7eb'; img.style.boxShadow = idx === currentIdx ? '0 0 0 2px #3b82f6' : 'none' }) }
+
+        if (images.length > 1) {
+          var prevBtn = document.createElement('button')
+          prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>'
+          prevBtn.style.cssText = 'position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.8);border:none;border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#374151'
+          prevBtn.onclick = function (e) { e.stopPropagation(); currentIdx = (currentIdx - 1 + images.length) % images.length; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+          imgArea.appendChild(prevBtn)
+
+          var nextBtn = document.createElement('button')
+          nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>'
+          nextBtn.style.cssText = 'position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.8);border:none;border-radius:50%;width:36px;height:36px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#374151'
+          nextBtn.onclick = function (e) { e.stopPropagation(); currentIdx = (currentIdx + 1) % images.length; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+          imgArea.appendChild(nextBtn)
+        }
+        body.appendChild(imgArea)
+
+        // Counter
+        var counterEl = document.createElement('div')
+        counterEl.style.cssText = 'font-size:12px;color:#6b7280;text-align:center;padding:4px 0;background:#f9fafb'
+        updateCounter()
+        body.appendChild(counterEl)
+
+        // Thumbnails
+        var thumbRow = document.createElement('div')
+        thumbRow.style.cssText = 'display:flex;gap:8px;padding:8px;overflow-x:auto;background:#f3f4f6'
+        if (images.length > 1) {
+          images.forEach(function (src, idx) {
+            var thumb = document.createElement('img')
+            thumb.src = src
+            thumb.alt = 'Thumb ' + (idx + 1)
+            thumb.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:4px;cursor:pointer;border:2px solid ' + (idx === 0 ? '#3b82f6' : '#e5e7eb')
+            thumb.onclick = function () { currentIdx = idx; imgEl.src = images[currentIdx]; updateCounter(); updateThumbs() }
+            thumbRow.appendChild(thumb)
+          })
+          body.appendChild(thumbRow)
+        }
+
+        // Content area
+        var contentDiv = document.createElement('div')
+        contentDiv.style.cssText = 'padding:16px'
+        if (html) {
+          var prose = document.createElement('div')
+          prose.style.cssText = 'font-size:14px;color:#374151;line-height:1.6'
+          prose.textContent = html.replace(/<[^>]+>/g, ' ')
+          contentDiv.appendChild(prose)
+        } else if (excerpt) {
+          var excerptEl = document.createElement('div')
+          excerptEl.style.cssText = 'font-size:14px;color:#374151;white-space:pre-line;line-height:1.6'
+          excerptEl.textContent = excerpt
+          contentDiv.appendChild(excerptEl)
+        }
+        if (tags.length > 0) {
+          var tagWrap = document.createElement('div')
+          tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;margin-top:12px'
+          tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
+          contentDiv.appendChild(tagWrap)
+        }
+        if (links.length > 0) {
+          var linkTitle = document.createElement('p'); linkTitle.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px'; linkTitle.textContent = '相关链接'; contentDiv.appendChild(linkTitle)
+          var linkList = document.createElement('ul'); linkList.style.cssText = 'list-style:none;padding:0;margin:0'
+          links.forEach(function (l) {
+            var li = document.createElement('li')
+            var a = document.createElement('a')
+            a.href = /^https?:\/\//i.test(l.href) ? l.href : '#'
+            a.target = '_blank'; a.rel = 'noopener noreferrer'
+            a.style.cssText = 'font-size:12px;color:#2563eb;word-break:break-all'
+            a.textContent = l.text || l.href
+            li.appendChild(a); linkList.appendChild(li)
+          })
+          contentDiv.appendChild(linkList)
+        }
+        body.appendChild(contentDiv)
+        panel.appendChild(body)
+
+        // Footer
+        var footer = document.createElement('div')
+        footer.style.cssText = 'padding:12px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+        var fLeft = document.createElement('div'); fLeft.style.cssText = 'display:flex;gap:8px'
+        if (pageUrl) {
+          var originBtn = document.createElement('button'); originBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:14px'; originBtn.textContent = '打开原页面'; originBtn.onclick = function () { window.open(pageUrl, '_blank', 'noopener,noreferrer') }; fLeft.appendChild(originBtn)
+          var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { copyToClipboard(pageUrl) }; fLeft.appendChild(copyLinkBtn)
+        }
+        footer.appendChild(fLeft)
+        var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = closeHandler; footer.appendChild(closeBtn)
+        panel.appendChild(footer)
+
+        // Backdrop click
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) closeHandler() })
+
+        // Keyboard nav
+        function keyHandler(e) {
+          if (e.key === 'Escape') { closeHandler(); return }
+          if (e.key === 'ArrowLeft' && images.length > 1) { currentIdx = (currentIdx - 1 + images.length) % images.length; imgEl.src = images[currentIdx]; updateCounter(); if (typeof updateThumbs === 'function') updateThumbs() }
+          if (e.key === 'ArrowRight' && images.length > 1) { currentIdx = (currentIdx + 1) % images.length; imgEl.src = images[currentIdx]; updateCounter(); if (typeof updateThumbs === 'function') updateThumbs() }
+        }
+        document.addEventListener('keydown', keyHandler)
+
+        // Override closeHandler to clean up
+        var origClose = closeHandler
+        closeHandler = function () {
+          document.removeEventListener('keydown', keyHandler)
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay)
+          document.body.style.overflow = ''
+          if (onClose) onClose()
+        }
+
+        // Mount
+        document.body.appendChild(overlay)
+        document.body.style.overflow = 'hidden'
+
+        return h('div')
       }
     })
   }
