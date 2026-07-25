@@ -542,6 +542,11 @@
       icon: 'fa-film',
       viewerLabel: '播放',
       shouldShowViewer: function (obj) { return obj.status === 'completed' },
+      onClick: function (obj, helpers) {
+        if (obj.status !== 'completed') return false
+        helpers.openTaskTypeViewer(obj)
+        return true
+      },
       renderViewer: function (h, obj, onClose) {
         var videoUrl = getVideoURL(obj)
         var covers = getCoverImages(obj)

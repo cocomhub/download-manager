@@ -371,17 +371,31 @@
         handleCardClick: function (obj) {
           if (!obj) return
           Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
+          // cancelled + redirect_url → open origin page
+          if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
+            window.open(obj.extra.redirect_url, '_blank', 'noopener,noreferrer')
+            return
+          }
           if (obj.status === 'completed') {
-            // Delegate to task-type plugin viewer if one is registered
+            // Delegate to task-type plugin onClick if registered
             var type = obj.metadata && obj.metadata.task_type
-            if (type && TaskUI.hasViewer(type)) {
-              this.openTaskTypeViewer(obj)
-              return
+            var handler = type ? TaskUI.get(type) : null
+            if (handler && handler.onClick) {
+              var helpers = {
+                openTaskTypeViewer: this.openTaskTypeViewer.bind(this),
+                playVideo: this.playVideo.bind(this),
+                getFileUrl: this.getFileUrl.bind(this),
+                pathToUrl: this.pathToUrl.bind(this),
+                getTitle: this.getTitle.bind(this)
+              }
+              if (handler.onClick(obj, helpers)) return
             }
-            // Fall back to built-in video player
+            // Default: play video or open file
             if (this.isVideo(obj)) {
               this.playVideo(obj)
+              return
             }
+            window.open(this.getFileUrl(obj), '_blank', 'noopener,noreferrer')
           }
         },
         openGroupModal: function (obj) {

@@ -404,6 +404,21 @@
       viewerLabel: '浏览',
       shouldShowViewer: function (obj) {
         return obj.status === 'completed' && obj.extra && (Array.isArray(obj.extra.images) || Array.isArray(obj.extra.files))
+      },
+      onClick: function (obj, helpers) {
+        if (obj.status !== 'completed') return false
+        var images = getImages(obj)
+        if (images.length > 0) {
+          helpers.openTaskTypeViewer(obj)
+          return true
+        }
+        // No images — open origin page
+        var pageUrl = obj && obj.metadata && obj.metadata.page_url
+        if (pageUrl) {
+          window.open(pageUrl, '_blank', 'noopener,noreferrer')
+          return true
+        }
+        return false
       }
     })
   }

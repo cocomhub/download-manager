@@ -25,6 +25,7 @@
       renderCardExtra: typeof handler.renderCardExtra === 'function' ? handler.renderCardExtra : null,
       renderViewer: typeof handler.renderViewer === 'function' ? handler.renderViewer : null,
       renderAggregate: typeof handler.renderAggregate === 'function' ? handler.renderAggregate : null,
+      onClick: typeof handler.onClick === 'function' ? handler.onClick : null,
       shouldShowViewer: typeof handler.shouldShowViewer === 'function' ? handler.shouldShowViewer : defaultShouldShowViewer,
       viewerLabel: handler.viewerLabel || '查看',
       // collectExtra: 将 formData 映射为 API 请求的 payload 字段
@@ -45,7 +46,7 @@
     register: function (type, handler) {
       if (!type || !handler) return
       registry[type] = normalizeHandler(handler)
-      Log.debug('TaskUI.register', { type: type, hasForm: !!handler.renderForm, hasViewer: !!handler.renderViewer, hasMeta: !!handler.renderMeta, hasCardExtra: !!handler.renderCardExtra })
+      Log.debug('TaskUI.register', { type: type, hasForm: !!handler.renderForm, hasViewer: !!handler.renderViewer, hasMeta: !!handler.renderMeta, hasCardExtra: !!handler.renderCardExtra, hasOnClick: !!handler.onClick })
     },
     get: function (type) {
       var h = registry[type] || null
