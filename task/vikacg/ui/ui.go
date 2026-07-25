@@ -17,8 +17,9 @@ var assets embed.FS
 
 func init() {
 	core.RegisterTaskUI("vikacg", core.TaskUIAssets{
-		FS:      assets,
-		JSPaths: []string{"assets/viewer.js"},
-		Label:   "浏览",
+		FS:        assets,
+		JSPaths:   []string{"assets/viewer.js"},
+		Label:     "浏览",
+		HasViewer: true,
 	})
 }

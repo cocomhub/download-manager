@@ -15,6 +15,13 @@ type TaskUIAssets struct {
 	JSPaths  []string // file paths relative to FS root (e.g. ["reader.js"])
 	CSSPaths []string // CSS file paths relative to FS root
 	Label    string   // button label shown in the UI, e.g. "阅读"
+
+	// HasForm indicates this task type can be created via the UI's "New Task" dialog.
+	HasForm bool
+	// HasViewer indicates this task type has a custom viewer modal for completed objects.
+	HasViewer bool
+	// HasAggregate indicates this task type supports an aggregate/content-grouped view.
+	HasAggregate bool
 }
 
 var (

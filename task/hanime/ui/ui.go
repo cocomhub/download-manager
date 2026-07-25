@@ -16,8 +16,9 @@ var assets embed.FS
 
 func init() {
 	core.RegisterTaskUI("hanime", core.TaskUIAssets{
-		FS:      assets,
-		JSPaths: []string{"assets/viewer.js"},
-		Label:   "播放",
+		FS:        assets,
+		JSPaths:   []string{"assets/viewer.js"},
+		Label:     "播放",
+		HasViewer: true,
 	})
 }

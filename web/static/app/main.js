@@ -108,11 +108,9 @@
         mobileToolbarOpen: false,
 
         // External task UI
-        _registeredUITypes: [],
-        showCustomUIModal: false,
-        customUITitle: '',
-        customUIData: null,
-        showCustomTaskView: false
+        // _registeredUITypes 已移除，由 TaskUI 注册表替代
+        // showCustomUIModal、customUITitle、customUIData 已移除，由 TaskUI 查看器替代
+        // showCustomTaskView 已移除，由 TaskUI 替代
       }
     },
 
@@ -165,6 +163,41 @@
         if (!this.configDiff || !this.configDiff.changes) return []
         if (!this.pathFilter) return this.configDiff.changes
         return this.configDiff.changes.filter(function (c) { return c.path.startsWith(this.pathFilter) }.bind(this))
+      },
+
+      // ---- TaskUI integration ----
+      showTaskTypeFormFields: function () {
+        var handler = TaskUI.get(this.newTask.type)
+        return handler && handler.renderForm !== null
+      },
+      taskTypeFormComponent: function () {
+        var handler = TaskUI.get(this.newTask.type)
+        if (handler && handler.renderForm) {
+          var self = this
+          return {
+            render: function (h) {
+              return handler.renderForm(h, self.newTask, {})
+            }
+          }
+        }
+        return null
+      },
+      showTaskTypeMeta: function () {
+        if (!this.selectedTask || !this.selectedTask.extra) return false
+        var handler = TaskUI.get(this.selectedTask.type)
+        return handler && handler.renderMeta !== null
+      },
+      taskTypeMetaComponent: function () {
+        var handler = TaskUI.get(this.selectedTask.type)
+        if (handler && handler.renderMeta) {
+          var task = this.selectedTask
+          return {
+            render: function (h) {
+              return handler.renderMeta(h, task)
+            }
+          }
+        }
+        return null
       }
     },
 
@@ -195,12 +228,16 @@
       selectedType: function () {
         if (typeof window.__dm_updateURLWithType === 'function') window.__dm_updateURLWithType(this.selectedType)
         if (this.viewMode === 'tktube') { this.tktubePagination.page = 1; this.fetchAggregateByType(this.selectedType) }
-        this.loadTaskUI(this.selectedType)
+        this.loadTaskUIForType(this.selectedType)
       },
       selectedTask: function () {
         this.$nextTick(function () {
-          this.renderCustomTaskView()
-          this.renderPluginCards()
+          if (this.uiMode === 'watch' && this.selectedTask) {
+            var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(this.selectedTask.type)
+            if (view) {
+              view.render(this.selectedTask)
+            }
+          }
         }.bind(this))
       },
       viewMode: function (val) {
@@ -211,7 +248,10 @@
           this.stopDashboardPolling()
         }
         this.$nextTick(function () {
-          this.renderCustomTaskView()
+          if (this.selectedTask && this.uiMode === 'watch') {
+            var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(this.selectedTask.type)
+            if (view) view.render(this.selectedTask)
+          }
         }.bind(this))
       }
     },
@@ -224,7 +264,6 @@
       this.loadVideoSettings()
       this.initUiDefaults()
       this.showAddTaskModal = false
-      this.loadCustomUIFeatures()
     },
 
     beforeUnmount: function () {
@@ -235,63 +274,60 @@
     },
 
     methods: {
-      // ---- External Task UI ----
-      loadCustomUIFeatures: function () {
+      // ---- TaskUI integration ----
+      loadTaskUIForType: function (taskType) {
         var self = this
-        fetch('/api/ui/types').then(function (r) { return r.json() }).then(function (types) {
-          self._registeredUITypes = types || []
-        }).catch(function (e) { console.warn('loadCustomUIFeatures failed:', e) })
+        TaskUI.loadTaskUI(taskType, function () {
+          self.$forceUpdate()
+        })
       },
-      loadTaskUI: function (taskType) {
-        if (!taskType || taskType === 'all') return
-        if (!this._registeredUITypes || this._registeredUITypes.indexOf(taskType) < 0) return
-        var self = this
-        fetch('/api/ui/' + encodeURIComponent(taskType) + '/config').then(function (r) { return r.json() }).then(function (cfg) {
-          if (cfg.css) {
-            cfg.css.forEach(function (p) {
-              var href = '/api/ui/' + encodeURIComponent(taskType) + '/assets/' + encodeURIComponent(p)
-              if (!document.querySelector('link[href="' + href + '"]')) {
-                var link = document.createElement('link')
-                link.rel = 'stylesheet'
-                link.href = href
-                document.head.appendChild(link)
-              }
-            })
-          }
-          if (cfg.js) {
-            cfg.js.forEach(function (p) {
-              var src = '/api/ui/' + encodeURIComponent(taskType) + '/assets/' + encodeURIComponent(p)
-              if (!document.querySelector('script[src="' + src + '"]')) {
-                var script = document.createElement('script')
-                script.src = src
-                script.onload = function () { self.$forceUpdate() }
-                document.body.appendChild(script)
-              }
-            })
-          }
-        }).catch(function (e) { console.warn('loadTaskUI failed:', e) })
+      showTaskTypeViewer: function (obj) {
+        if (!obj) return false
+        var type = obj.metadata && obj.metadata.task_type
+        var handler = TaskUI.get(type)
+        return handler && handler.renderViewer !== null && handler.shouldShowViewer(obj)
       },
-      renderCustomTaskView: function () {
-        var task = this.selectedTask
-        if (!task || this.uiMode !== 'watch') {
-          this.showCustomTaskView = false
-          return
-        }
-        var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(task.type)
-        if (view) {
-          this.showCustomTaskView = true
+      taskTypeViewerLabel: function (obj) {
+        var type = obj && obj.metadata && obj.metadata.task_type
+        var handler = TaskUI.get(type)
+        return (handler && handler.viewerLabel) || '查看'
+      },
+      openTaskTypeViewer: function (obj) {
+        var type = obj && obj.metadata && obj.metadata.task_type
+        var handler = TaskUI.get(type)
+        if (handler && handler.renderViewer) {
           var self = this
-          this.$nextTick(function () {
-            view.render(task)
-          })
-        } else {
-          this.showCustomTaskView = false
+          var container = document.createElement('div')
+          document.body.appendChild(container)
+          var vm = Vue.createApp({
+            render: function (h) {
+              return handler.renderViewer(h, obj, function () {
+                vm.unmount()
+                if (container.parentNode) container.parentNode.removeChild(container)
+              })
+            }
+          }).mount(container)
         }
+      },
+      showTaskTypeCardExtra: function (obj) {
+        if (!obj) return false
+        var type = obj.metadata && obj.metadata.task_type
+        var handler = TaskUI.get(type)
+        return handler && typeof handler.renderCardExtra === 'function'
+      },
+      taskTypeCardExtraComponent: function (obj) {
+        var type = obj.metadata && obj.metadata.task_type
+        var handler = TaskUI.get(type)
+        if (handler && handler.renderCardExtra) {
+          return {
+            render: function (h) {
+              return handler.renderCardExtra(h, obj)
+            }
+          }
+        }
+        return null
       },
       closeCustomUI: function () {
-        this.showCustomUIModal = false
-        this.customUITitle = ''
-        this.customUIData = null
         var el = document.getElementById('custom-ui-content')
         if (el) el.innerHTML = ''
       }

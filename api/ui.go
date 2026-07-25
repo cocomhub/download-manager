@@ -34,9 +34,12 @@ func (s *Server) serveUIConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"js":    assets.JSPaths,
-		"css":   assets.CSSPaths,
-		"label": assets.Label,
+		"js":            assets.JSPaths,
+		"css":           assets.CSSPaths,
+		"label":         assets.Label,
+		"has_form":      assets.HasForm,
+		"has_viewer":    assets.HasViewer,
+		"has_aggregate": assets.HasAggregate,
 	})
 }
 

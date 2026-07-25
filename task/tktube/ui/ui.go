@@ -16,8 +16,11 @@ var assets embed.FS
 
 func init() {
 	core.RegisterTaskUI("tktube", core.TaskUIAssets{
-		FS:      assets,
-		JSPaths: []string{"assets/viewer.js"},
-		Label:   "",
+		FS:           assets,
+		JSPaths:      []string{"assets/viewer.js"},
+		Label:        "",
+		HasForm:      true,
+		HasViewer:    true,
+		HasAggregate: true,
 	})
 }

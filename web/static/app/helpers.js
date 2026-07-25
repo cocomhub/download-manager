@@ -170,18 +170,6 @@
           return (obj && obj.metadata && obj.metadata.content_group) || ''
         },
 
-        // Vikacg helpers
-        isVikacg: function (obj) {
-          var u = (obj && obj.metadata && obj.metadata.page_url) || (obj && obj.url) || ''
-          return u.indexOf('vikacg.com') >= 0
-        },
-        getVikacgExcerpt: function (obj) {
-          var s = (obj && obj.extra && obj.extra.content_text) || ''
-          if (!s) return ''
-          var t = s.replace(/\s+/g, ' ').trim()
-          return t.length > 200 ? t.slice(0, 200) + '...' : t
-        },
-
         // SSE
         initSSE: function () {
           if (this.eventSource) this.eventSource.close()
@@ -364,10 +352,10 @@
         handleCardClick: function (obj) {
           if (!obj) return
           if (obj.status === 'completed') {
-            // Delegate to task-type plugin modal if one is registered
+            // Delegate to task-type plugin viewer if one is registered
             var type = obj.metadata && obj.metadata.task_type
-            if (type && window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(type)) {
-              window.__dm_uiBridge.open(type, obj)
+            if (type && TaskUI.hasViewer(type)) {
+              this.openTaskTypeViewer(obj)
               return
             }
             // Fall back to built-in video player
@@ -454,45 +442,9 @@
         },
 
         // ---- Custom UI / External Task Plugin methods ----
-        isCustomUI: function (obj) {
-          return !!(
-            obj && obj.metadata && obj.metadata.task_type &&
-            window.__dm_uiBridge && window.__dm_uiBridge.hasPlugin(obj.metadata.task_type)
-          )
-        },
-        getCustomUILabel: function (obj) {
-          var type = obj && obj.metadata && obj.metadata.task_type
-          return (type && window.__dm_uiBridge && window.__dm_uiBridge.getLabel(type)) || '浏览'
-        },
-        openCustomUI: function (obj) {
-          var type = obj && obj.metadata && obj.metadata.task_type
-          if (type && window.__dm_uiBridge) window.__dm_uiBridge.open(type, obj)
-        },
-        // Post-render hook: let task-type plugins replace card DOM via bridge.renderCard
-        renderPluginCards: function () {
-          var self = this
-          if (!window.__dm_uiBridge) return
-          // Collect cards that need plugin rendering
-          var cards = []
-          ;(self.filteredObjects || []).forEach(function (obj) {
-            var type = obj.metadata && obj.metadata.task_type
-            if (type && window.__dm_uiBridge.hasCardRenderer(type)) {
-              cards.push({ obj: obj, type: type })
-            }
-          })
-          if (cards.length === 0) return
-          self.$nextTick(function () {
-            cards.forEach(function (item) {
-              // Find the card element by data-testid (escape special chars for CSS selector)
-              var escapedUrl = item.obj.url.replace(/["\\]/g, '').replace(/[!\"#$%&'()*+,.\/:;<=>?@[\]^`{|}~]/g, '\\$&')
-              var cardEl = document.querySelector('[data-testid="object-' + escapedUrl + '"]')
-              if (cardEl && !cardEl.hasAttribute('data-plugin-card')) {
-                cardEl.setAttribute('data-plugin-card', item.type)
-                window.__dm_uiBridge.renderCard(item.type, item.obj, cardEl)
-              }
-            })
-          })
-        }
+        // isCustomUI / getCustomUILabel / openCustomUI / renderPluginCards
+        // 已迁移到 TaskUI 注册表，保留兼容性 shim
+
       }})
     }
   }
