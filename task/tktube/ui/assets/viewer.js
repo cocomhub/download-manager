@@ -349,6 +349,7 @@
       type: 'tktube',
       label: 'TKTube',
       icon: 'fa-video',
+      viewerLabel: '查看',
       renderForm: TaskUI.defineForm({
         fields: [
           { type: 'text', key: 'keyword', label: '关键字', required: true, placeholder: '例如：RCTD' },
@@ -379,6 +380,50 @@
         if (formData.max_concurrent) extra.max_concurrent = formData.max_concurrent
         if (formData.refresh_interval) extra.refresh_interval = formData.refresh_interval
         return extra
+      },
+      shouldShowViewer: function (obj) { return obj.status === 'completed' && obj.extra && obj.extra.files && obj.extra.files.length > 0 },
+      onClick: function (obj, helpers) {
+        if (obj.status !== 'completed') return false
+        helpers.playVideo(obj)
+        return true
+      },
+      renderViewer: function (h, obj, onClose) {
+        var title = getTitle(obj) || 'TKTube'
+        var fileUrl = getFileUrl(obj)
+        var dur = getDuration(obj)
+        var dateVal = getDate(obj)
+        var res = getResolution(obj)
+
+        var Wrapper = {
+          render: function () {
+            var h = Vue.h
+            return h('div', {
+              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
+              on: { click: function (e) { if (e.target === e.currentTarget && onClose) onClose() } }
+            }, [
+              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col' }, [
+                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
+                  h('h3', { class: 'text-lg font-bold text-gray-800 truncate' }, title),
+                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, [h('i', { class: 'fas fa-times' })])
+                ]),
+                h('div', { class: 'flex-1 overflow-y-auto p-4 space-y-3' }, [
+                  fileUrl ? h('div', { class: 'text-xs' }, [
+                    h('span', { class: 'text-gray-500' }, '文件：'),
+                    h('a', { attrs: { href: fileUrl, target: '_blank', rel: 'noopener noreferrer' }, class: 'text-blue-600 hover:text-blue-800 break-all' }, fileUrl)
+                  ]) : null,
+                  dur ? h('div', { class: 'text-xs' }, [h('span', { class: 'text-gray-500' }, '时长：'), h('span', { class: 'text-gray-700' }, dur)]) : null,
+                  dateVal ? h('div', { class: 'text-xs' }, [h('span', { class: 'text-gray-500' }, '日期：'), h('span', { class: 'text-gray-700' }, dateVal)]) : null,
+                  res ? h('div', { class: 'text-xs' }, [h('span', { class: 'text-gray-500' }, '分辨率：'), h('span', { class: 'text-gray-700' }, res)]) : null,
+                ]),
+                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-end' }, [
+                  fileUrl ? h('a', { attrs: { href: fileUrl, target: '_blank', rel: 'noopener noreferrer' }, class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 mr-2' }, '打开文件') : null,
+                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: function (e) { e.stopPropagation(); if (onClose) onClose() } } }, '关闭')
+                ])
+              ])
+            ])
+          }
+        }
+        return h(Wrapper)
       }
     })
   }

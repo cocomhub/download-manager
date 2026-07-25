@@ -115,7 +115,7 @@ test.describe('Object Viewer', () => {
     expect(errors.length).toBe(0);
   });
 
-  test('T4: click "打开" button on completed object shows info modal', async ({ page }) => {
+  test('T4: click "详情" button on completed object shows info modal', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
@@ -125,12 +125,10 @@ test.describe('Object Viewer', () => {
     await expect(page.locator('h2:has-text("test-tktube")')).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(1000);
 
-    // Find the "打开" button on a completed non-video object
-    // or use the "播放" button as alternative — video objects show "播放"
-    const openBtn = page.locator('button:has-text("打开")');
-    if (await openBtn.count() > 0) {
-      // Non-video completed object: click "打开" button
-      await openBtn.first().click();
+    // Find the "详情" button on a completed non-video object
+    const detailBtn = page.locator('button:has-text("详情")');
+    if (await detailBtn.count() > 0) {
+      await detailBtn.first().click();
       await page.waitForTimeout(500);
 
       // Should open the default info modal (BaseViewer)
