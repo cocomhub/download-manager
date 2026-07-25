@@ -251,3 +251,14 @@ func (o *DownloadObject) SetMetaTaskType(t string) {
 	}
 	o.Metadata["task_type"] = t
 }
+
+// EnsureTaskType sets task_type in Metadata if it is not already set.
+func (o *DownloadObject) EnsureTaskType(taskType string) {
+	if o == nil {
+		return
+	}
+	if o.GetMetaTaskType() != "" {
+		return
+	}
+	o.SetMetaTaskType(taskType)
+}

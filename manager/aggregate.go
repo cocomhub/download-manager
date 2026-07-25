@@ -181,6 +181,17 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 	reps := selectGroupRepresentatives(groups)
 	paged, total, page, limit := paginateContentResults(reps, page, limit, sortBy)
 
+	// Ensure every object has task_type metadata for frontend plugin dispatch
+	for _, o := range paged {
+		if o.GetMetaTaskType() == "" {
+			for _, tk := range matchingTasks {
+				if tk.ID() == o.TaskID {
+					o.EnsureTaskType(tk.Type())
+					break
+				}
+			}
+		}
+	}
 	return map[string]any{
 		"objects": paged,
 		"total":   total,

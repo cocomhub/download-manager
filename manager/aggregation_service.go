@@ -63,6 +63,17 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 	if all == nil {
 		all = make([]*model.DownloadObject, 0)
 	}
+	// Ensure every object has task_type metadata for frontend plugin dispatch
+	for _, o := range all {
+		if o.GetMetaTaskType() == "" {
+			for _, ti := range matchingTasks {
+				if ti.t.ID() == o.TaskID {
+					o.EnsureTaskType(ti.t.Type())
+					break
+				}
+			}
+		}
+	}
 	return map[string]any{
 		"objects": all,
 		"total":   total,

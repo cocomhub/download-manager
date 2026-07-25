@@ -362,7 +362,8 @@
         var container = document.createElement('div')
         document.body.appendChild(container)
         var vm = Vue.createApp({
-          render: function (h) {
+          render: function () {
+            var h = Vue.h
             var title = self.getTitle(obj) || obj.url || ''
             var fileUrl = self.getFileUrl(obj)
             var tags = self.getTags(obj)

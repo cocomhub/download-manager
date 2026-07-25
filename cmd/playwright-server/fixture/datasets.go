@@ -63,7 +63,7 @@ func loadFull(mgr *manager.Manager) error {
 						"count":        8,
 						"status":       "completed",
 						"metadata": map[string]any{
-							"label": "vikacg-image",
+							"label":     "vikacg-image",
 							"task_type": "vikacg",
 						},
 					},
@@ -85,7 +85,7 @@ func loadFull(mgr *manager.Manager) error {
 						"count":        6,
 						"status":       "completed",
 						"metadata": map[string]any{
-							"label": "hanime-video",
+							"label":     "hanime-video",
 							"task_type": "hanime",
 						},
 					},
