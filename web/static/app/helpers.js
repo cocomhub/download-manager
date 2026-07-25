@@ -391,8 +391,19 @@
             return
           }
           if (obj.status === 'completed') {
-            // Delegate to task-type plugin onClick if registered
             var type = obj.metadata && obj.metadata.task_type
+            // Ensure task-type plugin UI is loaded before dispatching
+            if (type && !TaskUI.get(type)) {
+              Log.info('handleCardClick: plugin not loaded yet, loading and retrying', { type: type })
+              var self = this
+              this.loadTaskUIForType(type, function () {
+                // Retry after load
+                Log.info('handleCardClick: plugin loaded, retrying click', { type: type })
+                self.handleCardClick(obj)
+              })
+              return
+            }
+            // Delegate to task-type plugin onClick if registered
             var handler = type ? TaskUI.get(type) : null
             if (handler && handler.onClick) {
               var helpers = {

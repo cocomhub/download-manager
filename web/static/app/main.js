@@ -277,11 +277,12 @@
 
     methods: {
       // ---- TaskUI integration ----
-      loadTaskUIForType: function (taskType) {
+      loadTaskUIForType: function (taskType, callback) {
         var self = this
         var handler = TaskUI.get(taskType)
         if (handler) {
           Log.info('loadTaskUIForType ALREADY REGISTERED — using plugin', { type: taskType, features: { form: !!handler.renderForm, meta: !!handler.renderMeta, viewer: !!handler.renderViewer, cardExtra: !!handler.renderCardExtra } })
+          if (callback) callback()
           return
         }
         Log.info('loadTaskUIForType NOT REGISTERED — loading viewer.js', { type: taskType })
@@ -293,6 +294,7 @@
             Log.warn('loadTaskUIForType LOADED — but no plugin registered', { type: taskType })
           }
           self.$forceUpdate()
+          if (callback) callback()
         })
       },
       // 保留 loadTaskUI 别名，兼容 taskList.js 等通过 mixin 共享 this 的模块

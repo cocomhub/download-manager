@@ -548,6 +548,9 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
+        // Use DOM-based approach (same as createModal) since Vue 3 CDN
+        // createApp's render function cannot properly bind on:{} event
+        // handlers when returning VNode trees from plugin functions.
         var videoUrl = getVideoURL(obj)
         var covers = getCoverImages(obj)
         var firstPoster = covers.length > 0 ? covers[0] : ''
@@ -563,89 +566,146 @@
         var isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|chromium|edg/i.test(navigator.userAgent)
         var useVideo = !!videoUrl && (!isHLS || isSafari)
 
-        // Must wrap in a component so Vue 3 properly processes event handlers
-        // Note: Vue 3 CDN's createApp does NOT pass h to component render functions.
-        // Always use Vue.h directly inside the render function.
-        var Wrapper = {
-          data: function () { return {} },
-          methods: {
-            close: function (e) { e.stopPropagation(); if (onClose) onClose() },
-            copyTitle: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(getTitle(obj)) },
-            copyOrigin: function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) },
-            openOrigin: function () { window.open(origin, '_blank', 'noopener,noreferrer') },
-            overlayClick: function (e) { if (e.target === e.currentTarget && onClose) onClose() }
-          },
-          render: function () {
-            var h = Vue.h
-            var self = this
-            return h('div', {
-              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
-              on: { click: self.overlayClick }
-            }, [
-              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col' }, [
-                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
-                  h('h3', { class: 'text-lg font-bold text-gray-800' }, getTitle(obj) || 'Hanime'),
-                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: self.close } }, [h('i', { class: 'fas fa-times' })]),
-                ]),
-                h('div', { class: 'flex-1 overflow-y-auto' }, [
-                  useVideo ? h('div', { class: 'bg-black flex items-center justify-center' }, [
-                    h('video', {
-                      attrs: { src: videoUrl, poster: firstPoster, controls: true, autoplay: true },
-                      class: 'w-full max-h-[55vh] outline-none'
-                    })
-                  ]) : (covers.length > 0 ? h('div', { class: 'bg-black flex items-center justify-center p-4 min-h-[200px]' }, [
-                    h('img', { attrs: { src: firstPoster }, class: 'max-w-full max-h-[50vh] object-contain' })
-                  ]) : null),
-                  origin ? h('div', { class: 'flex gap-2 p-3 bg-gray-50 border-b flex-wrap' }, [
-                    h('a', {
-                      attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
-                      class: 'px-2 py-1 rounded bg-blue-600 text-white text-xs hover:bg-blue-700'
-                    }, '打开原页面'),
-                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: self.copyTitle } }, '复制标题'),
-                    h('button', { class: 'px-2 py-1 rounded bg-white border text-xs hover:bg-gray-100', on: { click: self.copyOrigin } }, '复制链接'),
-                  ]) : null,
-                  h('div', { class: 'p-4' }, [
-                    (genres.length || dateVal || tags.length || artist) ? h('div', { class: 'text-xs text-gray-500 mb-3 flex flex-wrap gap-1' }, [
-                      genres.length ? h('span', genres.join(', ')) : null,
-                      dateVal ? h('span', (genres.length ? ' · ' : '') + dateVal) : null,
-                      tags.length ? h('span', ((genres.length || dateVal) ? ' · ' : '') + tags.join(', ')) : null,
-                      artist ? h('span', ((genres.length || dateVal || tags.length) ? ' · ' : '') + artist) : null,
-                    ]) : null,
-                    details ? h('div', { class: 'text-sm text-gray-700 whitespace-pre-line mb-3' }, details) : null,
-                    tags.length ? h('div', { class: 'flex flex-wrap gap-1 mb-3' }, tags.map(function (tag) {
-                      return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag)
-                    })) : null,
-                  ]),
-                  playlist.length ? h('div', { class: 'p-3 border-t bg-gray-50' }, [
-                    h('h4', { class: 'text-sm font-semibold text-gray-700 mb-2' }, '播放列表 (' + playlist.length + ')'),
-                    h('div', { class: 'flex flex-col gap-1 max-h-[200px] overflow-y-auto' }, playlist.map(function (item, idx) {
-                      return h('div', {
-                        class: 'flex items-center gap-2 p-2 border rounded bg-white text-xs hover:bg-gray-50 cursor-pointer',
-                        on: { click: function () { if (item.url) window.open(item.url, '_blank', 'noopener,noreferrer') } }
-                      }, [
-                        h('span', { class: 'w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-600 flex-shrink-0' }, String(idx + 1)),
-                        item.thumbnail ? h('img', { attrs: { src: item.thumbnail }, class: 'w-10 h-7 object-cover rounded flex-shrink-0' }) : null,
-                        h('span', { class: 'flex-1 truncate text-gray-700' }, item.title || 'Item ' + (idx + 1)),
-                      ])
-                    }))
-                  ]) : null,
-                ]),
-                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
-                  h('div', { class: 'flex gap-2' }, [
-                    origin ? h('a', {
-                      attrs: { href: /^https?:\/\//i.test(origin) ? origin : '#', target: '_blank', rel: 'noopener noreferrer' },
-                      class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
-                    }, '打开原页面') : null,
-                    h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.copyTitle } }, '复制标题'),
-                    origin ? h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.copyOrigin } }, '复制链接') : null,
-                  ]),
-                  h('button', { class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100', on: { click: self.close } }, '关闭'),
-                ]),
-              ])
-            ])
-          }
+        // Build DOM modal directly (same pattern as createModal)
+        var overlay = document.createElement('div')
+        overlay.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm'
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+
+        var panel = document.createElement('div')
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        overlay.appendChild(panel)
+
+        // Header
+        var header = document.createElement('div')
+        header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+        var hTitle = document.createElement('h3')
+        hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0'
+        hTitle.textContent = getTitle(obj) || 'Hanime'
+        header.appendChild(hTitle)
+        var hClose = document.createElement('button')
+        hClose.innerHTML = '<i class="fas fa-times"></i>'
+        hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px'
+        hClose.onclick = function (e) { e.stopPropagation(); onClose() }
+        header.appendChild(hClose)
+        panel.appendChild(header)
+
+        // Body (scrollable)
+        var body = document.createElement('div')
+        body.style.cssText = 'flex:1;overflow-y:auto;padding:0'
+
+        // Media area
+        if (useVideo) {
+          var videoWrap = document.createElement('div')
+          videoWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center'
+          var video = document.createElement('video')
+          video.src = videoUrl
+          video.poster = firstPoster
+          video.controls = true
+          video.autoplay = true
+          video.style.cssText = 'width:100%;max-height:55vh;outline:none'
+          videoWrap.appendChild(video)
+          body.appendChild(videoWrap)
+        } else if (covers.length > 0) {
+          var posterWrap = document.createElement('div')
+          posterWrap.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;padding:16px;min-height:200px'
+          var posterImg = document.createElement('img')
+          posterImg.src = firstPoster
+          posterImg.style.cssText = 'max-width:100%;max-height:50vh;object-fit:contain'
+          posterWrap.appendChild(posterImg)
+          body.appendChild(posterWrap)
         }
-        return h(Wrapper)
+
+        // Origin link bar
+        if (origin) {
+          var originBar = document.createElement('div')
+          originBar.style.cssText = 'display:flex;gap:8px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;flex-wrap:wrap'
+          var originBtn = document.createElement('a')
+          originBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'
+          originBtn.target = '_blank'
+          originBtn.rel = 'noopener noreferrer'
+          originBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;display:inline-block'
+          originBtn.textContent = '打开原页面'
+          originBar.appendChild(originBtn)
+
+          var copyBtn = document.createElement('button')
+          copyBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
+          copyBtn.textContent = '复制标题'
+          copyBtn.onclick = function () { var t = getTitle(obj); if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t) }
+          originBar.appendChild(copyBtn)
+
+          var copyLinkBtn = document.createElement('button')
+          copyLinkBtn.style.cssText = 'padding:4px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:13px'
+          copyLinkBtn.textContent = '复制链接'
+          copyLinkBtn.onclick = function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) }
+          originBar.appendChild(copyLinkBtn)
+
+          body.appendChild(originBar)
+        }
+
+        // Content area
+        var content = document.createElement('div')
+        content.style.cssText = 'padding:16px'
+
+        // Metadata row
+        var metaRow = document.createElement('div')
+        metaRow.style.cssText = 'font-size:13px;color:#6b7280;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px'
+        if (genres.length) { var gs = document.createElement('span'); gs.textContent = genres.join(', '); metaRow.appendChild(gs) }
+        if (dateVal) { if (genres.length) { var s1 = document.createElement('span'); s1.textContent = ' · '; metaRow.appendChild(s1) }; var ds = document.createElement('span'); ds.textContent = dateVal; metaRow.appendChild(ds) }
+        if (artist) { if (genres.length || dateVal) { var s2 = document.createElement('span'); s2.textContent = ' · '; metaRow.appendChild(s2) }; var as = document.createElement('span'); as.textContent = artist; metaRow.appendChild(as) }
+        content.appendChild(metaRow)
+
+        // Details
+        if (details) { var de = document.createElement('div'); de.style.cssText = 'font-size:14px;color:#374151;line-height:1.6;white-space:pre-line;margin-bottom:12px'; de.textContent = details; content.appendChild(de) }
+
+        // Tags chips
+        if (tags.length > 0) {
+          var tagWrap = document.createElement('div'); tagWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px'
+          tags.forEach(function (tag) { var t = document.createElement('span'); t.style.cssText = 'font-size:11px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px'; t.textContent = '#' + tag; tagWrap.appendChild(t) })
+          content.appendChild(tagWrap)
+        }
+        body.appendChild(content)
+
+        // Playlist
+        if (playlist.length > 0) {
+          var listSection = document.createElement('div')
+          listSection.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb'
+          var listTitle = document.createElement('h4'); listTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'; listTitle.textContent = '播放列表 (' + playlist.length + ')'; listSection.appendChild(listTitle)
+          var listWrap = document.createElement('div'); listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto'
+          playlist.forEach(function (item, idx) {
+            var itemEl = document.createElement('div'); itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px;background:#fff'
+            var numSpan = document.createElement('span'); numSpan.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;flex-shrink:0'; numSpan.textContent = idx + 1; itemEl.appendChild(numSpan)
+            if (item.thumbnail) { var thumb = document.createElement('img'); thumb.src = item.thumbnail; thumb.style.cssText = 'width:40px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0'; itemEl.appendChild(thumb) }
+            var titleSpan = document.createElement('span'); titleSpan.style.cssText = 'flex:1;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; titleSpan.textContent = item.title || ('Item ' + (idx + 1)); itemEl.appendChild(titleSpan)
+            if (item.url) { itemEl.onclick = function () { window.open(item.url, '_blank', 'noopener,noreferrer') } }
+            listWrap.appendChild(itemEl)
+          })
+          listSection.appendChild(listWrap); body.appendChild(listSection)
+        }
+
+        panel.appendChild(body)
+
+        // Footer
+        var footer = document.createElement('div')
+        footer.style.cssText = 'padding:12px 16px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+        var fLeft = document.createElement('div'); fLeft.style.cssText = 'display:flex;gap:8px'
+        if (origin) {
+          var openBtn = document.createElement('a'); openBtn.href = /^https?:\/\//i.test(origin) ? origin : '#'; openBtn.target = '_blank'; openBtn.rel = 'noopener noreferrer'; openBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; openBtn.textContent = '打开原页面'; fLeft.appendChild(openBtn)
+        }
+        var copyTitleBtn = document.createElement('button'); copyTitleBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyTitleBtn.textContent = '复制标题'; copyTitleBtn.onclick = function () { var t = getTitle(obj); if (t && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t) }; fLeft.appendChild(copyTitleBtn)
+        if (origin) { var copyLinkBtn = document.createElement('button'); copyLinkBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; copyLinkBtn.textContent = '复制链接'; copyLinkBtn.onclick = function () { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(origin) }; fLeft.appendChild(copyLinkBtn) }
+        footer.appendChild(fLeft)
+        var closeBtn = document.createElement('button'); closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px'; closeBtn.textContent = '关闭'; closeBtn.onclick = function (e) { e.stopPropagation(); onClose() }; footer.appendChild(closeBtn)
+        panel.appendChild(footer)
+
+        // Backdrop click
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) onClose() })
+
+        // Append to document
+        document.body.appendChild(overlay)
+        document.body.style.overflow = 'hidden'
+
+        // Return empty VNode (the modal is already in the DOM)
+        return h('div')
       }
     })
   }
