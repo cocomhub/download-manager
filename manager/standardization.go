@@ -24,6 +24,7 @@ func NewStandardizationService(mgr *Manager) *StandardizationService {
 // Run 执行一次标准化扫描。
 // 遍历所有任务类型，取一个 Task 实例，检查是否实现 Standardizer，
 // 对 MissingID=true 的对象执行标准化。
+// ctx 用于取消控制，每次对象处理前检查 ctx.Done()。
 func (s *StandardizationService) Run(ctx context.Context) {
 	for _, taskType := range s.mgr.UniqueTaskTypes() {
 		task := s.mgr.FirstTaskOfType(taskType)
@@ -62,6 +63,12 @@ func (s *StandardizationService) Run(ctx context.Context) {
 
 		count := 0
 		for _, obj := range objects {
+			select {
+			case <-ctx.Done():
+				slog.Warn("Standardization cancelled", "task_type", taskType, "processed", count)
+				return
+			default:
+			}
 			if modified, err := std.Standardize(obj); err != nil {
 				slog.Error("Standardization: failed", logutil.LogKeyTaskID, task.ID(),
 					logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
