@@ -34,6 +34,14 @@
       return fetch('/api/downloads').then(function (r) { return r.json() })
     },
 
+    getObject: function (type, id) {
+      return this.get('/api/objects/' + type + '/' + id)
+    },
+
+    getCollection: function (type, id) {
+      return this.get('/api/objects/' + type + '/' + id + '/collection')
+    },
+
     aggregate: function (params) {
       var q = new URLSearchParams()
       q.set('page', params.page || 1)
@@ -43,6 +51,9 @@
       if (params.status && params.status !== 'all') { q.set('status', params.status) }
       if (params.types && params.types !== 'all') { q.set('types', params.types) }
       if (params.groupBy) { q.set('group_by', 'content') }
+      if (params.tags) { q.set('tags', params.tags) }
+      if (params.tagMode) { q.set('tag_mode', params.tagMode) }
+      if (params.excludeIds) { q.set('exclude_ids', params.excludeIds) }
       return fetch('/api/aggregate?' + q.toString()).then(function (r) {
         if (!r.ok) throw new Error('Aggregate request failed')
         return r.json()
