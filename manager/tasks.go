@@ -5,6 +5,7 @@ package manager
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
@@ -208,6 +209,63 @@ func (m *Manager) GetObjectByTypeAndID(taskType string, id int64) (*model.Downlo
 		}
 	}
 	return nil, nil
+}
+
+// GetCollectionByID 返回指定对象所在合集的所有对象。
+// 按 collection_title 排序。
+func (m *Manager) GetCollectionByID(taskType string, id int64) ([]*model.DownloadObject, error) {
+	// 先查找对象
+	obj, err := m.GetObjectByTypeAndID(taskType, id)
+	if err != nil {
+		return nil, err
+	}
+	if obj == nil {
+		return nil, nil
+	}
+
+	// 读取 collection_id
+	obj.RLock()
+	collectionID := obj.Metadata["collection_id"]
+	obj.RUnlock()
+
+	if collectionID == "" {
+		return []*model.DownloadObject{}, nil
+	}
+
+	// 查询同一 collection 的所有对象
+	task := m.FirstTaskOfType(taskType)
+	if task == nil {
+		return nil, fmt.Errorf("%w: task type %q not found", errTaskNotFound, taskType)
+	}
+	st := task.Storage()
+	if st == nil {
+		return nil, nil
+	}
+
+	// 使用 metadata 精确匹配
+	objects, err := st.Search(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs:  []string{task.ID()},
+			Metadata: map[string]string{"collection_id": collectionID},
+		},
+		Limit: 0, // 不限量
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 按 collection_title 排序
+	sort.Slice(objects, func(i, j int) bool {
+		objects[i].RLock()
+		objects[j].RLock()
+		ti := objects[i].Metadata["collection_title"]
+		tj := objects[j].Metadata["collection_title"]
+		objects[i].RUnlock()
+		objects[j].RUnlock()
+		return ti < tj
+	})
+
+	return objects, nil
 }
 
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {

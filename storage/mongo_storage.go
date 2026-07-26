@@ -253,6 +253,10 @@ func (s *MongoStorage) ensureIndexes() error {
 			Keys:    bson.D{{Key: fieldMetadataTitle, Value: 1}},
 			Options: options.Index().SetName("title_lookup"),
 		},
+		{
+			Keys:    bson.D{{Key: "metadata.collection_id", Value: 1}, {Key: "metadata.collection_title", Value: 1}},
+			Options: options.Index().SetName("collection_order"),
+		},
 	}
 	if _, err := s.collection.Indexes().CreateMany(ctx, models); err != nil {
 		mongoIndexOnce.Delete(key)
