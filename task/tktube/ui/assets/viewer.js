@@ -258,6 +258,7 @@
     header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
     var hTitle = document.createElement('h3')
     hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+    hTitle.className = 'viewer-title'
     hTitle.textContent = title
     header.appendChild(hTitle)
 
@@ -298,6 +299,7 @@
     // Video area - 16:9 aspect ratio
     var mediaArea = document.createElement('div')
     mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+    mediaArea.className = 'viewer-media-area'
 
     if (useVideo) {
       var posterImg = document.createElement('img')
@@ -347,6 +349,7 @@
     // Info bar
     var infoBar = document.createElement('div')
     infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+    infoBar.className = 'viewer-meta'
 
     if (dur) {
       var durEl = document.createElement('span')
@@ -400,20 +403,76 @@
     leftCol.appendChild(content)
     body.appendChild(leftCol)
 
-    // Right column: related videos sidebar (placeholder for future)
+    // Right column: collection + recommendation panels
     var rightCol = document.createElement('div')
-    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-    var relatedSection = document.createElement('div')
-    relatedSection.style.cssText = 'padding:16px'
-    var relatedTitle = document.createElement('h4')
-    relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
-    relatedTitle.textContent = '关联视频'
-    relatedSection.appendChild(relatedTitle)
-    var relatedPlaceholder = document.createElement('div')
-    relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
-    relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
-    relatedSection.appendChild(relatedPlaceholder)
-    rightCol.appendChild(relatedSection)
+    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+
+    var collectionPanel = null
+    var recommendationPanel = null
+    var taskType = obj && obj.metadata && obj.metadata.task_type
+    var objTags = []
+    if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+      objTags = obj.extra.tags
+    }
+
+    // 合集面板
+    if (taskType && obj && obj.id) {
+      collectionPanel = CollectionPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        onPlayItem: function (item) {
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            if (collectionPanel) collectionPanel.update({ currentId: item.id })
+            // 更新媒体区域
+            var mediaArea = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-media-area')
+            if (mediaArea) {
+              var posterImg = mediaArea.querySelector('img')
+              if (posterImg) {
+                posterImg.src = getCoverImage(newObj) || getVideoUrl(newObj)
+                posterImg.alt = (newObj.metadata && newObj.metadata.title) || newObj.url
+              }
+              var video = mediaArea.querySelector('video')
+              if (video) {
+                video.src = getVideoUrl(newObj)
+                video.poster = getCoverImage(newObj)
+                video.load()
+              }
+            }
+            // 更新标题
+            var titleEl = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-title')
+            if (titleEl) titleEl.textContent = (newObj.metadata && newObj.metadata.title) || newObj.url
+            // 更新元数据
+            var metaEl = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-meta')
+            if (metaEl) {
+              var html = ''
+              if (newObj.metadata) {
+                if (newObj.metadata.date) html += '<span class="text-sm text-gray-400">' + newObj.metadata.date + '</span>'
+                if (newObj.metadata.duration) html += '<span class="text-sm text-gray-400"> · ' + newObj.metadata.duration + '</span>'
+                if (newObj.metadata.resolution) html += '<span class="text-sm text-gray-400"> · ' + newObj.metadata.resolution + '</span>'
+              }
+              metaEl.innerHTML = html
+            }
+          })
+        }
+      })
+      rightCol.appendChild(collectionPanel.element)
+    }
+
+    // 推荐面板
+    if (taskType && obj && obj.id) {
+      recommendationPanel = RecommendationPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        tags: objTags,
+        onPlayItem: function (item) {
+          if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
+            window.__dm_uiBridge.open(taskType, item)
+          }
+        }
+      })
+      rightCol.appendChild(recommendationPanel.element)
+    }
+
     body.appendChild(rightCol)
 
     panel.appendChild(body)
@@ -489,6 +548,8 @@
     closeModal = function () {
       document.removeEventListener('keydown', keyHandler)
       document.body.style.overflow = ''
+      if (collectionPanel) collectionPanel.destroy()
+      if (recommendationPanel) recommendationPanel.destroy()
       if (activeModal) {
         document.body.removeChild(activeModal)
         activeModal = null
@@ -832,6 +893,7 @@
         header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
         var hTitle = document.createElement('h3')
         hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        hTitle.className = 'viewer-title'
         hTitle.textContent = title
         header.appendChild(hTitle)
 
@@ -868,6 +930,7 @@
         // Video area - fixed height
         var mediaArea = document.createElement('div')
         mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+        mediaArea.className = 'viewer-media-area'
 
         if (useVideo) {
           var posterImg = document.createElement('img')
@@ -914,6 +977,7 @@
         // Info bar
         var infoBar = document.createElement('div')
         infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+        infoBar.className = 'viewer-meta'
         if (dur) { var durEl = document.createElement('span'); durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + dur; infoBar.appendChild(durEl) }
         if (dateVal) { var dateEl = document.createElement('span'); dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + dateVal; infoBar.appendChild(dateEl) }
         if (res) { var resEl = document.createElement('span'); resEl.innerHTML = '<i class="fas fa-expand" style="margin-right:4px"></i> ' + res; infoBar.appendChild(resEl) }
@@ -932,20 +996,47 @@
         leftCol.appendChild(content)
         body.appendChild(leftCol)
 
-        // Right column: related videos sidebar (placeholder)
+        // Right column: collection + recommendation panels
         var rightCol = document.createElement('div')
-        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-        var relatedSection = document.createElement('div')
-        relatedSection.style.cssText = 'padding:16px'
-        var relatedTitle = document.createElement('h4')
-        relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
-        relatedTitle.textContent = '关联视频'
-        relatedSection.appendChild(relatedTitle)
-        var relatedPlaceholder = document.createElement('div')
-        relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
-        relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
-        relatedSection.appendChild(relatedPlaceholder)
-        rightCol.appendChild(relatedSection)
+        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+
+        var collectionPanel = null
+        var recommendationPanel = null
+        var taskType = obj && obj.metadata && obj.metadata.task_type
+        var objTags = []
+        if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+          objTags = obj.extra.tags
+        }
+
+        // 合集面板
+        if (taskType && obj && obj.id) {
+          collectionPanel = CollectionPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            onPlayItem: function (item) {
+              if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
+                window.__dm_uiBridge.open(taskType, item)
+              }
+            }
+          })
+          rightCol.appendChild(collectionPanel.element)
+        }
+
+        // 推荐面板
+        if (taskType && obj && obj.id) {
+          recommendationPanel = RecommendationPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            tags: objTags,
+            onPlayItem: function (item) {
+              if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
+                window.__dm_uiBridge.open(taskType, item)
+              }
+            }
+          })
+          rightCol.appendChild(recommendationPanel.element)
+        }
+
         body.appendChild(rightCol)
 
         panel.appendChild(body)
@@ -979,6 +1070,8 @@
         var origOnClose_ = onClose
         onClose = function () {
           document.removeEventListener('keydown', keyHandler)
+          if (collectionPanel) collectionPanel.destroy()
+          if (recommendationPanel) recommendationPanel.destroy()
           if (modalRef.overlay && modalRef.overlay.parentNode) {
             modalRef.overlay.parentNode.removeChild(modalRef.overlay)
           }
