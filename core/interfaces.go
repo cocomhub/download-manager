@@ -17,7 +17,7 @@ const NoLimit int64 = -1
 type StorageFilter struct {
 	TaskIDs  []string
 	URLs     []string
-	IDs      []int64               // 按对象数字 ID 精确匹配
+	IDs      []int64 // 按对象数字 ID 精确匹配
 	Statuses []string
 	Metadata map[string]string
 	Search   string

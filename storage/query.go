@@ -288,10 +288,9 @@ func applyPagination(objects []*model.DownloadObject, query *core.StorageQuery) 
 	}
 	if query.Limit <= 0 {
 		if query.Limit == core.NoLimit {
-			// NoLimit: 不限制，返回全部
-		} else {
 			return objects[offset:]
 		}
+		return objects[offset:]
 	}
 	end := min(offset+query.Limit, int64(len(objects)))
 	return objects[offset:end]
