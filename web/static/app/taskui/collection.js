@@ -65,6 +65,22 @@
           row.className = 'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 text-sm'
           row.dataset.id = item.id
 
+          // Thumbnail
+          var thumb = document.createElement('img')
+          thumb.className = 'w-10 h-7 object-cover rounded flex-shrink-0 bg-gray-200'
+          thumb.src = ''
+          thumb.alt = ''
+          var thumbUrl = ''
+          if (item.extra && item.extra.thumb_url) thumbUrl = item.extra.thumb_url
+          else if (item.extra && item.extra.local_cover) thumbUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
+          if (thumbUrl) {
+            thumb.src = thumbUrl
+            thumb.onerror = function () { this.style.display = 'none' }
+          } else {
+            thumb.style.display = 'none'
+          }
+          row.appendChild(thumb)
+
           // Number badge
           var badge = document.createElement('span')
           badge.className = 'w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ' +
