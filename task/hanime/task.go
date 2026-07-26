@@ -100,8 +100,8 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 
 	// 从 Extra 或 Metadata 读取 playlist
 	playlist := getPlaylistFromObject(obj)
-	if len(playlist) > 0 && obj.Metadata["collection_id"] == "" {
-		// 按 URL 去重
+	if len(playlist) > 0 {
+		// 按 URL 去重（去重后更新 playlist）
 		seen := make(map[string]bool)
 		var unique []hanimeItem
 		for _, item := range playlist {
@@ -111,32 +111,40 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 			seen[item.href] = true
 			unique = append(unique, item)
 		}
+		// 如果去重后与原始长度不同，更新 Extra 中的 playlist
+		if len(unique) != len(playlist) {
+			obj.Extra["playlist"] = unique
+			modified = true
+		}
+		playlist = unique
 
-		// 找最小 ID 作为合集 ID
-		var minID int64
-		for _, item := range unique {
-			if id := extractVideoIDFromURL(item.href); id != "" {
-				if n, err := strconv.ParseInt(id, 10, 64); err == nil {
-					if minID == 0 || n < minID {
-						minID = n
+		// 设置合集 ID（从去重后的 playlist 中找最小 ID）
+		if obj.Metadata["collection_id"] == "" {
+			var minID int64
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+						if minID == 0 || n < minID {
+							minID = n
+						}
 					}
 				}
 			}
+			if minID > 0 {
+				obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
+				modified = true
+			}
 		}
-		if minID > 0 {
-			obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
-			modified = true
-		}
-	}
 
-	// 设置本对象的合集标题
-	if obj.Metadata["collection_title"] == "" {
-		for _, item := range playlist {
-			if id := extractVideoIDFromURL(item.href); id != "" {
-				if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
-					obj.Metadata["collection_title"] = item.title
-					modified = true
-					break
+		// 设置本对象的合集标题
+		if obj.Metadata["collection_title"] == "" {
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
+						obj.Metadata["collection_title"] = item.title
+						modified = true
+						break
+					}
 				}
 			}
 		}

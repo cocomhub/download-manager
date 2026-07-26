@@ -118,20 +118,37 @@
           return
         }
         results.innerHTML = '<div class="px-3 py-4 text-center text-gray-400 text-sm"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>'
-        AppAPI.aggregate({
-          types: type,
-          tags: selectedTags.join(','),
-          tagMode: tagMode,
-          excludeIds: String(currentId),
-          sort: sortBy,
-          limit: 20
-        }).then(function (data) {
-          var list = data.objects || []
-          if (list.length === 0) {
-            results.innerHTML = '<div class="px-3 py-4 text-center text-gray-400 text-sm">暂无推荐</div>'
-            return
-          }
-          results.innerHTML = ''
+
+        // 先获取合集列表，排除合集中所有对象
+        AppAPI.getCollection(type, currentId).then(function (collData) {
+          var collIds = (collData.objects || []).map(function (o) { return o.id }).filter(function (id) { return id })
+          // 去重：当前对象 ID 已在合集中，避免重复
+          var allExcludeIds = [String(currentId)]
+          collIds.forEach(function (id) {
+            if (id !== currentId && allExcludeIds.indexOf(String(id)) < 0) {
+              allExcludeIds.push(String(id))
+            }
+          })
+
+          AppAPI.aggregate({
+            types: type,
+            tags: selectedTags.join(','),
+            tagMode: tagMode,
+            excludeIds: allExcludeIds.join(','),
+            sort: sortBy,
+            limit: 20
+          }).then(function (data) {
+            var list = data.objects || []
+            // 再去重：确保推荐结果不包含已排除的对象
+            var seenIds = {}
+            allExcludeIds.forEach(function (id) { seenIds[id] = true })
+            list = list.filter(function (item) { return !seenIds[item.id] })
+
+            if (list.length === 0) {
+              results.innerHTML = '<div class="px-3 py-4 text-center text-gray-400 text-sm">暂无推荐</div>'
+              return
+            }
+            results.innerHTML = ''
           list.forEach(function (item) {
             var row = document.createElement('div')
             row.className = 'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0'

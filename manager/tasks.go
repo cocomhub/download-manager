@@ -196,19 +196,17 @@ func (m *Manager) GetObjectByTypeAndID(taskType string, id int64) (*model.Downlo
 	}
 	objects, err := st.Search(&core.StorageQuery{
 		Filter: core.StorageFilter{
-			TaskIDs: []string{task.ID()},
+			IDs: []int64{id},
 		},
-		Limit: -1, // -1 = 不限量（避免 MongoDB normalizeMongoQuery 将 0 钳位到 200）
+		Limit: 1,
 	})
 	if err != nil {
 		return nil, err
 	}
-	for _, obj := range objects {
-		if obj.GetID() == id {
-			return obj, nil
-		}
+	if len(objects) == 0 {
+		return nil, nil
 	}
-	return nil, nil
+	return objects[0], nil
 }
 
 // GetCollectionByID 返回指定对象所在合集的所有对象。
@@ -248,7 +246,7 @@ func (m *Manager) GetCollectionByID(taskType string, id int64) ([]*model.Downloa
 			TaskIDs:  []string{task.ID()},
 			Metadata: map[string]string{"collection_id": collectionID},
 		},
-		Limit: -1, // -1 = 不限量
+		Limit: core.NoLimit,
 	})
 	if err != nil {
 		return nil, err
