@@ -997,6 +997,19 @@
                                 <i class="fas text-xl" :class="isPlaying ? 'fa-pause' : 'fa-play'"></i>
                             </button>
 
+                            <!-- Collection Navigation -->
+                            <div v-if="collectionList.length > 1" class="flex items-center gap-1">
+                                <button @click="playPrev" class="hover:text-blue-400 transition text-sm px-1" :class="{ 'opacity-30 cursor-not-allowed': collectionList.findIndex(o => o.id === currentVideo.id) <= 0 }" :disabled="collectionList.findIndex(o => o.id === currentVideo.id) <= 0" title="上一集">
+                                    <i class="fas fa-step-backward"></i>
+                                </button>
+                                <span class="text-xs text-gray-400 select-none">
+                                    {{ collectionList.findIndex(o => o.id === currentVideo.id) + 1 }} / {{ collectionList.length }}
+                                </span>
+                                <button @click="playNext" class="hover:text-blue-400 transition text-sm px-1" :class="{ 'opacity-30 cursor-not-allowed': collectionList.findIndex(o => o.id === currentVideo.id) >= collectionList.length - 1 }" :disabled="collectionList.findIndex(o => o.id === currentVideo.id) >= collectionList.length - 1" title="下一集">
+                                    <i class="fas fa-step-forward"></i>
+                                </button>
+                            </div>
+
                             <div class="flex items-center gap-2">
                                 <button @click="skip(-videoSettings.skipInterval)" class="hover:text-blue-400 transition text-sm focus:outline-none" :title="'Rewind ' + videoSettings.skipInterval + 's (Left/J)'">
                                     <i class="fas fa-undo"></i> {{ videoSettings.skipInterval }}s

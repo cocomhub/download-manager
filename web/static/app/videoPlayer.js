@@ -35,7 +35,10 @@
               defaultSpeed: 1.0,
               defaultVolume: 0.1,
               autoPlay: true
-            }
+            },
+            collectionList: [],
+            collectionIndex: -1,
+            onCollectionSwitch: null
           }
         }
       })
@@ -204,6 +207,47 @@
           else if (key === 'f') { this.toggleFullscreen() }
           else if (key === 'm') { this.toggleMute() }
           else if (code === 'Escape') { this.closeVideo() }
+        },
+
+        playPrev: function () {
+          var idx = this.collectionList.findIndex(function (o) { return o.id === this.currentVideo.id }.bind(this))
+          if (idx > 0) {
+            this.switchToCollectionItem(this.collectionList[idx - 1])
+          }
+        },
+
+        playNext: function () {
+          var idx = this.collectionList.findIndex(function (o) { return o.id === this.currentVideo.id }.bind(this))
+          if (idx < this.collectionList.length - 1) {
+            this.switchToCollectionItem(this.collectionList[idx + 1])
+          }
+        },
+
+        switchToCollectionItem: function (item) {
+          var self = this
+          var type = this.currentVideo && this.currentVideo.metadata && this.currentVideo.metadata.task_type
+          if (!type) {
+            type = 'hanime'
+          }
+          AppAPI.getObject(type, item.id).then(function (obj) {
+            var list = self.collectionList
+            var callback = self.onCollectionSwitch
+            self.currentVideo = obj
+            self.collectionList = list
+            self.onCollectionSwitch = callback
+            if (self.onCollectionSwitch) {
+              self.onCollectionSwitch(item.id)
+            }
+          }).catch(function () {
+            var list = self.collectionList
+            var callback = self.onCollectionSwitch
+            self.currentVideo = item
+            self.collectionList = list
+            self.onCollectionSwitch = callback
+            if (self.onCollectionSwitch) {
+              self.onCollectionSwitch(item.id)
+            }
+          })
         },
 
         closeVideo: function () {
