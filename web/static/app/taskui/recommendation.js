@@ -65,7 +65,7 @@
 
       // Results container
       var results = document.createElement('div')
-      results.className = 'recommendation-results max-h-64 overflow-y-auto'
+      results.className = 'recommendation-results max-h-80 overflow-y-auto'
 
       body.appendChild(controls)
       body.appendChild(results)
@@ -154,8 +154,12 @@
               row.className = 'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0'
 
               // Cover thumbnail
+              var imgWrap = document.createElement('div')
+              imgWrap.className = 'flex-shrink-0 relative'
+              imgWrap.style.cssText = 'width:120px;height:68px;border-radius:6px;overflow:hidden;background:#f3f4f6'
+
               var img = document.createElement('img')
-              img.className = 'w-10 h-7 object-cover rounded flex-shrink-0 bg-gray-200'
+              img.className = 'w-full h-full object-cover'
               img.src = ''
               img.alt = ''
               var coverUrl = window.__dm_getThumbImage ? window.__dm_getThumbImage(item) : ''
@@ -172,13 +176,38 @@
                 }
               }
               else img.style.display = 'none'
-              row.appendChild(img)
+              imgWrap.appendChild(img)
 
-              // Title
-              var title = document.createElement('span')
-              title.className = 'flex-1 truncate text-sm text-gray-700'
+              // Duration overlay
+              if (item.metadata && item.metadata.duration) {
+                var dur = document.createElement('span')
+                dur.className = 'absolute bottom-0.5 right-0.5 bg-black/70 text-white text-[10px] px-1 rounded'
+                dur.textContent = item.metadata.duration
+                imgWrap.appendChild(dur)
+              }
+
+              row.appendChild(imgWrap)
+
+              // Info
+              var info = document.createElement('div')
+              info.className = 'flex-1 min-w-0'
+
+              var title = document.createElement('div')
+              title.className = 'text-sm font-medium leading-tight text-gray-800'
               title.textContent = item.metadata && item.metadata.title ? item.metadata.title : item.url
-              row.appendChild(title)
+              title.style.cssText = 'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden'
+              info.appendChild(title)
+
+              // Meta
+              var meta = document.createElement('div')
+              meta.className = 'text-xs text-gray-400 mt-1'
+              if (item.metadata && item.metadata.date) meta.textContent = item.metadata.date
+              if (item.metadata && item.metadata.resolution) {
+                meta.textContent += (meta.textContent ? ' · ' : '') + item.metadata.resolution
+              }
+              if (meta.textContent) info.appendChild(meta)
+
+              row.appendChild(info)
 
               row.addEventListener('click', function () {
                 onPlayItem(item)

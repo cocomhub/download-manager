@@ -249,7 +249,7 @@
 
     // Panel
     var panel = document.createElement('div')
-    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
     overlay.appendChild(panel)
 
     // Header
@@ -404,7 +404,7 @@
 
     // Right column: collection + recommendation panels
     var rightCol = document.createElement('div')
-    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+    rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
 
     var collectionPanel = null
     var recommendationPanel = null
@@ -885,7 +885,7 @@
 
         var panel = document.createElement('div')
         panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
-        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
 
         var modalRef = { overlay: overlay, panel: panel }
 
@@ -1009,7 +1009,7 @@
 
         // Right column: collection + recommendation panels
         var rightCol = document.createElement('div')
-        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+        rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
 
         var collectionPanel = null
         var recommendationPanel = null
