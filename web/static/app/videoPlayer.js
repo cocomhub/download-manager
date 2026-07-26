@@ -36,9 +36,7 @@
               defaultVolume: 0.1,
               autoPlay: true
             },
-            collectionList: [],
-            collectionIndex: -1,
-            onCollectionSwitch: null
+            collectionList: []
           }
         }
       })
@@ -231,14 +229,8 @@
           }
           AppAPI.getObject(type, item.id).then(function (obj) {
             self.currentVideo = obj
-            if (self.onCollectionSwitch) {
-              self.onCollectionSwitch(item.id)
-            }
           }).catch(function () {
             self.currentVideo = item
-            if (self.onCollectionSwitch) {
-              self.onCollectionSwitch(item.id)
-            }
           })
         },
 
