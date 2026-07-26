@@ -132,16 +132,16 @@ func TestBuildMongoFilter_MissingID(t *testing.T) {
 				if len(andVal) != 1 {
 					t.Fatalf("expected 1 condition in $and, got %d", len(andVal))
 				}
-				andCond, ok := andVal[0].(bson.M)
+				idCond, ok := andVal[0].(bson.M)
 				if !ok {
 					t.Fatalf("expected bson.M in $and[0], got %T", andVal[0])
 				}
-				innerAnd, ok := andCond["$and"].(bson.A)
+				idVal, ok := idCond["id"].(bson.M)
 				if !ok {
-					t.Fatalf("expected $and array inside outer $and, got %T", andCond["$and"])
+					t.Fatalf("expected id field condition, got %T", idCond["id"])
 				}
-				if len(innerAnd) != 2 {
-					t.Fatalf("expected 2 conditions in inner $and, got %d", len(innerAnd))
+				if idVal["$exists"] != true {
+					t.Errorf("expected $exists: true, got %v", idVal["$exists"])
 				}
 			},
 		},

@@ -294,10 +294,7 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 		} else {
 			// MissingID=false: id 存在且 id != 0
 			andConditions = append(andConditions, bson.M{
-				"$and": bson.A{
-					bson.M{"id": bson.M{"$exists": true}},
-					bson.M{"id": bson.M{"$ne": 0}},
-				},
+				"id": bson.M{"$exists": true, "$ne": 0},
 			})
 		}
 	}

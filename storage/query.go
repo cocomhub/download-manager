@@ -183,6 +183,8 @@ func compareByField(left, right *model.DownloadObject, field string) int {
 	case "url":
 		return compareStrings(objectURL(left), objectURL(right))
 	default:
+		// random 和 tag_match_desc 排序由 applySort 特殊处理，
+		// 不在 compareByField 中实现。
 		return 0
 	}
 }
