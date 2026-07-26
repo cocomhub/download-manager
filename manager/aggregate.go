@@ -201,14 +201,24 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 }
 
 func metadataContentGroup(obj *model.DownloadObject) string {
-	if obj == nil || obj.Metadata == nil {
+	if obj == nil {
+		return ""
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	if obj.Metadata == nil {
 		return ""
 	}
 	return strings.TrimSpace(obj.Metadata[model.MetadataKeyContentGroup])
 }
 
 func metadataTaskType(obj *model.DownloadObject) string {
-	if obj == nil || obj.Metadata == nil {
+	if obj == nil {
+		return ""
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	if obj.Metadata == nil {
 		return ""
 	}
 	return strings.TrimSpace(obj.Metadata["task_type"])
