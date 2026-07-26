@@ -14,13 +14,22 @@ import (
 
 // TestAPI_GetObjectByTypeAndID_Found verifies GET /api/objects/{type}/{id} returns a found object.
 func TestAPI_GetObjectByTypeAndID_Found(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t, "mock-obj-found", 1, false)
+	srv, _ := newAPIServerWithMock(t, "mock-obj-found", 1, true)
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
+	// Wait for the task detail endpoint to show objects (triggers lazy seeding).
 	assert.MustEventually(t, func() bool {
 		rr := doJSONGet(t, r, "/api/tasks/mock-obj-found")
-		return rr.Code == http.StatusOK
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		total, _ := result["total"].(float64)
+		return total >= 1
 	}, 3*time.Second, 50*time.Millisecond, "wait for task to seed objects")
 
 	// Mock objects all have ID=0, so query with ID=0.
@@ -33,8 +42,10 @@ func TestAPI_GetObjectByTypeAndID_Found(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &obj); err != nil {
 		t.Fatalf("unmarshal object: %v", err)
 	}
-	if obj["id"] == nil {
-		t.Error("expected id field in response")
+	// ID may be 0 (zero value of int64 with omitempty), so it may not appear in JSON.
+	// Verify the object by its URL and task_id instead.
+	if obj["url"] == nil {
+		t.Error("expected url field in response")
 	}
 	if obj["task_id"] != "mock-obj-found" {
 		t.Errorf("task_id = %v, want mock-obj-found", obj["task_id"])
@@ -92,8 +103,23 @@ func TestAPI_GetObjectByTypeAndID_NotFoundID(t *testing.T) {
 
 // TestAPI_GetObjectByTypeAndID_InvalidID verifies 400 for non-positive integer ID.
 func TestAPI_GetObjectByTypeAndID_InvalidID(t *testing.T) {
-	srv, _ := newAPIServerWithMock(t, "mock-obj-invalid", 1, false)
+	srv, _ := newAPIServerWithMock(t, "mock-obj-invalid", 1, true)
 	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	// Wait for objects to be seeded.
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-obj-invalid")
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			return false
+		}
+		total, _ := result["total"].(float64)
+		return total >= 1
+	}, 3*time.Second, 50*time.Millisecond, "wait for task to seed objects")
 
 	rr := doJSONGet(t, r, "/api/objects/mock/abc")
 	if rr.Code != http.StatusBadRequest {
@@ -109,4 +135,6 @@ func TestAPI_GetObjectByTypeAndID_InvalidID(t *testing.T) {
 	if rr3.Code != http.StatusOK {
 		t.Fatalf("GET /api/objects/mock/0 returned %d, want 200 (ID=0 is valid)", rr3.Code)
 	}
+
+	_ = done
 }

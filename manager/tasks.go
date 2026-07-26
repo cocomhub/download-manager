@@ -182,6 +182,34 @@ func (m *Manager) FirstTaskOfType(taskType string) core.Task {
 	return found
 }
 
+// GetObjectByTypeAndID 按任务类型和数字 ID 查找单个下载对象。
+// 返回 nil 表示未找到。
+func (m *Manager) GetObjectByTypeAndID(taskType string, id int64) (*model.DownloadObject, error) {
+	task := m.FirstTaskOfType(taskType)
+	if task == nil {
+		return nil, fmt.Errorf("%w: task type %q not found", errTaskNotFound, taskType)
+	}
+	st := task.Storage()
+	if st == nil {
+		return nil, nil
+	}
+	objects, err := st.Search(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs: []string{task.ID()},
+		},
+		Limit: 0, // 不限量，内存过滤
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, obj := range objects {
+		if obj.GetID() == id {
+			return obj, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 	t, ok := m.getTask(taskID)
 

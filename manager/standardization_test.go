@@ -129,7 +129,7 @@ func TestStandardizationService_ProcessesMissingID(t *testing.T) {
 	stdMock.id = "t1"
 	stdMock.typ = "type-a"
 	stdMock.st = st
-	stdMock.objs = []*model.DownloadObject{obj1, obj2}
+	// 不需要设置 objs，StandardizationService.Run() 通过 st.Search() 获取对象
 
 	m := NewManager(&config.Config{})
 	m.tasks.Store("t1", stdMock)
