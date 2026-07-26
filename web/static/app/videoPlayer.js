@@ -230,20 +230,12 @@
             type = 'hanime'
           }
           AppAPI.getObject(type, item.id).then(function (obj) {
-            var list = self.collectionList
-            var callback = self.onCollectionSwitch
             self.currentVideo = obj
-            self.collectionList = list
-            self.onCollectionSwitch = callback
             if (self.onCollectionSwitch) {
               self.onCollectionSwitch(item.id)
             }
           }).catch(function () {
-            var list = self.collectionList
-            var callback = self.onCollectionSwitch
             self.currentVideo = item
-            self.collectionList = list
-            self.onCollectionSwitch = callback
             if (self.onCollectionSwitch) {
               self.onCollectionSwitch(item.id)
             }

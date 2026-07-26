@@ -444,13 +444,24 @@
             // 更新元数据
             var metaEl = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-meta')
             if (metaEl) {
-              var html = ''
+              metaEl.innerHTML = ''
               if (newObj.metadata) {
-                if (newObj.metadata.date) html += '<span class="text-sm text-gray-400">' + newObj.metadata.date + '</span>'
-                if (newObj.metadata.duration) html += '<span class="text-sm text-gray-400"> · ' + newObj.metadata.duration + '</span>'
-                if (newObj.metadata.resolution) html += '<span class="text-sm text-gray-400"> · ' + newObj.metadata.resolution + '</span>'
+                if (newObj.metadata.duration) {
+                  var durEl = document.createElement('span')
+                  durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + newObj.metadata.duration
+                  metaEl.appendChild(durEl)
+                }
+                if (newObj.metadata.date) {
+                  var dateEl = document.createElement('span')
+                  dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + newObj.metadata.date
+                  metaEl.appendChild(dateEl)
+                }
+                if (newObj.metadata.resolution) {
+                  var resEl = document.createElement('span')
+                  resEl.innerHTML = '<i class="fas fa-tag" style="margin-right:4px"></i> ' + newObj.metadata.resolution
+                  metaEl.appendChild(resEl)
+                }
               }
-              metaEl.innerHTML = html
             }
           })
         }
