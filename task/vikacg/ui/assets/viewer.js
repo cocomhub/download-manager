@@ -78,7 +78,8 @@
   /**
    * Extract title from a download object.
    */
-  function fileUrl (path) {
+  function fileUrl (path) { return window.__dm_pathToUrl ? window.__dm_pathToUrl(path) : fileUrl_impl(path) }
+  function fileUrl_impl(path) {
     if (!path) return ''
     var normalized = path.replace(/\\/g, '/')
     var root = typeof window.__dm_downloadRoot === 'string' ? window.__dm_downloadRoot : ''
