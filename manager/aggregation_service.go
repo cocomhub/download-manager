@@ -4,6 +4,8 @@
 package manager
 
 import (
+	"strings"
+
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/storage"
@@ -37,8 +39,8 @@ type taskInfo struct {
 	count int64
 }
 
-func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	matchingTasks, total, err := svc.collectMatchingTasks(search, status, types)
+func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortBy, status string, types []string, tags string, tagMode string, excludeIDs []int64) (map[string]any, error) {
+	matchingTasks, total, err := svc.collectMatchingTasks(search, status, types, tags, tagMode, excludeIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -83,14 +85,14 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 }
 
 // collectMatchingTasks filters tasks by type and counts their matching objects.
-func (svc *AggregationService) collectMatchingTasks(search, status string, types []string) ([]taskInfo, int64, error) {
+func (svc *AggregationService) collectMatchingTasks(search, status string, types []string, tags string, tagMode string, excludeIDs []int64) ([]taskInfo, int64, error) {
 	var matchingTasks []taskInfo
 	var total int64
 	for _, t := range svc.tasks() {
 		if !typeMatchesTask(t, types) {
 			continue
 		}
-		cnt, err := svc.count(t, buildBaseQuery(search, status))
+		cnt, err := svc.count(t, buildBaseQuery(search, status, tags, tagMode, excludeIDs))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -115,7 +117,9 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 		if share <= 0 {
 			continue
 		}
-		dataQuery := buildBaseQuery(search, status)
+		// Use the tags/tagMode/excludeIDs from the original query by passing empty strings
+		// since they are already baked into the collectMatchingTasks count call.
+		dataQuery := buildBaseQuery(search, status, "", "", nil)
 		dataQuery.Sort = sortRules(sortBy)
 		dataQuery.Limit = share * 3
 		objs, err := svc.search(ti.t, dataQuery)
@@ -141,7 +145,7 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, limit int64, search, status, sortBy string) ([]*model.DownloadObject, error) {
 	var all []*model.DownloadObject
 	for _, ti := range matchingTasks {
-		objs, err := svc.collect(ti.t, buildBaseQuery(search, status), 200)
+		objs, err := svc.collect(ti.t, buildBaseQuery(search, status, "", "", nil), 200)
 		if err != nil {
 			return nil, err
 		}
@@ -155,15 +159,33 @@ func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, lim
 	}), nil
 }
 
-// buildBaseQuery creates a StorageQuery with search filter and optional status filter.
-func buildBaseQuery(search, status string) *core.StorageQuery {
+// buildBaseQuery creates a StorageQuery with search filter, status filter, tags, tag mode, and exclude IDs.
+func buildBaseQuery(search, status string, tags string, tagMode string, excludeIDs []int64) *core.StorageQuery {
 	q := &core.StorageQuery{
 		Filter: core.StorageFilter{
-			Search: search,
+			Search:     search,
+			Tags:       parseTags(tags),
+			TagMode:    tagMode,
+			ExcludeIDs: excludeIDs,
 		},
 	}
 	if status != "" && status != "all" {
 		q.Filter.Statuses = []string{status}
 	}
 	return q
+}
+
+// parseTags splits a comma-separated tags string into a slice.
+func parseTags(tags string) []string {
+	if tags == "" {
+		return nil
+	}
+	var result []string
+	for t := range strings.SplitSeq(tags, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			result = append(result, t)
+		}
+	}
+	return result
 }

@@ -36,7 +36,7 @@ func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 	m.tasks.Store("t1", t1)
 	m.tasks.Store("t2", t2)
 
-	res1, err := m.AggregateObjects(1, -1, "", "", "", []string{"HANIME"})
+	res1, err := m.AggregateObjects(1, -1, "", "", "", []string{"HANIME"}, "", "", nil)
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 		t.Fatalf("expect only t1 matched, got: %+v", objs1)
 	}
 
-	res2, err := m.AggregateObjects(1, -1, "", "", "", []string{"vikACG"})
+	res2, err := m.AggregateObjects(1, -1, "", "", "", []string{"vikACG"}, "", "", nil)
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestAggregateTypes_CaseInsensitiveAndPrefix(t *testing.T) {
 		t.Fatalf("expect only t2 matched, got: %+v", objs2)
 	}
 
-	res3, err := m.AggregateObjects(1, -1, "", "", "", []string{})
+	res3, err := m.AggregateObjects(1, -1, "", "", "", []string{}, "", "", nil)
 	if err != nil {
 		t.Fatalf("aggregate error: %v", err)
 	}

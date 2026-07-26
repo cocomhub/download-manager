@@ -86,7 +86,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")
 	r.HandleFunc("/api/groups/{group}/objects", s.getGroupObjects).Methods("GET")
 	r.HandleFunc("/api/objects/{type}/{id}", s.getObjectByTypeAndID).Methods("GET")
-		r.HandleFunc("/api/objects/{type}/{id}/collection", s.getCollection).Methods("GET")
+	r.HandleFunc("/api/objects/{type}/{id}/collection", s.getCollection).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}", s.updateTaskPersistent).Methods("PUT")
 	r.HandleFunc("/api/tasks/{id}/retry", s.retryTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/cancel", s.cancelTask).Methods("POST")

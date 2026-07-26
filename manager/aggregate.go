@@ -16,8 +16,8 @@ import (
 	"github.com/cocomhub/download-manager/storage"
 )
 
-func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
-	return m.aggSvc.AggregateObjects(page, limit, search, sortBy, status, types)
+func (m *Manager) AggregateObjects(page, limit int64, search, sortBy, status string, types []string, tags string, tagMode string, excludeIDs []int64) (map[string]any, error) {
+	return m.aggSvc.AggregateObjects(page, limit, search, sortBy, status, types, tags, tagMode, excludeIDs)
 }
 
 // typeMatchesTask checks if the given task type matches any of the given type prefixes.

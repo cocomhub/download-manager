@@ -315,6 +315,34 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 		})
 	}
 
+	// Tags 过滤
+	if len(query.Filter.Tags) > 0 {
+		if query.Filter.TagMode == "all" {
+			// 所有标签都要匹配（AND）
+			for _, tag := range query.Filter.Tags {
+				andConditions = append(andConditions, bson.M{
+					"extra.tags": bson.M{opRegex: regexp.QuoteMeta(tag), opOptions: "i"},
+				})
+			}
+		} else {
+			// 任一标签匹配（OR）
+			tagConditions := bson.A{}
+			for _, tag := range query.Filter.Tags {
+				tagConditions = append(tagConditions, bson.M{
+					"extra.tags": bson.M{opRegex: regexp.QuoteMeta(tag), opOptions: "i"},
+				})
+			}
+			if len(tagConditions) > 0 {
+				andConditions = append(andConditions, bson.M{"$or": tagConditions})
+			}
+		}
+	}
+
+	// ExcludeIDs 过滤
+	if len(query.Filter.ExcludeIDs) > 0 {
+		filter["id"] = bson.M{"$nin": query.Filter.ExcludeIDs}
+	}
+
 	if len(andConditions) > 0 {
 		filter["$and"] = andConditions
 	}
@@ -332,6 +360,8 @@ func normalizeMongoQuery(query *core.StorageQuery) *core.StorageQuery {
 	cloned.Filter.TaskIDs = append([]string(nil), query.Filter.TaskIDs...)
 	cloned.Filter.URLs = append([]string(nil), query.Filter.URLs...)
 	cloned.Filter.Statuses = append([]string(nil), query.Filter.Statuses...)
+	cloned.Filter.Tags = append([]string(nil), query.Filter.Tags...)
+	cloned.Filter.ExcludeIDs = append([]int64(nil), query.Filter.ExcludeIDs...)
 	if query.Filter.Metadata != nil {
 		cloned.Filter.Metadata = make(map[string]string, len(query.Filter.Metadata))
 		maps.Copy(cloned.Filter.Metadata, query.Filter.Metadata)
