@@ -198,7 +198,7 @@ func (m *Manager) GetObjectByTypeAndID(taskType string, id int64) (*model.Downlo
 		Filter: core.StorageFilter{
 			TaskIDs: []string{task.ID()},
 		},
-		Limit: 0, // 不限量，内存过滤
+		Limit: -1, // -1 = 不限量（避免 MongoDB normalizeMongoQuery 将 0 钳位到 200）
 	})
 	if err != nil {
 		return nil, err
@@ -248,7 +248,7 @@ func (m *Manager) GetCollectionByID(taskType string, id int64) ([]*model.Downloa
 			TaskIDs:  []string{task.ID()},
 			Metadata: map[string]string{"collection_id": collectionID},
 		},
-		Limit: 0, // 不限量
+		Limit: -1, // -1 = 不限量
 	})
 	if err != nil {
 		return nil, err

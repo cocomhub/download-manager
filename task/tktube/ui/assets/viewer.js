@@ -1025,9 +1025,8 @@
             type: taskType,
             currentId: obj.id,
             onPlayItem: function (item) {
-              if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
-                window.__dm_uiBridge.open(taskType, item)
-              }
+              closeModal()
+              createModal(item)
             }
           })
           rightCol.appendChild(collectionPanel.element)
@@ -1040,9 +1039,8 @@
             currentId: obj.id,
             tags: objTags,
             onPlayItem: function (item) {
-              if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
-                window.__dm_uiBridge.open(taskType, item)
-              }
+              closeModal()
+              createModal(item)
             }
           })
           rightCol.appendChild(recommendationPanel.element)
