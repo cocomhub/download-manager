@@ -69,6 +69,8 @@ func newAPIServerWithMockWithTags(t *testing.T, taskID string, objectCount int) 
 
 // seedTagsIntoObjects writes tags into each object's Extra map after the manager
 // has seeded them. This simulates what a real task's storage backend would have.
+//
+//nolint:unused
 func seedTagsIntoObjects(t *testing.T, srv *Server, taskType string, tagsByURL map[string][]string) {
 	t.Helper()
 	mgr := srv.mgr
