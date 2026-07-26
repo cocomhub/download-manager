@@ -8,6 +8,54 @@
 ;(function () {
   'use strict'
 
+  // ---- Standalone utility functions (no Vue dependency) ----
+
+  // getThumbImage 获取缩略图（小尺寸，用于合集、推荐列表）
+  window.__dm_getThumbImage = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.local_cover) return '/files/' + obj.extra.local_cover.replace(/\\/g, '/')
+    if (obj.extra && obj.extra.local_preview) return '/files/' + obj.extra.local_preview.replace(/\\/g, '/')
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.local_url) return '/files/' + obj.extra.local_url.replace(/\\/g, '/')
+    // 从 extra.files 中找第一个图片
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) return '/files/' + f.path.replace(/\\/g, '/')
+      }
+    }
+    return ''
+  }
+
+  // getCoverImage 获取封面图（大尺寸，用于视频播放器海报）
+  window.__dm_getCoverImage = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.local_cover) return '/files/' + obj.extra.local_cover.replace(/\\/g, '/')
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
+    // 从 extra.files 中找 cover/thumb 命名的图片
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('cover') >= 0 || fname.indexOf('thumb') >= 0) return '/files/' + f.path.replace(/\\/g, '/')
+        }
+      }
+      // 回退到第一个图片
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) return '/files/' + f.path.replace(/\\/g, '/')
+      }
+    }
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    return ''
+  }
+
   var api = {
     runtime: function () {
       return fetch('/api/runtime').then(function (r) { return r.json() })
