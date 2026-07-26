@@ -64,9 +64,9 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 	// Tags 过滤
 	if len(filter.Tags) > 0 {
 		obj.RLock()
-		extra := obj.Extra
+		matched := matchTags(obj.Extra, filter.Tags, filter.TagMode)
 		obj.RUnlock()
-		if !matchTags(extra, filter.Tags, filter.TagMode) {
+		if !matched {
 			return false
 		}
 	}

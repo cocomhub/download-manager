@@ -145,7 +145,10 @@
             if (item.extra && item.extra.local_cover) coverUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
             else if (item.extra && item.extra.cover_url) coverUrl = item.extra.cover_url
             else if (item.extra && item.extra.thumb_url) coverUrl = item.extra.thumb_url
-            if (coverUrl) img.src = coverUrl
+            if (coverUrl) {
+              img.src = coverUrl
+              img.onerror = function () { this.style.display = 'none' }
+            }
             else img.style.display = 'none'
             row.appendChild(img)
 
