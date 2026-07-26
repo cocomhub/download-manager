@@ -740,9 +740,7 @@
             onPlayItem: function (item) {
               AppAPI.getObject(taskType, item.id).then(function (newObj) {
                 onClose()
-                if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
-                  window.__dm_uiBridge.open(taskType, newObj)
-                }
+                createModal(newObj)
               })
             }
           })
@@ -758,9 +756,7 @@
             onPlayItem: function (item) {
               AppAPI.getObject(taskType, item.id).then(function (newObj) {
                 onClose()
-                if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
-                  window.__dm_uiBridge.open(taskType, newObj)
-                }
+                createModal(newObj)
               })
             }
           })

@@ -476,9 +476,10 @@
         currentId: obj.id,
         tags: objTags,
         onPlayItem: function (item) {
-          if (window.__dm_uiBridge && typeof window.__dm_uiBridge.open === 'function') {
-            window.__dm_uiBridge.open(taskType, item)
-          }
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            closeModal()
+            createModal(newObj)
+          })
         }
       })
       rightCol.appendChild(recommendationPanel.element)

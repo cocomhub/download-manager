@@ -71,8 +71,25 @@
           thumb.src = ''
           thumb.alt = ''
           var thumbUrl = ''
-          if (item.extra && item.extra.thumb_url) thumbUrl = item.extra.thumb_url
-          else if (item.extra && item.extra.local_cover) thumbUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
+          if (item.extra) {
+            if (item.extra.thumb_url) thumbUrl = item.extra.thumb_url
+            else if (item.extra.local_cover) thumbUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
+            else if (item.extra.local_preview) thumbUrl = '/files/' + item.extra.local_preview.replace(/\\/g, '/')
+            else if (item.extra.cover_url) thumbUrl = item.extra.cover_url
+            else if (item.extra.cover) thumbUrl = item.extra.cover
+            else if (item.extra.preview_url) thumbUrl = item.extra.preview_url
+            else if (item.extra.local_url) thumbUrl = '/files/' + item.extra.local_url.replace(/\\/g, '/')
+            // 从 extra.files 中找第一个图片
+            if (!thumbUrl && Array.isArray(item.extra.files)) {
+              for (var fi = 0; fi < item.extra.files.length; fi++) {
+                var f = item.extra.files[fi]
+                if (f && f.type === 'image' && f.path) {
+                  thumbUrl = '/files/' + f.path.replace(/\\/g, '/')
+                  break
+                }
+              }
+            }
+          }
           if (thumbUrl) {
             thumb.src = thumbUrl
             thumb.onerror = function () { this.style.display = 'none' }

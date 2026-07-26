@@ -159,9 +159,25 @@
               img.src = ''
               img.alt = ''
               var coverUrl = ''
-              if (item.extra && item.extra.local_cover) coverUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
-              else if (item.extra && item.extra.cover_url) coverUrl = item.extra.cover_url
-              else if (item.extra && item.extra.thumb_url) coverUrl = item.extra.thumb_url
+              if (item.extra) {
+                if (item.extra.thumb_url) coverUrl = item.extra.thumb_url
+                else if (item.extra.local_cover) coverUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
+                else if (item.extra.local_preview) coverUrl = '/files/' + item.extra.local_preview.replace(/\\/g, '/')
+                else if (item.extra.cover_url) coverUrl = item.extra.cover_url
+                else if (item.extra.cover) coverUrl = item.extra.cover
+                else if (item.extra.preview_url) coverUrl = item.extra.preview_url
+                else if (item.extra.local_url) coverUrl = '/files/' + item.extra.local_url.replace(/\\/g, '/')
+                // 从 extra.files 中找第一个图片
+                if (!coverUrl && Array.isArray(item.extra.files)) {
+                  for (var fi = 0; fi < item.extra.files.length; fi++) {
+                    var f = item.extra.files[fi]
+                    if (f && f.type === 'image' && f.path) {
+                      coverUrl = '/files/' + f.path.replace(/\\/g, '/')
+                      break
+                    }
+                  }
+                }
+              }
               if (coverUrl) {
                 img.src = coverUrl
                 img.onerror = function () { this.style.display = 'none' }
