@@ -6,6 +6,7 @@ package tktube
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -70,12 +71,45 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	adapter := &tktubeAdapter{t: t}
 	scanner := task.NewPagingScanner(bt, adapter)
 	bt.SetScanner(scanner)
+	bt.SetSelf(t)
 
 	return t, nil
 }
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
+	modified := false
+
+	// 提取 ID: https://tktube.com/videos/297910/nhdtb-995c/ → 297910
+	if obj.GetID() == 0 {
+		if id := extractTktubeVideoID(obj.URL); id > 0 {
+			obj.SetID(id)
+			modified = true
+		}
+	}
+
+	return modified, nil
+}
+
+func extractTktubeVideoID(rawURL string) int64 {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return 0
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, p := range parts {
+		if p == "videos" && i+1 < len(parts) {
+			id, err := strconv.ParseInt(parts[i+1], 10, 64)
+			if err != nil {
+				return 0
+			}
+			return id
+		}
+	}
+	return 0
 }
 
 func (t *Task) Close() error {

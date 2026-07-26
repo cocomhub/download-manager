@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,12 +88,45 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	adapter := &vikacgAdapter{t: t}
 	scanner := task.NewPagingScanner(bt, adapter)
 	bt.SetScanner(scanner)
+	bt.SetSelf(t)
 
 	return t, nil
 }
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
+	modified := false
+
+	// 提取 ID: https://www.vikacg.com/p/209067 → 209067
+	if obj.GetID() == 0 {
+		if id := extractVikacgID(obj.URL); id > 0 {
+			obj.SetID(id)
+			modified = true
+		}
+	}
+
+	return modified, nil
+}
+
+func extractVikacgID(rawURL string) int64 {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return 0
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, p := range parts {
+		if p == "p" && i+1 < len(parts) {
+			id, err := strconv.ParseInt(parts[i+1], 10, 64)
+			if err != nil {
+				return 0
+			}
+			return id
+		}
+	}
+	return 0
 }
 
 func (t *Task) GetDownloadHeaders() map[string]string {

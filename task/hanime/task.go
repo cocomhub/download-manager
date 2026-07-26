@@ -69,11 +69,29 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	scanner := task.NewPagingScanner(bt, adapter)
 	bt.SetScanner(scanner)
 
+	bt.SetSelf(t)
+
 	return t, nil
 }
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
+	modified := false
+
+	// 提取 ID: https://hanime1.me/watch?v=407014
+	if obj.GetID() == 0 {
+		if vid := extractVideoIDFromURL(obj.URL); vid != "" {
+			if id, err := strconv.ParseInt(vid, 10, 64); err == nil {
+				obj.SetID(id)
+				modified = true
+			}
+		}
+	}
+
+	return modified, nil
 }
 
 func (t *Task) GetDownloadHeaders() map[string]string {
