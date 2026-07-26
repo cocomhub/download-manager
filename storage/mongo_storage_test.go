@@ -58,9 +58,9 @@ func TestBuildMongoFilter_MissingID(t *testing.T) {
 	falseVal := false
 
 	tests := []struct {
-		name   string
-		query  *core.StorageQuery
-		check  func(t *testing.T, filter bson.M)
+		name  string
+		query *core.StorageQuery
+		check func(t *testing.T, filter bson.M)
 	}{
 		{
 			name: "missingID true adds $or for missing id",
