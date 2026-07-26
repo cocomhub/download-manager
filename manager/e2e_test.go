@@ -118,9 +118,12 @@ func TestE2E_CancelAllObjects(t *testing.T) {
 
 // TestE2E_MixedResults verifies that with mixed success/fail behavior,
 // some objects complete and others fail.
+// Uses ModeFirstFailThenSuccess which is deterministic: each object fails on
+// the first attempt and succeeds on the second. During the transition window
+// both completed and failed objects coexist, avoiding the flakiness of
+// probability-based failure modes.
 func TestE2E_MixedResults(t *testing.T) {
-	dl := mockdl.New(mockdl.ModeRandomFail,
-		mockdl.WithFailRate(0.4),
+	dl := mockdl.New(mockdl.ModeFirstFailThenSuccess,
 		mockdl.WithDelay(30*time.Millisecond))
 	mgr, _ := newMockManager(t, "e2e-mixed", 10, dl)
 	_ = startManager(t, mgr)
@@ -132,8 +135,9 @@ func TestE2E_MixedResults(t *testing.T) {
 		t.Fatal("task not found after wait")
 	}
 
-	// With 10 objects and fail_rate=0.4, wait for at least one completed and
-	// one failed. The 0.4^10 ≈ 0.0001% chance of all succeeding is negligible.
+	// ModeFirstFailThenSuccess: each object fails on first attempt, then succeeds
+	// on retry. During the transition, there will be a window where some objects
+	// are completed (retried) and others are still in failed state (first attempt).
 	// Use a single MustEventually loop with extended timeout (CI may be slow).
 	assert.MustEventually(t, func() bool {
 		mgr.scan()
@@ -146,7 +150,7 @@ func TestE2E_MixedResults(t *testing.T) {
 			switch obj.GetStatus() {
 			case model.StatusCompleted:
 				completed++
-			case model.StatusFailed:
+			case model.StatusFailed, model.StatusFailedPermanent:
 				failed++
 			}
 		}
