@@ -291,6 +291,16 @@
           return ''
         },
 
+        getThumbImage: function (obj) {
+          if (!obj) return ''
+          // 优先使用 thumb_url（远程缩略图，小尺寸）
+          if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+          // 其次使用 local_cover（本地封面）
+          if (obj.extra && obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
+          // 回退到 getCoverImage
+          return this.getCoverImage(obj)
+        },
+
         getCoverImage: function (obj) {
           if (!obj) return ''
           // Collect all candidate URLs, then pick first
@@ -350,6 +360,16 @@
             if (c && !seen[c]) { seen[c] = true; out.push(c) }
           }
           return out.length > 0 ? out[0] : ''
+        },
+
+        getThumbImage: function (obj) {
+          if (!obj) return ''
+          // 优先使用 thumb_url（远程缩略图，小尺寸）
+          if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+          // 其次使用 local_cover（本地封面）
+          if (obj.extra && obj.extra.local_cover) return this.pathToUrl(obj.extra.local_cover)
+          // 回退到 getCoverImage
+          return this.getCoverImage(obj)
         },
 
         onCoverError: function (event) {

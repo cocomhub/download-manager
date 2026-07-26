@@ -416,7 +416,7 @@
     }
 
     // 合集面板
-    if (taskType && obj && obj.id) {
+    if (taskType && obj) {
       collectionPanel = CollectionPanel.create({
         type: taskType,
         currentId: obj.id,
@@ -470,7 +470,7 @@
     }
 
     // 推荐面板
-    if (taskType && obj && obj.id) {
+    if (taskType && obj) {
       recommendationPanel = RecommendationPanel.create({
         type: taskType,
         currentId: obj.id,
@@ -1020,7 +1020,7 @@
         }
 
         // 合集面板
-        if (taskType && obj && obj.id) {
+        if (taskType && obj) {
           collectionPanel = CollectionPanel.create({
             type: taskType,
             currentId: obj.id,
@@ -1034,7 +1034,7 @@
         }
 
         // 推荐面板
-        if (taskType && obj && obj.id) {
+        if (taskType && obj) {
           recommendationPanel = RecommendationPanel.create({
             type: taskType,
             currentId: obj.id,

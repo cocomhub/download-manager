@@ -368,7 +368,11 @@ func normalizeMongoQuery(query *core.StorageQuery) *core.StorageQuery {
 	}
 	cloned.Sort = append([]core.StorageSort(nil), query.Sort...)
 	if cloned.Limit <= 0 {
-		cloned.Limit = 200
+		if cloned.Limit != -1 { // -1 = unlimited, skip clamp
+			cloned.Limit = 200
+		} else {
+			cloned.Limit = 0
+		}
 	}
 	if cloned.Limit > 1000 {
 		cloned.Limit = 1000
