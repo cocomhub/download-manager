@@ -4,7 +4,6 @@
 package manager
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
@@ -136,7 +135,7 @@ func TestStandardizationService_ProcessesMissingID(t *testing.T) {
 	m.tasks.Store("t1", stdMock)
 
 	svc := NewStandardizationService(m)
-	svc.Run(context.Background())
+	svc.Run(t.Context())
 
 	// obj1 should have been standardized (had missing ID)
 	obj1After, _ := st.Get("http://example.com/1")
@@ -178,7 +177,7 @@ func TestStandardizationService_NoMatchingObjects(t *testing.T) {
 	m.tasks.Store("t1", stdMock)
 
 	svc := NewStandardizationService(m)
-	svc.Run(context.Background())
+	svc.Run(t.Context())
 
 	// No objects should have been standardized (all already had IDs)
 	if stdMock.callCount != 0 {
@@ -223,7 +222,7 @@ func TestStandardizationService_MultipleTaskTypes(t *testing.T) {
 	m.tasks.Store("t2", std2)
 
 	svc := NewStandardizationService(m)
-	svc.Run(context.Background())
+	svc.Run(t.Context())
 
 	// Both objects should have been standardized
 	obj1After, _ := st1.Get("http://a.example.com/1")
