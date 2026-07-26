@@ -53,6 +53,95 @@ func TestBuildMongoFilter_IncludesTaskStatusMetadataAndSearch(t *testing.T) {
 	}
 }
 
+func TestBuildMongoFilter_MissingID(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name   string
+		query  *core.StorageQuery
+		check  func(t *testing.T, filter bson.M)
+	}{
+		{
+			name: "missingID true adds $or for missing id",
+			query: &core.StorageQuery{
+				Filter: core.StorageFilter{MissingID: &trueVal},
+			},
+			check: func(t *testing.T, filter bson.M) {
+				orVal, ok := filter["$or"].(bson.A)
+				if !ok {
+					t.Fatalf("expected $or array, got %T", filter["$or"])
+				}
+				if len(orVal) != 2 {
+					t.Fatalf("expected 2 conditions in $or, got %d", len(orVal))
+				}
+				// Check both conditions
+				foundExists := false
+				foundZero := false
+				for _, cond := range orVal {
+					condMap, ok := cond.(bson.M)
+					if !ok {
+						continue
+					}
+					if existsVal, ok := condMap["id"].(bson.M); ok {
+						if existsVal["$exists"] == false {
+							foundExists = true
+						}
+					}
+					if condMap["id"] == 0 {
+						foundZero = true
+					}
+				}
+				if !foundExists {
+					t.Error("expected $or condition: id {$exists: false}")
+				}
+				if !foundZero {
+					t.Error("expected $or condition: id = 0")
+				}
+			},
+		},
+		{
+			name: "missingID false adds no $or",
+			query: &core.StorageQuery{
+				Filter: core.StorageFilter{MissingID: &falseVal},
+			},
+			check: func(t *testing.T, filter bson.M) {
+				// false means "has ID" - no $or needed for MongoDB
+				_, hasOr := filter["$or"]
+				if hasOr {
+					t.Error("expected no $or for missingID=false")
+				}
+			},
+		},
+		{
+			name: "missingID true with search combines conditions",
+			query: &core.StorageQuery{
+				Filter: core.StorageFilter{
+					MissingID: &trueVal,
+					Search:    "test",
+				},
+			},
+			check: func(t *testing.T, filter bson.M) {
+				orVal, ok := filter["$or"].(bson.A)
+				if !ok {
+					t.Fatalf("expected $or array, got %T", filter["$or"])
+				}
+				// Should have 5 conditions: 2 for MissingID + 3 for search
+				if len(orVal) != 5 {
+					t.Fatalf("expected 5 conditions in $or, got %d", len(orVal))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter := buildMongoFilter(tt.query)
+			tt.check(t, filter)
+		})
+	}
+}
+
 func TestBuildMongoSort_MapsKnownFields(t *testing.T) {
 	got := buildMongoSort([]core.StorageSort{
 		{Field: "date", Desc: true},

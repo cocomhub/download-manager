@@ -12,6 +12,7 @@ import (
 type DownloadObject struct {
 	TaskID   string            `json:"task_id,omitempty" bson:"task_id,omitempty"`
 	URL      string            `json:"url" bson:"url"`
+	ID       int64             `json:"id,omitempty" bson:"id,omitempty"`
 	SavePath string            `json:"save_path" bson:"save_path"`
 	Metadata map[string]string `json:"metadata" bson:"metadata"`
 	Extra    map[string]any    `json:"extra" bson:"extra"`
@@ -19,6 +20,24 @@ type DownloadObject struct {
 	Progress int               `json:"progress" bson:"progress"`
 
 	mu sync.RWMutex `json:"-" bson:"-"`
+}
+
+func (o *DownloadObject) GetID() int64 {
+	if o == nil {
+		return 0
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.ID
+}
+
+func (o *DownloadObject) SetID(id int64) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.ID = id
 }
 
 func (o *DownloadObject) GetProgress() int {

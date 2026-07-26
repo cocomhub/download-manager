@@ -234,6 +234,10 @@ func (s *MongoStorage) ensureIndexes() error {
 			Options: options.Index().SetUnique(true).SetName("url_unique"),
 		},
 		{
+			Keys:    bson.D{{Key: "id", Value: 1}},
+			Options: options.Index().SetUnique(true).SetSparse(true).SetName("id_unique"),
+		},
+		{
 			Keys:    bson.D{{Key: "task_id", Value: 1}, {Key: "status", Value: 1}},
 			Options: options.Index().SetName("task_status"),
 		},
@@ -274,13 +278,31 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	for key, value := range query.Filter.Metadata {
 		filter["metadata."+key] = value
 	}
+
+	var orConditions bson.A
+
+	// MissingID 过滤
+	if query.Filter.MissingID != nil {
+		if *query.Filter.MissingID {
+			orConditions = append(orConditions,
+				bson.M{"id": bson.M{"$exists": false}},
+				bson.M{"id": 0},
+			)
+		}
+	}
+
+	// Search 过滤
 	if query.Filter.Search != "" {
 		pattern := regexp.QuoteMeta(query.Filter.Search)
-		filter["$or"] = bson.A{
+		orConditions = append(orConditions,
 			bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
 			bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
 			bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
-		}
+		)
+	}
+
+	if len(orConditions) > 0 {
+		filter["$or"] = orConditions
 	}
 	return filter
 }
@@ -341,6 +363,10 @@ func mongoSortField(field string) string {
 		return "status"
 	case "url":
 		return "url"
+	case "random":
+		return "" // 内存随机
+	case "tag_match_desc":
+		return "" // 内存排序
 	default:
 		return ""
 	}

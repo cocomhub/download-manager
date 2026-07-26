@@ -50,6 +50,17 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
+	if filter.MissingID != nil {
+		obj.RLock()
+		id := obj.ID
+		obj.RUnlock()
+		if *filter.MissingID && id != 0 {
+			return false
+		}
+		if !*filter.MissingID && id == 0 {
+			return false
+		}
+	}
 	return true
 }
 
