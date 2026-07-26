@@ -54,9 +54,9 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 
 	var all []*model.DownloadObject
 	if limit > 0 && limit < total && len(matchingTasks) > 1 {
-		all, err = svc.proportionalAllocation(matchingTasks, page, limit, total, search, status, sortBy)
+		all, err = svc.proportionalAllocation(matchingTasks, page, limit, total, search, status, sortBy, tags, tagMode, excludeIDs)
 	} else {
-		all, err = svc.simpleCollect(matchingTasks, page, limit, search, status, sortBy)
+		all, err = svc.simpleCollect(matchingTasks, page, limit, search, status, sortBy, tags, tagMode, excludeIDs)
 	}
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (svc *AggregationService) collectMatchingTasks(search, status string, types
 
 // proportionalAllocation fetches a superset of objects from each task proportionally,
 // then sorts and paginates the merged result.
-func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, page, limit, total int64, search, status, sortBy string) ([]*model.DownloadObject, error) {
+func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, page, limit, total int64, search, status, sortBy string, tags string, tagMode string, excludeIDs []int64) ([]*model.DownloadObject, error) {
 	var all []*model.DownloadObject
 	allocated := int64(0)
 	for i, ti := range matchingTasks {
@@ -119,7 +119,7 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 		}
 		// Use the tags/tagMode/excludeIDs from the original query by passing empty strings
 		// since they are already baked into the collectMatchingTasks count call.
-		dataQuery := buildBaseQuery(search, status, "", "", nil)
+		dataQuery := buildBaseQuery(search, status, tags, tagMode, excludeIDs)
 		dataQuery.Sort = sortRules(sortBy)
 		dataQuery.Limit = share * 3
 		objs, err := svc.search(ti.t, dataQuery)
@@ -142,10 +142,10 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 
 // simpleCollect gathers all objects from every matching task,
 // then sorts and paginates the merged result in a single pass.
-func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, limit int64, search, status, sortBy string) ([]*model.DownloadObject, error) {
+func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, limit int64, search, status, sortBy string, tags string, tagMode string, excludeIDs []int64) ([]*model.DownloadObject, error) {
 	var all []*model.DownloadObject
 	for _, ti := range matchingTasks {
-		objs, err := svc.collect(ti.t, buildBaseQuery(search, status, "", "", nil), 200)
+		objs, err := svc.collect(ti.t, buildBaseQuery(search, status, tags, tagMode, excludeIDs), 200)
 		if err != nil {
 			return nil, err
 		}
