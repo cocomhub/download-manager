@@ -161,7 +161,15 @@
               var coverUrl = window.__dm_getThumbImage ? window.__dm_getThumbImage(item) : ''
               if (coverUrl) {
                 img.src = coverUrl
-                img.onerror = function () { this.style.display = 'none' }
+                img.onerror = function () {
+                  var fallbackUrl = window.__dm_getCoverImage ? window.__dm_getCoverImage(item) : ''
+                  if (fallbackUrl && fallbackUrl !== this.src) {
+                    this.src = fallbackUrl
+                    this.onerror = null
+                  } else {
+                    this.style.display = 'none'
+                  }
+                }
               }
               else img.style.display = 'none'
               row.appendChild(img)

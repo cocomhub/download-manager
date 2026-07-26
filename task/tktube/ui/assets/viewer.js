@@ -85,13 +85,11 @@
 
   function getCoverImage (obj) {
     if (!obj) return ''
-    // Local files — cover before preview/thumb
+    // Local files — cover (local_preview is a video, not an image)
     if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
-    if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
-    // Remote URLs — cover fields before thumb fields
+    // Remote URLs — cover fields first
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
-    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
     // Check extra.files for image-type — cover before thumb
     if (obj.extra && Array.isArray(obj.extra.files)) {
       // First pass: cover-named files

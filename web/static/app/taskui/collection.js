@@ -73,7 +73,16 @@
           var thumbUrl = window.__dm_getThumbImage ? window.__dm_getThumbImage(item) : ''
           if (thumbUrl) {
             thumb.src = thumbUrl
-            thumb.onerror = function () { this.style.display = 'none' }
+            thumb.onerror = function () {
+              // 缩略图失败时使用 cover 图
+              var coverUrl = window.__dm_getCoverImage ? window.__dm_getCoverImage(item) : ''
+              if (coverUrl && coverUrl !== this.src) {
+                this.src = coverUrl
+                this.onerror = null
+              } else {
+                this.style.display = 'none'
+              }
+            }
           } else {
             thumb.style.display = 'none'
           }

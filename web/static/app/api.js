@@ -15,7 +15,6 @@
     if (!obj) return ''
     if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
     if (obj.extra && obj.extra.local_cover) return '/files/' + obj.extra.local_cover.replace(/\\/g, '/')
-    if (obj.extra && obj.extra.local_preview) return '/files/' + obj.extra.local_preview.replace(/\\/g, '/')
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
     if (obj.extra && obj.extra.cover) return obj.extra.cover
     if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
@@ -52,6 +51,14 @@
       }
     }
     if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    return ''
+  }
+
+  // getPreviewUrl 获取预览视频 URL（用于鼠标悬停预览）
+  window.__dm_getPreviewUrl = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.local_preview) return '/files/' + obj.extra.local_preview.replace(/\\/g, '/')
     if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     return ''
   }
