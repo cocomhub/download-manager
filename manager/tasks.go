@@ -152,6 +152,36 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	return nil
 }
 
+// UniqueTaskTypes 返回所有已注册任务的不重复类型列表。
+func (m *Manager) UniqueTaskTypes() []string {
+	seen := make(map[string]bool)
+	var types []string
+	m.tasks.Range(func(_, value any) bool {
+		t := value.(core.Task)
+		tt := t.Type()
+		if !seen[tt] {
+			seen[tt] = true
+			types = append(types, tt)
+		}
+		return true
+	})
+	return types
+}
+
+// FirstTaskOfType 返回指定类型的第一个 Task 实例。
+func (m *Manager) FirstTaskOfType(taskType string) core.Task {
+	var found core.Task
+	m.tasks.Range(func(_, value any) bool {
+		t := value.(core.Task)
+		if t.Type() == taskType {
+			found = t
+			return false
+		}
+		return true
+	})
+	return found
+}
+
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 	t, ok := m.getTask(taskID)
 

@@ -61,6 +61,13 @@ func (m *Manager) Start() {
 	// Must happen before the infinite for-loop below since defer would never fire.
 	close(m.initializedCh)
 
+	// 启动标准化服务（异步，不阻塞启动）
+	go func() {
+		stdSvc := NewStandardizationService(m)
+		stdSvc.Run(context.Background())
+		slog.Info("Initial standardization complete")
+	}()
+
 	// Immediate scan on start
 	m.scan()
 
