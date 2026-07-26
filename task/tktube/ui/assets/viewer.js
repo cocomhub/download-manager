@@ -1025,8 +1025,10 @@
             type: taskType,
             currentId: obj.id,
             onPlayItem: function (item) {
-              closeModal()
-              createModal(item)
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                closeModal()
+                createModal(newObj)
+              })
             }
           })
           rightCol.appendChild(collectionPanel.element)
@@ -1039,8 +1041,10 @@
             currentId: obj.id,
             tags: objTags,
             onPlayItem: function (item) {
-              closeModal()
-              createModal(item)
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                closeModal()
+                createModal(newObj)
+              })
             }
           })
           rightCol.appendChild(recommendationPanel.element)
