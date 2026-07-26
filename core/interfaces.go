@@ -16,6 +16,11 @@ type StorageFilter struct {
 	Statuses []string
 	Metadata map[string]string
 	Search   string
+	// 新增字段
+	MissingID  *bool    // true = 只返回 ID == 0 的对象
+	Tags       []string // 推荐用标签（阶段三）
+	TagMode    string   // "any" 或 "all"（阶段三）
+	ExcludeIDs []int64  // 排除的对象 ID（阶段三）
 }
 
 type StorageSort struct {
@@ -116,6 +121,16 @@ type SharedRegistry interface {
 	Get(url string) (*model.DownloadObject, error)
 	Update(obj *model.DownloadObject) error
 	Delete(url string) error
+}
+
+// Standardizer 是可选接口，任务类型实现它以对下载对象执行标准化操作
+// （如提取 ID、补全元数据等）。
+// 调用者无需持有 obj.mu；Standardize 实现内部应使用线程安全方法
+// （如 obj.GetID()/obj.SetID()）操作受锁保护的字段。
+type Standardizer interface {
+	// Standardize 对下载对象执行标准化操作。
+	// modified=true 表示对象被修改，需要持久化。
+	Standardize(obj *model.DownloadObject) (modified bool, err error)
 }
 
 // SharedRegistrySetter 任务可实现该接口以接收共享注册表

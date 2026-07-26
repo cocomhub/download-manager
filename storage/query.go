@@ -4,6 +4,7 @@
 package storage
 
 import (
+	"math/rand"
 	"slices"
 	"sort"
 	"strings"
@@ -50,6 +51,36 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
+	if filter.MissingID != nil {
+		id := obj.GetID()
+		if *filter.MissingID && id != 0 {
+			return false
+		}
+		if !*filter.MissingID && id == 0 {
+			return false
+		}
+	}
+
+	// Tags 过滤
+	if len(filter.Tags) > 0 {
+		obj.RLock()
+		extra := obj.Extra
+		obj.RUnlock()
+		if !matchTags(extra, filter.Tags, filter.TagMode) {
+			return false
+		}
+	}
+
+	// ExcludeIDs 过滤
+	if len(filter.ExcludeIDs) > 0 {
+		obj.RLock()
+		id := obj.ID
+		obj.RUnlock()
+		if slices.Contains(filter.ExcludeIDs, id) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -117,6 +148,50 @@ func extraTagsContain(extra map[string]any, search string) bool {
 	return false
 }
 
+// matchTags checks if the object's extra.tags match the filter tags based on the mode.
+// mode "all" requires all filter tags to be present (AND), mode "any" requires at least one (OR).
+func matchTags(extra map[string]any, tags []string, mode string) bool {
+	if len(extra) == 0 || len(tags) == 0 {
+		return true
+	}
+	raw, ok := extra["tags"]
+	if !ok {
+		return false
+	}
+	var objTags []string
+	switch t := raw.(type) {
+	case []string:
+		objTags = t
+	case []any:
+		for _, tag := range t {
+			if s, ok := tag.(string); ok {
+				objTags = append(objTags, s)
+			}
+		}
+	}
+
+	objTagSet := make(map[string]bool, len(objTags))
+	for _, t := range objTags {
+		objTagSet[strings.ToLower(t)] = true
+	}
+
+	if mode == "all" {
+		for _, tag := range tags {
+			if !objTagSet[strings.ToLower(tag)] {
+				return false
+			}
+		}
+		return true
+	}
+	// default: "any"
+	for _, tag := range tags {
+		if objTagSet[strings.ToLower(tag)] {
+			return true
+		}
+	}
+	return false
+}
+
 func containsString(values []string, want string) bool {
 	return slices.Contains(values, want)
 }
@@ -136,6 +211,17 @@ func applySort(objects []*model.DownloadObject, query *core.StorageQuery) {
 	if len(objects) < 2 || query == nil || len(query.Sort) == 0 {
 		return
 	}
+
+	// Check for random sort — shuffle in place and return immediately
+	for _, rule := range query.Sort {
+		if rule.Field == "random" {
+			rand.Shuffle(len(objects), func(i, j int) {
+				objects[i], objects[j] = objects[j], objects[i]
+			})
+			return
+		}
+	}
+
 	sort.SliceStable(objects, func(i, j int) bool {
 		left := objects[i]
 		right := objects[j]
@@ -174,6 +260,8 @@ func compareByField(left, right *model.DownloadObject, field string) int {
 	case "url":
 		return compareStrings(objectURL(left), objectURL(right))
 	default:
+		// random 和 tag_match_desc 排序由 applySort 特殊处理，
+		// 不在 compareByField 中实现。
 		return 0
 	}
 }

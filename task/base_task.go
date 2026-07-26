@@ -41,6 +41,7 @@ type BaseTask struct {
 	headers      map[string]string
 	scrapeDriver *scrape.Driver
 	scanner      *PagingScanner // optional PagingScanner, replaces buildScrapeHooks
+	self         any            // embedding task reference, set by embedding task's constructor
 
 	// Common runtime state
 	objects     []*model.DownloadObject
@@ -222,6 +223,13 @@ func (b *BaseTask) SetHeaders(h map[string]string) {
 	b.headers = h
 }
 
+// SetSelf sets the embedding task reference for interface assertion.
+// Called by the embedding task's constructor to enable self-referencing operations
+// such as calling Standardizer.Standardize on objects.
+func (b *BaseTask) SetSelf(self any) {
+	b.self = self
+}
+
 // --- Common runtime object management ---
 
 // GetAllObjects returns a copy of all runtime objects (under lock).
@@ -346,6 +354,7 @@ func (b *BaseTask) GetCachedObject(url string) *model.DownloadObject {
 }
 
 // RememberRuntimeObject upserts an object into the runtime list and updates knownURLs.
+// If the embedding task implements core.Standardizer, it is called before upserting.
 func (b *BaseTask) RememberRuntimeObject(obj *model.DownloadObject, lock bool) {
 	if obj == nil {
 		return
@@ -354,6 +363,16 @@ func (b *BaseTask) RememberRuntimeObject(obj *model.DownloadObject, lock bool) {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 	}
+
+	// Standardize: if the embedding task implements Standardizer, call it
+	if std, ok := b.self.(core.Standardizer); ok {
+		if modified, err := std.Standardize(obj); err != nil {
+			b.logger.Error("Failed to standardize object", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+		} else if modified {
+			b.logger.Debug("Object standardized", logutil.LogKeyURL, obj.URL, "id", obj.GetID())
+		}
+	}
+
 	b.objects = upsertRuntimeObject(b.objects, obj)
 	b.knownURLs = rememberRuntimeURLs(b.objects)
 }

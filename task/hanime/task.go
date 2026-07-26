@@ -69,11 +69,81 @@ func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
 	scanner := task.NewPagingScanner(bt, adapter)
 	bt.SetScanner(scanner)
 
+	bt.SetSelf(t)
+
 	return t, nil
 }
 
 func (t *Task) Type() string {
 	return TaskType
+}
+
+func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
+	modified := false
+
+	// 提取 ID: https://hanime1.me/watch?v=407014
+	if obj.GetID() == 0 {
+		if vid := extractVideoIDFromURL(obj.URL); vid != "" {
+			if id, err := strconv.ParseInt(vid, 10, 64); err == nil {
+				obj.SetID(id)
+				modified = true
+			}
+		}
+	}
+
+	// 设置合集信息（从 playlist 获取）
+	// 注意：Metadata 和 Extra 的并发读写受 obj.mu 保护
+	obj.Lock()
+	if obj.Metadata == nil {
+		obj.Metadata = make(map[string]string)
+	}
+
+	// 从 Extra 或 Metadata 读取 playlist
+	playlist := getPlaylistFromObject(obj)
+	if len(playlist) > 0 && obj.Metadata["collection_id"] == "" {
+		// 按 URL 去重
+		seen := make(map[string]bool)
+		var unique []hanimeItem
+		for _, item := range playlist {
+			if seen[item.href] {
+				continue
+			}
+			seen[item.href] = true
+			unique = append(unique, item)
+		}
+
+		// 找最小 ID 作为合集 ID
+		var minID int64
+		for _, item := range unique {
+			if id := extractVideoIDFromURL(item.href); id != "" {
+				if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+					if minID == 0 || n < minID {
+						minID = n
+					}
+				}
+			}
+		}
+		if minID > 0 {
+			obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
+			modified = true
+		}
+	}
+
+	// 设置本对象的合集标题
+	if obj.Metadata["collection_title"] == "" {
+		for _, item := range playlist {
+			if id := extractVideoIDFromURL(item.href); id != "" {
+				if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
+					obj.Metadata["collection_title"] = item.title
+					modified = true
+					break
+				}
+			}
+		}
+	}
+	obj.Unlock()
+
+	return modified, nil
 }
 
 func (t *Task) GetDownloadHeaders() map[string]string {
@@ -549,4 +619,45 @@ func hanimeItemURLs(items []hanimeItem) []string {
 		urls = append(urls, item.href)
 	}
 	return urls
+}
+
+// getPlaylistFromObject extracts the playlist from Extra.playlist.
+// It supports both []map[string]string (stored format) and []any (JSON unmarshal) formats.
+func getPlaylistFromObject(obj *model.DownloadObject) []hanimeItem {
+	if obj.Extra == nil {
+		return nil
+	}
+	raw, ok := obj.Extra["playlist"]
+	if !ok {
+		return nil
+	}
+
+	// 尝试直接类型断言 []map[string]string
+	if items, ok := raw.([]map[string]string); ok {
+		result := make([]hanimeItem, 0, len(items))
+		for _, item := range items {
+			result = append(result, hanimeItem{
+				href:     item["url"],
+				title:    item["title"],
+				thumbURL: item["thumb"],
+			})
+		}
+		return result
+	}
+
+	// 尝试从 []any 转换（JSON 反序列化后的格式）
+	if list, ok := raw.([]any); ok {
+		result := make([]hanimeItem, 0, len(list))
+		for _, item := range list {
+			if m, ok := item.(map[string]any); ok {
+				href, _ := m["url"].(string)
+				title, _ := m["title"].(string)
+				thumb, _ := m["thumb"].(string)
+				result = append(result, hanimeItem{href: href, title: title, thumbURL: thumb})
+			}
+		}
+		return result
+	}
+
+	return nil
 }

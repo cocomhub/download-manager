@@ -43,6 +43,22 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 	groupBy := r.URL.Query().Get("group_by")
 	types := parseTypesParam(r)
 
+	tags := r.URL.Query().Get("tags")
+	tagMode := r.URL.Query().Get("tag_mode")
+	if tagMode == "" {
+		tagMode = "any"
+	}
+	excludeIDsStr := r.URL.Query().Get("exclude_ids")
+	var excludeIDs []int64
+	if excludeIDsStr != "" {
+		for s := range strings.SplitSeq(excludeIDsStr, ",") {
+			s = strings.TrimSpace(s)
+			if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+				excludeIDs = append(excludeIDs, id)
+			}
+		}
+	}
+
 	var (
 		res map[string]any
 		err error
@@ -50,7 +66,7 @@ func (s *Server) aggregateObjects(w http.ResponseWriter, r *http.Request) {
 	if groupBy == "content" {
 		res, err = s.mgr.AggregateByContent(page, limit, search, sortBy, status, types)
 	} else {
-		res, err = s.mgr.AggregateObjects(page, limit, search, sortBy, status, types)
+		res, err = s.mgr.AggregateObjects(page, limit, search, sortBy, status, types, tags, tagMode, excludeIDs)
 	}
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "aggregate_failed", fmt.Sprintf("Failed to aggregate objects: %v", err))

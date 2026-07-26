@@ -234,6 +234,10 @@ func (s *MongoStorage) ensureIndexes() error {
 			Options: options.Index().SetUnique(true).SetName("url_unique"),
 		},
 		{
+			Keys:    bson.D{{Key: "id", Value: 1}},
+			Options: options.Index().SetUnique(true).SetSparse(true).SetName("id_unique"),
+		},
+		{
 			Keys:    bson.D{{Key: "task_id", Value: 1}, {Key: "status", Value: 1}},
 			Options: options.Index().SetName("task_status"),
 		},
@@ -248,6 +252,10 @@ func (s *MongoStorage) ensureIndexes() error {
 		{
 			Keys:    bson.D{{Key: fieldMetadataTitle, Value: 1}},
 			Options: options.Index().SetName("title_lookup"),
+		},
+		{
+			Keys:    bson.D{{Key: "metadata.collection_id", Value: 1}, {Key: "metadata.collection_title", Value: 1}},
+			Options: options.Index().SetName("collection_order"),
 		},
 	}
 	if _, err := s.collection.Indexes().CreateMany(ctx, models); err != nil {
@@ -274,13 +282,69 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	for key, value := range query.Filter.Metadata {
 		filter["metadata."+key] = value
 	}
+
+	var andConditions bson.A
+
+	// MissingID 过滤
+	if query.Filter.MissingID != nil {
+		if *query.Filter.MissingID {
+			// MissingID=true: id 不存在或 id=0
+			andConditions = append(andConditions, bson.M{
+				"$or": bson.A{
+					bson.M{"id": bson.M{"$exists": false}},
+					bson.M{"id": 0},
+				},
+			})
+		} else {
+			// MissingID=false: id 存在且 id != 0
+			andConditions = append(andConditions, bson.M{
+				"id": bson.M{"$exists": true, "$ne": 0},
+			})
+		}
+	}
+
+	// Search 过滤
 	if query.Filter.Search != "" {
 		pattern := regexp.QuoteMeta(query.Filter.Search)
-		filter["$or"] = bson.A{
-			bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
-			bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
-			bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
+		andConditions = append(andConditions, bson.M{
+			"$or": bson.A{
+				bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
+				bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
+				bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
+			},
+		})
+	}
+
+	// Tags 过滤
+	if len(query.Filter.Tags) > 0 {
+		if query.Filter.TagMode == "all" {
+			// 所有标签都要匹配（AND）
+			for _, tag := range query.Filter.Tags {
+				andConditions = append(andConditions, bson.M{
+					"extra.tags": bson.M{opRegex: regexp.QuoteMeta(tag), opOptions: "i"},
+				})
+			}
+		} else {
+			// 任一标签匹配（OR）
+			tagConditions := bson.A{}
+			for _, tag := range query.Filter.Tags {
+				tagConditions = append(tagConditions, bson.M{
+					"extra.tags": bson.M{opRegex: regexp.QuoteMeta(tag), opOptions: "i"},
+				})
+			}
+			if len(tagConditions) > 0 {
+				andConditions = append(andConditions, bson.M{"$or": tagConditions})
+			}
 		}
+	}
+
+	// ExcludeIDs 过滤
+	if len(query.Filter.ExcludeIDs) > 0 {
+		filter["id"] = bson.M{"$nin": query.Filter.ExcludeIDs}
+	}
+
+	if len(andConditions) > 0 {
+		filter["$and"] = andConditions
 	}
 	return filter
 }
@@ -296,6 +360,8 @@ func normalizeMongoQuery(query *core.StorageQuery) *core.StorageQuery {
 	cloned.Filter.TaskIDs = append([]string(nil), query.Filter.TaskIDs...)
 	cloned.Filter.URLs = append([]string(nil), query.Filter.URLs...)
 	cloned.Filter.Statuses = append([]string(nil), query.Filter.Statuses...)
+	cloned.Filter.Tags = append([]string(nil), query.Filter.Tags...)
+	cloned.Filter.ExcludeIDs = append([]int64(nil), query.Filter.ExcludeIDs...)
 	if query.Filter.Metadata != nil {
 		cloned.Filter.Metadata = make(map[string]string, len(query.Filter.Metadata))
 		maps.Copy(cloned.Filter.Metadata, query.Filter.Metadata)
@@ -341,6 +407,10 @@ func mongoSortField(field string) string {
 		return "status"
 	case "url":
 		return "url"
+	case "random":
+		return "" // 内存随机
+	case "tag_match_desc":
+		return "" // 内存排序
 	default:
 		return ""
 	}

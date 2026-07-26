@@ -5,6 +5,7 @@ package manager
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
@@ -150,6 +151,121 @@ func (m *Manager) UndoCancelObject(taskID, url string) error {
 	}
 	m.BroadcastTaskUpdate(taskID)
 	return nil
+}
+
+// UniqueTaskTypes 返回所有已注册任务的不重复类型列表。
+func (m *Manager) UniqueTaskTypes() []string {
+	seen := make(map[string]bool)
+	var types []string
+	m.tasks.Range(func(_, value any) bool {
+		t := value.(core.Task)
+		tt := t.Type()
+		if !seen[tt] {
+			seen[tt] = true
+			types = append(types, tt)
+		}
+		return true
+	})
+	return types
+}
+
+// FirstTaskOfType 返回指定类型的第一个 Task 实例。
+func (m *Manager) FirstTaskOfType(taskType string) core.Task {
+	var found core.Task
+	m.tasks.Range(func(_, value any) bool {
+		t := value.(core.Task)
+		if t.Type() == taskType {
+			found = t
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// GetObjectByTypeAndID 按任务类型和数字 ID 查找单个下载对象。
+// 返回 nil 表示未找到。
+func (m *Manager) GetObjectByTypeAndID(taskType string, id int64) (*model.DownloadObject, error) {
+	task := m.FirstTaskOfType(taskType)
+	if task == nil {
+		return nil, fmt.Errorf("%w: task type %q not found", errTaskNotFound, taskType)
+	}
+	st := task.Storage()
+	if st == nil {
+		return nil, nil
+	}
+	objects, err := st.Search(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs: []string{task.ID()},
+		},
+		Limit: 0, // 不限量，内存过滤
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, obj := range objects {
+		if obj.GetID() == id {
+			return obj, nil
+		}
+	}
+	return nil, nil
+}
+
+// GetCollectionByID 返回指定对象所在合集的所有对象。
+// 按 collection_title 排序。
+func (m *Manager) GetCollectionByID(taskType string, id int64) ([]*model.DownloadObject, error) {
+	// 先查找对象
+	obj, err := m.GetObjectByTypeAndID(taskType, id)
+	if err != nil {
+		return nil, err
+	}
+	if obj == nil {
+		return nil, nil
+	}
+
+	// 读取 collection_id
+	obj.RLock()
+	collectionID := obj.Metadata["collection_id"]
+	obj.RUnlock()
+
+	if collectionID == "" {
+		return []*model.DownloadObject{}, nil
+	}
+
+	// 查询同一 collection 的所有对象
+	task := m.FirstTaskOfType(taskType)
+	if task == nil {
+		return nil, fmt.Errorf("%w: task type %q not found", errTaskNotFound, taskType)
+	}
+	st := task.Storage()
+	if st == nil {
+		return nil, nil
+	}
+
+	// 使用 metadata 精确匹配
+	objects, err := st.Search(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			TaskIDs:  []string{task.ID()},
+			Metadata: map[string]string{"collection_id": collectionID},
+		},
+		Limit: 0, // 不限量
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 按 collection_title 排序
+	sort.Slice(objects, func(i, j int) bool {
+		objects[i].RLock()
+		objects[j].RLock()
+		ti := objects[i].Metadata["collection_title"]
+		tj := objects[j].Metadata["collection_title"]
+		objects[i].RUnlock()
+		objects[j].RUnlock()
+		return ti < tj
+	})
+
+	return objects, nil
 }
 
 func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
