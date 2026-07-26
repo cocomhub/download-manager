@@ -149,39 +149,40 @@
               return
             }
             results.innerHTML = ''
-          list.forEach(function (item) {
-            var row = document.createElement('div')
-            row.className = 'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0'
+            list.forEach(function (item) {
+              var row = document.createElement('div')
+              row.className = 'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0'
 
-            // Cover thumbnail
-            var img = document.createElement('img')
-            img.className = 'w-10 h-7 object-cover rounded flex-shrink-0 bg-gray-200'
-            img.src = ''
-            img.alt = ''
-            var coverUrl = ''
-            if (item.extra && item.extra.local_cover) coverUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
-            else if (item.extra && item.extra.cover_url) coverUrl = item.extra.cover_url
-            else if (item.extra && item.extra.thumb_url) coverUrl = item.extra.thumb_url
-            if (coverUrl) {
-              img.src = coverUrl
-              img.onerror = function () { this.style.display = 'none' }
-            }
-            else img.style.display = 'none'
-            row.appendChild(img)
+              // Cover thumbnail
+              var img = document.createElement('img')
+              img.className = 'w-10 h-7 object-cover rounded flex-shrink-0 bg-gray-200'
+              img.src = ''
+              img.alt = ''
+              var coverUrl = ''
+              if (item.extra && item.extra.local_cover) coverUrl = '/files/' + item.extra.local_cover.replace(/\\/g, '/')
+              else if (item.extra && item.extra.cover_url) coverUrl = item.extra.cover_url
+              else if (item.extra && item.extra.thumb_url) coverUrl = item.extra.thumb_url
+              if (coverUrl) {
+                img.src = coverUrl
+                img.onerror = function () { this.style.display = 'none' }
+              }
+              else img.style.display = 'none'
+              row.appendChild(img)
 
-            // Title
-            var title = document.createElement('span')
-            title.className = 'flex-1 truncate text-sm text-gray-700'
-            title.textContent = item.metadata && item.metadata.title ? item.metadata.title : item.url
-            row.appendChild(title)
+              // Title
+              var title = document.createElement('span')
+              title.className = 'flex-1 truncate text-sm text-gray-700'
+              title.textContent = item.metadata && item.metadata.title ? item.metadata.title : item.url
+              row.appendChild(title)
 
-            row.addEventListener('click', function () {
-              onPlayItem(item)
+              row.addEventListener('click', function () {
+                onPlayItem(item)
+              })
+              results.appendChild(row)
             })
-            results.appendChild(row)
+          }).catch(function () {
+            results.innerHTML = '<div class="px-3 py-4 text-center text-gray-400 text-sm">加载失败</div>'
           })
-        }).catch(function () {
-          results.innerHTML = '<div class="px-3 py-4 text-center text-gray-400 text-sm">加载失败</div>'
         })
       }
 

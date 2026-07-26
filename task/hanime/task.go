@@ -100,43 +100,43 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 	}
 
 	// 从 Extra 或 Metadata 读取 playlist（已去重）
-		playlist, playlistModified := getPlaylistFromObject(obj)
-		if playlistModified {
-			modified = true
-		}
-		if len(playlist) > 0 {
+	playlist, playlistModified := getPlaylistFromObject(obj)
+	if playlistModified {
+		modified = true
+	}
+	if len(playlist) > 0 {
 
-			// 设置合集 ID（从 playlist 中找最小 ID）
-			if obj.Metadata["collection_id"] == "" {
-				var minID int64
-				for _, item := range playlist {
-					if id := extractVideoIDFromURL(item.href); id != "" {
-						if n, err := strconv.ParseInt(id, 10, 64); err == nil {
-							if minID == 0 || n < minID {
-								minID = n
-							}
-						}
-					}
-				}
-				if minID > 0 {
-					obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
-					modified = true
-				}
-			}
-
-			// 设置本对象的合集标题
-			if obj.Metadata["collection_title"] == "" {
-				for _, item := range playlist {
-					if id := extractVideoIDFromURL(item.href); id != "" {
-						if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
-							obj.Metadata["collection_title"] = item.title
-							modified = true
-							break
+		// 设置合集 ID（从 playlist 中找最小 ID）
+		if obj.Metadata["collection_id"] == "" {
+			var minID int64
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+						if minID == 0 || n < minID {
+							minID = n
 						}
 					}
 				}
 			}
+			if minID > 0 {
+				obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
+				modified = true
+			}
 		}
+
+		// 设置本对象的合集标题
+		if obj.Metadata["collection_title"] == "" {
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
+						obj.Metadata["collection_title"] = item.title
+						modified = true
+						break
+					}
+				}
+			}
+		}
+	}
 	obj.Unlock()
 
 	return modified, nil
