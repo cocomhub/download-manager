@@ -47,9 +47,17 @@ func TestBuildMongoFilter_IncludesTaskStatusMetadataAndSearch(t *testing.T) {
 	if got := filter["metadata.content_group"]; got != "ABP-123" {
 		t.Fatalf("expected metadata filter, got %v", got)
 	}
-	orVal, ok := filter["$or"].(bson.A)
+	andVal, ok := filter["$and"].(bson.A)
+	if !ok || len(andVal) != 1 {
+		t.Fatalf("expected $and array with 1 condition, got %T %+v", filter["$and"], filter["$and"])
+	}
+	searchOr, ok := andVal[0].(bson.M)
+	if !ok {
+		t.Fatalf("expected bson.M in $and[0], got %T", andVal[0])
+	}
+	orVal, ok := searchOr["$or"].(bson.A)
 	if !ok || len(orVal) != 3 {
-		t.Fatalf("expected 3-way search OR, got %T %+v", filter["$or"], filter["$or"])
+		t.Fatalf("expected 3-way search OR inside $and, got %T %+v", searchOr["$or"], searchOr["$or"])
 	}
 }
 
@@ -63,19 +71,30 @@ func TestBuildMongoFilter_MissingID(t *testing.T) {
 		check func(t *testing.T, filter bson.M)
 	}{
 		{
-			name: "missingID true adds $or for missing id",
+			name: "missingID true adds $and with $or for missing id",
 			query: &core.StorageQuery{
 				Filter: core.StorageFilter{MissingID: &trueVal},
 			},
 			check: func(t *testing.T, filter bson.M) {
-				orVal, ok := filter["$or"].(bson.A)
+				andVal, ok := filter["$and"].(bson.A)
 				if !ok {
-					t.Fatalf("expected $or array, got %T", filter["$or"])
+					t.Fatalf("expected $and array, got %T", filter["$and"])
+				}
+				if len(andVal) != 1 {
+					t.Fatalf("expected 1 condition in $and, got %d", len(andVal))
+				}
+				// First condition should be $or with id missing/id=0
+				orCond, ok := andVal[0].(bson.M)
+				if !ok {
+					t.Fatalf("expected bson.M in $and[0], got %T", andVal[0])
+				}
+				orVal, ok := orCond["$or"].(bson.A)
+				if !ok {
+					t.Fatalf("expected $or array inside $and, got %T", orCond["$or"])
 				}
 				if len(orVal) != 2 {
 					t.Fatalf("expected 2 conditions in $or, got %d", len(orVal))
 				}
-				// Check both conditions
 				foundExists := false
 				foundZero := false
 				for _, cond := range orVal {
@@ -101,20 +120,33 @@ func TestBuildMongoFilter_MissingID(t *testing.T) {
 			},
 		},
 		{
-			name: "missingID false adds no $or",
+			name: "missingID false adds $and with id exists and != 0",
 			query: &core.StorageQuery{
 				Filter: core.StorageFilter{MissingID: &falseVal},
 			},
 			check: func(t *testing.T, filter bson.M) {
-				// false means "has ID" - no $or needed for MongoDB
-				_, hasOr := filter["$or"]
-				if hasOr {
-					t.Error("expected no $or for missingID=false")
+				andVal, ok := filter["$and"].(bson.A)
+				if !ok {
+					t.Fatalf("expected $and array, got %T", filter["$and"])
+				}
+				if len(andVal) != 1 {
+					t.Fatalf("expected 1 condition in $and, got %d", len(andVal))
+				}
+				andCond, ok := andVal[0].(bson.M)
+				if !ok {
+					t.Fatalf("expected bson.M in $and[0], got %T", andVal[0])
+				}
+				innerAnd, ok := andCond["$and"].(bson.A)
+				if !ok {
+					t.Fatalf("expected $and array inside outer $and, got %T", andCond["$and"])
+				}
+				if len(innerAnd) != 2 {
+					t.Fatalf("expected 2 conditions in inner $and, got %d", len(innerAnd))
 				}
 			},
 		},
 		{
-			name: "missingID true with search combines conditions",
+			name: "missingID true with search combines via $and",
 			query: &core.StorageQuery{
 				Filter: core.StorageFilter{
 					MissingID: &trueVal,
@@ -122,13 +154,13 @@ func TestBuildMongoFilter_MissingID(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, filter bson.M) {
-				orVal, ok := filter["$or"].(bson.A)
+				andVal, ok := filter["$and"].(bson.A)
 				if !ok {
-					t.Fatalf("expected $or array, got %T", filter["$or"])
+					t.Fatalf("expected $and array, got %T", filter["$and"])
 				}
-				// Should have 5 conditions: 2 for MissingID + 3 for search
-				if len(orVal) != 5 {
-					t.Fatalf("expected 5 conditions in $or, got %d", len(orVal))
+				// Should have 2 conditions: 1 for MissingID $or, 1 for Search $or
+				if len(andVal) != 2 {
+					t.Fatalf("expected 2 conditions in $and, got %d", len(andVal))
 				}
 			},
 		},

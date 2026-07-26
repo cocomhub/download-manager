@@ -279,30 +279,43 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 		filter["metadata."+key] = value
 	}
 
-	var orConditions bson.A
+	var andConditions bson.A
 
 	// MissingID 过滤
 	if query.Filter.MissingID != nil {
 		if *query.Filter.MissingID {
-			orConditions = append(orConditions,
-				bson.M{"id": bson.M{"$exists": false}},
-				bson.M{"id": 0},
-			)
+			// MissingID=true: id 不存在或 id=0
+			andConditions = append(andConditions, bson.M{
+				"$or": bson.A{
+					bson.M{"id": bson.M{"$exists": false}},
+					bson.M{"id": 0},
+				},
+			})
+		} else {
+			// MissingID=false: id 存在且 id != 0
+			andConditions = append(andConditions, bson.M{
+				"$and": bson.A{
+					bson.M{"id": bson.M{"$exists": true}},
+					bson.M{"id": bson.M{"$ne": 0}},
+				},
+			})
 		}
 	}
 
 	// Search 过滤
 	if query.Filter.Search != "" {
 		pattern := regexp.QuoteMeta(query.Filter.Search)
-		orConditions = append(orConditions,
-			bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
-			bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
-			bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
-		)
+		andConditions = append(andConditions, bson.M{
+			"$or": bson.A{
+				bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
+				bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
+				bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
+			},
+		})
 	}
 
-	if len(orConditions) > 0 {
-		filter["$or"] = orConditions
+	if len(andConditions) > 0 {
+		filter["$and"] = andConditions
 	}
 	return filter
 }
