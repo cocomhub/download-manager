@@ -92,6 +92,8 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 	}
 
 	// 设置合集信息（从 playlist 获取）
+	// 注意：Metadata 和 Extra 的并发读写受 obj.mu 保护
+	obj.Lock()
 	if obj.Metadata == nil {
 		obj.Metadata = make(map[string]string)
 	}
@@ -131,7 +133,7 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 	if obj.Metadata["collection_title"] == "" {
 		for _, item := range playlist {
 			if id := extractVideoIDFromURL(item.href); id != "" {
-				if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.GetID() {
+				if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
 					obj.Metadata["collection_title"] = item.title
 					modified = true
 					break
@@ -139,6 +141,7 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 			}
 		}
 	}
+	obj.Unlock()
 
 	return modified, nil
 }
