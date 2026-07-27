@@ -99,6 +99,12 @@
           if (obj && obj.extra && typeof obj.extra.tags === 'string') return [obj.extra.tags]
           return []
         },
+        getObjId: function (obj) {
+          return (obj && obj.id) || (obj && obj.ID) || 0
+        },
+        getTaskTypeForObj: function (obj) {
+          return (obj && obj.metadata && obj.metadata.task_type) || (obj && obj.extra && obj.extra.task_type) || ''
+        },
         // Touch detection — method instead of direct window access in template
         // to avoid Vue `with(this)` scope issues.
         isTouchDevice: function () {

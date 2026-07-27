@@ -264,7 +264,9 @@ func (cs *ConfigService) AddConfigNote(filename, message, author string) error {
 
 func (cs *ConfigService) WriteConfigWithComments(cfg *config.Config) error {
 	path := config.GetConfigFilePath()
-	dst, src, origRoot, ok := buildMergeNodes(path, cfg)
+	// Sanitize: remove fields that match type defaults before saving
+	cleaned := cfg.SanitizeForSave()
+	dst, src, origRoot, ok := buildMergeNodes(path, cleaned)
 	if !ok {
 		return config.Save(path, cfg)
 	}
@@ -304,7 +306,7 @@ func buildMergeNodes(path string, cfg *config.Config) (dst, src, origRoot *yaml.
 // mergeTopLevelKeys copies specified top-level keys from src to dst, preserving
 // comments from the original dst values.
 func mergeTopLevelKeys(dst, src *yaml.Node) {
-	for _, key := range []string{"server", "log", "mongo", "downloader", "task_scan", "contexts"} {
+	for _, key := range []string{"server", "log", "mongo", "downloader", "task_scan", "task_type_defaults", "contexts"} {
 		_, val, _ := mapGet(src, key)
 		if val != nil {
 			mapSet(dst, key, val)
@@ -358,7 +360,7 @@ func buildTaskMap(dstTasks *yaml.Node) map[string]*yaml.Node {
 // updateTaskFields copies specific fields from a source task node into an existing
 // destination task node, preserving comments on the destination.
 func updateTaskFields(dItem, sItem *yaml.Node) {
-	for _, k := range []string{"type", "save_dir", "storage", "storage_context", "extra"} {
+	for _, k := range []string{"type", "save_dir", "save_sub_dir", "storage", "storage_context", "scrape_enabled", "download_enabled", "extra"} {
 		_, sVal, _ := mapGet(sItem, k)
 		if sVal != nil {
 			mapSet(dItem, k, sVal)

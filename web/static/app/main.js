@@ -113,6 +113,10 @@
         // showCustomTaskView 已移除，由 TaskUI 替代
         // 保留 loadTaskUI 别名，兼容 taskList.js 等模块通过 this.loadTaskUI() 调用
         // 实际实现在 taskList.js 中已改为直接调用 TaskUI.loadTaskUI()
+
+        // Task type defaults modal
+        showTaskTypeDefaultsModal: false,
+        taskTypeDefaultsData: {},
       }
     },
 
@@ -375,6 +379,22 @@
         if (el) el.innerHTML = ''
       },
 
+      // ---- Task type defaults modal ----
+      openTaskTypeDefaults: function () {
+        var self = this
+        AppAPI.getTaskTypeDefaults().then(function (data) {
+          self.taskTypeDefaultsData = data || {}
+          self.showTaskTypeDefaultsModal = true
+        })
+      },
+      saveTaskTypeDefaults: function () {
+        var self = this
+        AppAPI.setTaskTypeDefaults(self.taskTypeDefaultsData).then(function () {
+          self.showTaskTypeDefaultsModal = false
+          self.fetchTasks()
+        })
+      },
+
       // ---- Default object info viewer (no-task-type fallback) ----
       openObjectInfoViewer: function (obj) {
         if (!obj) return
@@ -382,6 +402,27 @@
         var self = this
         var container = document.createElement('div')
         document.body.appendChild(container)
+
+        // ---- Tag editing state ----
+        var tagState = Vue.reactive({
+          items: self.getTags(obj).slice(),
+          adding: false,
+          inputValue: ''
+        })
+
+        function saveTags () {
+          var taskType = self.getTaskTypeForObj(obj)
+          var objId = self.getObjId(obj)
+          AppAPI.updateObjectTags(taskType, objId, tagState.items).then(function (res) {
+            if (!res.ok) throw new Error('保存标签失败')
+            obj.extra = obj.extra || {}
+            obj.extra.tags = tagState.items.slice()
+          }).catch(function (e) {
+            self.showToast('保存标签失败: ' + e.message, 'error')
+            Log.error('Failed to save tags', e)
+          })
+        }
+
         var vm = Vue.createApp({
           render: function () {
             var h = Vue.h
@@ -441,10 +482,80 @@
                     h('span', { class: 'text-gray-500' }, '时长：'),
                     h('span', { class: 'text-gray-700' }, duration)
                   ]) : null,
-                  // Tags
-                  tags.length ? h('div', { class: 'flex flex-wrap gap-1' }, tags.map(function (tag) {
-                    return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded' }, '#' + tag)
-                  })) : null,
+                  // Tags (editable)
+                  h('div', { class: '' }, [
+                    h('div', { class: 'flex flex-wrap gap-1 items-center' }, [
+                      // Existing tags
+                      tagState.items.map(function (tag, i) {
+                        return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded inline-flex items-center gap-1' }, [
+                          h('span', null, '#' + tag),
+                          h('button', {
+                            class: 'text-red-400 hover:text-red-600 text-xs ml-1 cursor-pointer',
+                            on: { click: function (e) {
+                              e.stopPropagation()
+                              tagState.items.splice(i, 1)
+                              saveTags()
+                            }}
+                          }, '✕')
+                        ])
+                      }),
+                      // Add button
+                      !tagState.adding ? h('button', {
+                        class: 'text-blue-500 hover:text-blue-700 text-xs ml-1 cursor-pointer',
+                        on: { click: function (e) {
+                          e.stopPropagation()
+                          tagState.adding = true
+                          tagState.inputValue = ''
+                        }}
+                      }, '+') : null,
+                      // Input field
+                      tagState.adding ? h('div', { class: 'inline-flex items-center gap-1' }, [
+                        h('input', {
+                          attrs: { type: 'text', placeholder: '添加标签', class: 'border rounded px-1 py-0.5 text-xs w-24' },
+                          domProps: { value: tagState.inputValue },
+                          on: {
+                            input: function (e) { tagState.inputValue = e.target.value },
+                            keydown: function (e) {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                var val = tagState.inputValue.trim()
+                                if (val && tagState.items.indexOf(val) < 0) {
+                                  tagState.items.push(val)
+                                  saveTags()
+                                }
+                                tagState.adding = false
+                                tagState.inputValue = ''
+                              } else if (e.key === 'Escape') {
+                                tagState.adding = false
+                                tagState.inputValue = ''
+                              }
+                            }
+                          }
+                        }),
+                        h('button', {
+                          class: 'text-green-500 hover:text-green-700 text-xs ml-1 cursor-pointer',
+                          on: { click: function (e) {
+                            e.stopPropagation()
+                            var val = tagState.inputValue.trim()
+                            if (val && tagState.items.indexOf(val) < 0) {
+                              tagState.items.push(val)
+                              saveTags()
+                            }
+                            tagState.adding = false
+                            tagState.inputValue = ''
+                          }}
+                        }, '✓'),
+                        h('button', {
+                          class: 'text-gray-400 hover:text-gray-600 text-xs ml-1 cursor-pointer',
+                          on: { click: function (e) {
+                            e.stopPropagation()
+                            tagState.adding = false
+                            tagState.inputValue = ''
+                          }}
+                        }, '✕')
+                      ]) : null
+                    ])
+                  ]),
                   // Metadata
                   obj.metadata ? h('div', { class: 'border-t pt-3 mt-2' }, [
                     h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '元数据'),

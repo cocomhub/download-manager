@@ -33,7 +33,12 @@ type ObjectMetadata struct {
 
 // GetTags returns tags from Extra, or nil.
 func (o *DownloadObject) GetTags() []string {
-	if o == nil || o.Extra == nil {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
 		return nil
 	}
 	raw, ok := o.Extra["tags"]
@@ -60,6 +65,8 @@ func (o *DownloadObject) SetTags(tags []string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Extra == nil {
 		o.Extra = make(map[string]any)
 	}

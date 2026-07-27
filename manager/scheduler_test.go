@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 )
@@ -326,6 +327,167 @@ func (m *Manager) schedulerDrain() {
 func (m *Manager) calcSchedulerWeights() map[string]int {
 	const maxSchedulerWeight = 8
 	return m.recalcWeights(make(map[string]int), maxSchedulerWeight)
+}
+
+// --- scrape/download mock types ---
+
+// scrapeMockTask implements core.Task + core.Scraper, tracking whether Scrape was called.
+type scrapeMockTask struct {
+	id           string
+	typ          string
+	scrapeCalled atomic.Bool
+}
+
+func (t *scrapeMockTask) ID() string                                              { return t.id }
+func (t *scrapeMockTask) Type() string                                            { return t.typ }
+func (t *scrapeMockTask) Logger() *slog.Logger                                    { return slog.Default() }
+func (t *scrapeMockTask) Concurrency() int                                        { return 1 }
+func (t *scrapeMockTask) SetConcurrency(int) error                                { return nil }
+func (t *scrapeMockTask) RefreshInterval() int                                    { return 0 }
+func (t *scrapeMockTask) SetRefreshInterval(int) error                            { return nil }
+func (t *scrapeMockTask) Storage() core.Storage                                   { return nil }
+func (t *scrapeMockTask) SetDownloader(core.Downloader)                           {}
+func (t *scrapeMockTask) GetDownloadHeaders() map[string]string                   { return nil }
+func (t *scrapeMockTask) GetDownloadObjects() ([]*model.DownloadObject, error)    { return nil, nil }
+func (t *scrapeMockTask) UpdateStatus(*model.DownloadObject, string, error) error { return nil }
+func (t *scrapeMockTask) Start() error                                            { return nil }
+func (t *scrapeMockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
+func (t *scrapeMockTask) Close() error                                            { return nil }
+func (t *scrapeMockTask) Scrape(_ context.Context) error {
+	t.scrapeCalled.Store(true)
+	return nil
+}
+
+// downloadMockTask implements core.Task, tracking whether GetDownloadObjects was called.
+type downloadMockTask struct {
+	id                       string
+	typ                      string
+	concurrency              int
+	getDownloadObjectsCalled atomic.Bool
+}
+
+func (t *downloadMockTask) ID() string                                              { return t.id }
+func (t *downloadMockTask) Type() string                                            { return t.typ }
+func (t *downloadMockTask) Logger() *slog.Logger                                    { return slog.Default() }
+func (t *downloadMockTask) Concurrency() int                                        { return t.concurrency }
+func (t *downloadMockTask) SetConcurrency(int) error                                { return nil }
+func (t *downloadMockTask) RefreshInterval() int                                    { return 0 }
+func (t *downloadMockTask) SetRefreshInterval(int) error                            { return nil }
+func (t *downloadMockTask) Storage() core.Storage                                   { return nil }
+func (t *downloadMockTask) SetDownloader(core.Downloader)                           {}
+func (t *downloadMockTask) GetDownloadHeaders() map[string]string                   { return nil }
+func (t *downloadMockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
+	t.getDownloadObjectsCalled.Store(true)
+	return nil, nil
+}
+func (t *downloadMockTask) UpdateStatus(*model.DownloadObject, string, error) error { return nil }
+func (t *downloadMockTask) Start() error                                            { return nil }
+func (t *downloadMockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
+func (t *downloadMockTask) Close() error                                            { return nil }
+
+// === Task Scrape/Download Control ===
+
+func TestScrape_DisabledByTaskTypeDefault(t *testing.T) {
+	falseVal := false
+	trueVal := true
+	cfg := &config.Config{
+		Server: config.Server{WorkDir: t.TempDir()},
+		TaskTypeDefaults: map[string]config.TaskTypeDefault{
+			"hanime": {ScrapeEnabled: &falseVal, DownloadEnabled: &trueVal},
+		},
+		Tasks: []config.Task{
+			{ID: "t1", Type: "hanime"},
+		},
+	}
+	cfg.ValidateAndClamp()
+
+	m := NewManager(cfg)
+	task := &scrapeMockTask{id: "t1", typ: "hanime"}
+	m.tasks.Store("t1", task)
+	m.workersEnabled.Store(true)
+
+	m.scan()
+	time.Sleep(100 * time.Millisecond)
+
+	if task.scrapeCalled.Load() {
+		t.Error("scrape should not be called when ScrapeEnabled=false")
+	}
+}
+
+func TestScrape_EnabledByTaskOverride(t *testing.T) {
+	falseVal := false
+	trueVal := true
+	cfg := &config.Config{
+		Server: config.Server{WorkDir: t.TempDir()},
+		TaskTypeDefaults: map[string]config.TaskTypeDefault{
+			"hanime": {ScrapeEnabled: &falseVal, DownloadEnabled: &trueVal},
+		},
+		Tasks: []config.Task{
+			{ID: "t1", Type: "hanime", ScrapeEnabled: &trueVal},
+		},
+	}
+	cfg.ValidateAndClamp()
+
+	m := NewManager(cfg)
+	task := &scrapeMockTask{id: "t1", typ: "hanime"}
+	m.tasks.Store("t1", task)
+	m.workersEnabled.Store(true)
+
+	m.scan()
+	time.Sleep(100 * time.Millisecond)
+
+	if !task.scrapeCalled.Load() {
+		t.Error("scrape should be called when task overrides to true")
+	}
+}
+
+func TestDownload_DisabledByTaskTypeDefault(t *testing.T) {
+	falseVal := false
+	trueVal := true
+	cfg := &config.Config{
+		Server: config.Server{WorkDir: t.TempDir()},
+		TaskTypeDefaults: map[string]config.TaskTypeDefault{
+			"hanime": {ScrapeEnabled: &trueVal, DownloadEnabled: &falseVal},
+		},
+		Tasks: []config.Task{
+			{ID: "t1", Type: "hanime"},
+		},
+	}
+	cfg.ValidateAndClamp()
+
+	m := NewManager(cfg)
+	task := &downloadMockTask{id: "t1", typ: "hanime", concurrency: 5}
+	m.tasks.Store("t1", task)
+	m.workersEnabled.Store(true)
+
+	m.scan()
+	time.Sleep(100 * time.Millisecond)
+
+	if task.getDownloadObjectsCalled.Load() {
+		t.Error("GetDownloadObjects should not be called when DownloadEnabled=false")
+	}
+}
+
+func TestDownload_EnabledByDefault(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.Server{WorkDir: t.TempDir()},
+		Tasks: []config.Task{
+			{ID: "t1", Type: "hanime"},
+		},
+	}
+	cfg.ValidateAndClamp()
+
+	m := NewManager(cfg)
+	task := &downloadMockTask{id: "t1", typ: "hanime", concurrency: 5}
+	m.tasks.Store("t1", task)
+	m.workersEnabled.Store(true)
+
+	m.scan()
+	time.Sleep(100 * time.Millisecond)
+
+	if !task.getDownloadObjectsCalled.Load() {
+		t.Error("GetDownloadObjects should be called by default")
+	}
 }
 
 // Ensure atomic.Int64 compiles for mockSchedTask placeholders

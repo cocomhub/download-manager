@@ -230,6 +230,20 @@ func (m *Manager) currentCfg() *config.Config {
 	return m.configSvc.GetConfig()
 }
 
+// findTaskConfig looks up the Task config entry by ID.
+func (m *Manager) findTaskConfig(id string) *config.Task {
+	cfg := m.currentCfg()
+	if cfg == nil {
+		return nil
+	}
+	for i := range cfg.Tasks {
+		if cfg.Tasks[i].ID == id {
+			return &cfg.Tasks[i]
+		}
+	}
+	return nil
+}
+
 // Initialized returns a channel that is closed when Start() completes initial setup.
 // Tests should wait on this before interacting with the manager.
 func (m *Manager) Initialized() <-chan struct{} {

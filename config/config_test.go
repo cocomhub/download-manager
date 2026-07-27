@@ -189,22 +189,20 @@ func TestValidateAndClamp_EmptyContextsMap(t *testing.T) {
 func TestLoadConfigWithContexts(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
-	yml := []byte(`
-contexts:
-  myctx:
-    storage:
-      type: mongo
-      config:
-        collection: test
-        database: dm
-        source: src
-tasks:
-  - id: t1
-    type: tktube
-    save_dir: /tmp
-    storage_context: myctx
-    extra: {}
-`)
+	yml := []byte("contexts:\n" +
+		"  myctx:\n" +
+		"    storage:\n" +
+		"      type: mongo\n" +
+		"      config:\n" +
+		"        collection: test\n" +
+		"        database: dm\n" +
+		"        source: src\n" +
+		"tasks:\n" +
+		"  - id: t1\n" +
+		"    type: tktube\n" +
+		"    save_dir: /tmp\n" +
+		"    storage_context: myctx\n" +
+		"    extra: {}\n")
 	if err := os.WriteFile(path, yml, 0644); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
@@ -225,18 +223,16 @@ func TestLoadConfigWithoutContexts_BackwardCompatible(t *testing.T) {
 	// be loaded identically before and after the feature addition.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
-	yml := []byte(`
-tasks:
-  - id: t1
-    type: url_list
-    save_dir: /tmp
-    storage:
-      type: file
-      config:
-        path: /tmp/status.json
-    extra:
-      max_concurrent: 2
-`)
+	yml := []byte("tasks:\n" +
+		"  - id: t1\n" +
+		"    type: url_list\n" +
+		"    save_dir: /tmp\n" +
+		"    storage:\n" +
+		"      type: file\n" +
+		"      config:\n" +
+		"        path: /tmp/status.json\n" +
+		"    extra:\n" +
+		"      max_concurrent: 2\n")
 	if err := os.WriteFile(path, yml, 0644); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
@@ -495,4 +491,181 @@ func TestConfig_FileRoot(t *testing.T) {
 			t.Errorf("FileRoot() = %q, want empty", got)
 		}
 	})
+}
+
+// === TaskTypeDefaults ===
+
+func TestTaskTypeDefaults_DefaultValues(t *testing.T) {
+	// 空 Config → ValidateAndClamp 后已知类型默认全 true
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.ValidateAndClamp()
+	for _, typ := range []string{"hanime", "tktube", "vikacg", "urllist"} {
+		def, ok := cfg.TaskTypeDefaults[typ]
+		if !ok {
+			t.Fatalf("missing default for %q", typ)
+		}
+		if def.ScrapeEnabled == nil || !*def.ScrapeEnabled {
+			t.Errorf("%s.ScrapeEnabled = %v, want true", typ, def.ScrapeEnabled)
+		}
+		if def.DownloadEnabled == nil || !*def.DownloadEnabled {
+			t.Errorf("%s.DownloadEnabled = %v, want true", typ, def.DownloadEnabled)
+		}
+	}
+}
+
+func TestTaskTypeDefaults_Override(t *testing.T) {
+	// 任务级覆盖类型默认值
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"hanime": {ScrapeEnabled: boolPtr(true), DownloadEnabled: boolPtr(true)},
+	}
+	cfg.Tasks = []Task{
+		{ID: "t1", Type: "hanime", ScrapeEnabled: boolPtr(false)},
+		{ID: "t2", Type: "hanime"}, // 使用类型默认值
+	}
+	cfg.ValidateAndClamp()
+	if cfg.Tasks[0].GetScrapeEnabled(cfg) != false {
+		t.Error("t1: GetScrapeEnabled should be false (override)")
+	}
+	if cfg.Tasks[0].GetDownloadEnabled(cfg) != true {
+		t.Error("t1: GetDownloadEnabled should be true (inherited)")
+	}
+	if cfg.Tasks[1].GetScrapeEnabled(cfg) != true {
+		t.Error("t2: GetScrapeEnabled should be true (inherited)")
+	}
+}
+
+func TestTaskTypeDefaults_GetEffectiveSaveDir(t *testing.T) {
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"hanime": {SaveRootDir: "/data"},
+	}
+	t.Run("save_dir takes precedence", func(t *testing.T) {
+		task := Task{ID: "t1", Type: "hanime", SaveDir: "/custom", SaveSubDir: "sub"}
+		got := task.GetEffectiveSaveDir(cfg)
+		if got != "/custom" {
+			t.Fatalf("got %q, want /custom", got)
+		}
+	})
+	t.Run("save_root_dir + save_sub_dir", func(t *testing.T) {
+		task := Task{ID: "t2", Type: "hanime", SaveSubDir: "videos"}
+		got := task.GetEffectiveSaveDir(cfg)
+		want := filepath.Join("/data", "videos")
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+	t.Run("only save_root_dir", func(t *testing.T) {
+		task := Task{ID: "t3", Type: "hanime"}
+		got := task.GetEffectiveSaveDir(cfg)
+		if got != "/data" {
+			t.Fatalf("got %q, want /data", got)
+		}
+	})
+	t.Run("no default", func(t *testing.T) {
+		task := Task{ID: "t4", Type: "unknown"}
+		got := task.GetEffectiveSaveDir(cfg)
+		if got != "" {
+			t.Fatalf("got %q, want empty", got)
+		}
+	})
+}
+
+func TestTaskTypeDefaults_SanitizeForSave(t *testing.T) {
+	// 与默认值匹配的字段应被移除
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	trueVal := true
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"hanime": {ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal},
+	}
+	cfg.Tasks = []Task{
+		{ID: "t1", Type: "hanime", ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal}, // 全匹配默认 → 应移除
+		{ID: "t2", Type: "hanime", ScrapeEnabled: boolPtr(false)},                      // 不匹配 → 保留
+	}
+	cleaned := cfg.SanitizeForSave()
+	if cleaned.Tasks[0].ScrapeEnabled != nil {
+		t.Error("t1: ScrapeEnabled should be nil (sanitized)")
+	}
+	if cleaned.Tasks[0].DownloadEnabled != nil {
+		t.Error("t1: DownloadEnabled should be nil (sanitized)")
+	}
+	if cleaned.Tasks[1].ScrapeEnabled == nil || *cleaned.Tasks[1].ScrapeEnabled != false {
+		t.Error("t2: ScrapeEnabled should be false (preserved)")
+	}
+}
+
+func TestTaskTypeDefaults_Clone(t *testing.T) {
+	// 验证 TaskTypeDefaults 深拷贝
+	trueVal := true
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"hanime": {ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal, SaveRootDir: "/data"},
+	}
+	clone := cfg.Clone()
+	// 修改原始值
+	cfg.TaskTypeDefaults["hanime"] = TaskTypeDefault{SaveRootDir: "/evil"}
+	if clone.TaskTypeDefaults["hanime"].SaveRootDir != "/data" {
+		t.Error("clone should not be affected by original mutation")
+	}
+}
+
+func TestTaskTypeDefaults_Diff(t *testing.T) {
+	a := Config{TaskTypeDefaults: map[string]TaskTypeDefault{"hanime": {SaveRootDir: "/a"}}}
+	b := Config{TaskTypeDefaults: map[string]TaskTypeDefault{"hanime": {SaveRootDir: "/b"}}}
+	changes := a.Diff(b)
+	found := false
+	for _, c := range changes {
+		if c.Path == "task_type_defaults" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected task_type_defaults change in diff")
+	}
+}
+
+func TestTaskTypeDefaults_BackwardCompat(t *testing.T) {
+	// 旧 config.yaml 没有 task_type_defaults → 加载后 ValidateAndClamp 填充默认值
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.yaml")
+	yml := []byte("tasks:\n  - id: t1\n    type: hanime\n    save_dir: /tmp\n")
+	if err := os.WriteFile(path, yml, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if len(cfg.TaskTypeDefaults) == 0 {
+		t.Error("expected TaskTypeDefaults to be populated")
+	}
+	if !cfg.Tasks[0].GetScrapeEnabled(cfg) {
+		t.Error("t1: GetScrapeEnabled should default to true")
+	}
+	if !cfg.Tasks[0].GetDownloadEnabled(cfg) {
+		t.Error("t1: GetDownloadEnabled should default to true")
+	}
+}
+
+func TestTaskTypeDefaults_StorageDefaults(t *testing.T) {
+	// 测试类型默认值中 storage 配置被正确保留
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"hanime": {Storage: &StorageConfig{Type: "file", Config: map[string]string{"path": "/data"}}},
+	}
+	cfg.ValidateAndClamp()
+	def, ok := cfg.TaskTypeDefaults["hanime"]
+	if !ok {
+		t.Fatal("missing default for hanime")
+	}
+	if def.Storage == nil {
+		t.Fatal("Storage should not be nil")
+	}
+	if def.Storage.Type != "file" {
+		t.Errorf("Storage.Type = %q, want %q", def.Storage.Type, "file")
+	}
+	if def.Storage.Config["path"] != "/data" {
+		t.Errorf("Storage.Config[path] = %q, want %q", def.Storage.Config["path"], "/data")
+	}
 }

@@ -187,6 +187,12 @@ func (m *Manager) scan() {
 	m.tasks.Range(func(key, value any) bool {
 		if sc, ok := value.(core.Scraper); ok {
 			taskID := key.(string)
+			t := value.(core.Task)
+			// Check if this task's scrape is disabled
+			taskCfg := m.findTaskConfig(t.ID())
+			if taskCfg != nil && !taskCfg.GetScrapeEnabled(m.currentCfg()) {
+				return true // skip scraping for this task
+			}
 			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
 				slog.Debug("Scrape: previous run still in progress, skipping", logutil.LogKeyTaskID, taskID)
 				return true
@@ -235,6 +241,12 @@ func (m *Manager) scan() {
 
 func (m *Manager) processTask(t core.Task) {
 	defer m.processingTask.Delete(t.ID())
+
+	// Check if this task's download is disabled
+	taskCfg := m.findTaskConfig(t.ID())
+	if taskCfg != nil && !taskCfg.GetDownloadEnabled(m.currentCfg()) {
+		return
+	}
 
 	// Check per-task concurrency limit (soft limit for scheduling?)
 	// If global limit is used, task limit might be redundant or acts as "fairness" limit.

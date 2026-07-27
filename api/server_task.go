@@ -455,3 +455,35 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// ObjectTagsPayload 标签更新请求体
+type ObjectTagsPayload struct {
+	Tags []string `json:"tags"`
+}
+
+// updateObjectTags 更新指定下载对象的标签。
+// POST /api/objects/{type}/{id}/tags
+func (s *Server) updateObjectTags(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskType := vars["type"]
+	idStr := vars["id"]
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_id", "id must be a non-negative integer")
+		return
+	}
+
+	var req ObjectTagsPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
+		return
+	}
+
+	if err := s.mgr.UpdateObjectTags(taskType, id, req.Tags); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update tags: %v", err))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

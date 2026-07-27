@@ -101,6 +101,9 @@
                 <button @click="openAddTask($event)" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2">
                     <i class="fas fa-plus"></i> 新建任务
                 </button>
+                <button @click="openTaskTypeDefaults" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-1.5 rounded shadow-sm text-sm font-medium transition flex items-center justify-center gap-2">
+                    <i class="fas fa-cog"></i> 类型默认配置
+                </button>
                 <div class="flex items-center gap-2">
                     <label class="text-xs text-gray-500">类型</label>
                     <select v-model="selectedType" class="text-sm border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1">
@@ -1473,6 +1476,45 @@
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
                     <button @click="showAddTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
                     <button @click="saveNewTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">创建</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Task Type Defaults Modal -->
+        <div v-if="showTaskTypeDefaultsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <h3 class="text-lg font-bold text-gray-800">任务类型默认配置</h3>
+                    <button @click="showTaskTypeDefaultsModal = false" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-6 flex-1 overflow-y-auto space-y-6">
+                    <div v-for="(def, typ) in taskTypeDefaultsData" :key="typ" class="border rounded-lg p-4">
+                        <h4 class="font-semibold text-gray-700 mb-3">{{ typ }}</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm text-gray-600">爬取新数据</label>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" v-model="def.scrape_enabled" class="sr-only peer">
+                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <label class="text-sm text-gray-600">下载内容</label>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" v-model="def.download_enabled" class="sr-only peer">
+                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">默认保存根目录</label>
+                                <input type="text" v-model="def.save_root_dir" class="w-full border rounded px-2 py-1 text-sm" placeholder="/data/downloads">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
+                    <button @click="showTaskTypeDefaultsModal = false" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">关闭</button>
+                    <button @click="saveTaskTypeDefaults" class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">保存</button>
                 </div>
             </div>
         </div>

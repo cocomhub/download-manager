@@ -280,3 +280,25 @@ func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 	}
 	return fmt.Errorf("task does not support reordering")
 }
+
+// UpdateObjectTags 更新指定下载对象的标签。
+func (m *Manager) UpdateObjectTags(taskType string, id int64, tags []string) error {
+	task := m.FirstTaskOfType(taskType)
+	if task == nil {
+		return fmt.Errorf("%w: task type %q not found", errTaskNotFound, taskType)
+	}
+	obj, err := m.GetObjectByTypeAndID(taskType, id)
+	if err != nil {
+		return err
+	}
+	if obj == nil {
+		return fmt.Errorf("object not found by type %q and id %d", taskType, id)
+	}
+	obj.SetTags(tags)
+	if err := task.Storage().Update(obj); err != nil {
+		return err
+	}
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+	return nil
+}
