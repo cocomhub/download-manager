@@ -563,13 +563,6 @@ func (c *Config) resolveTaskSaveDirs() {
 	}
 }
 
-// boolPtr returns a pointer to the given bool value.
-//
-//go:fix inline
-func boolPtr(b bool) *bool {
-	return new(b)
-}
-
 // GetTypeDefault returns the TaskTypeDefault for the task's type from the given config.
 func (t *Task) GetTypeDefault(cfg *Config) *TaskTypeDefault {
 	if cfg == nil || cfg.TaskTypeDefaults == nil {
