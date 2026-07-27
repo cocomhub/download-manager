@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/testutil/assert"
@@ -40,7 +41,7 @@ func TestAPI_UpdateObjectTags_Success(t *testing.T) {
 	assert.MustEventually(t, func() bool {
 		rr := doJSONGet(t, r, "/api/tasks/mock-object-tags")
 		return rr.Code == http.StatusOK
-	}, 3, 50, "wait for task endpoint ready")
+	}, 3*time.Second, 50*time.Millisecond, "wait for task endpoint ready")
 
 	// POST tags
 	body := map[string]any{"tags": []string{"new1", "new2", "new3"}}
@@ -97,7 +98,7 @@ func TestAPI_UpdateObjectTags_EmptyTags(t *testing.T) {
 	assert.MustEventually(t, func() bool {
 		rr := doJSONGet(t, r, "/api/tasks/mock-tags-empty")
 		return rr.Code == http.StatusOK
-	}, 3, 50, "wait for task endpoint ready")
+	}, 3*time.Second, 50*time.Millisecond, "wait for task endpoint ready")
 
 	// Clear tags
 	body := map[string]any{"tags": []string{}}

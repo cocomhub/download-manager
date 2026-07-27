@@ -18,14 +18,14 @@ const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 const DefaultBandwidthPath = "/bandwidth"
 
 type Config struct {
-	Server           Server                    `yaml:"server" json:"server"`
-	Log              logutil.LogConfig         `yaml:"log" json:"log"`
-	Mongo            []MongoSource             `yaml:"mongo" json:"mongo"`
-	Downloader       Downloader                `yaml:"downloader" json:"downloader"`
-	TaskScan         TaskScan                  `yaml:"task_scan" json:"task_scan"`
-	Runtime          Runtime                   `yaml:"runtime" json:"runtime"`
-	Contexts         map[string]Context        `yaml:"contexts" json:"contexts"`
-	Tasks            []Task                    `yaml:"tasks" json:"tasks"`
+	Server           Server                     `yaml:"server" json:"server"`
+	Log              logutil.LogConfig          `yaml:"log" json:"log"`
+	Mongo            []MongoSource              `yaml:"mongo" json:"mongo"`
+	Downloader       Downloader                 `yaml:"downloader" json:"downloader"`
+	TaskScan         TaskScan                   `yaml:"task_scan" json:"task_scan"`
+	Runtime          Runtime                    `yaml:"runtime" json:"runtime"`
+	Contexts         map[string]Context         `yaml:"contexts" json:"contexts"`
+	Tasks            []Task                     `yaml:"tasks" json:"tasks"`
 	TaskTypeDefaults map[string]TaskTypeDefault `yaml:"task_type_defaults" json:"task_type_defaults"`
 }
 
@@ -147,15 +147,15 @@ type UIDefaults struct {
 }
 
 type Task struct {
-	ID               string         `yaml:"id" json:"id"`
-	Type             string         `yaml:"type" json:"type"`
-	SaveDir          string         `yaml:"save_dir,omitempty" json:"save_dir,omitempty"`
-	SaveSubDir       string         `yaml:"save_sub_dir,omitempty" json:"save_sub_dir,omitempty"`
-	Storage          StorageConfig  `yaml:"storage,omitempty" json:"storage,omitempty"`
-	StorageContext   string         `yaml:"storage_context" json:"storage_context"`
-	ScrapeEnabled    *bool          `yaml:"scrape_enabled,omitempty" json:"scrape_enabled,omitempty"`
-	DownloadEnabled  *bool          `yaml:"download_enabled,omitempty" json:"download_enabled,omitempty"`
-	Extra            map[string]any `yaml:"extra" json:"extra"`
+	ID              string         `yaml:"id" json:"id"`
+	Type            string         `yaml:"type" json:"type"`
+	SaveDir         string         `yaml:"save_dir,omitempty" json:"save_dir,omitempty"`
+	SaveSubDir      string         `yaml:"save_sub_dir,omitempty" json:"save_sub_dir,omitempty"`
+	Storage         StorageConfig  `yaml:"storage,omitempty" json:"storage"`
+	StorageContext  string         `yaml:"storage_context" json:"storage_context"`
+	ScrapeEnabled   *bool          `yaml:"scrape_enabled,omitempty" json:"scrape_enabled,omitempty"`
+	DownloadEnabled *bool          `yaml:"download_enabled,omitempty" json:"download_enabled,omitempty"`
+	Extra           map[string]any `yaml:"extra" json:"extra"`
 }
 
 type StorageConfig struct {
@@ -564,8 +564,10 @@ func (c *Config) resolveTaskSaveDirs() {
 }
 
 // boolPtr returns a pointer to the given bool value.
+//
+//go:fix inline
 func boolPtr(b bool) *bool {
-	return &b
+	return new(b)
 }
 
 // GetTypeDefault returns the TaskTypeDefault for the task's type from the given config.
@@ -701,7 +703,7 @@ func (c *Config) SanitizeForSave() *Config {
 		if def.Storage != nil && reflect.DeepEqual(t.Storage, *def.Storage) {
 			cleaned.Tasks[i].Storage = StorageConfig{}
 		}
-			// Remove SaveDir if it was resolved from type defaults
+		// Remove SaveDir if it was resolved from type defaults
 		if def.SaveRootDir != "" && t.SaveDir != "" {
 			effectiveDir := t.GetEffectiveSaveDir(cleaned)
 			if t.SaveDir == effectiveDir {

@@ -517,10 +517,10 @@ func TestTaskTypeDefaults_Override(t *testing.T) {
 	// 任务级覆盖类型默认值
 	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
 	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
-		"hanime": {ScrapeEnabled: boolPtr(true), DownloadEnabled: boolPtr(true)},
+		"hanime": {ScrapeEnabled: new(true), DownloadEnabled: new(true)},
 	}
 	cfg.Tasks = []Task{
-		{ID: "t1", Type: "hanime", ScrapeEnabled: boolPtr(false)},
+		{ID: "t1", Type: "hanime", ScrapeEnabled: new(false)},
 		{ID: "t2", Type: "hanime"}, // 使用类型默认值
 	}
 	cfg.ValidateAndClamp()
@@ -580,7 +580,7 @@ func TestTaskTypeDefaults_SanitizeForSave(t *testing.T) {
 	}
 	cfg.Tasks = []Task{
 		{ID: "t1", Type: "hanime", ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal}, // 全匹配默认 → 应移除
-		{ID: "t2", Type: "hanime", ScrapeEnabled: boolPtr(false)},                      // 不匹配 → 保留
+		{ID: "t2", Type: "hanime", ScrapeEnabled: new(false)},                          // 不匹配 → 保留
 	}
 	cleaned := cfg.SanitizeForSave()
 	if cleaned.Tasks[0].ScrapeEnabled != nil {

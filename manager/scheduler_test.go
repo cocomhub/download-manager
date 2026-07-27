@@ -338,21 +338,21 @@ type scrapeMockTask struct {
 	scrapeCalled atomic.Bool
 }
 
-func (t *scrapeMockTask) ID() string                                              { return t.id }
-func (t *scrapeMockTask) Type() string                                            { return t.typ }
-func (t *scrapeMockTask) Logger() *slog.Logger                                    { return slog.Default() }
-func (t *scrapeMockTask) Concurrency() int                                        { return 1 }
-func (t *scrapeMockTask) SetConcurrency(int) error                                { return nil }
-func (t *scrapeMockTask) RefreshInterval() int                                    { return 0 }
-func (t *scrapeMockTask) SetRefreshInterval(int) error                            { return nil }
-func (t *scrapeMockTask) Storage() core.Storage                                   { return nil }
-func (t *scrapeMockTask) SetDownloader(core.Downloader)                           {}
-func (t *scrapeMockTask) GetDownloadHeaders() map[string]string                   { return nil }
-func (t *scrapeMockTask) GetDownloadObjects() ([]*model.DownloadObject, error)    { return nil, nil }
-func (t *scrapeMockTask) UpdateStatus(*model.DownloadObject, string, error) error { return nil }
-func (t *scrapeMockTask) Start() error                                            { return nil }
+func (t *scrapeMockTask) ID() string                                                     { return t.id }
+func (t *scrapeMockTask) Type() string                                                   { return t.typ }
+func (t *scrapeMockTask) Logger() *slog.Logger                                           { return slog.Default() }
+func (t *scrapeMockTask) Concurrency() int                                               { return 1 }
+func (t *scrapeMockTask) SetConcurrency(int) error                                       { return nil }
+func (t *scrapeMockTask) RefreshInterval() int                                           { return 0 }
+func (t *scrapeMockTask) SetRefreshInterval(int) error                                   { return nil }
+func (t *scrapeMockTask) Storage() core.Storage                                          { return nil }
+func (t *scrapeMockTask) SetDownloader(core.Downloader)                                  {}
+func (t *scrapeMockTask) GetDownloadHeaders() map[string]string                          { return nil }
+func (t *scrapeMockTask) GetDownloadObjects() ([]*model.DownloadObject, error)           { return nil, nil }
+func (t *scrapeMockTask) UpdateStatus(*model.DownloadObject, string, error) error        { return nil }
+func (t *scrapeMockTask) Start() error                                                   { return nil }
 func (t *scrapeMockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
-func (t *scrapeMockTask) Close() error                                            { return nil }
+func (t *scrapeMockTask) Close() error                                                   { return nil }
 func (t *scrapeMockTask) Scrape(_ context.Context) error {
 	t.scrapeCalled.Store(true)
 	return nil
@@ -366,24 +366,26 @@ type downloadMockTask struct {
 	getDownloadObjectsCalled atomic.Bool
 }
 
-func (t *downloadMockTask) ID() string                                              { return t.id }
-func (t *downloadMockTask) Type() string                                            { return t.typ }
-func (t *downloadMockTask) Logger() *slog.Logger                                    { return slog.Default() }
-func (t *downloadMockTask) Concurrency() int                                        { return t.concurrency }
-func (t *downloadMockTask) SetConcurrency(int) error                                { return nil }
-func (t *downloadMockTask) RefreshInterval() int                                    { return 0 }
-func (t *downloadMockTask) SetRefreshInterval(int) error                            { return nil }
-func (t *downloadMockTask) Storage() core.Storage                                   { return nil }
-func (t *downloadMockTask) SetDownloader(core.Downloader)                           {}
-func (t *downloadMockTask) GetDownloadHeaders() map[string]string                   { return nil }
+func (t *downloadMockTask) ID() string                            { return t.id }
+func (t *downloadMockTask) Type() string                          { return t.typ }
+func (t *downloadMockTask) Logger() *slog.Logger                  { return slog.Default() }
+func (t *downloadMockTask) Concurrency() int                      { return t.concurrency }
+func (t *downloadMockTask) SetConcurrency(int) error              { return nil }
+func (t *downloadMockTask) RefreshInterval() int                  { return 0 }
+func (t *downloadMockTask) SetRefreshInterval(int) error          { return nil }
+func (t *downloadMockTask) Storage() core.Storage                 { return nil }
+func (t *downloadMockTask) SetDownloader(core.Downloader)         {}
+func (t *downloadMockTask) GetDownloadHeaders() map[string]string { return nil }
 func (t *downloadMockTask) GetDownloadObjects() ([]*model.DownloadObject, error) {
 	t.getDownloadObjectsCalled.Store(true)
 	return nil, nil
 }
 func (t *downloadMockTask) UpdateStatus(*model.DownloadObject, string, error) error { return nil }
 func (t *downloadMockTask) Start() error                                            { return nil }
-func (t *downloadMockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
-func (t *downloadMockTask) Close() error                                            { return nil }
+func (t *downloadMockTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
+	return nil
+}
+func (t *downloadMockTask) Close() error { return nil }
 
 // === Task Scrape/Download Control ===
 
