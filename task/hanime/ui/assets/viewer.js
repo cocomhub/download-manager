@@ -45,7 +45,8 @@
     return (obj && obj.url) || ''
   }
 
-  function fileUrl (path) {
+  function fileUrl (path) { return window.__dm_pathToUrl ? window.__dm_pathToUrl(path) : fileUrl_impl(path) }
+  function fileUrl_impl(path) {
     if (!path) return ''
     var normalized = path.replace(/\\/g, '/')
     var root = typeof window.__dm_downloadRoot === 'string' ? window.__dm_downloadRoot : ''
@@ -295,7 +296,7 @@
 
     // Panel
     var panel = document.createElement('div')
-    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
     overlay.appendChild(panel)
 
     // Header
@@ -303,6 +304,7 @@
     header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
     var hTitle = document.createElement('h3')
     hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0'
+    hTitle.classList.add('viewer-title')
     hTitle.textContent = getTitle(obj) || 'Hanime'
     header.appendChild(hTitle)
     var hClose = document.createElement('button')
@@ -323,6 +325,7 @@
     // Video area - 16:9 aspect ratio
     var mediaArea = document.createElement('div')
     mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+    mediaArea.classList.add('viewer-media-area')
     if (useVideo) {
       var posterImg = document.createElement('img')
       posterImg.src = firstPoster || videoUrl
@@ -387,6 +390,7 @@
     // Metadata row (genres, date, artist only — tags shown as chips below)
     var metaRow = document.createElement('div')
     metaRow.style.cssText = 'font-size:13px;color:#6b7280;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px'
+    metaRow.classList.add('viewer-meta')
 
     if (genres.length) {
       var genresSpan = document.createElement('span')
@@ -439,61 +443,49 @@
     leftCol.appendChild(content)
     body.appendChild(leftCol)
 
-    // Right column: playlist sidebar
+    // Right column: collection + recommendation panels
     var rightCol = document.createElement('div')
-    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-    if (playlist.length > 0) {
-      var listSection = document.createElement('div')
-      listSection.style.cssText = 'padding:12px 16px'
-      var listTitle = document.createElement('h4')
-      listTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
-      listTitle.textContent = '播放列表 (' + playlist.length + ')'
-      listSection.appendChild(listTitle)
+    rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
 
-      var listWrap = document.createElement('div')
-      listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px'
-
-      playlist.forEach(function (item, idx) {
-        var itemEl = document.createElement('div')
-        itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px;background:#fff'
-
-        var numSpan = document.createElement('span')
-        numSpan.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;flex-shrink:0'
-        numSpan.textContent = idx + 1
-        itemEl.appendChild(numSpan)
-
-        if (item.thumbnail) {
-          var thumb = document.createElement('img')
-          thumb.src = item.thumbnail
-          thumb.style.cssText = 'width:40px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0'
-          itemEl.appendChild(thumb)
-        }
-
-        var titleSpan = document.createElement('span')
-        titleSpan.style.cssText = 'flex:1;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-        titleSpan.textContent = item.title || ('Item ' + (idx + 1))
-        itemEl.appendChild(titleSpan)
-
-        if (item.url) {
-          itemEl.onclick = function () { window.open(item.url, '_blank', 'noopener,noreferrer') }
-          var iconSpan = document.createElement('span')
-          iconSpan.innerHTML = '<i class="fas fa-external-link-alt"></i>'
-          iconSpan.style.cssText = 'color:#9ca3af;font-size:11px;flex-shrink:0'
-          itemEl.appendChild(iconSpan)
-        }
-
-        listWrap.appendChild(itemEl)
-      })
-
-      listSection.appendChild(listWrap)
-      rightCol.appendChild(listSection)
-    } else {
-      // Empty state for right column
-      var emptySection = document.createElement('div')
-      emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'
-      emptySection.textContent = '暂无关联内容'
-      rightCol.appendChild(emptySection)
+    var collectionPanel = null
+    var recommendationPanel = null
+    var taskType = obj && obj.metadata && obj.metadata.task_type
+    var objTags = []
+    if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+      objTags = obj.extra.tags
     }
+
+    // Collection panel
+    if (taskType && obj) {
+      collectionPanel = CollectionPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        onPlayItem: function (item) {
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            closeModal()
+            createModal(newObj)
+          })
+        }
+      })
+      rightCol.appendChild(collectionPanel.element)
+    }
+
+    // Recommendation panel
+    if (taskType && obj) {
+      recommendationPanel = RecommendationPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        tags: objTags,
+        onPlayItem: function (item) {
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            closeModal()
+            createModal(newObj)
+          })
+        }
+      })
+      rightCol.appendChild(recommendationPanel.element)
+    }
+
     body.appendChild(rightCol)
 
     panel.appendChild(body)
@@ -557,6 +549,8 @@
     closeModal = function () {
       document.removeEventListener('keydown', keyHandler)
       document.body.style.overflow = ''
+      if (collectionPanel) collectionPanel.destroy()
+      if (recommendationPanel) recommendationPanel.destroy()
       if (activeModal) {
         document.body.removeChild(activeModal)
         activeModal = null
@@ -623,7 +617,7 @@
 
         var panel = document.createElement('div')
         panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
-        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
 
         // Store reference for cleanup
         var modalRef = { overlay: overlay, panel: panel }
@@ -644,6 +638,7 @@
         header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
         var hTitle = document.createElement('h3')
         hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0'
+        hTitle.classList.add('viewer-title')
         hTitle.textContent = getTitle(obj) || 'Hanime'
         header.appendChild(hTitle)
         var hClose = document.createElement('button')
@@ -664,6 +659,7 @@
         // Media area — show poster with play overlay, click to play
         var mediaArea = document.createElement('div')
         mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+        mediaArea.classList.add('viewer-media-area')
         if (useVideo) {
           var posterImg = document.createElement('img')
           posterImg.src = firstPoster || videoUrl
@@ -707,6 +703,7 @@
         // Metadata row (genres, date, artist only)
         var metaRow = document.createElement('div')
         metaRow.style.cssText = 'font-size:13px;color:#6b7280;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px'
+        metaRow.classList.add('viewer-meta')
         if (genres.length) { var gs = document.createElement('span'); gs.textContent = genres.join(', '); metaRow.appendChild(gs) }
         if (dateVal) { if (genres.length) { var s1 = document.createElement('span'); s1.textContent = ' · '; metaRow.appendChild(s1) }; var ds = document.createElement('span'); ds.textContent = dateVal; metaRow.appendChild(ds) }
         if (artist) { if (genres.length || dateVal) { var s2 = document.createElement('span'); s2.textContent = ' · '; metaRow.appendChild(s2) }; var as = document.createElement('span'); as.textContent = artist; metaRow.appendChild(as) }
@@ -724,26 +721,49 @@
         leftCol.appendChild(content)
         body.appendChild(leftCol)
 
-        // Right column: playlist sidebar
+        // Right column: collection + recommendation panels
         var rightCol = document.createElement('div')
-        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-        if (playlist.length > 0) {
-          var listSection = document.createElement('div')
-          listSection.style.cssText = 'padding:12px 16px'
-          var listTitle = document.createElement('h4'); listTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'; listTitle.textContent = '播放列表 (' + playlist.length + ')'; listSection.appendChild(listTitle)
-          var listWrap = document.createElement('div'); listWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px'
-          playlist.forEach(function (item, idx) {
-            var itemEl = document.createElement('div'); itemEl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px;background:#fff'
-            var numSpan = document.createElement('span'); numSpan.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;flex-shrink:0'; numSpan.textContent = idx + 1; itemEl.appendChild(numSpan)
-            if (item.thumbnail) { var thumb = document.createElement('img'); thumb.src = item.thumbnail; thumb.style.cssText = 'width:40px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0'; itemEl.appendChild(thumb) }
-            var titleSpan = document.createElement('span'); titleSpan.style.cssText = 'flex:1;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; titleSpan.textContent = item.title || ('Item ' + (idx + 1)); itemEl.appendChild(titleSpan)
-            if (item.url) { itemEl.onclick = function () { window.open(item.url, '_blank', 'noopener,noreferrer') } }
-            listWrap.appendChild(itemEl)
-          })
-          listSection.appendChild(listWrap); rightCol.appendChild(listSection)
-        } else {
-          var emptySection = document.createElement('div'); emptySection.style.cssText = 'padding:16px;text-align:center;color:#9ca3af;font-size:13px'; emptySection.textContent = '暂无关联内容'; rightCol.appendChild(emptySection)
+        rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+
+        var collectionPanel = null
+        var recommendationPanel = null
+        var taskType = obj && obj.metadata && obj.metadata.task_type
+        var objTags = []
+        if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+          objTags = obj.extra.tags
         }
+
+        // Collection panel
+        if (taskType && obj) {
+          collectionPanel = CollectionPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            onPlayItem: function (item) {
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                onClose()
+                createModal(newObj)
+              })
+            }
+          })
+          rightCol.appendChild(collectionPanel.element)
+        }
+
+        // Recommendation panel
+        if (taskType && obj) {
+          recommendationPanel = RecommendationPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            tags: objTags,
+            onPlayItem: function (item) {
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                onClose()
+                createModal(newObj)
+              })
+            }
+          })
+          rightCol.appendChild(recommendationPanel.element)
+        }
+
         body.appendChild(rightCol)
 
         panel.appendChild(body)
@@ -774,6 +794,8 @@
         var origOnClose_ = onClose
         onClose = function () {
           document.removeEventListener('keydown', keyHandler)
+          if (collectionPanel) collectionPanel.destroy()
+          if (recommendationPanel) recommendationPanel.destroy()
           if (modalRef.overlay && modalRef.overlay.parentNode) {
             modalRef.overlay.parentNode.removeChild(modalRef.overlay)
           }

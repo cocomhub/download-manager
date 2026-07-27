@@ -246,6 +246,7 @@ func cloneStorageQuery(query *core.StorageQuery) *core.StorageQuery {
 	cloned.Filter.Statuses = append([]string(nil), query.Filter.Statuses...)
 	cloned.Filter.Tags = append([]string(nil), query.Filter.Tags...)
 	cloned.Filter.ExcludeIDs = append([]int64(nil), query.Filter.ExcludeIDs...)
+	cloned.Filter.IDs = append([]int64(nil), query.Filter.IDs...)
 	if query.Filter.Metadata != nil {
 		cloned.Filter.Metadata = make(map[string]string, len(query.Filter.Metadata))
 		maps.Copy(cloned.Filter.Metadata, query.Filter.Metadata)

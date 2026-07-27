@@ -125,7 +125,7 @@ func TestGetPlaylistFromObject(t *testing.T) {
 
 	t.Run("nil Extra", func(t *testing.T) {
 		obj := &model.DownloadObject{}
-		got := getPlaylistFromObject(obj)
+		got, _ := getPlaylistFromObject(obj)
 		if got != nil {
 			t.Errorf("expected nil, got %v", got)
 		}
@@ -133,7 +133,7 @@ func TestGetPlaylistFromObject(t *testing.T) {
 
 	t.Run("no playlist key", func(t *testing.T) {
 		obj := &model.DownloadObject{Extra: map[string]any{}}
-		got := getPlaylistFromObject(obj)
+		got, _ := getPlaylistFromObject(obj)
 		if got != nil {
 			t.Errorf("expected nil, got %v", got)
 		}
@@ -147,7 +147,7 @@ func TestGetPlaylistFromObject(t *testing.T) {
 				},
 			},
 		}
-		got := getPlaylistFromObject(obj)
+		got, _ := getPlaylistFromObject(obj)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 item, got %d", len(got))
 		}
@@ -164,7 +164,7 @@ func TestGetPlaylistFromObject(t *testing.T) {
 				},
 			},
 		}
-		got := getPlaylistFromObject(obj)
+		got, _ := getPlaylistFromObject(obj)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 item, got %d", len(got))
 		}

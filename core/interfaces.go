@@ -10,9 +10,14 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
+// NoLimit 表示不限量查询，用于 StorageQuery.Limit。
+// 各存储后端实现应统一处理此常量。
+const NoLimit int64 = -1
+
 type StorageFilter struct {
 	TaskIDs  []string
 	URLs     []string
+	IDs      []int64 // 按对象数字 ID 精确匹配
 	Statuses []string
 	Metadata map[string]string
 	Search   string

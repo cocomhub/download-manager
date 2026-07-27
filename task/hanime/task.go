@@ -5,6 +5,7 @@ package hanime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -98,45 +99,40 @@ func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 		obj.Metadata = make(map[string]string)
 	}
 
-	// 从 Extra 或 Metadata 读取 playlist
-	playlist := getPlaylistFromObject(obj)
-	if len(playlist) > 0 && obj.Metadata["collection_id"] == "" {
-		// 按 URL 去重
-		seen := make(map[string]bool)
-		var unique []hanimeItem
-		for _, item := range playlist {
-			if seen[item.href] {
-				continue
-			}
-			seen[item.href] = true
-			unique = append(unique, item)
-		}
+	// 从 Extra 或 Metadata 读取 playlist（已去重）
+	playlist, playlistModified := getPlaylistFromObject(obj)
+	if playlistModified {
+		modified = true
+	}
+	if len(playlist) > 0 {
 
-		// 找最小 ID 作为合集 ID
-		var minID int64
-		for _, item := range unique {
-			if id := extractVideoIDFromURL(item.href); id != "" {
-				if n, err := strconv.ParseInt(id, 10, 64); err == nil {
-					if minID == 0 || n < minID {
-						minID = n
+		// 设置合集 ID（从 playlist 中找最小 ID）
+		if obj.Metadata["collection_id"] == "" {
+			var minID int64
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+						if minID == 0 || n < minID {
+							minID = n
+						}
 					}
 				}
 			}
+			if minID > 0 {
+				obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
+				modified = true
+			}
 		}
-		if minID > 0 {
-			obj.Metadata["collection_id"] = strconv.FormatInt(minID, 10)
-			modified = true
-		}
-	}
 
-	// 设置本对象的合集标题
-	if obj.Metadata["collection_title"] == "" {
-		for _, item := range playlist {
-			if id := extractVideoIDFromURL(item.href); id != "" {
-				if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
-					obj.Metadata["collection_title"] = item.title
-					modified = true
-					break
+		// 设置本对象的合集标题
+		if obj.Metadata["collection_title"] == "" {
+			for _, item := range playlist {
+				if id := extractVideoIDFromURL(item.href); id != "" {
+					if n, err := strconv.ParseInt(id, 10, 64); err == nil && n == obj.ID {
+						obj.Metadata["collection_title"] = item.title
+						modified = true
+						break
+					}
 				}
 			}
 		}
@@ -621,43 +617,62 @@ func hanimeItemURLs(items []hanimeItem) []string {
 	return urls
 }
 
-// getPlaylistFromObject extracts the playlist from Extra.playlist.
-// It supports both []map[string]string (stored format) and []any (JSON unmarshal) formats.
-func getPlaylistFromObject(obj *model.DownloadObject) []hanimeItem {
+// getPlaylistFromObject extracts the playlist from Extra, deduplicating by URL.
+// Returns parsed items and whether Extra["playlist"] was modified (deduped).
+// Persisted format is []map[string]string with keys "url"/"title"/"thumb" (consistent with resolveApply).
+func getPlaylistFromObject(obj *model.DownloadObject) ([]hanimeItem, bool) {
 	if obj.Extra == nil {
-		return nil
+		return nil, false
 	}
 	raw, ok := obj.Extra["playlist"]
 	if !ok {
-		return nil
+		return nil, false
 	}
 
-	// 尝试直接类型断言 []map[string]string
-	if items, ok := raw.([]map[string]string); ok {
-		result := make([]hanimeItem, 0, len(items))
-		for _, item := range items {
-			result = append(result, hanimeItem{
-				href:     item["url"],
-				title:    item["title"],
-				thumbURL: item["thumb"],
+	// JSON marshal/unmarshal normalizes any type ([]map[string]string, []any, etc.)
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, false
+	}
+	var rawItems []map[string]string
+	if err := json.Unmarshal(data, &rawItems); err != nil {
+		return nil, false
+	}
+
+	// Convert to hanimeItem
+	items := make([]hanimeItem, 0, len(rawItems))
+	for _, item := range rawItems {
+		items = append(items, hanimeItem{
+			href:     item["url"],
+			title:    item["title"],
+			thumbURL: item["thumb"],
+		})
+	}
+
+	// Deduplicate by URL
+	seen := make(map[string]bool, len(items))
+	unique := make([]hanimeItem, 0, len(items))
+	for _, item := range items {
+		if seen[item.href] {
+			continue
+		}
+		seen[item.href] = true
+		unique = append(unique, item)
+	}
+
+	// If dedup changed, persist back as []map[string]string (consistent with resolveApply)
+	if len(unique) != len(items) {
+		persisted := make([]map[string]string, 0, len(unique))
+		for _, item := range unique {
+			persisted = append(persisted, map[string]string{
+				"url":   item.href,
+				"title": item.title,
+				"thumb": item.thumbURL,
 			})
 		}
-		return result
+		obj.Extra["playlist"] = persisted
+		return unique, true
 	}
 
-	// 尝试从 []any 转换（JSON 反序列化后的格式）
-	if list, ok := raw.([]any); ok {
-		result := make([]hanimeItem, 0, len(list))
-		for _, item := range list {
-			if m, ok := item.(map[string]any); ok {
-				href, _ := m["url"].(string)
-				title, _ := m["title"].(string)
-				thumb, _ := m["thumb"].(string)
-				result = append(result, hanimeItem{href: href, title: title, thumbURL: thumb})
-			}
-		}
-		return result
-	}
-
-	return nil
+	return items, false
 }

@@ -49,7 +49,7 @@ func (s *StandardizationService) Run(ctx context.Context) {
 			Filter: core.StorageFilter{
 				MissingID: &missingID,
 			},
-			Limit: 0, // 不限量
+			Limit: core.NoLimit, // 不限量
 		})
 		if err != nil {
 			slog.Error("Standardization: search failed", logutil.LogKeyTaskID, task.ID(),

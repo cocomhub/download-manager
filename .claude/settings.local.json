@@ -38,7 +38,8 @@
       "Bash(gofmt *)",
       "Skill(commit-commands:commit)",
       "Skill(code-review:code-review)",
-      "Skill(code-review)"
+      "Skill(code-review)",
+      "Bash(node -e ' *)"
     ],
     "deny": []
   }

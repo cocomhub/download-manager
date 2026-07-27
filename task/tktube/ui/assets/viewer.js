@@ -54,7 +54,8 @@
     return (typeof s === 'string' ? s : '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   }
 
-  function fileUrl (path) {
+  function fileUrl (path) { return window.__dm_pathToUrl ? window.__dm_pathToUrl(path) : fileUrl_impl(path) }
+  function fileUrl_impl(path) {
     if (!path) return ''
     var normalized = path.replace(/\\/g, '/')
     var root = typeof window.__dm_downloadRoot === 'string' ? window.__dm_downloadRoot : ''
@@ -85,13 +86,11 @@
 
   function getCoverImage (obj) {
     if (!obj) return ''
-    // Local files — cover before preview/thumb
+    // Local files — cover (local_preview is a video, not an image)
     if (obj.extra && obj.extra.local_cover) return fileUrl(obj.extra.local_cover)
-    if (obj.extra && obj.extra.local_preview) return fileUrl(obj.extra.local_preview)
-    // Remote URLs — cover fields before thumb fields
+    // Remote URLs — cover fields first
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
-    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
     // Check extra.files for image-type — cover before thumb
     if (obj.extra && Array.isArray(obj.extra.files)) {
       // First pass: cover-named files
@@ -250,7 +249,7 @@
 
     // Panel
     var panel = document.createElement('div')
-    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+    panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
     overlay.appendChild(panel)
 
     // Header
@@ -258,6 +257,7 @@
     header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
     var hTitle = document.createElement('h3')
     hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+    hTitle.className = 'viewer-title'
     hTitle.textContent = title
     header.appendChild(hTitle)
 
@@ -298,6 +298,7 @@
     // Video area - 16:9 aspect ratio
     var mediaArea = document.createElement('div')
     mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+    mediaArea.className = 'viewer-media-area'
 
     if (useVideo) {
       var posterImg = document.createElement('img')
@@ -347,6 +348,7 @@
     // Info bar
     var infoBar = document.createElement('div')
     infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+    infoBar.className = 'viewer-meta'
 
     if (dur) {
       var durEl = document.createElement('span')
@@ -400,20 +402,88 @@
     leftCol.appendChild(content)
     body.appendChild(leftCol)
 
-    // Right column: related videos sidebar (placeholder for future)
+    // Right column: collection + recommendation panels
     var rightCol = document.createElement('div')
-    rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-    var relatedSection = document.createElement('div')
-    relatedSection.style.cssText = 'padding:16px'
-    var relatedTitle = document.createElement('h4')
-    relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
-    relatedTitle.textContent = '关联视频'
-    relatedSection.appendChild(relatedTitle)
-    var relatedPlaceholder = document.createElement('div')
-    relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
-    relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
-    relatedSection.appendChild(relatedPlaceholder)
-    rightCol.appendChild(relatedSection)
+    rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+
+    var collectionPanel = null
+    var recommendationPanel = null
+    var taskType = obj && obj.metadata && obj.metadata.task_type
+    var objTags = []
+    if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+      objTags = obj.extra.tags
+    }
+
+    // 合集面板
+    if (taskType && obj) {
+      collectionPanel = CollectionPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        onPlayItem: function (item) {
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            if (collectionPanel) collectionPanel.update({ currentId: item.id })
+            // 更新媒体区域
+            var mediaArea = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-media-area')
+            if (mediaArea) {
+              var posterImg = mediaArea.querySelector('img')
+              if (posterImg) {
+                posterImg.src = getCoverImage(newObj) || getVideoUrl(newObj)
+                posterImg.alt = (newObj.metadata && newObj.metadata.title) || newObj.url
+              }
+              var video = mediaArea.querySelector('video')
+              if (video) {
+                video.src = getVideoUrl(newObj)
+                video.poster = getCoverImage(newObj)
+                video.load()
+              }
+            }
+            // 更新标题
+            var titleEl = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-title')
+            if (titleEl) titleEl.textContent = (newObj.metadata && newObj.metadata.title) || newObj.url
+            // 更新元数据
+            var metaEl = rightCol.parentElement && rightCol.parentElement.querySelector('.viewer-meta')
+            if (metaEl) {
+              metaEl.innerHTML = ''
+              if (newObj.metadata) {
+                if (newObj.metadata.duration) {
+                  var durEl = document.createElement('span')
+                  durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + newObj.metadata.duration
+                  metaEl.appendChild(durEl)
+                }
+                if (newObj.metadata.date) {
+                  var dateEl = document.createElement('span')
+                  dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + newObj.metadata.date
+                  metaEl.appendChild(dateEl)
+                }
+                if (newObj.metadata.resolution) {
+                  var resEl = document.createElement('span')
+                  resEl.innerHTML = '<i class="fas fa-tag" style="margin-right:4px"></i> ' + newObj.metadata.resolution
+                  metaEl.appendChild(resEl)
+                }
+              }
+            }
+          })
+        }
+      })
+      rightCol.appendChild(collectionPanel.element)
+    }
+
+    // 推荐面板
+    if (taskType && obj) {
+      recommendationPanel = RecommendationPanel.create({
+        type: taskType,
+        currentId: obj.id,
+        tags: objTags,
+        onPlayItem: function (item) {
+          AppAPI.getObject(taskType, item.id).then(function (newObj) {
+            closeModal()
+            createModal(newObj)
+          })
+        }
+      })
+      rightCol.appendChild(recommendationPanel.element)
+    }
+
     body.appendChild(rightCol)
 
     panel.appendChild(body)
@@ -489,6 +559,8 @@
     closeModal = function () {
       document.removeEventListener('keydown', keyHandler)
       document.body.style.overflow = ''
+      if (collectionPanel) collectionPanel.destroy()
+      if (recommendationPanel) recommendationPanel.destroy()
       if (activeModal) {
         document.body.removeChild(activeModal)
         activeModal = null
@@ -813,7 +885,7 @@
 
         var panel = document.createElement('div')
         panel.className = 'bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col'
-        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:1400px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
 
         var modalRef = { overlay: overlay, panel: panel }
 
@@ -832,6 +904,7 @@
         header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
         var hTitle = document.createElement('h3')
         hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        hTitle.className = 'viewer-title'
         hTitle.textContent = title
         header.appendChild(hTitle)
 
@@ -868,6 +941,7 @@
         // Video area - fixed height
         var mediaArea = document.createElement('div')
         mediaArea.style.cssText = 'background:#000;display:flex;align-items:center;justify-content:center;position:relative;aspect-ratio:16/9;overflow:hidden'
+        mediaArea.className = 'viewer-media-area'
 
         if (useVideo) {
           var posterImg = document.createElement('img')
@@ -914,6 +988,7 @@
         // Info bar
         var infoBar = document.createElement('div')
         infoBar.style.cssText = 'display:flex;gap:16px;padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280;flex-wrap:wrap'
+        infoBar.className = 'viewer-meta'
         if (dur) { var durEl = document.createElement('span'); durEl.innerHTML = '<i class="fas fa-clock" style="margin-right:4px"></i> ' + dur; infoBar.appendChild(durEl) }
         if (dateVal) { var dateEl = document.createElement('span'); dateEl.innerHTML = '<i class="fas fa-calendar" style="margin-right:4px"></i> ' + dateVal; infoBar.appendChild(dateEl) }
         if (res) { var resEl = document.createElement('span'); resEl.innerHTML = '<i class="fas fa-expand" style="margin-right:4px"></i> ' + res; infoBar.appendChild(resEl) }
@@ -932,20 +1007,49 @@
         leftCol.appendChild(content)
         body.appendChild(leftCol)
 
-        // Right column: related videos sidebar (placeholder)
+        // Right column: collection + recommendation panels
         var rightCol = document.createElement('div')
-        rightCol.style.cssText = 'width:320px;border-left:1px solid #e5e7eb;overflow-y:auto;background:#f9fafb;flex-shrink:0'
-        var relatedSection = document.createElement('div')
-        relatedSection.style.cssText = 'padding:16px'
-        var relatedTitle = document.createElement('h4')
-        relatedTitle.style.cssText = 'font-size:14px;font-weight:600;color:#374151;margin:0 0 8px'
-        relatedTitle.textContent = '关联视频'
-        relatedSection.appendChild(relatedTitle)
-        var relatedPlaceholder = document.createElement('div')
-        relatedPlaceholder.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;padding:32px 0'
-        relatedPlaceholder.innerHTML = '<i class="fas fa-film" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4"></i> 关联视频列表<br>（后续实现）'
-        relatedSection.appendChild(relatedPlaceholder)
-        rightCol.appendChild(relatedSection)
+        rightCol.style.cssText = 'width:380px;border-left:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;background:#fff'
+
+        var collectionPanel = null
+        var recommendationPanel = null
+        var taskType = obj && obj.metadata && obj.metadata.task_type
+        var objTags = []
+        if (obj && obj.extra && Array.isArray(obj.extra.tags)) {
+          objTags = obj.extra.tags
+        }
+
+        // 合集面板
+        if (taskType && obj) {
+          collectionPanel = CollectionPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            onPlayItem: function (item) {
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                closeModal()
+                createModal(newObj)
+              })
+            }
+          })
+          rightCol.appendChild(collectionPanel.element)
+        }
+
+        // 推荐面板
+        if (taskType && obj) {
+          recommendationPanel = RecommendationPanel.create({
+            type: taskType,
+            currentId: obj.id,
+            tags: objTags,
+            onPlayItem: function (item) {
+              AppAPI.getObject(taskType, item.id).then(function (newObj) {
+                closeModal()
+                createModal(newObj)
+              })
+            }
+          })
+          rightCol.appendChild(recommendationPanel.element)
+        }
+
         body.appendChild(rightCol)
 
         panel.appendChild(body)
@@ -979,6 +1083,8 @@
         var origOnClose_ = onClose
         onClose = function () {
           document.removeEventListener('keydown', keyHandler)
+          if (collectionPanel) collectionPanel.destroy()
+          if (recommendationPanel) recommendationPanel.destroy()
           if (modalRef.overlay && modalRef.overlay.parentNode) {
             modalRef.overlay.parentNode.removeChild(modalRef.overlay)
           }

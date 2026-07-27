@@ -276,6 +276,9 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	if len(query.Filter.URLs) > 0 {
 		filter["url"] = bson.M{"$in": query.Filter.URLs}
 	}
+	if len(query.Filter.IDs) > 0 {
+		filter["id"] = bson.M{"$in": query.Filter.IDs}
+	}
 	if len(query.Filter.Statuses) > 0 {
 		filter["status"] = bson.M{"$in": query.Filter.Statuses}
 	}
@@ -362,15 +365,20 @@ func normalizeMongoQuery(query *core.StorageQuery) *core.StorageQuery {
 	cloned.Filter.Statuses = append([]string(nil), query.Filter.Statuses...)
 	cloned.Filter.Tags = append([]string(nil), query.Filter.Tags...)
 	cloned.Filter.ExcludeIDs = append([]int64(nil), query.Filter.ExcludeIDs...)
+	cloned.Filter.IDs = append([]int64(nil), query.Filter.IDs...)
 	if query.Filter.Metadata != nil {
 		cloned.Filter.Metadata = make(map[string]string, len(query.Filter.Metadata))
 		maps.Copy(cloned.Filter.Metadata, query.Filter.Metadata)
 	}
 	cloned.Sort = append([]core.StorageSort(nil), query.Sort...)
 	if cloned.Limit <= 0 {
-		cloned.Limit = 200
+		if cloned.Limit != core.NoLimit { // -1 = unlimited, skip clamp
+			cloned.Limit = 200
+		} else {
+			cloned.Limit = 0
+		}
 	}
-	if cloned.Limit > 1000 {
+	if cloned.Limit > 1000 && cloned.Limit != core.NoLimit {
 		cloned.Limit = 1000
 	}
 	if len(cloned.Sort) == 0 {

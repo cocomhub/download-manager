@@ -8,6 +8,78 @@
 ;(function () {
   'use strict'
 
+  // ---- Standalone utility functions (no Vue dependency) ----
+
+  // pathToUrl 将本地路径转换为可访问的 URL 路径
+  window.__dm_pathToUrl = function (path) {
+    if (!path) return ''
+    var normalized = path.replace(/\\/g, '/')
+    // Strip download root prefix if the path is absolute
+    // (e.g. /opt/.../downloads/hanime/... → hanime/...)
+    var downloadRoot = typeof window.__dm_downloadRoot === 'string' ? window.__dm_downloadRoot : ''
+    if (downloadRoot && normalized.indexOf(downloadRoot) === 0) {
+      normalized = normalized.slice(downloadRoot.length)
+    }
+    // Strip leading slash for relative path
+    normalized = normalized.replace(/^\//, '')
+    return '/files/' + normalized.split('/').map(function (seg) {
+      return encodeURIComponent(seg)
+    }).join('/')
+  }
+
+  // getThumbImage 获取缩略图（小尺寸，用于合集、推荐列表）
+  window.__dm_getThumbImage = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.local_cover) return window.__dm_pathToUrl(obj.extra.local_cover)
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.local_url) return window.__dm_pathToUrl(obj.extra.local_url)
+    // 从 extra.files 中找第一个图片
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) return window.__dm_pathToUrl(f.path)
+      }
+    }
+    return ''
+  }
+
+  // getCoverImage 获取封面图（大尺寸，用于视频播放器海报）
+  window.__dm_getCoverImage = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.local_cover) return window.__dm_pathToUrl(obj.extra.local_cover)
+    if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.cover) return obj.extra.cover
+    // 从 extra.files 中找 cover/thumb 命名的图片
+    if (obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) {
+          var fname = (f.name || f.path || '').toString().toLowerCase()
+          if (fname.indexOf('cover') >= 0 || fname.indexOf('thumb') >= 0) return window.__dm_pathToUrl(f.path)
+        }
+      }
+      // 回退到第一个图片
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.type === 'image' && f.path) return window.__dm_pathToUrl(f.path)
+      }
+    }
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    return ''
+  }
+
+  // getPreviewUrl 获取预览视频 URL（用于鼠标悬停预览）
+  window.__dm_getPreviewUrl = function (obj) {
+    if (!obj) return ''
+    if (obj.extra && obj.extra.local_preview) return window.__dm_pathToUrl(obj.extra.local_preview)
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    return ''
+  }
+
   var api = {
     runtime: function () {
       return fetch('/api/runtime').then(function (r) { return r.json() })
@@ -34,6 +106,14 @@
       return fetch('/api/downloads').then(function (r) { return r.json() })
     },
 
+    getObject: function (type, id) {
+      return this.get('/api/objects/' + type + '/' + id)
+    },
+
+    getCollection: function (type, id) {
+      return this.get('/api/objects/' + type + '/' + id + '/collection')
+    },
+
     aggregate: function (params) {
       var q = new URLSearchParams()
       q.set('page', params.page || 1)
@@ -43,6 +123,9 @@
       if (params.status && params.status !== 'all') { q.set('status', params.status) }
       if (params.types && params.types !== 'all') { q.set('types', params.types) }
       if (params.groupBy) { q.set('group_by', 'content') }
+      if (params.tags) { q.set('tags', params.tags) }
+      if (params.tagMode) { q.set('tag_mode', params.tagMode) }
+      if (params.excludeIds) { q.set('exclude_ids', params.excludeIds) }
       return fetch('/api/aggregate?' + q.toString()).then(function (r) {
         if (!r.ok) throw new Error('Aggregate request failed')
         return r.json()

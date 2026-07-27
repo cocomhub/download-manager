@@ -48,6 +48,14 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 	if len(filter.URLs) > 0 && !containsString(filter.URLs, obj.URL) {
 		return false
 	}
+	if len(filter.IDs) > 0 {
+		obj.RLock()
+		id := obj.ID
+		obj.RUnlock()
+		if !slices.Contains(filter.IDs, id) {
+			return false
+		}
+	}
 	if len(filter.Statuses) > 0 && !containsString(filter.Statuses, obj.GetStatus()) {
 		return false
 	}
@@ -64,9 +72,9 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 	// Tags 过滤
 	if len(filter.Tags) > 0 {
 		obj.RLock()
-		extra := obj.Extra
+		matched := matchTags(obj.Extra, filter.Tags, filter.TagMode)
 		obj.RUnlock()
-		if !matchTags(extra, filter.Tags, filter.TagMode) {
+		if !matched {
 			return false
 		}
 	}
@@ -279,6 +287,9 @@ func applyPagination(objects []*model.DownloadObject, query *core.StorageQuery) 
 		return []*model.DownloadObject{}
 	}
 	if query.Limit <= 0 {
+		if query.Limit == core.NoLimit {
+			return objects[offset:]
+		}
 		return objects[offset:]
 	}
 	end := min(offset+query.Limit, int64(len(objects)))

@@ -13,6 +13,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/manager"
+	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
@@ -119,15 +120,22 @@ func assignIDsAndSeedTags(t *testing.T, srv *Server, taskType string, tagsByURL 
 	if st == nil {
 		t.Fatalf("storage not found")
 	}
-	objects, err := st.Search(&core.StorageQuery{
-		Filter: core.StorageFilter{
-			TaskIDs: []string{task.ID()},
-		},
-		Limit: 0,
-	})
-	if err != nil {
-		t.Fatalf("search objects: %v", err)
-	}
+
+	// Retry: wait for objects to be seeded (lazy seed by scheduler/worker)
+	var objects []*model.DownloadObject
+	assert.MustEventually(t, func() bool {
+		var err error
+		objects, err = st.Search(&core.StorageQuery{
+			Filter: core.StorageFilter{
+				TaskIDs: []string{task.ID()},
+			},
+			Limit: 0,
+		})
+		if err != nil {
+			return false
+		}
+		return len(objects) > 0
+	}, 3*time.Second, 50*time.Millisecond, "wait for objects to be seeded")
 	sort.Slice(objects, func(i, j int) bool {
 		return objects[i].URL < objects[j].URL
 	})

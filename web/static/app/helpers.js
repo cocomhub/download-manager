@@ -449,6 +449,7 @@
             types: type || 'all',
             sort: this.aggSortBy || '',
             groupBy: this.aggGroupBy || false,
+            search: this.aggSearchQuery || '',
             page: this.aggPagination.page,
             limit: this.aggPagination.limit
           }).then(function (data) {
