@@ -814,11 +814,9 @@
         document.addEventListener('keydown',keyHandler)
         var origOnClose=onClose; onClose=function(){document.removeEventListener('keydown',keyHandler);document.body.style.overflow='';if(origOnClose)origOnClose()}
         document.body.appendChild(overlay); document.body.style.overflow='hidden'
-      },
+      }
+    }
+  })
 
-      // Register helpers module
-      // Note: old mixin modules (AppHelpers, AppVideoPlayer, etc.) are no longer registered.
-      // All functionality is delegated to UiHelpers/UiTaskList/UiVideoPlayer/UiDashboard pure function modules.
-
-      app.mount('#app')
-    })()
+  app.mount('#app')
+})()

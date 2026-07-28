@@ -252,7 +252,7 @@
       state.showAddTaskModal = false
       state.newTask = { id: '', type: 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true, storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
       // Fetch tasks via callback
-      if (typeof state._fetchTasks === 'function') state._fetchTasks()
+      if (typeof state.fetchTasks === 'function') state.fetchTasks()
     }).catch(function (e) { showToast('创建失败: ' + e.message, 'error') })
   }
 
