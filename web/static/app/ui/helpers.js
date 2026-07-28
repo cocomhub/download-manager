@@ -312,7 +312,6 @@
     }).then(function (data) {
       state.aggObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
       state.aggPagination.total = (data && data.total) || state.aggObjects.length
-      state.showAggView = true
     }).catch(function () {
       showToast('加载聚合视图失败', 'error')
     }).finally(function () {

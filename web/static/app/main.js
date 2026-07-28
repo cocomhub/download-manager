@@ -736,6 +736,8 @@
         var el = document.getElementById('custom-ui-content')
         if (el) el.innerHTML = ''
       },
+      // 已废弃 — custom-ui-content 元素已从 UI 中移除，保留此方法仅为兼容外部调用
+      // closeCustomUI 已无实际作用，将在下次清理中移除
 
       // ---- Task type defaults modal ----
       openTaskTypeDefaults: function () {
@@ -802,7 +804,7 @@
             obj.extra = obj.extra || {}
             obj.extra.tags = tagState.items.slice()
           }).catch(function (e) {
-            UiHelpers.showToast('save tags failed: ' + e.message, 'error')
+            UiHelpers.showToast('保存标签失败: ' + e.message, 'error')
           })
         }
         var overlay = document.createElement('div')
@@ -818,7 +820,7 @@
         header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
         var hTitle = document.createElement('h3')
         hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-        hTitle.textContent = title || 'object info'
+        hTitle.textContent = title || '对象信息'
         header.appendChild(hTitle)
         var hClose = document.createElement('button')
         hClose.innerHTML = '<i class="fas fa-times"></i>'
@@ -837,16 +839,16 @@
           r.appendChild(vl); body.appendChild(r)
         }
         var sr = document.createElement('div'); sr.style.cssText = 'display:flex;align-items:center;gap:8px'
-        var sl = document.createElement('span'); sl.style.cssText = 'font-size:12px;color:#6b7280'; sl.textContent = 'status: '
+        var sl = document.createElement('span'); sl.style.cssText = 'font-size:12px;color:#6b7280'; sl.textContent = '状态：'
         sr.appendChild(sl)
         var sb = document.createElement('span')
         sb.style.cssText = 'padding:2px 8px;font-size:12px;font-weight:600;border-radius:9999px;background:' + (obj.status === 'completed' ? '#d1fae5' : obj.status === 'failed' ? '#fee2e2' : obj.status === 'downloading' ? '#fef3c7' : '#f3f4f6') + ';color:' + (obj.status === 'completed' ? '#065f46' : obj.status === 'failed' ? '#991b1b' : obj.status === 'downloading' ? '#92400e' : '#374151')
         sb.textContent = obj.status || ''
         sr.appendChild(sb); body.appendChild(sr)
         addRow('URL', obj.url)
-        addRow('path', obj.save_path)
-        addRow('date', dateVal)
-        addRow('duration', duration)
+        addRow('文件路径', obj.save_path)
+        addRow('日期', dateVal)
+        addRow('时长', duration)
         var ts = document.createElement('div'); ts.style.cssText = 'margin-top:8px'
         var tw = document.createElement('div'); tw.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center'
         function renderTags() {
@@ -881,7 +883,7 @@
         renderTags(); body.appendChild(ts)
         if (obj.metadata) {
           var md = document.createElement('div'); md.style.cssText = 'border-top:1px solid #e5e7eb;padding-top:12px;margin-top:8px'
-          var mt = document.createElement('p'); mt.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; mt.textContent = 'metadata'
+          var mt = document.createElement('p'); mt.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; mt.textContent = '元数据'
           md.appendChild(mt)
           Object.keys(obj.metadata).filter(function(k){return ['title','date','duration'].indexOf(k)<0}).forEach(function(k){
             var r=document.createElement('div');r.style.cssText='font-size:12px;color:#4b5563';r.textContent=k+': '+(obj.metadata[k]||'');md.appendChild(r)
@@ -890,7 +892,7 @@
         }
         if (obj.extra) {
           var ed = document.createElement('div'); ed.style.cssText = 'border-top:1px solid #e5e7eb;padding-top:12px;margin-top:8px'
-          var et = document.createElement('p'); et.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; et.textContent = 'extra'
+          var et = document.createElement('p'); et.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; et.textContent = '扩展信息'
           ed.appendChild(et)
           Object.keys(obj.extra).filter(function(k){return k!=='tags'&&k!=='images'&&k!=='files'}).forEach(function(k){
             var r=document.createElement('div');r.style.cssText='font-size:12px;color:#4b5563;word-break:break-all';var v=obj.extra[k];if(typeof v==='object')v=JSON.stringify(v,null,2);r.textContent=k+': '+v;ed.appendChild(r)
@@ -902,13 +904,13 @@
         footer.style.cssText = 'padding:12px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
         var fl = document.createElement('div'); fl.style.cssText = 'display:flex;gap:8px'
         if (fileUrl) {
-          var of = document.createElement('a'); of.href=fileUrl; of.target='_blank'; of.rel='noopener noreferrer'; of.style.cssText='padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; of.textContent='open file'; fl.appendChild(of)
+          var of = document.createElement('a'); of.href=fileUrl; of.target='_blank'; of.rel='noopener noreferrer'; of.style.cssText='padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; of.textContent='打开文件'; fl.appendChild(of)
         }
         if (obj.metadata&&obj.metadata.page_url) {
-          var op = document.createElement('a'); op.href=obj.metadata.page_url; op.target='_blank'; op.rel='noopener noreferrer'; op.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'; op.textContent='open page'; fl.appendChild(op)
+          var op = document.createElement('a'); op.href=obj.metadata.page_url; op.target='_blank'; op.rel='noopener noreferrer'; op.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'; op.textContent='打开原页面'; fl.appendChild(op)
         }
         footer.appendChild(fl)
-        var cb2 = document.createElement('button'); cb2.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px;color:#374151'; cb2.textContent='close'; cb2.onclick=function(e){e.stopPropagation();onClose()}; footer.appendChild(cb2)
+        var cb2 = document.createElement('button'); cb2.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px;color:#374151'; cb2.textContent='关闭'; cb2.onclick=function(e){e.stopPropagation();onClose()}; footer.appendChild(cb2)
         panel.appendChild(footer)
         overlay.addEventListener('click', function(e){if(e.target===overlay)onClose()})
         function keyHandler(e){if(e.key==='Escape')onClose()}
