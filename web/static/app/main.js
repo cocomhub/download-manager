@@ -524,6 +524,101 @@
       getCoverImage: function(obj) { return UiVideoPlayer.getCoverImage(obj) },
       onCoverError: function(e) { UiVideoPlayer.onCoverError(e) },
       getPreviewUrl: function(obj) { return UiVideoPlayer.getPreviewUrl(obj) },
+      // ---- Missing template methods (delegates and stubs) ----
+      isGroupRepresentative: function(obj) { return UiHelpers.isGroupRepresentative(obj) },
+      retryObject: function(obj) {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (!this.selectedTaskId || !obj || !obj.url) return
+        var self = this
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/retry', { url: obj.url })
+          .then(function(res) { if (!res.ok) throw new Error('重试失败'); obj.status = 'pending'; obj.progress = 0; UiHelpers.showToast('已重试', 'success') })
+          .catch(function(e) { UiHelpers.showToast('重试失败: ' + e.message, 'error') })
+      },
+      dragStart: function($event, obj) { this.draggedItem = obj; $event.dataTransfer.effectAllowed = 'move' },
+      drop: function($event, obj) { $event.preventDefault(); this.draggedItem = null },
+      undoCancelAggObject: function(obj) {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (!obj || !obj.task_id) return
+        var self = this
+        AppAPI.post('/api/tasks/' + encodeURIComponent(obj.task_id) + '/object/undo_cancel', { url: obj.url })
+          .then(function(res) { if (!res.ok) throw new Error('撤销失败'); obj.status = 'pending'; UiHelpers.showToast('已撤销取消', 'success') })
+          .catch(function(e) { UiHelpers.showToast('撤销失败: ' + e.message, 'error') })
+      },
+      cancelLowPriorityInGroup: function() {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        var targets = this.groupModalSafety.pendingTargets
+        if (!targets || targets.length === 0) return
+        var taskId = this.groupModal.taskId
+        if (!taskId) { UiHelpers.showToast('无法获取任务ID', 'error'); return }
+        var urls = targets.map(function(t) { return t.url })
+        var self = this
+        AppAPI.post('/api/tasks/' + encodeURIComponent(taskId) + '/object/cancel_batch', { urls: urls })
+          .then(function(res) { if (!res.ok) throw new Error('批量取消失败'); UiHelpers.showToast('已取消 ' + urls.length + ' 个低优先级对象', 'success'); self.closeGroupModal() })
+          .catch(function(e) { UiHelpers.showToast('批量取消失败: ' + e.message, 'error') })
+      },
+      fmt: function(val) {
+        if (val === null || val === undefined) return ''
+        if (typeof val === 'object') return JSON.stringify(val, null, 2)
+        return String(val)
+      },
+      viewConfigDiff: function() {
+        var self = this
+        AppAPI.post('/api/config/diff', { left: this.diffForm.left, right: this.diffForm.right, options: this.diffOptions })
+          .then(function(data) { self.configDiff = data; self.lineDiff = (data && data.lineDiff) || []; self.collapsedLineDiff = (data && data.collapsedLineDiff) || [] })
+          .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
+      },
+      clearConfigDiff: function() { this.configDiff = null; this.lineDiff = []; this.collapsedLineDiff = [] },
+      prepareRollback: function(filename) {
+        this.rollbackTarget = filename
+        this.showRollbackConfirm = true
+        var self = this
+        AppAPI.post('/api/config/diff', { left: 'current', right: filename })
+          .then(function(data) { self.rollbackDiff = data; self.rollbackLineDiff = (data && data.lineDiff) || [] })
+          .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
+      },
+      confirmRollback: function() {
+        var self = this
+        AppAPI.post('/api/config/rollback', { target: this.rollbackTarget })
+          .then(function(res) { if (!res.ok) throw new Error('回滚失败'); UiHelpers.showToast('配置已回滚', 'success'); self.showRollbackConfirm = false; self.fetchTasks() })
+          .catch(function(e) { UiHelpers.showToast('回滚失败: ' + e.message, 'error') })
+      },
+      addConfigTagRow: function(filename) {
+        var tag = prompt('输入标签名称:')
+        if (!tag || !tag.trim()) return
+        var self = this
+        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/tag', { tag: tag.trim() })
+          .then(function() { UiHelpers.showToast('标签已添加', 'success') })
+          .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
+      },
+      addConfigNoteRow: function(filename) {
+        var note = prompt('输入记录内容:')
+        if (!note || !note.trim()) return
+        var self = this
+        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/note', { message: note.trim() })
+          .then(function() { UiHelpers.showToast('记录已添加', 'success') })
+          .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
+      },
+      deleteConfigBackupRow: function(filename) {
+        if (!confirm('确定要删除备份 ' + filename + ' 吗？')) return
+        var self = this
+        AppAPI.del('/api/config/backup/' + encodeURIComponent(filename))
+          .then(function() { UiHelpers.showToast('备份已删除', 'success'); self.fetchTasks() })
+          .catch(function(e) { UiHelpers.showToast('删除失败: ' + e.message, 'error') })
+      },
+      addConfigTag: function() {
+        if (!this.tagForm.tag || !this.tagForm.tag.trim()) return
+        var self = this
+        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/tag', { tag: this.tagForm.tag.trim() })
+          .then(function() { self.tagForm.tag = ''; self.tagForm.message = '标签已添加'; UiHelpers.showToast('标签已添加', 'success') })
+          .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
+      },
+      addConfigNote: function() {
+        if (!this.noteForm.message || !this.noteForm.message.trim()) return
+        var self = this
+        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/note', { message: this.noteForm.message.trim(), author: this.noteForm.author || '' })
+          .then(function() { self.noteForm.message = ''; self.noteForm.messageText = '记录已添加'; UiHelpers.showToast('记录已添加', 'success') })
+          .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
+      },
       // Dashboard delegates
       fetchDashboardData: function() { UiDashboard.fetchDashboardData(this) },
       fetchHealthz: function() { UiDashboard.fetchHealthz(this) },
