@@ -319,6 +319,7 @@
       cancelCurrentTask: function() { UiTaskList.cancelCurrentTask(this) },
       changePage: function(p) { UiTaskList.changePage(this, p) },
       changeLimit: function() { UiTaskList.changeLimit(this) },
+      fetchTaskDetails: function(id, background) { UiTaskList.fetchTaskDetails(this, id, background) },
       saveTaskConfig: function() { UiTaskList.saveTaskConfig(this) },
       toggleTaskConfigPanel: function() { UiTaskList.toggleTaskConfigPanel(this) },
       toggleSelectAllObjects: function() { UiTaskList.toggleSelectAllObjects(this) },
@@ -477,9 +478,23 @@
       },
       openGroupModal: function(obj) {
         var info = UiHelpers.getScopedTaskInfo(obj)
-        this.groupModal.taskId = info.taskId
-        this.groupModal.taskType = info.taskType
-        this.showGroupModal = true
+        var groupId = obj && obj.metadata && obj.metadata.content_group
+        if (!groupId) {
+          this.groupModal.taskId = info.taskId
+          this.groupModal.taskType = info.taskType
+          this.showGroupModal = true
+          return
+        }
+        var self = this
+        AppAPI.groupObjects(groupId, info.taskId, info.taskType).then(function(data) {
+          self.groupModal.title = groupId
+          self.groupModal.list = data.objects || []
+          self.groupModal.taskId = info.taskId
+          self.groupModal.taskType = info.taskType
+          self.showGroupModal = true
+        }).catch(function(e) {
+          UiHelpers.showToast('加载分组失败: ' + e.message, 'error')
+        })
       },
       closeGroupModal: function() {
         this.showGroupModal = false
@@ -656,7 +671,7 @@
         if (!obj) return false
         var type = obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
-        var result = handler && handler.renderViewer !== null && handler.shouldShowViewer(obj)
+        var result = handler && typeof handler.renderViewer === 'function' && handler.shouldShowViewer(obj)
         Log.debug('showTaskTypeViewer', { type: type, hasHandler: !!handler, result: result })
         return result
       },
