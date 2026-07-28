@@ -325,33 +325,38 @@
         var handler = TaskUI.get(type)
         Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, renderViewer: !!(handler && handler.renderViewer), title: obj && obj.metadata && obj.metadata.title })
         if (handler && handler.renderViewer) {
-          var self = this
-          var container = document.createElement('div')
-          document.body.appendChild(container)
           try {
-            var vm = Vue.createApp({
-              render: function () {
-                var h = Vue.h
-                try {
-                  var result = handler.renderViewer(obj, function () {
-                    try { vm.unmount() } catch (e) { Log.error('openTaskTypeViewer unmount error', { error: e.message }) }
-                    try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
-                  })
-                  Log.info('openTaskTypeViewer renderViewer returned', { type: typeof result, isVNode: !!(result && result.type) })
-                  return result
-                } catch (e) {
-                  Log.error('openTaskTypeViewer renderViewer error', { error: e.message, stack: e.stack })
-                  return h('div', { class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4' }, [
-                    h('div', { class: 'bg-white rounded-lg p-6 text-center' }, [
-                      h('p', { class: 'text-red-600 mb-2' }, '查看器加载失败: ' + e.message),
-                      h('button', { class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm', on: { click: function () { try { vm.unmount() } catch (e) {}; try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {} } } }, '关闭')
-                    ])
-                  ])
-                }
-              }
-            }).mount(container)
+            var container = document.createElement('div')
+            document.body.appendChild(container)
+            var onClose = function () {
+              try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
+            }
+            var result = handler.renderViewer(obj, onClose)
+            // The viewer already appends its DOM to document.body,
+            // so we just need to clean up the container on close.
+            // result is a dummy VNode (h('div')) that we ignore.
           } catch (e) {
-            Log.error('openTaskTypeViewer createApp error', { error: e.message, stack: e.stack })
+            Log.error('openTaskTypeViewer renderViewer error', { error: e.message, stack: e.stack })
+            // Show error modal using pure DOM
+            var overlay = TaskUI.Modal.createOverlay()
+            var panel = TaskUI.Modal.createPanel('500px')
+            overlay.appendChild(panel)
+            var header = TaskUI.Modal.createHeader({ title: '查看器加载失败', onClose: function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); document.body.style.overflow = '' } })
+            panel.appendChild(header)
+            var body = document.createElement('div')
+            body.style.cssText = 'padding:24px;text-align:center'
+            var msg = document.createElement('p')
+            msg.style.cssText = 'color:#dc2626;margin-bottom:16px'
+            msg.textContent = e.message || '未知错误'
+            body.appendChild(msg)
+            var closeBtn = document.createElement('button')
+            closeBtn.style.cssText = 'padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:14px'
+            closeBtn.textContent = '关闭'
+            closeBtn.onclick = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); document.body.style.overflow = '' }
+            body.appendChild(closeBtn)
+            panel.appendChild(body)
+            document.body.appendChild(overlay)
+            document.body.style.overflow = 'hidden'
           }
         } else {
           Log.warn('openTaskTypeViewer no renderViewer', { type: type, hasHandler: !!handler })
@@ -430,220 +435,150 @@
       // ---- Default object info viewer (no-task-type fallback) ----
       openObjectInfoViewer: function (obj) {
         if (!obj) return
-        Log.info('openObjectInfoViewer', { url: obj.url, status: obj.status, title: this.getTitle(obj) })
-        var self = this
-        var container = document.createElement('div')
-        document.body.appendChild(container)
-
-        // ---- Tag editing state ----
-        var tagState = Vue.reactive({
-          items: self.getTags(obj).slice(),
-          adding: false,
-          inputValue: ''
-        })
-
+        Log.info('openObjectInfoViewer', { url: obj.url, status: obj.status, title: UiHelpers.getTitle(obj) })
+        var title = UiHelpers.getTitle(obj) || obj.url || ''
+        var fileUrl = UiHelpers.getFileUrl(obj, this.runtime)
+        var tags = UiHelpers.getTags(obj).slice()
+        var dateVal = UiHelpers.getDate(obj)
+        var duration = UiHelpers.getDuration(obj)
+        var tagState = { items: tags, adding: false, inputValue: '' }
         function saveTags () {
-          var taskType = self.getTaskTypeForObj(obj)
-          var objId = self.getObjId(obj)
+          var taskType = UiHelpers.getTaskTypeForObj(obj)
+          var objId = UiHelpers.getObjId(obj)
           AppAPI.updateObjectTags(taskType, objId, tagState.items).then(function (res) {
-            if (!res.ok) throw new Error('保存标签失败')
+            if (!res.ok) throw new Error('save failed')
             obj.extra = obj.extra || {}
             obj.extra.tags = tagState.items.slice()
           }).catch(function (e) {
-            self.showToast('保存标签失败: ' + e.message, 'error')
-            Log.error('Failed to save tags', e)
+            UiHelpers.showToast('save tags failed: ' + e.message, 'error')
           })
         }
-
-        var vm = Vue.createApp({
-          render: function () {
-            var h = Vue.h
-            var title = self.getTitle(obj) || obj.url || ''
-            var fileUrl = self.getFileUrl(obj)
-            var tags = self.getTags(obj)
-            var dateVal = self.getDate(obj)
-            var duration = self.getDuration(obj)
-
-            function onClose () {
-              vm.unmount()
-              if (container.parentNode) container.parentNode.removeChild(container)
+        var overlay = document.createElement('div')
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)'
+        var panel = document.createElement('div')
+        panel.style.cssText = 'background:#fff;border-radius:8px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:672px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column'
+        overlay.appendChild(panel)
+        function onClose () {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay)
+          document.body.style.overflow = ''
+        }
+        var header = document.createElement('div')
+        header.style.cssText = 'padding:16px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;background:#f9fafb'
+        var hTitle = document.createElement('h3')
+        hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        hTitle.textContent = title || 'object info'
+        header.appendChild(hTitle)
+        var hClose = document.createElement('button')
+        hClose.innerHTML = '<i class="fas fa-times"></i>'
+        hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px'
+        hClose.onclick = function (e) { e.stopPropagation(); onClose() }
+        header.appendChild(hClose)
+        panel.appendChild(header)
+        var body = document.createElement('div')
+        body.style.cssText = 'flex:1;overflow-y:auto;padding:16px'
+        function addRow(l, v) {
+          if (!v) return
+          var r = document.createElement('div'); r.style.cssText = 'font-size:12px'
+          var lb = document.createElement('span'); lb.style.cssText = 'color:#6b7280'; lb.textContent = l + ': '
+          r.appendChild(lb)
+          var vl = document.createElement('span'); vl.style.cssText = 'color:#374151;word-break:break-all'; vl.textContent = v
+          r.appendChild(vl); body.appendChild(r)
+        }
+        var sr = document.createElement('div'); sr.style.cssText = 'display:flex;align-items:center;gap:8px'
+        var sl = document.createElement('span'); sl.style.cssText = 'font-size:12px;color:#6b7280'; sl.textContent = 'status: '
+        sr.appendChild(sl)
+        var sb = document.createElement('span')
+        sb.style.cssText = 'padding:2px 8px;font-size:12px;font-weight:600;border-radius:9999px;background:' + (obj.status === 'completed' ? '#d1fae5' : obj.status === 'failed' ? '#fee2e2' : obj.status === 'downloading' ? '#fef3c7' : '#f3f4f6') + ';color:' + (obj.status === 'completed' ? '#065f46' : obj.status === 'failed' ? '#991b1b' : obj.status === 'downloading' ? '#92400e' : '#374151')
+        sb.textContent = obj.status || ''
+        sr.appendChild(sb); body.appendChild(sr)
+        addRow('URL', obj.url)
+        addRow('path', obj.save_path)
+        addRow('date', dateVal)
+        addRow('duration', duration)
+        var ts = document.createElement('div'); ts.style.cssText = 'margin-top:8px'
+        var tw = document.createElement('div'); tw.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center'
+        function renderTags() {
+          tw.innerHTML = ''
+          tagState.items.forEach(function(tag,i) {
+            var t = document.createElement('span')
+            t.style.cssText = 'font-size:12px;background:#f3f4f6;color:#4b5563;padding:2px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:4px'
+            t.textContent = '#' + tag
+            var d = document.createElement('button'); d.textContent = 'x'; d.style.cssText = 'color:#f87171;cursor:pointer;background:none;border:none;font-size:12px;margin-left:4px'
+            d.onclick = function(e) { e.stopPropagation(); tagState.items.splice(i,1); renderTags(); saveTags() }
+            t.appendChild(d); tw.appendChild(t)
+          })
+          if (!tagState.adding) {
+            var ab = document.createElement('button'); ab.textContent = '+'; ab.style.cssText = 'color:#3b82f6;cursor:pointer;background:none;border:none;font-size:12px;margin-left:4px'
+            ab.onclick = function(e) { e.stopPropagation(); tagState.adding=true; tagState.inputValue=''; renderTags() }
+            tw.appendChild(ab)
+          } else {
+            var inp = document.createElement('input'); inp.type='text'; inp.style.cssText='border:1px solid #d1d5db;border-radius:4px;padding:2px 4px;font-size:12px;width:96px'
+            inp.value = tagState.inputValue
+            inp.onkeydown = function(e) {
+              if (e.key==='Enter') { e.preventDefault(); var v=inp.value.trim(); if(v&&tagState.items.indexOf(v)<0){tagState.items.push(v);saveTags()} tagState.adding=false; renderTags() }
+              else if (e.key==='Escape') { tagState.adding=false; renderTags() }
             }
-
-            return h('div', {
-              class: 'fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 backdrop-blur-sm',
-              on: { click: function (e) { if (e.target === e.currentTarget) onClose() } }
-            }, [
-              h('div', { class: 'bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col' }, [
-                // Header
-                h('div', { class: 'p-4 border-b flex justify-between items-center bg-gray-50' }, [
-                  h('h3', { class: 'text-lg font-bold text-gray-800 truncate' }, title || '对象信息'),
-                  h('button', { class: 'text-gray-500 hover:text-gray-700', on: { click: function (e) { e.stopPropagation(); onClose() } } }, [
-                    h('i', { class: 'fas fa-times' })
-                  ]),
-                ]),
-                // Body
-                h('div', { class: 'flex-1 overflow-y-auto p-4 space-y-3' }, [
-                  // Status badge
-                  h('div', { class: 'flex items-center gap-2' }, [
-                    h('span', { class: 'text-xs text-gray-500' }, '状态：'),
-                    h('span', {
-                      class: 'px-2 py-0.5 text-xs font-semibold rounded-full',
-                      style: {
-                        backgroundColor: obj.status === 'completed' ? '#d1fae5' : obj.status === 'failed' ? '#fee2e2' : obj.status === 'downloading' ? '#fef3c7' : '#f3f4f6',
-                        color: obj.status === 'completed' ? '#065f46' : obj.status === 'failed' ? '#991b1b' : obj.status === 'downloading' ? '#92400e' : '#374151'
-                      }
-                    }, obj.status || '')
-                  ]),
-                  // URL
-                  obj.url ? h('div', { class: 'text-xs' }, [
-                    h('span', { class: 'text-gray-500' }, 'URL：'),
-                    h('span', { class: 'text-gray-700 break-all' }, obj.url)
-                  ]) : null,
-                  // Save path
-                  obj.save_path ? h('div', { class: 'text-xs' }, [
-                    h('span', { class: 'text-gray-500' }, '文件路径：'),
-                    h('span', { class: 'text-gray-700 break-all' }, obj.save_path)
-                  ]) : null,
-                  // Date
-                  dateVal ? h('div', { class: 'text-xs' }, [
-                    h('span', { class: 'text-gray-500' }, '日期：'),
-                    h('span', { class: 'text-gray-700' }, dateVal)
-                  ]) : null,
-                  // Duration
-                  duration ? h('div', { class: 'text-xs' }, [
-                    h('span', { class: 'text-gray-500' }, '时长：'),
-                    h('span', { class: 'text-gray-700' }, duration)
-                  ]) : null,
-                  // Tags (editable)
-                  h('div', { class: '' }, [
-                    h('div', { class: 'flex flex-wrap gap-1 items-center' }, [
-                      // Existing tags
-                      tagState.items.map(function (tag, i) {
-                        return h('span', { class: 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded inline-flex items-center gap-1' }, [
-                          h('span', null, '#' + tag),
-                          h('button', {
-                            class: 'text-red-400 hover:text-red-600 text-xs ml-1 cursor-pointer',
-                            on: { click: function (e) {
-                              e.stopPropagation()
-                              tagState.items.splice(i, 1)
-                              saveTags()
-                            }}
-                          }, '✕')
-                        ])
-                      }),
-                      // Add button
-                      !tagState.adding ? h('button', {
-                        class: 'text-blue-500 hover:text-blue-700 text-xs ml-1 cursor-pointer',
-                        on: { click: function (e) {
-                          e.stopPropagation()
-                          tagState.adding = true
-                          tagState.inputValue = ''
-                        }}
-                      }, '+') : null,
-                      // Input field
-                      tagState.adding ? h('div', { class: 'inline-flex items-center gap-1' }, [
-                        h('input', {
-                          attrs: { type: 'text', placeholder: '添加标签', class: 'border rounded px-1 py-0.5 text-xs w-24' },
-                          domProps: { value: tagState.inputValue },
-                          on: {
-                            input: function (e) { tagState.inputValue = e.target.value },
-                            keydown: function (e) {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                var val = tagState.inputValue.trim()
-                                if (val && tagState.items.indexOf(val) < 0) {
-                                  tagState.items.push(val)
-                                  saveTags()
-                                }
-                                tagState.adding = false
-                                tagState.inputValue = ''
-                              } else if (e.key === 'Escape') {
-                                tagState.adding = false
-                                tagState.inputValue = ''
-                              }
-                            }
-                          }
-                        }),
-                        h('button', {
-                          class: 'text-green-500 hover:text-green-700 text-xs ml-1 cursor-pointer',
-                          on: { click: function (e) {
-                            e.stopPropagation()
-                            var val = tagState.inputValue.trim()
-                            if (val && tagState.items.indexOf(val) < 0) {
-                              tagState.items.push(val)
-                              saveTags()
-                            }
-                            tagState.adding = false
-                            tagState.inputValue = ''
-                          }}
-                        }, '✓'),
-                        h('button', {
-                          class: 'text-gray-400 hover:text-gray-600 text-xs ml-1 cursor-pointer',
-                          on: { click: function (e) {
-                            e.stopPropagation()
-                            tagState.adding = false
-                            tagState.inputValue = ''
-                          }}
-                        }, '✕')
-                      ]) : null
-                    ])
-                  ]),
-                  // Metadata
-                  obj.metadata ? h('div', { class: 'border-t pt-3 mt-2' }, [
-                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '元数据'),
-                    Object.keys(obj.metadata).filter(function (k) { return !['title', 'date', 'duration'].includes(k) }).map(function (k) {
-                      return h('div', { class: 'text-xs text-gray-600' }, k + ': ' + (obj.metadata[k] || ''))
-                    })
-                  ]) : null,
-                  // Extra
-                  obj.extra ? h('div', { class: 'border-t pt-3 mt-2' }, [
-                    h('p', { class: 'text-xs font-semibold text-gray-500 mb-1' }, '扩展信息'),
-                    Object.keys(obj.extra).filter(function (k) { return k !== 'tags' && k !== 'images' && k !== 'files' }).map(function (k) {
-                      var v = obj.extra[k]
-                      if (typeof v === 'object') v = JSON.stringify(v, null, 2)
-                      return h('div', { class: 'text-xs text-gray-600 break-all' }, k + ': ' + v)
-                    })
-                  ]) : null,
-                ]),
-                // Footer
-                h('div', { class: 'p-3 border-t bg-gray-50 flex justify-between items-center' }, [
-                  h('div', { class: 'flex gap-2' }, [
-                    fileUrl ? h('a', {
-                      attrs: { href: fileUrl, target: '_blank', rel: 'noopener noreferrer' },
-                      class: 'px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700'
-                    }, '打开文件') : null,
-                    obj.metadata && obj.metadata.page_url ? h('a', {
-                      attrs: { href: obj.metadata.page_url, target: '_blank', rel: 'noopener noreferrer' },
-                      class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100'
-                    }, '打开原页面') : null,
-                  ]),
-                  h('button', {
-                    class: 'px-3 py-1.5 rounded bg-white border text-sm hover:bg-gray-100',
-                    on: { click: function (e) { e.stopPropagation(); onClose() } }
-                  }, '关闭'),
-                ]),
-              ])
-            ])
+            tw.appendChild(inp)
+            var cb = document.createElement('button'); cb.textContent = 'v'; cb.style.cssText = 'color:#22c55e;cursor:pointer;background:none;border:none;font-size:12px;margin-left:4px'
+            cb.onclick = function(e) { e.stopPropagation(); var v=inp.value.trim(); if(v&&tagState.items.indexOf(v)<0){tagState.items.push(v);saveTags()} tagState.adding=false; renderTags() }
+            tw.appendChild(cb)
+            setTimeout(function(){inp.focus()},0)
           }
-        }).mount(container)
-      }
-    }
-  })
+          ts.appendChild(tw)
+        }
+        renderTags(); body.appendChild(ts)
+        if (obj.metadata) {
+          var md = document.createElement('div'); md.style.cssText = 'border-top:1px solid #e5e7eb;padding-top:12px;margin-top:8px'
+          var mt = document.createElement('p'); mt.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; mt.textContent = 'metadata'
+          md.appendChild(mt)
+          Object.keys(obj.metadata).filter(function(k){return ['title','date','duration'].indexOf(k)<0}).forEach(function(k){
+            var r=document.createElement('div');r.style.cssText='font-size:12px;color:#4b5563';r.textContent=k+': '+(obj.metadata[k]||'');md.appendChild(r)
+          })
+          body.appendChild(md)
+        }
+        if (obj.extra) {
+          var ed = document.createElement('div'); ed.style.cssText = 'border-top:1px solid #e5e7eb;padding-top:12px;margin-top:8px'
+          var et = document.createElement('p'); et.style.cssText = 'font-size:12px;font-weight:600;color:#6b7280;margin:0 0 4px'; et.textContent = 'extra'
+          ed.appendChild(et)
+          Object.keys(obj.extra).filter(function(k){return k!=='tags'&&k!=='images'&&k!=='files'}).forEach(function(k){
+            var r=document.createElement('div');r.style.cssText='font-size:12px;color:#4b5563;word-break:break-all';var v=obj.extra[k];if(typeof v==='object')v=JSON.stringify(v,null,2);r.textContent=k+': '+v;ed.appendChild(r)
+          })
+          body.appendChild(ed)
+        }
+        panel.appendChild(body)
+        var footer = document.createElement('div')
+        footer.style.cssText = 'padding:12px;border-top:1px solid #e5e7eb;background:#f9fafb;display:flex;justify-content:space-between;align-items:center'
+        var fl = document.createElement('div'); fl.style.cssText = 'display:flex;gap:8px'
+        if (fileUrl) {
+          var of = document.createElement('a'); of.href=fileUrl; of.target='_blank'; of.rel='noopener noreferrer'; of.style.cssText='padding:6px 12px;border-radius:6px;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;display:inline-block'; of.textContent='open file'; fl.appendChild(of)
+        }
+        if (obj.metadata&&obj.metadata.page_url) {
+          var op = document.createElement('a'); op.href=obj.metadata.page_url; op.target='_blank'; op.rel='noopener noreferrer'; op.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;text-decoration:none;cursor:pointer;font-size:14px;color:#374151;display:inline-block'; op.textContent='open page'; fl.appendChild(op)
+        }
+        footer.appendChild(fl)
+        var cb2 = document.createElement('button'); cb2.style.cssText='padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #d1d5db;cursor:pointer;font-size:14px;color:#374151'; cb2.textContent='close'; cb2.onclick=function(e){e.stopPropagation();onClose()}; footer.appendChild(cb2)
+        panel.appendChild(footer)
+        overlay.addEventListener('click', function(e){if(e.target===overlay)onClose()})
+        function keyHandler(e){if(e.key==='Escape')onClose()}
+        document.addEventListener('keydown',keyHandler)
+        var origOnClose=onClose; onClose=function(){document.removeEventListener('keydown',keyHandler);document.body.style.overflow='';if(origOnClose)origOnClose()}
+        document.body.appendChild(overlay); document.body.style.overflow='hidden'
+      },
 
-  // Register helpers module
-  if (typeof AppHelpers !== 'undefined') AppHelpers.register(app)
+      // Register helpers module
+      if (typeof AppHelpers !== 'undefined') AppHelpers.register(app)
 
-  // Register video player module
-  AppVideoPlayer.register(app)
+      // Register video player module
+      AppVideoPlayer.register(app)
 
-  // Register task list and dashboard modules
-  if (typeof AppTaskList !== 'undefined') AppTaskList.register(app)
-  if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
+      // Register task list and dashboard modules
+      if (typeof AppTaskList !== 'undefined') AppTaskList.register(app)
+      if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
 
-  // Optional aggregate/config/download view modules (loaded from separate files)
-  if (typeof AppAggregateView !== 'undefined') AppAggregateView.register(app)
-  if (typeof AppConfigPanel !== 'undefined') AppConfigPanel.register(app)
-  if (typeof AppDownloadView !== 'undefined') AppDownloadView.register(app)
+      // Optional aggregate/config/download view modules (loaded from separate files)
+      if (typeof AppAggregateView !== 'undefined') AppAggregateView.register(app)
+      if (typeof AppConfigPanel !== 'undefined') AppConfigPanel.register(app)
+      if (typeof AppDownloadView !== 'undefined') AppDownloadView.register(app)
 
-  app.mount('#app')
-})()
+      app.mount('#app')
+    })()
