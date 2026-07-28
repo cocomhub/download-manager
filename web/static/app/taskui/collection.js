@@ -138,12 +138,6 @@
             }
           })
 
-          row.addEventListener('click', function () {
-            if (item.id !== currentId) {
-              onPlayItem(item)
-            }
-          })
-
           body.appendChild(row)
         })
 
