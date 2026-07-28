@@ -30,7 +30,7 @@
         ? function (obj) { return handler.renderCardExtra(Vue.h, obj) }
         : null,
       renderViewer: typeof handler.renderViewer === 'function'
-        ? function (obj, onClose) { return handler.renderViewer(Vue.h, obj, onClose) }
+        ? function (h, obj, onClose) { return handler.renderViewer(Vue.h, obj, onClose) }
         : null,
       renderAggregate: typeof handler.renderAggregate === 'function' ? handler.renderAggregate : null,
       onClick: typeof handler.onClick === 'function' ? handler.onClick : null,
