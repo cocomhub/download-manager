@@ -4,7 +4,7 @@
 /**
  * Vue app initialization — wires together all modules.
  * Must be loaded AFTER all other app/*.js files and Vue CDN.
- * Depends on: AppAPI, AppVideoPlayer, AppHelpers (global)
+ * Depends on: AppAPI, UiHelpers, UiTaskList, UiVideoPlayer, UiDashboard (global)
  */
 ;(function () {
   'use strict'
@@ -500,10 +500,7 @@
         this.showGroupModal = false
         this.groupModal = { taskId: '', taskType: '' }
       },
-      changeAggLimit: function() {
-        this.aggPagination.page = 1
-        this.fetchAggregateByType(this.selectedType || 'all')
-      },
+      changeAggLimit: function() { UiHelpers.changeAggLimit(this) },
       handleCardClick: function(obj) {
         if (!obj) return
         Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
