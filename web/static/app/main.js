@@ -264,10 +264,7 @@
       selectedTask: function () {
         this.$nextTick(function () {
           if (this.uiMode === 'watch' && this.selectedTask) {
-            var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(this.selectedTask.type)
-            if (view) {
-              view.render(this.selectedTask)
-            }
+            // Task-specific watch mode rendering is handled by TaskUI plugins
           }
         }.bind(this))
       },
@@ -279,10 +276,7 @@
           this.stopDashboardPolling()
         }
         this.$nextTick(function () {
-          if (this.selectedTask && this.uiMode === 'watch') {
-            var view = window.__dm_uiBridge && window.__dm_uiBridge.getTaskView(this.selectedTask.type)
-            if (view) view.render(this.selectedTask)
-          }
+          // Task-specific watch mode rendering is handled by TaskUI plugins
         }.bind(this))
       }
     },
