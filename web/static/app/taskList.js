@@ -107,6 +107,9 @@
               self.selectedTask = data
               if (data.concurrency !== undefined) self.taskConfigForm.concurrency = data.concurrency
               if (data.refresh_interval !== undefined) self.taskConfigForm.refresh_interval = data.refresh_interval
+              if (data.scrape_enabled !== undefined) self.taskConfigForm.scrape_enabled = data.scrape_enabled
+              if (data.download_enabled !== undefined) self.taskConfigForm.download_enabled = data.download_enabled
+              if (data.save_sub_dir !== undefined) self.taskConfigForm.save_sub_dir = data.save_sub_dir
               if (data.total !== undefined) {
                 self.pagination.total = data.total
                 self.pagination.page = data.page
@@ -334,10 +337,20 @@
           if (this.isWriteDisabled) { this.showToast('UI-Only 模式下已禁用', 'error'); return }
           if (!this.selectedTaskId) return
           var self = this
-          AppAPI.patch('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/runtime', {
+          var payload = {
             concurrency: this.taskConfigForm.concurrency,
             refresh_interval: this.taskConfigForm.refresh_interval
-          }).then(function (res) {
+          }
+          if (this.taskConfigForm.scrape_enabled !== undefined) {
+            payload.scrape_enabled = this.taskConfigForm.scrape_enabled
+          }
+          if (this.taskConfigForm.download_enabled !== undefined) {
+            payload.download_enabled = this.taskConfigForm.download_enabled
+          }
+          if (this.taskConfigForm.save_sub_dir !== undefined && this.taskConfigForm.save_sub_dir !== '') {
+            payload.save_sub_dir = this.taskConfigForm.save_sub_dir
+          }
+          AppAPI.patch('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/runtime', payload).then(function (res) {
             if (!res.ok) throw new Error('保存失败')
             self.showToast('任务配置已保存', 'success')
             self.fetchTaskDetails(self.selectedTaskId, true)

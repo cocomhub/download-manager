@@ -184,6 +184,7 @@ type TaskTypeDefault struct {
 	SaveRootDir     string         `yaml:"save_root_dir,omitempty" json:"save_root_dir,omitempty"`
 	ScrapeEnabled   *bool          `yaml:"scrape_enabled,omitempty" json:"scrape_enabled,omitempty"`
 	DownloadEnabled *bool          `yaml:"download_enabled,omitempty" json:"download_enabled,omitempty"`
+	Extra           map[string]any `yaml:"extra,omitempty" json:"extra,omitempty"`
 }
 
 // FileRoot returns the root directory for HTTP /files/ serving.
@@ -671,6 +672,10 @@ func (c *Config) cloneTaskTypeDefaults(src map[string]TaskTypeDefault) {
 			}
 			dst.Storage = sc
 		}
+		if v.Extra != nil {
+			dst.Extra = make(map[string]any, len(v.Extra))
+			maps.Copy(dst.Extra, v.Extra)
+		}
 		c.TaskTypeDefaults[k] = dst
 	}
 }
@@ -701,6 +706,21 @@ func (c *Config) SanitizeForSave() *Config {
 			effectiveDir := t.GetEffectiveSaveDir(cleaned)
 			if t.SaveDir == effectiveDir {
 				cleaned.Tasks[i].SaveDir = ""
+			}
+		}
+		// Remove Extra keys that match the type default (task-level overrides type default)
+		if def.Extra != nil && t.Extra != nil {
+			merged := make(map[string]any, len(t.Extra))
+			for k, v := range t.Extra {
+				if dv, inDefault := def.Extra[k]; inDefault && reflect.DeepEqual(v, dv) {
+					continue
+				}
+				merged[k] = v
+			}
+			if len(merged) == 0 {
+				cleaned.Tasks[i].Extra = nil
+			} else {
+				cleaned.Tasks[i].Extra = merged
 			}
 		}
 	}

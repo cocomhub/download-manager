@@ -52,7 +52,7 @@
           subtype: 'tag', max_concurrent: 1, refresh_interval: 3600,
           storage_type: 'file', storage_config: { path: '', source: '', database: '', collection: '' }
         },
-        taskConfigForm: { concurrency: 1, refresh_interval: 3600 },
+        taskConfigForm: { concurrency: 1, refresh_interval: 3600, scrape_enabled: true, download_enabled: true, save_sub_dir: '' },
         statusFilter: 'all',
         configHistory: [],
         diffForm: { left: 'current', right: 'current' },
@@ -383,15 +383,46 @@
       openTaskTypeDefaults: function () {
         var self = this
         AppAPI.getTaskTypeDefaults().then(function (data) {
+          // Convert extra JSON to editable text area format
+          Object.keys(data || {}).forEach(function (typ) {
+            var def = data[typ]
+            if (def.extra && typeof def.extra === 'object') {
+              def.extra_text = JSON.stringify(def.extra, null, 2)
+            } else {
+              def.extra_text = ''
+            }
+          })
           self.taskTypeDefaultsData = data || {}
           self.showTaskTypeDefaultsModal = true
         })
       },
       saveTaskTypeDefaults: function () {
         var self = this
-        AppAPI.setTaskTypeDefaults(self.taskTypeDefaultsData).then(function () {
+        // Convert extra_text back to JSON
+        var data = {}
+        Object.keys(self.taskTypeDefaultsData).forEach(function (typ) {
+          var def = self.taskTypeDefaultsData[typ]
+          data[typ] = {
+            storage: def.storage || null,
+            save_root_dir: def.save_root_dir || '',
+            scrape_enabled: !!def.scrape_enabled,
+            download_enabled: !!def.download_enabled,
+          }
+          // Parse extra_text to JSON
+          if (def.extra_text && def.extra_text.trim()) {
+            try {
+              data[typ].extra = JSON.parse(def.extra_text)
+            } catch (e) {
+              self.showToast('类型 ' + typ + ' 的扩展配置 JSON 格式错误', 'error')
+              return
+            }
+          }
+        })
+        AppAPI.setTaskTypeDefaults(data).then(function () {
           self.showTaskTypeDefaultsModal = false
           self.fetchTasks()
+        }).catch(function (e) {
+          self.showToast('保存失败: ' + e.message, 'error')
         })
       },
 

@@ -225,6 +225,9 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 type TaskConfigRequest struct {
 	Concurrency     *int   `json:"concurrency"`
 	RefreshInterval *int   `json:"refresh_interval"`
+	ScrapeEnabled   *bool  `json:"scrape_enabled,omitempty"`
+	DownloadEnabled *bool  `json:"download_enabled,omitempty"`
+	SaveSubDir      string `json:"save_sub_dir,omitempty"`
 	AuditAuthor     string `json:"audit_author"`
 	AuditMessage    string `json:"audit_message"`
 	AuditSource     string `json:"audit_source"`
@@ -253,7 +256,7 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 			audit.Message = fmt.Sprintf("task %s runtime: refresh_interval=%d", id, *req.RefreshInterval)
 		}
 	}
-	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, req.ScrapeEnabled, req.DownloadEnabled, req.SaveSubDir, audit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task config: %v", err))
 		return
@@ -277,7 +280,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 		Source:  coalesce(req.AuditSource, "api/tasks/runtime"),
 		Message: coalesce(req.AuditMessage, ""),
 	}
-	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, req.ScrapeEnabled, req.DownloadEnabled, req.SaveSubDir, audit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task runtime: %v", err))
 		return

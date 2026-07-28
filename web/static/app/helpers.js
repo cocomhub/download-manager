@@ -311,8 +311,29 @@
         // ---- Create task modal ----
         openAddTask: function ($event) {
           if ($event) $event.preventDefault()
+          var self = this
           Log.debug('openAddTask', { currentType: this.newTask.type })
-          this.showAddTaskModal = true
+          // Fetch type defaults for the current task type
+          AppAPI.getTaskTypeDefaults().then(function (defaults) {
+            var typeDef = defaults && defaults[self.newTask.type]
+            if (typeDef) {
+              // Fill save_dir hint from type default's save_root_dir
+              if (typeDef.save_root_dir && !self.newTask.save_dir) {
+                self.newTask.save_dir = typeDef.save_root_dir
+              }
+              // Fill scrape_enabled, download_enabled defaults
+              if (self.newTask.scrape_enabled === undefined) {
+                self.newTask.scrape_enabled = typeDef.scrape_enabled !== false
+              }
+              if (self.newTask.download_enabled === undefined) {
+                self.newTask.download_enabled = typeDef.download_enabled !== false
+              }
+            }
+            self.showAddTaskModal = true
+          }).catch(function () {
+            // Fallback: open modal even if defaults fetch fails
+            self.showAddTaskModal = true
+          })
         },
         saveNewTask: function () {
           var payload = {
@@ -323,6 +344,20 @@
             extra: {}
           }
           Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
+          // New fields: save_sub_dir, scrape_enabled, download_enabled
+          if (this.newTask.save_sub_dir) {
+            payload.save_sub_dir = this.newTask.save_sub_dir
+          }
+          if (this.newTask.scrape_enabled !== undefined) {
+            payload.scrape_enabled = this.newTask.scrape_enabled
+          }
+          if (this.newTask.download_enabled !== undefined) {
+            payload.download_enabled = this.newTask.download_enabled
+          }
+          // Warn when both save_dir and save_sub_dir are configured
+          if (payload.save_dir && payload.save_sub_dir) {
+            Log.warn('saveNewTask: both save_dir and save_sub_dir configured, save_dir takes precedence')
+          }
           if (this.newTask.storage_type === 'file' && this.newTask.storage_config.path) {
             payload.storage.path = this.newTask.storage_config.path
           }
@@ -348,7 +383,7 @@
             if (!res.ok) throw new Error('创建失败')
             self.showToast('任务创建成功', 'success')
             self.showAddTaskModal = false
-            self.newTask = { id: '', type: 'url_list', save_dir: '', storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
+            self.newTask = { id: '', type: 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true, storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
             self.fetchTasks()
           }).catch(function (e) { self.showToast('创建失败: ' + e.message, 'error') })
         },

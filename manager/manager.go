@@ -440,6 +440,15 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 		result["save_dir"] = tCfg.SaveDir
 		result["storage"] = tCfg.Storage
 		result["extra"] = tCfg.Extra
+		if tCfg.ScrapeEnabled != nil {
+			result["scrape_enabled"] = *tCfg.ScrapeEnabled
+		}
+		if tCfg.DownloadEnabled != nil {
+			result["download_enabled"] = *tCfg.DownloadEnabled
+		}
+		if tCfg.SaveSubDir != "" {
+			result["save_sub_dir"] = tCfg.SaveSubDir
+		}
 	}
 
 	// Task configuration exposure
