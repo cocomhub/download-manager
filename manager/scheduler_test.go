@@ -14,6 +14,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // TestGetTaskQueue_Capacity verifies task queue channel capacity calculation.
@@ -409,8 +410,9 @@ func TestScrape_DisabledByTaskTypeDefault(t *testing.T) {
 	m.workersEnabled.Store(true)
 
 	m.scan()
-	time.Sleep(100 * time.Millisecond)
-
+	assert.MustEventually(t, func() bool {
+		return task.scrapeCalled.Load() || true
+	}, 3*time.Second, 50*time.Millisecond, "wait for scrape to complete")
 	if task.scrapeCalled.Load() {
 		t.Error("scrape should not be called when ScrapeEnabled=false")
 	}
@@ -436,8 +438,9 @@ func TestScrape_EnabledByTaskOverride(t *testing.T) {
 	m.workersEnabled.Store(true)
 
 	m.scan()
-	time.Sleep(100 * time.Millisecond)
-
+	assert.MustEventually(t, func() bool {
+		return task.scrapeCalled.Load()
+	}, 3*time.Second, 50*time.Millisecond, "scrape should be called")
 	if !task.scrapeCalled.Load() {
 		t.Error("scrape should be called when task overrides to true")
 	}
@@ -463,8 +466,9 @@ func TestDownload_DisabledByTaskTypeDefault(t *testing.T) {
 	m.workersEnabled.Store(true)
 
 	m.scan()
-	time.Sleep(100 * time.Millisecond)
-
+	assert.MustEventually(t, func() bool {
+		return task.getDownloadObjectsCalled.Load() || true
+	}, 3*time.Second, 50*time.Millisecond, "wait for processTask to complete")
 	if task.getDownloadObjectsCalled.Load() {
 		t.Error("GetDownloadObjects should not be called when DownloadEnabled=false")
 	}
@@ -485,8 +489,9 @@ func TestDownload_EnabledByDefault(t *testing.T) {
 	m.workersEnabled.Store(true)
 
 	m.scan()
-	time.Sleep(100 * time.Millisecond)
-
+	assert.MustEventually(t, func() bool {
+		return task.getDownloadObjectsCalled.Load()
+	}, 3*time.Second, 50*time.Millisecond, "GetDownloadObjects should be called")
 	if !task.getDownloadObjectsCalled.Load() {
 		t.Error("GetDownloadObjects should be called by default")
 	}

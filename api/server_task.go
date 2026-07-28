@@ -248,12 +248,24 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 		Message: coalesce(req.AuditMessage, ""),
 	}
 	if audit.Message == "" {
-		if req.Concurrency != nil && req.RefreshInterval != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d, refresh_interval=%d", id, *req.Concurrency, *req.RefreshInterval)
-		} else if req.Concurrency != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d", id, *req.Concurrency)
-		} else if req.RefreshInterval != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: refresh_interval=%d", id, *req.RefreshInterval)
+		var parts []string
+		if req.Concurrency != nil {
+			parts = append(parts, fmt.Sprintf("concurrency=%d", *req.Concurrency))
+		}
+		if req.RefreshInterval != nil {
+			parts = append(parts, fmt.Sprintf("refresh_interval=%d", *req.RefreshInterval))
+		}
+		if req.ScrapeEnabled != nil {
+			parts = append(parts, fmt.Sprintf("scrape_enabled=%t", *req.ScrapeEnabled))
+		}
+		if req.DownloadEnabled != nil {
+			parts = append(parts, fmt.Sprintf("download_enabled=%t", *req.DownloadEnabled))
+		}
+		if req.SaveSubDir != "" {
+			parts = append(parts, fmt.Sprintf("save_sub_dir=%s", req.SaveSubDir))
+		}
+		if len(parts) > 0 {
+			audit.Message = fmt.Sprintf("task %s: %s", id, strings.Join(parts, ", "))
 		}
 	}
 	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, req.ScrapeEnabled, req.DownloadEnabled, req.SaveSubDir, audit)

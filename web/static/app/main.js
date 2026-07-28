@@ -48,7 +48,8 @@
           domain_limits_text: '', status_style: 'pill'
         },
         newTask: {
-          id: '', type: 'tktube', save_dir: './downloads', urls_text: '', keyword: '',
+          id: '', type: 'tktube', save_dir: './downloads', save_sub_dir: '', scrape_enabled: true, download_enabled: true,
+          urls_text: '', keyword: '',
           subtype: 'tag', max_concurrent: 1, refresh_interval: 3600,
           storage_type: 'file', storage_config: { path: '', source: '', database: '', collection: '' }
         },
