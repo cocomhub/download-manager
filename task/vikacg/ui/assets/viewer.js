@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -465,11 +463,4 @@
     })
   }
 
-  // Register with bridge (legacy compat)
-  window.__dm_uiBridge.register('vikacg', {
-    label: '浏览',
-    open: function (obj) {
-      createModal(obj)
-    }
-  })
 })()

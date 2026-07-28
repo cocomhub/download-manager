@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -407,10 +405,4 @@
     })
   }
 
-  // Register as task view (legacy compat)
-  window.__dm_uiBridge.registerTaskView('tktube', {
-    render: function (task) {
-      renderTaskView(task)
-    }
-  })
 })()

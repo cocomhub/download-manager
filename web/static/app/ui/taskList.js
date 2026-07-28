@@ -49,8 +49,8 @@
     var task = state.tasks.find(function (t) { return t.id === id })
     if (task && task.type) {
       Log.debug('selectTask loading task UI', { type: task.type })
-      if (typeof state._loadTaskUI === 'function') {
-        state._loadTaskUI(task.type)
+      if (typeof state.loadTaskUI === 'function') {
+        state.loadTaskUI(task.type)
       }
     }
   }

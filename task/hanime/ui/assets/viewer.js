@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -634,11 +632,4 @@
     })
   }
 
-  // Register with bridge (legacy compat)
-  window.__dm_uiBridge.register('hanime', {
-    label: '播放',
-    open: function (obj) {
-      createModal(obj)
-    }
-  })
 })()

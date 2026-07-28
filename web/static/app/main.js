@@ -302,6 +302,7 @@
       if (this.eventSource) this.eventSource.close()
       if (this.abortController) this.abortController.abort()
       this.stopDashboardPolling()
+      if (this._videoKeyHandler) window.removeEventListener('keydown', this._videoKeyHandler)
     },
 
     methods: {
@@ -327,11 +328,9 @@
       cancelObject: function(obj) { UiTaskList.cancelObject(this, obj) },
       undoCancelObject: function(obj) { UiTaskList.undoCancelObject(this, obj) },
       hasOnClick: function(obj) { return UiHelpers.hasOnClick(obj) },
-      initSSE: function() { initSSE(this) },
       saveConfig: function() { UiHelpers.saveConfig(this) },
       openConfigHistory: function() { UiHelpers.openConfigHistory(this) },
       saveNewTask: function() { UiHelpers.saveNewTask(this) },
-      saveTaskTypeDefaults: function() { UiHelpers.saveTaskTypeDefaults(this) },
       fetchAggregateByType: function(type) { UiHelpers.fetchAggregateByType(this, type) },
       cancelAggObject: function(obj) { UiHelpers.cancelAggObject(this, obj) },
       changeAggPage: function(p) { UiHelpers.changeAggPage(this, p) },
@@ -381,6 +380,145 @@
       closeVideo: function() { UiVideoPlayer.closeVideo(this) },
       playVideo: function(obj) { UiVideoPlayer.playVideo(this, obj) },
       isVideo: function(obj) { return UiVideoPlayer.isVideo(obj) },
+
+      // Missing methods from original mixin
+      setHoverObj: function(obj) {
+        var self = this
+        if (this.hoverTimer) clearTimeout(this.hoverTimer)
+        this.hoverTimer = setTimeout(function () { self.hoverObj = obj }, 600)
+      },
+      clearHoverObj: function() {
+        if (this.hoverTimer) clearTimeout(this.hoverTimer)
+        this.hoverObj = null
+      },
+      initSSE: function() {
+        if (this.eventSource) this.eventSource.close()
+        Log.debug('initSSE connecting')
+        var self = this
+        this.eventSource = new EventSource('/api/events')
+        this.eventSource.onmessage = function (event) {
+          try {
+            var data = JSON.parse(event.data)
+            Log.trace('SSE event', { type: data.type, taskId: data.payload && data.payload.task_id })
+            self.handleSSEEvent(data)
+          } catch (e) { Log.error('SSE Parse Error', { error: e.message }) }
+        }
+        this.eventSource.onerror = function () {
+          Log.warn('SSE connection error, reconnecting...')
+          UiHelpers.showToast('Connection lost. Reconnecting...', 'error')
+        }
+        this.eventSource.onopen = function () {
+          Log.debug('SSE connected')
+          self.fetchTasks()
+        }
+      },
+      handleSSEEvent: function(event) {
+        var self = this
+        if (event.type === 'object_update' || event.type === 'shared_object_update') {
+          var obj = event.payload
+          if (obj.status === 'downloading') {
+            var idx = this.activeDownloads.findIndex(function (d) { return d.url === obj.url })
+            if (idx >= 0) {
+              this.activeDownloads[idx] = { task_id: obj.task_id, url: obj.url, title: (obj.metadata && obj.metadata.title) || obj.url, progress: obj.progress, status: obj.status }
+            } else {
+              this.activeDownloads.push({ task_id: obj.task_id, url: obj.url, title: (obj.metadata && obj.metadata.title) || obj.url, progress: obj.progress, status: obj.status })
+            }
+          } else {
+            var idx2 = this.activeDownloads.findIndex(function (d) { return d.url === obj.url })
+            if (idx2 >= 0) this.activeDownloads.splice(idx2, 1)
+            if (obj.status === 'completed') UiHelpers.showToast('Download completed: ' + UiHelpers.getTitle(obj), 'success')
+            else if (obj.status === 'failed') UiHelpers.showToast('Download failed: ' + UiHelpers.getTitle(obj), 'error')
+            else if (obj.status === 'cancelled') UiHelpers.showToast('已取消: ' + UiHelpers.getTitle(obj), 'info')
+          }
+          if (this.selectedTask && this.selectedTask.objects) {
+            var currentObj = this.selectedTask.objects.find(function (o) { return o.url === obj.url })
+            if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata }
+          }
+          if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
+            var objType = (obj && typeof obj.type === 'string') ? obj.type : null
+            if (!objType) {
+              var task = this.tasks.find(function (t) { return t.id === obj.task_id })
+              if (task && typeof task.type === 'string') objType = task.type
+            }
+            if (this.selectedType !== 'all' && objType && objType !== this.selectedType) return
+            var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === obj.url && o.task_id === obj.task_id })
+            if (idxAgg >= 0) {
+              var existing = this.aggObjects[idxAgg]
+              existing.status = obj.status
+              existing.progress = obj.progress
+              if (obj.metadata) existing.metadata = obj.metadata
+              this.aggObjects.splice(idxAgg, 1, existing)
+            }
+          }
+        } else if (event.type === 'task_update') {
+          var summary = event.payload
+          var ti = this.tasks.findIndex(function (t) { return t.id === summary.id })
+          if (ti >= 0) { this.tasks[ti] = Object.assign({}, this.tasks[ti], summary) }
+        } else if (event.type === 'task_list_change') {
+          this.fetchTasks()
+        } else if (event.type === 'progress_batch') {
+          var updates = event.payload.updates
+          if (updates && updates.length > 0) {
+            for (var pi = 0; pi < updates.length; pi++) {
+              var item = updates[pi]
+              var aidx = this.activeDownloads.findIndex(function (d) { return d.url === item.url })
+              if (aidx >= 0) { this.activeDownloads[aidx].progress = item.progress }
+              if (this.selectedTask && this.selectedTask.objects) {
+                var currentObj = this.selectedTask.objects.find(function (o) { return o.url === item.url })
+                if (currentObj) { currentObj.progress = item.progress }
+              }
+              if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
+                var idxAgg = this.aggObjects.findIndex(function (o) { return o.url === item.url && o.task_id === item.task_id })
+                if (idxAgg >= 0) { this.aggObjects[idxAgg].progress = item.progress }
+              }
+            }
+          }
+        }
+      },
+      openGroupModal: function(obj) {
+        var info = UiHelpers.getScopedTaskInfo(obj)
+        this.groupModal.taskId = info.taskId
+        this.groupModal.taskType = info.taskType
+        this.showGroupModal = true
+      },
+      closeGroupModal: function() {
+        this.showGroupModal = false
+        this.groupModal = { taskId: '', taskType: '' }
+      },
+      changeAggLimit: function() {
+        this.aggPagination.page = 1
+        this.fetchAggregateByType(this.selectedType || 'all')
+      },
+      handleCardClick: function(obj) {
+        if (!obj) return
+        Log.debug('handleCardClick', { url: obj.url, status: obj.status, taskType: obj.metadata && obj.metadata.task_type })
+        if (obj.status === 'cancelled' && obj.extra && obj.extra.redirect_url) {
+          this.openObjectInfoViewer(obj)
+          return
+        }
+        if (obj.status === 'completed') {
+          var type = obj.metadata && obj.metadata.task_type
+          if (type && !TaskUI.get(type)) {
+            Log.info('handleCardClick: plugin not loaded yet, loading and retrying', { type: type })
+            var self = this
+            this.loadTaskUIForType(type, function () { self.handleCardClick(obj) })
+            return
+          }
+          var handler = type ? TaskUI.get(type) : null
+          if (handler && handler.onClick) {
+            var helpers = {
+              openTaskTypeViewer: this.openTaskTypeViewer.bind(this),
+              playVideo: this.playVideo.bind(this),
+              getFileUrl: this.getFileUrl.bind(this),
+              pathToUrl: this.pathToUrl.bind(this),
+              getTitle: this.getTitle.bind(this)
+            }
+            if (handler.onClick(obj, helpers)) return
+          }
+          if (this.isVideo(obj)) { this.playVideo(obj); return }
+          this.openObjectInfoViewer(obj)
+        }
+      },
       getVideoUrl: function(obj) { return UiVideoPlayer.getVideoUrl(obj) },
       getThumbImage: function(obj) { return UiVideoPlayer.getThumbImage(obj) },
       getCoverImage: function(obj) { return UiVideoPlayer.getCoverImage(obj) },
@@ -444,7 +582,7 @@
             var onClose = function () {
               try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
             }
-            var result = handler.renderViewer(obj, onClose)
+            var result = handler.renderViewer(null, obj, onClose)
             // The viewer already appends its DOM to document.body,
             // so we just need to clean up the container on close.
             // result is a dummy VNode (h('div')) that we ignore.
@@ -532,7 +670,7 @@
             try {
               data[typ].extra = JSON.parse(def.extra_text)
             } catch (e) {
-              self.showToast('类型 ' + typ + ' 的扩展配置 JSON 格式错误', 'error')
+              UiHelpers.showToast('类型 ' + typ + ' 的扩展配置 JSON 格式错误', 'error')
               return
             }
           }
@@ -541,7 +679,7 @@
           self.showTaskTypeDefaultsModal = false
           self.fetchTasks()
         }).catch(function (e) {
-          self.showToast('保存失败: ' + e.message, 'error')
+          UiHelpers.showToast('保存失败: ' + e.message, 'error')
         })
       },
 

@@ -27,6 +27,8 @@
       if (d && typeof d === 'object') {
         state.runtime = d
         if (d.download_root) window.__dm_downloadRoot = d.download_root.replace(/\\/g, '/')
+        // Expose runtime globally for UI modules that don't have state access
+        window.__dm_runtime = d
         if (d.log_level && typeof Log !== 'undefined' && Log.setLevel) {
           Log.setLevel(d.log_level)
         }
@@ -278,7 +280,7 @@
   }
 
   function openConfigHistory (state) {
-    state.showConfigHistoryModal = true
+    state.showHistoryModal = true
   }
 
   // ---- TaskUI helper predicates ----
