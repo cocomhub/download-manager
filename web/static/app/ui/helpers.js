@@ -202,6 +202,18 @@
         if (state.newTask.download_enabled === undefined) {
           state.newTask.download_enabled = typeDef.download_enabled !== false
         }
+        // 应用 storage 默认值（存储类型、mongo 配置等）
+        if (typeDef.storage) {
+          state.newTask.storage_type = typeDef.storage.type || 'file'
+          if (typeDef.storage.config) {
+            state.newTask.storage_config = {}
+            for (var k in typeDef.storage.config) {
+              if (typeDef.storage.config.hasOwnProperty(k)) {
+                state.newTask.storage_config[k] = typeDef.storage.config[k]
+              }
+            }
+          }
+        }
       }
       state.showAddTaskModal = true
     }).catch(function () {
@@ -217,13 +229,25 @@
       storage_type: 'file', storage_config: {}, urls_text: '', keyword: '',
       subtype: 'tag', max_concurrent: 1, refresh_interval: 3600
     }
-    // 重新加载类型默认值 — 如果有 save_root_dir 则填入 save_dir
+    // 重新加载类型默认值 — 包括 save_root_dir、storage 类型和配置等
     AppAPI.getTaskTypeDefaults().then(function (defaults) {
       var typeDef = defaults && defaults[state.newTask.type]
       if (typeDef) {
         if (typeDef.save_root_dir) state.newTask.save_dir = typeDef.save_root_dir
         state.newTask.scrape_enabled = typeDef.scrape_enabled !== false
         state.newTask.download_enabled = typeDef.download_enabled !== false
+        // 应用 storage 默认值（类型、source/database/collection 等）
+        if (typeDef.storage) {
+          state.newTask.storage_type = typeDef.storage.type || 'file'
+          if (typeDef.storage.config) {
+            state.newTask.storage_config = {}
+            for (var k in typeDef.storage.config) {
+              if (typeDef.storage.config.hasOwnProperty(k)) {
+                state.newTask.storage_config[k] = typeDef.storage.config[k]
+              }
+            }
+          }
+        }
       }
       showToast('已重置为默认值', 'info')
     }).catch(function () {

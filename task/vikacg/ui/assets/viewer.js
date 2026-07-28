@@ -313,6 +313,11 @@
         return false
       },
       renderViewer: function (h, obj, onClose) {
+        if (!obj) {
+          console.warn('vikacg renderViewer called with null obj')
+          if (onClose) onClose()
+          return h ? h('div') : null
+        }
         var images = getImages(obj)
         if (images.length === 0) {
           if (onClose) onClose()

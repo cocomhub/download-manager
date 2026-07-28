@@ -674,20 +674,19 @@
         return label
       },
       openTaskTypeViewer: function (obj) {
-        var type = obj && obj.metadata && obj.metadata.task_type
+        if (!obj) {
+          Log.warn('openTaskTypeViewer called with null obj')
+          return
+        }
+        var type = obj.metadata && obj.metadata.task_type
         var handler = TaskUI.get(type)
         Log.info('openTaskTypeViewer', { type: type, hasHandler: !!handler, renderViewer: !!(handler && handler.renderViewer), title: obj && obj.metadata && obj.metadata.title })
         if (handler && handler.renderViewer) {
           try {
-            var container = document.createElement('div')
-            document.body.appendChild(container)
             var onClose = function () {
-              try { if (container.parentNode) container.parentNode.removeChild(container) } catch (e) {}
+              // viewer already handles its own DOM cleanup via Modal.create
             }
             var result = handler.renderViewer(null, obj, onClose)
-            // The viewer already appends its DOM to document.body,
-            // so we just need to clean up the container on close.
-            // result is a dummy VNode (h('div')) that we ignore.
           } catch (e) {
             Log.error('openTaskTypeViewer renderViewer error', { error: e.message, stack: e.stack })
             // Show error modal using pure DOM

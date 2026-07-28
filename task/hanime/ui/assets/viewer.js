@@ -473,6 +473,11 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
+        if (!obj) {
+          console.warn('hanime renderViewer called with null obj')
+          if (onClose) onClose()
+          return h ? h('div') : null
+        }
         var videoUrl = getVideoURL(obj)
         var covers = getCoverImages(obj)
         var firstPoster = covers.length > 0 ? covers[0] : ''
