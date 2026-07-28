@@ -162,7 +162,6 @@ func TestAPI_CreateTask_NewFields(t *testing.T) {
 			SaveDir:         t.TempDir(),
 			ScrapeEnabled:   &trueVal,
 			DownloadEnabled: &falseVal,
-			SaveSubDir:      "videos",
 			Storage:         config.StorageConfig{Type: "memory"},
 			Extra: map[string]any{
 				"mock_rules": []any{
@@ -202,11 +201,6 @@ func TestAPI_CreateTask_NewFields(t *testing.T) {
 		de, ok := detail["download_enabled"].(bool)
 		if !ok || de {
 			t.Errorf("download_enabled = %v, want false", detail["download_enabled"])
-		}
-		// Verify save_sub_dir
-		ssd, ok := detail["save_sub_dir"].(string)
-		if !ok || ssd != "videos" {
-			t.Errorf("save_sub_dir = %v, want 'videos'", detail["save_sub_dir"])
 		}
 	})
 

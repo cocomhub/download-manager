@@ -192,7 +192,8 @@
     AppAPI.getTaskTypeDefaults().then(function (defaults) {
       var typeDef = defaults && defaults[state.newTask.type]
       if (typeDef) {
-        if (typeDef.save_root_dir && !state.newTask.save_dir) {
+        // 如果类型默认值有 save_root_dir，且当前没有 save_dir 和 save_sub_dir，则填入 save_dir
+        if (typeDef.save_root_dir && !state.newTask.save_dir && !state.newTask.save_sub_dir) {
           state.newTask.save_dir = typeDef.save_root_dir
         }
         if (state.newTask.scrape_enabled === undefined) {
@@ -216,7 +217,7 @@
       storage_type: 'file', storage_config: {}, urls_text: '', keyword: '',
       subtype: 'tag', max_concurrent: 1, refresh_interval: 3600
     }
-    // 重新加载类型默认值
+    // 重新加载类型默认值 — 如果有 save_root_dir 则填入 save_dir
     AppAPI.getTaskTypeDefaults().then(function (defaults) {
       var typeDef = defaults && defaults[state.newTask.type]
       if (typeDef) {
@@ -248,8 +249,13 @@
     if (state.newTask.download_enabled !== undefined) {
       payload.download_enabled = state.newTask.download_enabled
     }
+    // 两种方式配置保存目录：
+    // 方式1: save_dir 直接指定完整路径
+    // 方式2: save_sub_dir + 类型默认值 save_root_dir 组合
+    // 两种方式二选一，同时设置时 save_dir 优先
     if (payload.save_dir && payload.save_sub_dir) {
-      Log.warn('saveNewTask: both save_dir and save_sub_dir configured, save_dir takes precedence')
+      showToast('save_dir 和 save_sub_dir 不能同时设置，请只使用其中一种方式', 'error')
+      return
     }
     if (state.newTask.storage_type === 'file' && state.newTask.storage_config.path) {
       payload.storage.config.path = state.newTask.storage_config.path
@@ -270,8 +276,9 @@
       showToast('请填写任务ID和类型', 'error')
       return
     }
-    if (!payload.save_dir) {
-      showToast('请填写保存目录', 'error')
+    // 目录校验：save_dir 或 save_sub_dir 至少填一个
+    if (!payload.save_dir && !payload.save_sub_dir) {
+      showToast('请填写保存目录(save_dir)或子目录(save_sub_dir)，二选一即可', 'error')
       return
     }
     AppAPI.post('/api/tasks', payload).then(function (res) {
