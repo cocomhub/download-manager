@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # new-task-type.sh — 创建新任务类型的脚手架
 # 自动生成 Go 端注册代码 + JS 端 UI 插件模板
 #
