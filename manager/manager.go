@@ -230,6 +230,20 @@ func (m *Manager) currentCfg() *config.Config {
 	return m.configSvc.GetConfig()
 }
 
+// findTaskConfig looks up the Task config entry by ID.
+func (m *Manager) findTaskConfig(id string) *config.Task {
+	cfg := m.currentCfg()
+	if cfg == nil {
+		return nil
+	}
+	for i := range cfg.Tasks {
+		if cfg.Tasks[i].ID == id {
+			return &cfg.Tasks[i]
+		}
+	}
+	return nil
+}
+
 // Initialized returns a channel that is closed when Start() completes initial setup.
 // Tests should wait on this before interacting with the manager.
 func (m *Manager) Initialized() <-chan struct{} {
@@ -426,6 +440,15 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 		result["save_dir"] = tCfg.SaveDir
 		result["storage"] = tCfg.Storage
 		result["extra"] = tCfg.Extra
+		if tCfg.ScrapeEnabled != nil {
+			result["scrape_enabled"] = *tCfg.ScrapeEnabled
+		}
+		if tCfg.DownloadEnabled != nil {
+			result["download_enabled"] = *tCfg.DownloadEnabled
+		}
+		if tCfg.SaveSubDir != "" {
+			result["save_sub_dir"] = tCfg.SaveSubDir
+		}
 	}
 
 	// Task configuration exposure

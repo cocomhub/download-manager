@@ -56,6 +56,7 @@ func (c Config) Diff(b Config) []Change {
 	changes = append(changes, diffTaskScanFields(c, b)...)
 	changes = append(changes, diffContextsFields(c, b)...)
 	changes = append(changes, diffTaskConfigs(c, b)...)
+	changes = append(changes, diffTaskTypeDefaults(c, b)...)
 	return changes
 }
 
@@ -309,6 +310,15 @@ func diffTaskConfigs(c, b Config) []Change {
 		if ta.StorageContext != tb.StorageContext {
 			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".storage_context", A: ta.StorageContext, B: tb.StorageContext})
 		}
+		if ta.SaveSubDir != tb.SaveSubDir {
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".save_sub_dir", A: ta.SaveSubDir, B: tb.SaveSubDir})
+		}
+		if !boolPtrEqual(ta.ScrapeEnabled, tb.ScrapeEnabled) {
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".scrape_enabled", A: ta.ScrapeEnabled, B: tb.ScrapeEnabled})
+		}
+		if !boolPtrEqual(ta.DownloadEnabled, tb.DownloadEnabled) {
+			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".download_enabled", A: ta.DownloadEnabled, B: tb.DownloadEnabled})
+		}
 		if !reflect.DeepEqual(ta.Extra, tb.Extra) {
 			changes = append(changes, Change{Path: taskConfigPathPrefix + ta.ID + ".extra", A: ta.Extra, B: tb.Extra})
 		}
@@ -318,6 +328,24 @@ func diffTaskConfigs(c, b Config) []Change {
 		if i == -1 {
 			changes = append(changes, Change{Path: taskConfigPathPrefix + tb.ID, A: "removed", B: "present"})
 		}
+	}
+	return changes
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func diffTaskTypeDefaults(c, b Config) []Change {
+	var changes []Change
+	if !reflect.DeepEqual(c.TaskTypeDefaults, b.TaskTypeDefaults) {
+		changes = append(changes, Change{Path: "task_type_defaults", A: c.TaskTypeDefaults, B: b.TaskTypeDefaults})
 	}
 	return changes
 }

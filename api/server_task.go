@@ -225,6 +225,9 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 type TaskConfigRequest struct {
 	Concurrency     *int   `json:"concurrency"`
 	RefreshInterval *int   `json:"refresh_interval"`
+	ScrapeEnabled   *bool  `json:"scrape_enabled,omitempty"`
+	DownloadEnabled *bool  `json:"download_enabled,omitempty"`
+	SaveSubDir      string `json:"save_sub_dir,omitempty"`
 	AuditAuthor     string `json:"audit_author"`
 	AuditMessage    string `json:"audit_message"`
 	AuditSource     string `json:"audit_source"`
@@ -245,15 +248,27 @@ func (s *Server) updateTaskConfig(w http.ResponseWriter, r *http.Request) {
 		Message: coalesce(req.AuditMessage, ""),
 	}
 	if audit.Message == "" {
-		if req.Concurrency != nil && req.RefreshInterval != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d, refresh_interval=%d", id, *req.Concurrency, *req.RefreshInterval)
-		} else if req.Concurrency != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: concurrency=%d", id, *req.Concurrency)
-		} else if req.RefreshInterval != nil {
-			audit.Message = fmt.Sprintf("task %s runtime: refresh_interval=%d", id, *req.RefreshInterval)
+		var parts []string
+		if req.Concurrency != nil {
+			parts = append(parts, fmt.Sprintf("concurrency=%d", *req.Concurrency))
+		}
+		if req.RefreshInterval != nil {
+			parts = append(parts, fmt.Sprintf("refresh_interval=%d", *req.RefreshInterval))
+		}
+		if req.ScrapeEnabled != nil {
+			parts = append(parts, fmt.Sprintf("scrape_enabled=%t", *req.ScrapeEnabled))
+		}
+		if req.DownloadEnabled != nil {
+			parts = append(parts, fmt.Sprintf("download_enabled=%t", *req.DownloadEnabled))
+		}
+		if req.SaveSubDir != "" {
+			parts = append(parts, fmt.Sprintf("save_sub_dir=%s", req.SaveSubDir))
+		}
+		if len(parts) > 0 {
+			audit.Message = fmt.Sprintf("task %s: %s", id, strings.Join(parts, ", "))
 		}
 	}
-	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, req.ScrapeEnabled, req.DownloadEnabled, req.SaveSubDir, audit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task config: %v", err))
 		return
@@ -277,7 +292,7 @@ func (s *Server) patchTaskRuntime(w http.ResponseWriter, r *http.Request) {
 		Source:  coalesce(req.AuditSource, "api/tasks/runtime"),
 		Message: coalesce(req.AuditMessage, ""),
 	}
-	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, audit)
+	applied, err := s.mgr.SetTaskConfig(id, req.Concurrency, req.RefreshInterval, req.ScrapeEnabled, req.DownloadEnabled, req.SaveSubDir, audit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update task runtime: %v", err))
 		return
@@ -454,4 +469,36 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// ObjectTagsPayload 标签更新请求体
+type ObjectTagsPayload struct {
+	Tags []string `json:"tags"`
+}
+
+// updateObjectTags 更新指定下载对象的标签。
+// POST /api/objects/{type}/{id}/tags
+func (s *Server) updateObjectTags(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskType := vars["type"]
+	idStr := vars["id"]
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid_id", "id must be a non-negative integer")
+		return
+	}
+
+	var req ObjectTagsPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
+		return
+	}
+
+	if err := s.mgr.UpdateObjectTags(taskType, id, req.Tags); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to update tags: %v", err))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

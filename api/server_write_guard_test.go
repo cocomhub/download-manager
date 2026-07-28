@@ -87,6 +87,10 @@ func TestWriteGuardUIMode(t *testing.T) {
 		"/api/config/note",
 		"/api/config/delete",
 		"/api/config/apply",
+		"/api/config/task-type-defaults",
+
+		// Object tags
+		"/api/objects/hanime/1/tags",
 	}
 	for _, url := range targets {
 		body := map[string]any{"ids": []string{"t1"}, "url": "http://a"}

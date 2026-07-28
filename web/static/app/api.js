@@ -204,6 +204,21 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       })
+    },
+
+    updateObjectTags: function (type, id, tags) {
+      return this.post('/api/objects/' + type + '/' + id + '/tags', { tags: tags })
+    },
+
+    getTaskTypeDefaults: function () {
+      return fetch('/api/config/task-type-defaults').then(function (r) { return r.json() })
+    },
+    setTaskTypeDefaults: function (data) {
+      return fetch('/api/config/task-type-defaults', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
     }
   }
 

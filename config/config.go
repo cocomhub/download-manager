@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"reflect"
 
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -17,14 +18,15 @@ const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 const DefaultBandwidthPath = "/bandwidth"
 
 type Config struct {
-	Server     Server             `yaml:"server" json:"server"`
-	Log        logutil.LogConfig  `yaml:"log" json:"log"`
-	Mongo      []MongoSource      `yaml:"mongo" json:"mongo"`
-	Downloader Downloader         `yaml:"downloader" json:"downloader"`
-	TaskScan   TaskScan           `yaml:"task_scan" json:"task_scan"`
-	Runtime    Runtime            `yaml:"runtime" json:"runtime"`
-	Contexts   map[string]Context `yaml:"contexts" json:"contexts"`
-	Tasks      []Task             `yaml:"tasks" json:"tasks"`
+	Server           Server                     `yaml:"server" json:"server"`
+	Log              logutil.LogConfig          `yaml:"log" json:"log"`
+	Mongo            []MongoSource              `yaml:"mongo" json:"mongo"`
+	Downloader       Downloader                 `yaml:"downloader" json:"downloader"`
+	TaskScan         TaskScan                   `yaml:"task_scan" json:"task_scan"`
+	Runtime          Runtime                    `yaml:"runtime" json:"runtime"`
+	Contexts         map[string]Context         `yaml:"contexts" json:"contexts"`
+	Tasks            []Task                     `yaml:"tasks" json:"tasks"`
+	TaskTypeDefaults map[string]TaskTypeDefault `yaml:"task_type_defaults" json:"task_type_defaults"`
 }
 
 type RunMode string
@@ -145,12 +147,15 @@ type UIDefaults struct {
 }
 
 type Task struct {
-	ID             string         `yaml:"id" json:"id"`
-	Type           string         `yaml:"type" json:"type"`
-	SaveDir        string         `yaml:"save_dir" json:"save_dir"`
-	Storage        StorageConfig  `yaml:"storage" json:"storage"`
-	StorageContext string         `yaml:"storage_context" json:"storage_context"`
-	Extra          map[string]any `yaml:"extra" json:"extra"`
+	ID              string         `yaml:"id" json:"id"`
+	Type            string         `yaml:"type" json:"type"`
+	SaveDir         string         `yaml:"save_dir,omitempty" json:"save_dir,omitempty"`
+	SaveSubDir      string         `yaml:"save_sub_dir,omitempty" json:"save_sub_dir,omitempty"`
+	Storage         StorageConfig  `yaml:"storage,omitempty" json:"storage"`
+	StorageContext  string         `yaml:"storage_context" json:"storage_context"`
+	ScrapeEnabled   *bool          `yaml:"scrape_enabled,omitempty" json:"scrape_enabled,omitempty"`
+	DownloadEnabled *bool          `yaml:"download_enabled,omitempty" json:"download_enabled,omitempty"`
+	Extra           map[string]any `yaml:"extra" json:"extra"`
 }
 
 type StorageConfig struct {
@@ -171,6 +176,15 @@ type AuthConfig struct {
 	Username string `yaml:"username" json:"username"` // basic auth username, default "admin"
 	Password string `yaml:"password" json:"password"` // environment variable DM_AUTH_PASSWORD takes precedence
 	Token    string `yaml:"token" json:"token"`       // environment variable DM_AUTH_TOKEN takes precedence
+}
+
+// TaskTypeDefault defines default configuration for a task type.
+type TaskTypeDefault struct {
+	Storage         *StorageConfig `yaml:"storage,omitempty" json:"storage,omitempty"`
+	SaveRootDir     string         `yaml:"save_root_dir,omitempty" json:"save_root_dir,omitempty"`
+	ScrapeEnabled   *bool          `yaml:"scrape_enabled,omitempty" json:"scrape_enabled,omitempty"`
+	DownloadEnabled *bool          `yaml:"download_enabled,omitempty" json:"download_enabled,omitempty"`
+	Extra           map[string]any `yaml:"extra,omitempty" json:"extra,omitempty"`
 }
 
 // FileRoot returns the root directory for HTTP /files/ serving.
@@ -206,6 +220,7 @@ func (c *Config) Clone() *Config {
 	cc.cloneContexts(c.Contexts)
 	cc.cloneDownloader(c.Downloader)
 	cc.cloneMongo(c.Mongo)
+	cc.cloneTaskTypeDefaults(c.TaskTypeDefaults)
 	return &cc
 }
 
@@ -220,6 +235,14 @@ func (c *Config) cloneTasks(src []Task) {
 		if t.Storage.Config != nil {
 			tc.Storage.Config = make(map[string]string, len(t.Storage.Config))
 			maps.Copy(tc.Storage.Config, t.Storage.Config)
+		}
+		if t.ScrapeEnabled != nil {
+			v := *t.ScrapeEnabled
+			tc.ScrapeEnabled = &v
+		}
+		if t.DownloadEnabled != nil {
+			v := *t.DownloadEnabled
+			tc.DownloadEnabled = &v
 		}
 		c.Tasks[i] = tc
 	}
@@ -309,6 +332,8 @@ func (c *Config) ValidateAndClamp() {
 	c.setProgressDefaults()
 	c.setFFmpegDefaults()
 	c.resolveTaskContexts()
+	c.validateTaskTypeDefaults()
+	c.resolveTaskSaveDirs()
 }
 
 func (c *Config) validateRuntimeMode() {
@@ -522,4 +547,182 @@ func (c *Config) resolveTaskContexts() {
 		}
 		t.Storage = ctx.Storage
 	}
+}
+
+// resolveTaskSaveDirs resolves SaveDir for tasks that don't have one set,
+// using the type-level default's save_root_dir + save_sub_dir.
+func (c *Config) resolveTaskSaveDirs() {
+	for i := range c.Tasks {
+		t := &c.Tasks[i]
+		if t.SaveDir != "" {
+			continue
+		}
+		effective := t.GetEffectiveSaveDir(c)
+		if effective != "" {
+			t.SaveDir = effective
+		}
+	}
+}
+
+// GetTypeDefault returns the TaskTypeDefault for the task's type from the given config.
+func (t *Task) GetTypeDefault(cfg *Config) *TaskTypeDefault {
+	if cfg == nil || cfg.TaskTypeDefaults == nil {
+		return nil
+	}
+	def, ok := cfg.TaskTypeDefaults[t.Type]
+	if !ok {
+		return nil
+	}
+	return &def
+}
+
+// GetEffectiveSaveDir returns the effective save directory for the task.
+// Priority: save_dir > save_root_dir + save_sub_dir > save_root_dir.
+// When both save_dir and save_root_dir+save_sub_dir are configured, a warning is logged.
+func (t *Task) GetEffectiveSaveDir(cfg *Config) string {
+	if t.SaveDir != "" {
+		def := t.GetTypeDefault(cfg)
+		if def != nil && def.SaveRootDir != "" {
+			slog.Warn("both save_dir and save_root_dir configured, save_dir takes precedence",
+				"task_id", t.ID, "save_dir", t.SaveDir, "save_root_dir", def.SaveRootDir)
+		}
+		return t.SaveDir
+	}
+	def := t.GetTypeDefault(cfg)
+	if def == nil {
+		return ""
+	}
+	if t.SaveSubDir != "" {
+		return filepath.Join(def.SaveRootDir, t.SaveSubDir)
+	}
+	return def.SaveRootDir
+}
+
+// GetScrapeEnabled returns whether scraping is enabled for this task.
+// Priority: task-level ScrapeEnabled > type default ScrapeEnabled > true.
+func (t *Task) GetScrapeEnabled(cfg *Config) bool {
+	if t.ScrapeEnabled != nil {
+		return *t.ScrapeEnabled
+	}
+	def := t.GetTypeDefault(cfg)
+	if def != nil && def.ScrapeEnabled != nil {
+		return *def.ScrapeEnabled
+	}
+	return true
+}
+
+// GetDownloadEnabled returns whether downloading is enabled for this task.
+// Priority: task-level DownloadEnabled > type default DownloadEnabled > true.
+func (t *Task) GetDownloadEnabled(cfg *Config) bool {
+	if t.DownloadEnabled != nil {
+		return *t.DownloadEnabled
+	}
+	def := t.GetTypeDefault(cfg)
+	if def != nil && def.DownloadEnabled != nil {
+		return *def.DownloadEnabled
+	}
+	return true
+}
+
+// validateTaskTypeDefaults initializes default values for known task types.
+// Known types: hanime, tktube, vikacg, urllist.
+func (c *Config) validateTaskTypeDefaults() {
+	if c.TaskTypeDefaults == nil {
+		c.TaskTypeDefaults = make(map[string]TaskTypeDefault)
+	}
+	knownTypes := []string{"hanime", "tktube", "vikacg", "urllist"}
+	for _, typ := range knownTypes {
+		// Each iteration creates a new trueVal to avoid shared pointer
+		trueVal := true
+		def, ok := c.TaskTypeDefaults[typ]
+		if !ok {
+			def = TaskTypeDefault{}
+		}
+		if def.ScrapeEnabled == nil {
+			def.ScrapeEnabled = &trueVal
+		}
+		if def.DownloadEnabled == nil {
+			def.DownloadEnabled = &trueVal
+		}
+		c.TaskTypeDefaults[typ] = def
+	}
+}
+
+// cloneTaskTypeDefaults deep copies the TaskTypeDefaults map.
+func (c *Config) cloneTaskTypeDefaults(src map[string]TaskTypeDefault) {
+	if src == nil {
+		return
+	}
+	c.TaskTypeDefaults = make(map[string]TaskTypeDefault, len(src))
+	for k, v := range src {
+		dst := v
+		if v.ScrapeEnabled != nil {
+			sv := *v.ScrapeEnabled
+			dst.ScrapeEnabled = &sv
+		}
+		if v.DownloadEnabled != nil {
+			dv := *v.DownloadEnabled
+			dst.DownloadEnabled = &dv
+		}
+		if v.Storage != nil {
+			sc := &StorageConfig{Type: v.Storage.Type}
+			if v.Storage.Config != nil {
+				sc.Config = make(map[string]string, len(v.Storage.Config))
+				maps.Copy(sc.Config, v.Storage.Config)
+			}
+			dst.Storage = sc
+		}
+		if v.Extra != nil {
+			dst.Extra = make(map[string]any, len(v.Extra))
+			maps.Copy(dst.Extra, v.Extra)
+		}
+		c.TaskTypeDefaults[k] = dst
+	}
+}
+
+// SanitizeForSave returns a copy of the Config with fields that match TaskTypeDefaults removed.
+func (c *Config) SanitizeForSave() *Config {
+	if c == nil {
+		return nil
+	}
+	cleaned := c.Clone()
+	for i, t := range cleaned.Tasks {
+		def := t.GetTypeDefault(cleaned)
+		if def == nil {
+			continue
+		}
+		if def.ScrapeEnabled != nil && t.ScrapeEnabled != nil && *def.ScrapeEnabled == *t.ScrapeEnabled {
+			cleaned.Tasks[i].ScrapeEnabled = nil
+		}
+		if def.DownloadEnabled != nil && t.DownloadEnabled != nil && *def.DownloadEnabled == *t.DownloadEnabled {
+			cleaned.Tasks[i].DownloadEnabled = nil
+		}
+		// Remove Storage if it matches the type default
+		if def.Storage != nil && reflect.DeepEqual(t.Storage, *def.Storage) {
+			cleaned.Tasks[i].Storage = StorageConfig{}
+		}
+		// Remove SaveDir if it was resolved from type defaults
+		if def.SaveRootDir != "" && t.SaveDir != "" {
+			effectiveDir := t.GetEffectiveSaveDir(cleaned)
+			if t.SaveDir == effectiveDir {
+				cleaned.Tasks[i].SaveDir = ""
+			}
+		}
+		// Remove Extra keys that match the type default (task-level overrides type default)
+		if def.Extra != nil && t.Extra != nil {
+			merged := make(map[string]any, len(t.Extra))
+			for k, v := range t.Extra {
+				if dv, inDefault := def.Extra[k]; inDefault && reflect.DeepEqual(v, dv) {
+					continue
+				}
+				merged[k] = v
+			}
+			if len(merged) == 0 {
+				cleaned.Tasks[i].Extra = nil
+			} else {
+				cleaned.Tasks[i].Extra = merged
+			}
+		}
+	}
+	return cleaned
 }

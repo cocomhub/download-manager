@@ -97,12 +97,12 @@ func applyRefreshInterval(t core.Task, tCfg *config.Task) {
 	slog.Info("Task refresh interval updated", logutil.LogKeyTaskID, tCfg.ID, "value", cfgVal)
 }
 
-func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval *int, audit *AuditInfo) (map[string]bool, error) {
+func (m *Manager) SetTaskConfig(taskID string, concurrency, refreshInterval *int, scrapeEnabled, downloadEnabled *bool, saveSubDir string, audit *AuditInfo) (map[string]bool, error) {
 	t, ok := m.getTask(taskID)
 	if !ok {
 		return nil, fmt.Errorf("%w", errTaskNotFound)
 	}
-	result := map[string]bool{"concurrency": false, "refresh_interval": false}
+	result := map[string]bool{"concurrency": false, "refresh_interval": false, "scrape_enabled": false, "download_enabled": false, "save_sub_dir": false}
 	if concurrency != nil {
 		t.SetConcurrency(*concurrency)
 		result["concurrency"] = true
@@ -111,23 +111,33 @@ func (m *Manager) SetTaskConfig(taskID string, concurrency *int, refreshInterval
 		t.SetRefreshInterval(*refreshInterval)
 		result["refresh_interval"] = true
 	}
-	if !result["concurrency"] && !result["refresh_interval"] {
+	if scrapeEnabled != nil {
+		result["scrape_enabled"] = true
+	}
+	if downloadEnabled != nil {
+		result["download_enabled"] = true
+	}
+	if saveSubDir != "" {
+		result["save_sub_dir"] = true
+	}
+	if !result["concurrency"] && !result["refresh_interval"] && !result["scrape_enabled"] && !result["download_enabled"] && !result["save_sub_dir"] {
 		return result, nil
 	}
-	return result, m.saveTaskConfig(taskID, concurrency, refreshInterval, audit)
+	return result, m.saveTaskConfig(taskID, concurrency, refreshInterval, scrapeEnabled, downloadEnabled, saveSubDir, audit)
 }
 
-func (m *Manager) saveTaskConfig(taskID string, concurrency, refreshInterval *int, audit *AuditInfo) error {
+func (m *Manager) saveTaskConfig(taskID string, concurrency, refreshInterval *int, scrapeEnabled, downloadEnabled *bool, saveSubDir string, audit *AuditInfo) error {
 	m.mu.Lock()
-	cfgCopy := *m.currentCfg()
+	cfgCopy := m.currentCfg().Clone()
 	for i := range cfgCopy.Tasks {
 		if cfgCopy.Tasks[i].ID == taskID {
 			updateTaskConfigExtra(&cfgCopy.Tasks[i], concurrency, refreshInterval)
+			updateTaskConfigTopLevel(&cfgCopy.Tasks[i], scrapeEnabled, downloadEnabled, saveSubDir)
 			break
 		}
 	}
 	m.mu.Unlock()
-	return m.UpdateConfig(&cfgCopy, audit)
+	return m.UpdateConfig(cfgCopy, audit)
 }
 
 func updateTaskConfigExtra(task *config.Task, concurrency, refreshInterval *int) {
@@ -139,5 +149,21 @@ func updateTaskConfigExtra(task *config.Task, concurrency, refreshInterval *int)
 	}
 	if refreshInterval != nil {
 		task.Extra["refresh_interval"] = *refreshInterval
+	}
+}
+
+// updateTaskConfigTopLevel writes scrape_enabled, download_enabled, and save_sub_dir
+// directly into the config.Task struct fields (not Extra).
+func updateTaskConfigTopLevel(task *config.Task, scrapeEnabled, downloadEnabled *bool, saveSubDir string) {
+	if scrapeEnabled != nil {
+		v := *scrapeEnabled
+		task.ScrapeEnabled = &v
+	}
+	if downloadEnabled != nil {
+		v := *downloadEnabled
+		task.DownloadEnabled = &v
+	}
+	if saveSubDir != "" {
+		task.SaveSubDir = saveSubDir
 	}
 }

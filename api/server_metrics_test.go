@@ -19,6 +19,9 @@ import (
 
 // newAPIServerWithMockWithTags creates a server with mock objects that have
 // tags in their Extra map for aggregate filtering tests.
+// Download and scheduler are disabled to prevent resolve workers from
+// overwriting tags during seeding (TOCTOU race: resolve workers' FlushObject
+// overwrites just-set Extra["tags"] with stale pointer from runtime queue).
 func newAPIServerWithMockWithTags(t *testing.T, taskID string, objectCount int) (*Server, *config.Config) {
 	t.Helper()
 
@@ -28,12 +31,12 @@ func newAPIServerWithMockWithTags(t *testing.T, taskID string, objectCount int) 
 			Download: struct {
 				Enabled bool `yaml:"enabled" json:"enabled"`
 			}{
-				Enabled: true,
+				Enabled: false,
 			},
 			Scheduler: struct {
 				Enabled bool `yaml:"enabled" json:"enabled"`
 			}{
-				Enabled: true,
+				Enabled: false,
 			},
 		},
 		Server: config.Server{
@@ -121,7 +124,10 @@ func assignIDsAndSeedTags(t *testing.T, srv *Server, taskType string, tagsByURL 
 		t.Fatalf("storage not found")
 	}
 
-	// Retry: wait for objects to be seeded (lazy seed by scheduler/worker)
+	// Force lazy seed: call GetDownloadObjects to trigger seedObjects
+	_, _ = task.GetDownloadObjects()
+
+	// Retry: wait for objects to be seeded
 	var objects []*model.DownloadObject
 	assert.MustEventually(t, func() bool {
 		var err error

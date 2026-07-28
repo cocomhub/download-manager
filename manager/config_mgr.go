@@ -4,6 +4,8 @@
 package manager
 
 import (
+	"maps"
+
 	"github.com/cocomhub/download-manager/config"
 )
 
@@ -47,4 +49,44 @@ func (m *Manager) AddConfigTag(filename, tag string) error {
 
 func (m *Manager) AddConfigNote(filename, message, author string) error {
 	return m.configSvc.AddConfigNote(filename, message, author)
+}
+
+// GetTaskTypeDefaults returns a deep copy of the current task type defaults configuration.
+func (m *Manager) GetTaskTypeDefaults() map[string]config.TaskTypeDefault {
+	defaults := m.currentCfg().TaskTypeDefaults
+	result := make(map[string]config.TaskTypeDefault, len(defaults))
+	for k, v := range defaults {
+		// Deep copy scalar fields
+		cp := v
+		if v.ScrapeEnabled != nil {
+			se := *v.ScrapeEnabled
+			cp.ScrapeEnabled = &se
+		}
+		if v.DownloadEnabled != nil {
+			de := *v.DownloadEnabled
+			cp.DownloadEnabled = &de
+		}
+		if v.Storage != nil {
+			st := *v.Storage
+			if v.Storage.Config != nil {
+				st.Config = make(map[string]string, len(v.Storage.Config))
+				maps.Copy(st.Config, v.Storage.Config)
+			}
+			cp.Storage = &st
+		}
+		result[k] = cp
+	}
+	return result
+}
+
+// SetTaskTypeDefaults updates the task type defaults configuration.
+func (m *Manager) SetTaskTypeDefaults(d map[string]config.TaskTypeDefault) error {
+	newCfg := m.currentCfg().Clone()
+	newCfg.TaskTypeDefaults = d
+	newCfg.ValidateAndClamp()
+	return m.UpdateConfig(newCfg, &AuditInfo{
+		Author:  "ui",
+		Source:  "api/config/task-type-defaults",
+		Message: "update task type defaults",
+	})
 }
