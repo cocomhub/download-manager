@@ -118,6 +118,29 @@
         // Task type defaults modal
         showTaskTypeDefaultsModal: false,
         taskTypeDefaultsData: {},
+        // Video player (from old mixin, now pure state)
+        currentVideo: null,
+        isPlaying: false,
+        isBuffering: false,
+        currentTime: 0,
+        duration: 0,
+        buffered: 0,
+        volume: 0.1,
+        isMuted: false,
+        playbackRate: 1.0,
+        showControls: true,
+        controlsTimer: null,
+        showPlayIcon: false,
+        hoverTime: null,
+        hoverProgressPosition: 0,
+        showVideoSettings: false,
+        videoSettings: {
+          skipInterval: 10,
+          defaultSpeed: 1.0,
+          defaultVolume: 0.1,
+          autoPlay: true
+        },
+        collectionList: [],
       }
     },
 
@@ -213,14 +236,15 @@
         if (val) {
           var self = this
           this.$nextTick(function () {
-            window.addEventListener('keydown', self.handleKeydown)
+            self._videoKeyHandler = function(e){UiVideoPlayer.handleKeydown(self,e)}
+            window.addEventListener('keydown', self._videoKeyHandler)
             self.isPlaying = true
             self.playbackRate = 1.0
             self.showControls = true
             if (self.$refs.videoModal) self.$refs.videoModal.focus()
           })
         } else {
-          window.removeEventListener('keydown', this.handleKeydown)
+          if (this._videoKeyHandler) window.removeEventListener('keydown', this._videoKeyHandler)
         }
       },
       sortBy: function () { this.pagination.page = 1; this.fetchTaskDetails(this.selectedTaskId) },
@@ -282,6 +306,96 @@
 
     methods: {
       // ---- TaskUI integration ----
+      // ---- Delegates to UiHelpers/UiTaskList/UiVideoPlayer/UiDashboard ----
+      openConfig: function() { UiHelpers.openConfig(this) },
+      fetchTasks: function() { UiTaskList.fetchTasks(this) },
+      openAggregateView: function() { UiHelpers.openAggregateView(this) },
+      openAddTask: function(e) { UiHelpers.openAddTask(this, e) },
+      toggleSelectAll: function() { UiTaskList.toggleSelectAll(this) },
+      cancelSelected: function() { UiTaskList.cancelSelected(this) },
+      selectTask: function(id) { UiTaskList.selectTask(this, id) },
+      retryAllFailed: function() { UiTaskList.retryAllFailed(this) },
+      cancelCurrentTask: function() { UiTaskList.cancelCurrentTask(this) },
+      changePage: function(p) { UiTaskList.changePage(this, p) },
+      changeLimit: function() { UiTaskList.changeLimit(this) },
+      saveTaskConfig: function() { UiTaskList.saveTaskConfig(this) },
+      toggleTaskConfigPanel: function() { UiTaskList.toggleTaskConfigPanel(this) },
+      toggleSelectAllObjects: function() { UiTaskList.toggleSelectAllObjects(this) },
+      cancelSelectAllObjects: function() { UiTaskList.cancelSelectAllObjects(this) },
+      retrySelectedObjects: function() { UiTaskList.retrySelectedObjects(this) },
+      undoCancelSelectAllObjects: function() { UiTaskList.undoCancelSelectAllObjects(this) },
+      cancelObject: function(obj) { UiTaskList.cancelObject(this, obj) },
+      undoCancelObject: function(obj) { UiTaskList.undoCancelObject(this, obj) },
+      hasOnClick: function(obj) { return UiHelpers.hasOnClick(obj) },
+      initSSE: function() { initSSE(this) },
+      saveConfig: function() { UiHelpers.saveConfig(this) },
+      openConfigHistory: function() { UiHelpers.openConfigHistory(this) },
+      saveNewTask: function() { UiHelpers.saveNewTask(this) },
+      saveTaskTypeDefaults: function() { UiHelpers.saveTaskTypeDefaults(this) },
+      fetchAggregateByType: function(type) { UiHelpers.fetchAggregateByType(this, type) },
+      cancelAggObject: function(obj) { UiHelpers.cancelAggObject(this, obj) },
+      changeAggPage: function(p) { UiHelpers.changeAggPage(this, p) },
+      copyText: function(text) { UiHelpers.copyText(text) },
+      initTypeFromURL: function() { UiHelpers.initTypeFromURL(this) },
+      initRuntime: function() { UiHelpers.initRuntime(this) },
+      initUiDefaults: function() { UiHelpers.initUiDefaults(this) },
+      // Group helpers
+      getScopedTaskInfo: function(obj) { return UiHelpers.getScopedTaskInfo(obj) },
+      getObjectVariantPriority: function(obj) { return UiHelpers.getObjectVariantPriority(obj) },
+      isGroupCancelTarget: function(obj) { return UiHelpers.isGroupCancelTarget(obj) },
+      getObjectVariantLabel: function(obj) { return UiHelpers.getObjectVariantLabel(obj) },
+      metadataContentGroup: function(obj) { return UiHelpers.metadataContentGroup(obj) },
+      // Object display helpers
+      getTitle: function(obj) { return UiHelpers.getTitle(obj) },
+      getDate: function(obj) { return UiHelpers.getDate(obj) },
+      getDuration: function(obj) { return UiHelpers.getDuration(obj) },
+      getTags: function(obj) { return UiHelpers.getTags(obj) },
+      getObjId: function(obj) { return UiHelpers.getObjId(obj) },
+      getTaskTypeForObj: function(obj) { return UiHelpers.getTaskTypeForObj(obj) },
+      isTouchDevice: function() { return UiHelpers.isTouchDevice() },
+      pathToUrl: function(path) { return UiHelpers.pathToUrl(path, this.runtime) },
+      getFileUrl: function(obj) { return UiHelpers.getFileUrl(obj, this.runtime) },
+      getTaskDisplayName: function(task) { return UiHelpers.getTaskDisplayName(task) },
+      getTaskTypeBadge: function(task) { return UiHelpers.getTaskTypeBadge(task) },
+      // Video player delegates
+      handleKeydown: function(e) { UiVideoPlayer.handleKeydown(this, e) },
+      loadVideoSettings: function() { UiVideoPlayer.loadVideoSettings(this) },
+      saveVideoSettings: function() { UiVideoPlayer.saveVideoSettings(this) },
+      resetVideoSettings: function() { UiVideoPlayer.resetVideoSettings(this) },
+      onLoadedMetadata: function() { UiVideoPlayer.onLoadedMetadata(this) },
+      updateProgress: function() { UiVideoPlayer.updateProgress(this) },
+      onEnded: function() { UiVideoPlayer.onEnded(this) },
+      togglePlay: function() { UiVideoPlayer.togglePlay(this) },
+      seekClick: function(e) { UiVideoPlayer.seekClick(this, e) },
+      handleHoverProgress: function(e) { UiVideoPlayer.handleHoverProgress(this, e) },
+      skip: function(s) { UiVideoPlayer.skip(this, s) },
+      setSpeed: function(r) { UiVideoPlayer.setSpeed(this, r) },
+      toggleMute: function() { UiVideoPlayer.toggleMute(this) },
+      updateVolume: function() { UiVideoPlayer.updateVolume(this) },
+      toggleFullscreen: function() { UiVideoPlayer.toggleFullscreen() },
+      onMouseMove: function() { UiVideoPlayer.onMouseMove(this) },
+      formatTime: function(s) { return UiVideoPlayer.formatTime(s) },
+      playPrev: function() { UiVideoPlayer.playPrev(this) },
+      playNext: function() { UiVideoPlayer.playNext(this) },
+      switchToCollectionItem: function(item) { UiVideoPlayer.switchToCollectionItem(this, item) },
+      closeVideo: function() { UiVideoPlayer.closeVideo(this) },
+      playVideo: function(obj) { UiVideoPlayer.playVideo(this, obj) },
+      isVideo: function(obj) { return UiVideoPlayer.isVideo(obj) },
+      getVideoUrl: function(obj) { return UiVideoPlayer.getVideoUrl(obj) },
+      getThumbImage: function(obj) { return UiVideoPlayer.getThumbImage(obj) },
+      getCoverImage: function(obj) { return UiVideoPlayer.getCoverImage(obj) },
+      onCoverError: function(e) { UiVideoPlayer.onCoverError(e) },
+      getPreviewUrl: function(obj) { return UiVideoPlayer.getPreviewUrl(obj) },
+      // Dashboard delegates
+      fetchDashboardData: function() { UiDashboard.fetchDashboardData(this) },
+      fetchHealthz: function() { UiDashboard.fetchHealthz(this) },
+      fetchMetrics: function() { UiDashboard.fetchMetrics(this) },
+      fetchFailures: function() { UiDashboard.fetchFailures(this) },
+      startDashboardPolling: function() { UiDashboard.startDashboardPolling(this) },
+      stopDashboardPolling: function() { UiDashboard.stopDashboardPolling() },
+      changeDashboardFailuresLimit: function() { UiDashboard.changeDashboardFailuresLimit(this) },
+      searchDashboardFailures: function() { UiDashboard.searchDashboardFailures(this) },
+
       loadTaskUIForType: function (taskType, callback) {
         var self = this
         var handler = TaskUI.get(taskType)
@@ -298,7 +412,6 @@
           } else {
             Log.warn('loadTaskUIForType LOADED — but no plugin registered', { type: taskType })
           }
-          self.$forceUpdate()
           if (callback) callback()
         })
       },
@@ -566,19 +679,8 @@
       },
 
       // Register helpers module
-      if (typeof AppHelpers !== 'undefined') AppHelpers.register(app)
-
-      // Register video player module
-      AppVideoPlayer.register(app)
-
-      // Register task list and dashboard modules
-      if (typeof AppTaskList !== 'undefined') AppTaskList.register(app)
-      if (typeof AppDashboard !== 'undefined') AppDashboard.register(app)
-
-      // Optional aggregate/config/download view modules (loaded from separate files)
-      if (typeof AppAggregateView !== 'undefined') AppAggregateView.register(app)
-      if (typeof AppConfigPanel !== 'undefined') AppConfigPanel.register(app)
-      if (typeof AppDownloadView !== 'undefined') AppDownloadView.register(app)
+      // Note: old mixin modules (AppHelpers, AppVideoPlayer, etc.) are no longer registered.
+      // All functionality is delegated to UiHelpers/UiTaskList/UiVideoPlayer/UiDashboard pure function modules.
 
       app.mount('#app')
     })()
