@@ -342,6 +342,28 @@ func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "missing_id_type", "id and type are required")
 		return
 	}
+	if t.SaveDir == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_save_dir", "save_dir is required")
+		return
+	}
+	// Validate storage configuration
+	switch t.Storage.Type {
+	case "mongo":
+		if t.Storage.Config == nil {
+			t.Storage.Config = make(map[string]string)
+		}
+		if t.Storage.Config["source"] == "" || t.Storage.Config["database"] == "" || t.Storage.Config["collection"] == "" {
+			writeJSONError(w, http.StatusBadRequest, "invalid_storage_config",
+				"mongo storage requires 'source', 'database', and 'collection' config")
+			return
+		}
+	case "file", "memory", "":
+		// file and memory storage are always valid
+	default:
+		writeJSONError(w, http.StatusBadRequest, "invalid_storage_type",
+			fmt.Sprintf("unknown storage type: %s", t.Storage.Type))
+		return
+	}
 	cur := s.mgr.GetConfig()
 	// Deep-copy before mutation to avoid data race on shared config
 	cc := cur.Clone()

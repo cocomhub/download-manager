@@ -306,6 +306,7 @@
       fetchTasks: function() { UiTaskList.fetchTasks(this) },
       openAggregateView: function() { UiHelpers.openAggregateView(this) },
       openAddTask: function(e) { UiHelpers.openAddTask(this, e) },
+      resetTaskForm: function() { UiHelpers.resetTaskForm(this) },
       toggleSelectAll: function() { UiTaskList.toggleSelectAll(this) },
       cancelSelected: function() { UiTaskList.cancelSelected(this) },
       selectTask: function(id) { UiTaskList.selectTask(this, id) },

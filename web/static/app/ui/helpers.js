@@ -187,6 +187,8 @@
   function openAddTask (state, $event) {
     if ($event) $event.preventDefault()
     Log.debug('openAddTask', { currentType: state.newTask.type })
+    // 保存当前类型，用于重置时恢复类型特定默认值
+    state._addTaskType = state.newTask.type
     AppAPI.getTaskTypeDefaults().then(function (defaults) {
       var typeDef = defaults && defaults[state.newTask.type]
       if (typeDef) {
@@ -206,12 +208,34 @@
     })
   }
 
+  // 重置任务表单为默认值
+  function resetTaskForm (state) {
+    if (!confirm('确定要重置所有字段为默认值吗？')) return
+    state.newTask = {
+      id: '', type: state._addTaskType || 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true,
+      storage_type: 'file', storage_config: {}, urls_text: '', keyword: '',
+      subtype: 'tag', max_concurrent: 1, refresh_interval: 3600
+    }
+    // 重新加载类型默认值
+    AppAPI.getTaskTypeDefaults().then(function (defaults) {
+      var typeDef = defaults && defaults[state.newTask.type]
+      if (typeDef) {
+        if (typeDef.save_root_dir) state.newTask.save_dir = typeDef.save_root_dir
+        state.newTask.scrape_enabled = typeDef.scrape_enabled !== false
+        state.newTask.download_enabled = typeDef.download_enabled !== false
+      }
+      showToast('已重置为默认值', 'info')
+    }).catch(function () {
+      showToast('已重置为默认值', 'info')
+    })
+  }
+
   function saveNewTask (state) {
     var payload = {
       id: state.newTask.id,
       type: state.newTask.type,
       save_dir: state.newTask.save_dir,
-      storage: { type: state.newTask.storage_type },
+      storage: { type: state.newTask.storage_type, config: {} },
       extra: {}
     }
     Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
@@ -228,12 +252,12 @@
       Log.warn('saveNewTask: both save_dir and save_sub_dir configured, save_dir takes precedence')
     }
     if (state.newTask.storage_type === 'file' && state.newTask.storage_config.path) {
-      payload.storage.path = state.newTask.storage_config.path
+      payload.storage.config.path = state.newTask.storage_config.path
     }
     if (state.newTask.storage_type === 'mongo') {
-      if (state.newTask.storage_config.source) payload.storage.source = state.newTask.storage_config.source
-      if (state.newTask.storage_config.database) payload.storage.database = state.newTask.storage_config.database
-      if (state.newTask.storage_config.collection) payload.storage.collection = state.newTask.storage_config.collection
+      if (state.newTask.storage_config.source) payload.storage.config.source = state.newTask.storage_config.source
+      if (state.newTask.storage_config.database) payload.storage.config.database = state.newTask.storage_config.database
+      if (state.newTask.storage_config.collection) payload.storage.config.collection = state.newTask.storage_config.collection
     }
     var handler = TaskUI.get(state.newTask.type)
     if (handler && handler.collectExtra) {
@@ -246,8 +270,21 @@
       showToast('请填写任务ID和类型', 'error')
       return
     }
+    if (!payload.save_dir) {
+      showToast('请填写保存目录', 'error')
+      return
+    }
     AppAPI.post('/api/tasks', payload).then(function (res) {
-      if (!res.ok) throw new Error('创建失败')
+      if (!res.ok) {
+        // 尝试从响应体读取后端错误信息
+        return res.json().then(function (errData) {
+          throw new Error(errData.message || '创建失败')
+        }).catch(function (parseErr) {
+          // 如果 JSON 解析失败，使用原始错误
+          if (parseErr instanceof Error && parseErr.message !== '创建失败') throw parseErr
+          throw new Error('创建失败 (HTTP ' + res.status + ')')
+        })
+      }
       showToast('任务创建成功', 'success')
       state.showAddTaskModal = false
       state.newTask = { id: '', type: 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true, storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
@@ -392,6 +429,7 @@
     // Actions (accept state)
     openAddTask: openAddTask,
     saveNewTask: saveNewTask,
+    resetTaskForm: resetTaskForm,
     openConfig: openConfig,
     saveConfig: saveConfig,
     openConfigHistory: openConfigHistory,
