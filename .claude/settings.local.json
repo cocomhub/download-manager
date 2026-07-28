@@ -5,8 +5,6 @@
       "mcp__mcp-atlassian-http__jira_get_issue",
       "Read",
       "Write",
-      "Read(**/*)",
-      "Edit(**/*)",
       "PowerShell(*)",
       "Read(**)",
       "Bash(*)",
