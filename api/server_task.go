@@ -342,6 +342,35 @@ func (s *Server) createTaskPersistent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "missing_id_type", "id and type are required")
 		return
 	}
+	// Validate save path: either save_dir is set, or save_sub_dir is set (paired with type default's save_root_dir)
+	if t.SaveDir == "" && t.SaveSubDir == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_save_path",
+			"save_dir or save_sub_dir is required (save_sub_dir pairs with task type default's save_root_dir)")
+		return
+	}
+	if t.SaveDir != "" && t.SaveSubDir != "" {
+		writeJSONError(w, http.StatusBadRequest, "conflict_save_path",
+			"save_dir and save_sub_dir cannot both be set; use only one approach")
+		return
+	}
+	// Validate storage configuration
+	switch t.Storage.Type {
+	case "mongo":
+		if t.Storage.Config == nil {
+			t.Storage.Config = make(map[string]string)
+		}
+		if t.Storage.Config["source"] == "" || t.Storage.Config["database"] == "" || t.Storage.Config["collection"] == "" {
+			writeJSONError(w, http.StatusBadRequest, "invalid_storage_config",
+				"mongo storage requires 'source', 'database', and 'collection' config")
+			return
+		}
+	case "file", "memory", "":
+		// file and memory storage are always valid
+	default:
+		writeJSONError(w, http.StatusBadRequest, "invalid_storage_type",
+			fmt.Sprintf("unknown storage type: %s", t.Storage.Type))
+		return
+	}
 	cur := s.mgr.GetConfig()
 	// Deep-copy before mutation to avoid data race on shared config
 	cc := cur.Clone()

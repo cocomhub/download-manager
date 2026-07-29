@@ -334,6 +334,7 @@ func (c *Config) ValidateAndClamp() {
 	c.resolveTaskContexts()
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
+	c.resolveTaskStorages()
 }
 
 func (c *Config) validateRuntimeMode() {
@@ -645,6 +646,22 @@ func (c *Config) validateTaskTypeDefaults() {
 			def.DownloadEnabled = &trueVal
 		}
 		c.TaskTypeDefaults[typ] = def
+	}
+}
+
+// resolveTaskStorages fills in Storage for tasks that don't have one set,
+// using the type-level default's storage config.
+func (c *Config) resolveTaskStorages() {
+	for i := range c.Tasks {
+		t := &c.Tasks[i]
+		if t.Storage.Type != "" {
+			continue
+		}
+		def := t.GetTypeDefault(c)
+		if def == nil || def.Storage == nil {
+			continue
+		}
+		t.Storage = *def.Storage
 	}
 }
 

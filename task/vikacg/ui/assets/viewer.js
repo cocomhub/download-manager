@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -315,6 +313,11 @@
         return false
       },
       renderViewer: function (h, obj, onClose) {
+        if (!obj) {
+          console.warn('vikacg renderViewer called with null obj')
+          if (onClose) onClose()
+          return h ? h('div') : null
+        }
         var images = getImages(obj)
         if (images.length === 0) {
           if (onClose) onClose()
@@ -465,11 +468,4 @@
     })
   }
 
-  // Register with bridge (legacy compat)
-  window.__dm_uiBridge.register('vikacg', {
-    label: '浏览',
-    open: function (obj) {
-      createModal(obj)
-    }
-  })
 })()

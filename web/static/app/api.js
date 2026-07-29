@@ -206,6 +206,10 @@
       })
     },
 
+    del: function (url) {
+      return fetch(url, { method: 'DELETE' })
+    },
+
     updateObjectTags: function (type, id, tags) {
       return this.post('/api/objects/' + type + '/' + id + '/tags', { tags: tags })
     },

@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -288,6 +286,11 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
+        if (!obj) {
+          console.warn('tktube renderViewer called with null obj')
+          if (onClose) onClose()
+          return h ? h('div') : null
+        }
         var videoUrl = D.getVideoUrl(obj)
         var coverUrl = D.getCoverImage(obj)
         var title = D.getTitle(obj) || 'TKTube'
@@ -338,6 +341,7 @@
           tags: objTags,
           onPlayItem: function (item) {
             AppAPI.getObject(taskType, item.id).then(function (newObj) {
+              if (!newObj) return
               modal.close()
               // Re-open with new object
               modal = M.create(newObj, {
@@ -407,10 +411,4 @@
     })
   }
 
-  // Register as task view (legacy compat)
-  window.__dm_uiBridge.registerTaskView('tktube', {
-    render: function (task) {
-      renderTaskView(task)
-    }
-  })
 })()

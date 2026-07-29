@@ -915,7 +915,7 @@
 
                 <!-- Video Player Container -->
                 <div class="relative bg-black flex-1 flex items-center justify-center aspect-video cursor-pointer group/video" @click="togglePlay" @dblclick="toggleFullscreen">
-                    <video ref="videoPlayer" :src="getVideoUrl(currentVideo)" class="w-full h-full max-h-[85vh] outline-none" preload="metadata" autoplay @timeupdate="updateProgress" @loadedmetadata="onLoadedMetadata" @ended="onEnded" @play="isPlaying = true" @pause="isPlaying = false"
+                    <video ref="videoPlayer" id="video-player" :src="getVideoUrl(currentVideo)" class="w-full h-full max-h-[85vh] outline-none" preload="metadata" autoplay @timeupdate="updateProgress" @loadedmetadata="onLoadedMetadata" @ended="onEnded" @play="isPlaying = true" @pause="isPlaying = false"
                         @waiting="isBuffering = true" @playing="isBuffering = false"></video>
 
                     <!-- Settings Panel -->
@@ -1513,6 +1513,7 @@
                     </div>
                 </div>
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-end gap-2">
+                    <button @click="resetTaskForm" class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition" title="重置所有字段为默认值"><i class="fas fa-undo mr-1"></i>重置</button>
                     <button @click="showAddTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
                     <button @click="saveNewTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">创建</button>
                 </div>
@@ -1657,6 +1658,7 @@
             }
             window.__dm_isHashRouting = isHashRouting
             window.__dm_readTypeFromURL = readTypeFromURL
+            window.__dm_updateURLWithType = updateURLWithType
         })();
     </script>
     <script src="utils/taskTypes.js"></script>
@@ -1666,7 +1668,6 @@
     <script src="app/taskui/defineMeta.js"></script>
     <script src="app/taskui/baseForm.js"></script>
     <script src="app/taskui/baseMeta.js"></script>
-    <script src="app/taskui/baseViewer.js"></script>
     <script src="app/taskui/loader.js"></script>
     <script src="app/taskui/logger.js"></script>
     <script src="app/taskui/collection.js"></script>
@@ -1675,10 +1676,11 @@
     <script src="app/taskui/shared/data.js"></script>
     <script src="app/taskui/shared/dom.js"></script>
     <script src="app/taskui/shared/modal.js"></script>
-    <script src="app/videoPlayer.js"></script>
-    <script src="app/helpers.js"></script>
-    <script src="app/taskList.js"></script>
-    <script src="app/dashboard.js"></script>
+    <!-- New: pure-function UI modules (replacing old mixin modules) -->
+    <script src="app/ui/helpers.js"></script>
+    <script src="app/ui/taskList.js"></script>
+    <script src="app/ui/videoPlayer.js"></script>
+    <script src="app/ui/dashboard.js"></script>
     <script src="app/main.js"></script>
 </body>
 </html>

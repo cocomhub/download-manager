@@ -6,8 +6,6 @@
 ;(function () {
   'use strict'
 
-  if (!window.__dm_uiBridge) return
-
   var D = TaskUI.Data
   var Dm = TaskUI.Dom
   var M = TaskUI.Modal
@@ -475,6 +473,11 @@
         return true
       },
       renderViewer: function (h, obj, onClose) {
+        if (!obj) {
+          console.warn('hanime renderViewer called with null obj')
+          if (onClose) onClose()
+          return h ? h('div') : null
+        }
         var videoUrl = getVideoURL(obj)
         var covers = getCoverImages(obj)
         var firstPoster = covers.length > 0 ? covers[0] : ''
@@ -634,11 +637,4 @@
     })
   }
 
-  // Register with bridge (legacy compat)
-  window.__dm_uiBridge.register('hanime', {
-    label: '播放',
-    open: function (obj) {
-      createModal(obj)
-    }
-  })
 })()

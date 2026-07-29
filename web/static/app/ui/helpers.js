@@ -1,0 +1,478 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * UiHelpers — 纯函数版本的 UI 辅助方法。
+ * 从 helpers.js 的 mixin 中提取，消除 Vue.mixin 依赖。
+ * 所有方法通过 state 参数与 Vue 应用交互。
+ *
+ * state 对象包含 Vue data 中的响应式属性：
+ *   { selectedType, newTask, showAddTaskModal, showConfigModal, ... }
+ */
+;(function () {
+  'use strict'
+
+  // ---- URL / Type routing ----
+
+  function initTypeFromURL (state) {
+    try {
+      var cand = (typeof window.__dm_readTypeFromURL === 'function') ? window.__dm_readTypeFromURL() : null
+      var ids = (typeof getAvailableTaskTypes === 'function') ? (getAvailableTaskTypes() || []).map(function (t) { return t.id }) : []
+      state.selectedType = (cand && ids.indexOf(cand) >= 0) ? cand : 'all'
+    } catch (e) { state.selectedType = 'all' }
+  }
+
+  function initRuntime (state) {
+    AppAPI.runtime().then(function (d) {
+      if (d && typeof d === 'object') {
+        state.runtime = d
+        if (d.download_root) window.__dm_downloadRoot = d.download_root.replace(/\\/g, '/')
+        // Expose runtime globally for UI modules that don't have state access
+        window.__dm_runtime = d
+        if (d.log_level && typeof Log !== 'undefined' && Log.setLevel) {
+          Log.setLevel(d.log_level)
+        }
+      }
+    }).catch(function () {})
+  }
+
+  // ---- Object display helpers ----
+
+  function getTitle (obj) {
+    return (obj && obj.metadata && obj.metadata.title) || ''
+  }
+
+  function getDate (obj) {
+    return (obj && obj.metadata && obj.metadata.date) || ''
+  }
+
+  function getDuration (obj) {
+    return (obj && obj.metadata && obj.metadata.duration) || ''
+  }
+
+  function getTags (obj) {
+    if (obj && obj.extra && Array.isArray(obj.extra.tags)) return obj.extra.tags
+    if (obj && obj.extra && typeof obj.extra.tags === 'string') return [obj.extra.tags]
+    return []
+  }
+
+  function getObjId (obj) {
+    return (obj && obj.id) || (obj && obj.ID) || 0
+  }
+
+  function getTaskTypeForObj (obj) {
+    return (obj && obj.metadata && obj.metadata.task_type) || (obj && obj.extra && obj.extra.task_type) || ''
+  }
+
+  function isTouchDevice () {
+    try { return 'ontouchstart' in window } catch (e) { return false }
+  }
+
+  function pathToUrl (path, runtime) {
+    if (!path) return ''
+    var normalized = path.replace(/\\/g, '/')
+    var downloadRoot = runtime && runtime.download_root
+    if (downloadRoot && normalized.indexOf(downloadRoot.replace(/\\/g, '/')) === 0) {
+      normalized = normalized.slice(downloadRoot.replace(/\\/g, '/').length)
+    }
+    normalized = normalized.replace(/^\//, '')
+    return '/files/' + normalized.split('/').map(function (seg) {
+      return encodeURIComponent(seg)
+    }).join('/')
+  }
+
+  function getFileUrl (obj, runtime) {
+    if (obj && obj.save_path) return pathToUrl(obj.save_path, runtime)
+    if (obj && obj.extra && Array.isArray(obj.extra.files)) {
+      for (var fi = 0; fi < obj.extra.files.length; fi++) {
+        var f = obj.extra.files[fi]
+        if (f && f.path) return pathToUrl(f.path, runtime)
+      }
+    }
+    return ''
+  }
+
+  function getTaskDisplayName (task) {
+    if (!task) return ''
+    if (task.display_name) return task.display_name
+    if (task.name && task.name !== task.id) return task.name
+    return task.id
+  }
+
+  function getTaskTypeBadge (task) {
+    if (!task || !task.type) return ''
+    var handler = TaskUI.get(task.type)
+    if (handler && handler.label) return handler.label
+    var known = {
+      'tktube': 'TKTube',
+      'hanime': 'Hanime',
+      'vikacg': 'VikACG',
+      'url_list': 'URL',
+      'mxs': '漫小肆'
+    }
+    return known[task.type] || (task.type.length > 12 ? task.type.slice(0, 12) + '…' : task.type)
+  }
+
+  // ---- Group helpers ----
+
+  function getScopedTaskInfo (obj) {
+    if (!obj) return { taskId: '', taskType: '' }
+    return { taskId: obj.task_id || '', taskType: (obj.metadata && obj.metadata.task_type) || '' }
+  }
+
+  function getObjectVariantPriority (obj) {
+    if (!obj || !obj.extra) return 0
+    if (obj.extra.variant_priority !== undefined) return obj.extra.variant_priority
+    if (obj.extra.priority !== undefined) return obj.extra.priority
+    if (obj.metadata && obj.metadata.resolution) {
+      var r = obj.metadata.resolution
+      if (/1080/.test(r)) return 30
+      if (/720/.test(r)) return 20
+      if (/480/.test(r)) return 10
+    }
+    return 0
+  }
+
+  function isGroupRepresentative (obj) {
+    return !!(obj && obj.extra && (obj.extra.group_rep || obj.extra.is_representative))
+  }
+
+  function isGroupCancelTarget (obj) {
+    return obj && obj.status === 'pending' && !isGroupRepresentative(obj) &&
+      (obj.extra && obj.extra.group_size)
+  }
+
+  function getObjectVariantLabel (obj) {
+    if (obj && obj.metadata && obj.metadata.resolution) return obj.metadata.resolution
+    if (obj && obj.metadata && obj.metadata.variant_label) return obj.metadata.variant_label
+    return 'standard'
+  }
+
+  function metadataContentGroup (obj) {
+    return (obj && obj.metadata && obj.metadata.content_group) || ''
+  }
+
+  // ---- Toast ----
+
+  function showToast (message, type) {
+    type = type || 'info'
+    var toast = document.createElement('div')
+    toast.className = 'fixed bottom-4 left-4 px-4 py-2 rounded shadow-lg text-white text-sm z-50 transition-opacity duration-300 ' + (type === 'error' ? 'bg-red-500' : type === 'info' ? 'bg-blue-500' : 'bg-green-500')
+    toast.textContent = message
+    document.body.appendChild(toast)
+    setTimeout(function () {
+      toast.style.opacity = '0'
+      setTimeout(function () { toast.remove() }, 300)
+    }, 3000)
+  }
+
+  // ---- UI defaults ----
+
+  function initUiDefaults (state) {
+    AppAPI.serverConfig().then(function (svr) {
+      var svrUi = (svr && svr.ui_defaults) || {}
+      var localUi = {}
+      try { localUi = JSON.parse(localStorage.getItem('dm_ui_defaults') || '{}') } catch (e) {}
+      var merged = Object.assign({}, svrUi, localUi)
+      state.uiDefaults = merged
+      if (merged.default_save_dir) state.newTask.save_dir = merged.default_save_dir
+      if (typeof merged.diff_side_by_side === 'boolean') state.diffOptions.side_by_side = merged.diff_side_by_side
+      if (typeof merged.diff_ignore_ws === 'boolean') state.diffOptions.ignore_ws = merged.diff_ignore_ws
+      if (typeof merged.diff_ignore_comment === 'boolean') state.diffOptions.ignore_comments = merged.diff_ignore_comment
+    }).catch(function () {})
+  }
+
+  // ---- Create task modal ----
+
+  function openAddTask (state, $event) {
+    if ($event) $event.preventDefault()
+    Log.debug('openAddTask', { currentType: state.newTask.type })
+    // 保存当前类型，用于重置时恢复类型特定默认值
+    state._addTaskType = state.newTask.type
+    AppAPI.getTaskTypeDefaults().then(function (defaults) {
+      var typeDef = defaults && defaults[state.newTask.type]
+      if (typeDef) {
+        // 如果类型默认值有 save_root_dir，且当前没有 save_dir 和 save_sub_dir，则填入 save_dir
+        if (typeDef.save_root_dir && !state.newTask.save_dir && !state.newTask.save_sub_dir) {
+          state.newTask.save_dir = typeDef.save_root_dir
+        }
+        if (state.newTask.scrape_enabled === undefined) {
+          state.newTask.scrape_enabled = typeDef.scrape_enabled !== false
+        }
+        if (state.newTask.download_enabled === undefined) {
+          state.newTask.download_enabled = typeDef.download_enabled !== false
+        }
+        // 应用 storage 默认值（存储类型、mongo 配置等）
+        if (typeDef.storage) {
+          state.newTask.storage_type = typeDef.storage.type || 'file'
+          if (typeDef.storage.config) {
+            state.newTask.storage_config = {}
+            for (var k in typeDef.storage.config) {
+              if (typeDef.storage.config.hasOwnProperty(k)) {
+                state.newTask.storage_config[k] = typeDef.storage.config[k]
+              }
+            }
+          }
+        }
+      }
+      state.showAddTaskModal = true
+    }).catch(function () {
+      state.showAddTaskModal = true
+    })
+  }
+
+  // 重置任务表单为默认值
+  function resetTaskForm (state) {
+    if (!confirm('确定要重置所有字段为默认值吗？')) return
+    state.newTask = {
+      id: '', type: state._addTaskType || 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true,
+      storage_type: 'file', storage_config: {}, urls_text: '', keyword: '',
+      subtype: 'tag', max_concurrent: 1, refresh_interval: 3600
+    }
+    // 重新加载类型默认值 — 包括 save_root_dir、storage 类型和配置等
+    AppAPI.getTaskTypeDefaults().then(function (defaults) {
+      var typeDef = defaults && defaults[state.newTask.type]
+      if (typeDef) {
+        if (typeDef.save_root_dir) state.newTask.save_dir = typeDef.save_root_dir
+        state.newTask.scrape_enabled = typeDef.scrape_enabled !== false
+        state.newTask.download_enabled = typeDef.download_enabled !== false
+        // 应用 storage 默认值（类型、source/database/collection 等）
+        if (typeDef.storage) {
+          state.newTask.storage_type = typeDef.storage.type || 'file'
+          if (typeDef.storage.config) {
+            state.newTask.storage_config = {}
+            for (var k in typeDef.storage.config) {
+              if (typeDef.storage.config.hasOwnProperty(k)) {
+                state.newTask.storage_config[k] = typeDef.storage.config[k]
+              }
+            }
+          }
+        }
+      }
+      showToast('已重置为默认值', 'info')
+    }).catch(function () {
+      showToast('已重置为默认值', 'info')
+    })
+  }
+
+  function saveNewTask (state) {
+    var payload = {
+      id: state.newTask.id,
+      type: state.newTask.type,
+      save_dir: state.newTask.save_dir,
+      storage: { type: state.newTask.storage_type, config: {} },
+      extra: {}
+    }
+    Log.info('saveNewTask', { type: payload.type, id: payload.id, storage: payload.storage.type })
+    if (state.newTask.save_sub_dir) {
+      payload.save_sub_dir = state.newTask.save_sub_dir
+    }
+    if (state.newTask.scrape_enabled !== undefined) {
+      payload.scrape_enabled = state.newTask.scrape_enabled
+    }
+    if (state.newTask.download_enabled !== undefined) {
+      payload.download_enabled = state.newTask.download_enabled
+    }
+    // 两种方式配置保存目录：
+    // 方式1: save_dir 直接指定完整路径
+    // 方式2: save_sub_dir + 类型默认值 save_root_dir 组合
+    // 两种方式二选一，同时设置时 save_dir 优先
+    if (payload.save_dir && payload.save_sub_dir) {
+      showToast('save_dir 和 save_sub_dir 不能同时设置，请只使用其中一种方式', 'error')
+      return
+    }
+    if (state.newTask.storage_type === 'file' && state.newTask.storage_config.path) {
+      payload.storage.config.path = state.newTask.storage_config.path
+    }
+    if (state.newTask.storage_type === 'mongo') {
+      if (state.newTask.storage_config.source) payload.storage.config.source = state.newTask.storage_config.source
+      if (state.newTask.storage_config.database) payload.storage.config.database = state.newTask.storage_config.database
+      if (state.newTask.storage_config.collection) payload.storage.config.collection = state.newTask.storage_config.collection
+    }
+    var handler = TaskUI.get(state.newTask.type)
+    if (handler && handler.collectExtra) {
+      var extra = handler.collectExtra(state.newTask)
+      if (extra) {
+        payload.extra = Object.assign(payload.extra, extra)
+      }
+    }
+    if (!payload.id || !payload.type) {
+      showToast('请填写任务ID和类型', 'error')
+      return
+    }
+    // 目录校验：save_dir 或 save_sub_dir 至少填一个
+    if (!payload.save_dir && !payload.save_sub_dir) {
+      showToast('请填写保存目录(save_dir)或子目录(save_sub_dir)，二选一即可', 'error')
+      return
+    }
+    AppAPI.post('/api/tasks', payload).then(function (res) {
+      if (!res.ok) {
+        // 尝试从响应体读取后端错误信息
+        return res.json().then(function (errData) {
+          throw new Error(errData.message || '创建失败')
+        }).catch(function (parseErr) {
+          // 如果 JSON 解析失败，使用原始错误
+          if (parseErr instanceof Error && parseErr.message !== '创建失败') throw parseErr
+          throw new Error('创建失败 (HTTP ' + res.status + ')')
+        })
+      }
+      showToast('任务创建成功', 'success')
+      state.showAddTaskModal = false
+      state.newTask = { id: '', type: 'url_list', save_dir: '', save_sub_dir: '', scrape_enabled: true, download_enabled: true, storage_type: 'file', storage_config: {}, urls_text: '', keyword: '', subtype: 'tag', max_concurrent: 2, refresh_interval: 300 }
+      // Fetch tasks via callback
+      if (typeof state.fetchTasks === 'function') state.fetchTasks()
+    }).catch(function (e) { showToast('创建失败: ' + e.message, 'error') })
+  }
+
+  // ---- Config panel ----
+
+  function openConfig (state) {
+    Log.info('openConfig')
+    state.showConfigModal = true
+    AppAPI.serverConfig().then(function (data) {
+      state.configForm = data || {}
+      Log.debug('openConfig loaded', { log_level: data && data.log_level })
+    }).catch(function () {})
+  }
+
+  function saveConfig (state) {
+    AppAPI.post('/api/config/server', state.configForm).then(function (res) {
+      if (!res.ok) throw new Error('保存失败')
+      showToast('配置已保存', 'success')
+      state.showConfigModal = false
+      initUiDefaults(state)
+      if (state.configForm.log_level !== undefined && typeof Log !== 'undefined' && Log.setLevel) {
+        Log.setLevel(state.configForm.log_level)
+      }
+    }).catch(function (e) { showToast('保存失败: ' + e.message, 'error') })
+  }
+
+  function openConfigHistory (state) {
+    state.showHistoryModal = true
+  }
+
+  // ---- TaskUI helper predicates ----
+
+  function hasOnClick (obj) {
+    if (!obj) return false
+    var type = obj.metadata && obj.metadata.task_type
+    return type && TaskUI.hasOnClick(type)
+  }
+
+  // ---- Aggregate view ----
+
+  function openAggregateView (state) {
+    Log.info('openAggregateView', { selectedType: state.selectedType, viewMode: state.viewMode })
+    state.viewMode = 'aggregate'
+    fetchAggregateByType(state, state.selectedType || 'all')
+  }
+
+  function fetchAggregateByType (state, type) {
+    if (state.aggLoading) return
+    state.aggLoading = true
+    AppAPI.aggregate({
+      types: type || 'all',
+      sort: state.aggSortBy || '',
+      groupBy: state.aggGroupBy || false,
+      search: state.aggSearchQuery || '',
+      page: state.aggPagination.page,
+      limit: state.aggPagination.limit
+    }).then(function (data) {
+      state.aggObjects = (data && data.objects) || (Array.isArray(data) ? data : [])
+      state.aggPagination.total = (data && data.total) || state.aggObjects.length
+    }).catch(function () {
+      showToast('加载聚合视图失败', 'error')
+    }).finally(function () {
+      state.aggLoading = false
+    })
+  }
+
+  function cancelAggObject (state, obj) {
+    if (!obj || !obj.task_id) return
+    AppAPI.post('/api/tasks/' + encodeURIComponent(obj.task_id) + '/object/cancel', { url: obj.url }).then(function (res) {
+      if (res && !res.ok) throw new Error('取消失败')
+      obj.status = 'cancelled'
+      showToast('已取消: ' + (obj.metadata && obj.metadata.title || obj.url), 'info')
+    }).catch(function (e) { showToast('取消失败: ' + e.message, 'error') })
+  }
+
+  function changeAggPage (state, page) {
+    state.aggPagination.page = page
+    fetchAggregateByType(state, state.selectedType || 'all')
+  }
+
+  function changeAggLimit (state) {
+    state.aggPagination.page = 1
+    fetchAggregateByType(state, state.selectedType || 'all')
+  }
+
+  // ---- Clipboard ----
+
+  function copyText (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        showToast('已复制到剪贴板', 'success')
+      }).catch(function () {
+        showToast('复制失败', 'error')
+      })
+    } else {
+      var ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy'); showToast('已复制到剪贴板', 'success') }
+      catch (e) { showToast('复制失败', 'error') }
+      document.body.removeChild(ta)
+    }
+  }
+
+  // ---- Export ----
+
+  window.UiHelpers = {
+    // State init
+    initTypeFromURL: initTypeFromURL,
+    initRuntime: initRuntime,
+    initUiDefaults: initUiDefaults,
+
+    // Display helpers (pure, no state)
+    getTitle: getTitle,
+    getDate: getDate,
+    getDuration: getDuration,
+    getTags: getTags,
+    getObjId: getObjId,
+    getTaskTypeForObj: getTaskTypeForObj,
+    isTouchDevice: isTouchDevice,
+    pathToUrl: pathToUrl,
+    getFileUrl: getFileUrl,
+    getTaskDisplayName: getTaskDisplayName,
+    getTaskTypeBadge: getTaskTypeBadge,
+
+    // Group helpers
+    getScopedTaskInfo: getScopedTaskInfo,
+    getObjectVariantPriority: getObjectVariantPriority,
+    isGroupRepresentative: isGroupRepresentative,
+    isGroupCancelTarget: isGroupCancelTarget,
+    getObjectVariantLabel: getObjectVariantLabel,
+    metadataContentGroup: metadataContentGroup,
+
+    // Actions (accept state)
+    openAddTask: openAddTask,
+    saveNewTask: saveNewTask,
+    resetTaskForm: resetTaskForm,
+    openConfig: openConfig,
+    saveConfig: saveConfig,
+    openConfigHistory: openConfigHistory,
+    hasOnClick: hasOnClick,
+    openAggregateView: openAggregateView,
+    fetchAggregateByType: fetchAggregateByType,
+    cancelAggObject: cancelAggObject,
+    changeAggPage: changeAggPage,
+    changeAggLimit: changeAggLimit,
+
+    // Utilities
+    showToast: showToast,
+    copyText: copyText,
+  }
+})()
