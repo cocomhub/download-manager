@@ -74,12 +74,13 @@ func (t *Task) syncSeedAndGet() ([]*model.DownloadObject, error) {
 }
 
 // pendingObjects returns non-terminal objects from the runtime list.
+// Excludes completed, cancelled, and permanently failed objects.
 func (t *Task) pendingObjects() []*model.DownloadObject {
 	all := t.GetAllObjects(true)
 	var pending []*model.DownloadObject
 	for _, obj := range all {
 		s := obj.GetStatus()
-		if s != model.StatusCompleted && s != model.StatusCancelled {
+		if s != model.StatusCompleted && s != model.StatusCancelled && s != model.StatusFailedPermanent {
 			pending = append(pending, obj)
 		}
 	}

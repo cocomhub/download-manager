@@ -234,6 +234,7 @@ help:
 	@echo "  run             Build and run"
 	@echo "  show-version    Show binary version"
 	@echo "  test-no-mongo   Run tests with no_mongo tag"
+	@echo "  test-integration Run integration tests (requires Docker)"
 	@echo "  test-cover-html Generate coverage HTML report"
 	@echo "  playwright-server  Build Playwright test server"
 	@echo "  playwright-test    Run Playwright tests"
@@ -262,6 +263,10 @@ show-version:
 .PHONY: test-no-mongo
 test-no-mongo:
 	go test -tags no_mongo -race -count=1 -timeout=180s ./...
+
+.PHONY: test-integration
+test-integration:
+	go test -tags=integration -race -count=1 -timeout=300s ./storage/...
 
 .PHONY: test-cover-html
 test-cover-html: test-cover

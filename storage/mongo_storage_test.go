@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/cocomhub/download-manager/core"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestNormalizeMongoQuery_DefaultLimitAndSort(t *testing.T) {
@@ -306,5 +306,145 @@ func TestNormalizeMongoQuery_DeepCopyNewFields(t *testing.T) {
 	}
 	if cloned.Filter.TagMode != "any" {
 		t.Errorf("TagMode copied: got %q, want 'any'", cloned.Filter.TagMode)
+	}
+}
+
+func TestMongoSortField_MapsAllKnownFields(t *testing.T) {
+	tests := []struct {
+		field string
+		want  string
+	}{
+		{"date", "metadata.date"},
+		{"name", fieldMetadataTitle},
+		{"duration", "metadata.duration"},
+		{"status", "status"},
+		{"url", "url"},
+		{"random", ""},
+		{"tag_match_desc", ""},
+		{"unknown", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			got := mongoSortField(tt.field)
+			if got != tt.want {
+				t.Errorf("mongoSortField(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildMongoSort_Empty(t *testing.T) {
+	got := buildMongoSort(nil)
+	if len(got) != 0 {
+		t.Fatalf("expected empty sort, got %d elements", len(got))
+	}
+}
+
+func TestBuildMongoSort_SkipsUnknownFields(t *testing.T) {
+	got := buildMongoSort([]core.StorageSort{
+		{Field: "unknown"},
+		{Field: "date", Desc: true},
+		{Field: "random"},
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 sort field (skipping unknown+random), got %d", len(got))
+	}
+	if got[0].Key != "metadata.date" || got[0].Value != -1 {
+		t.Fatalf("expected metadata.date:-1, got %+v", got[0])
+	}
+}
+
+func TestNormalizeMongoQuery_NoLimit(t *testing.T) {
+	got := normalizeMongoQuery(&core.StorageQuery{Limit: core.NoLimit})
+	if got.Limit != 0 {
+		t.Fatalf("expected Limit=0 for NoLimit, got %d", got.Limit)
+	}
+}
+
+func TestNormalizeMongoQuery_NilMetadata(t *testing.T) {
+	got := normalizeMongoQuery(&core.StorageQuery{Filter: core.StorageFilter{TaskIDs: []string{"t1"}}})
+	if got.Filter.Metadata != nil {
+		t.Fatalf("expected nil metadata when input is nil")
+	}
+}
+
+func TestNormalizeMongoQuery_NonNilMetadata(t *testing.T) {
+	orig := &core.StorageQuery{
+		Filter: core.StorageFilter{
+			Metadata: map[string]string{"key": "val"},
+		},
+	}
+	got := normalizeMongoQuery(orig)
+	if got.Filter.Metadata["key"] != "val" {
+		t.Fatalf("expected metadata key=val, got %v", got.Filter.Metadata)
+	}
+	// Modify original and verify deep copy
+	orig.Filter.Metadata["key"] = "modified"
+	if got.Filter.Metadata["key"] != "val" {
+		t.Fatalf("metadata deep copy failed: got %q, want 'val'", got.Filter.Metadata["key"])
+	}
+}
+
+func TestNormalizeMongoQuery_EmptySort(t *testing.T) {
+	got := normalizeMongoQuery(&core.StorageQuery{Limit: 50})
+	if len(got.Sort) != 2 {
+		t.Fatalf("expected default sort with 2 fields, got %d", len(got.Sort))
+	}
+	if got.Sort[0].Field != "date" || !got.Sort[0].Desc {
+		t.Fatalf("expected first sort field: date desc, got %+v", got.Sort[0])
+	}
+}
+
+func TestNormalizeMongoQuery_ZeroLimitDefaults(t *testing.T) {
+	got := normalizeMongoQuery(&core.StorageQuery{Limit: 0, Sort: []core.StorageSort{{Field: "url"}}})
+	if got.Limit != 200 {
+		t.Fatalf("expected default limit 200 for zero input, got %d", got.Limit)
+	}
+}
+
+func TestBuildMongoFilter_NilQuery(t *testing.T) {
+	filter := buildMongoFilter(nil)
+	if len(filter) != 0 {
+		t.Fatalf("expected empty filter for nil query, got %+v", filter)
+	}
+}
+
+func TestBuildMongoFilter_EmptyQuery(t *testing.T) {
+	filter := buildMongoFilter(&core.StorageQuery{})
+	if len(filter) != 0 {
+		t.Fatalf("expected empty filter for empty query, got %+v", filter)
+	}
+}
+
+func TestBuildMongoFilter_URLs(t *testing.T) {
+	filter := buildMongoFilter(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			URLs: []string{"http://example.com/1", "http://example.com/2"},
+		},
+	})
+	urlFilter, ok := filter["url"].(bson.M)
+	if !ok {
+		t.Fatalf("expected bson.M url filter, got %T", filter["url"])
+	}
+	inVal, ok := urlFilter["$in"].([]string)
+	if !ok || len(inVal) != 2 {
+		t.Fatalf("expected $in with 2 URLs, got %T %+v", urlFilter["$in"], urlFilter["$in"])
+	}
+}
+
+func TestBuildMongoFilter_IDs(t *testing.T) {
+	filter := buildMongoFilter(&core.StorageQuery{
+		Filter: core.StorageFilter{
+			IDs: []int64{101, 202},
+		},
+	})
+	idFilter, ok := filter["id"].(bson.M)
+	if !ok {
+		t.Fatalf("expected bson.M id filter, got %T", filter["id"])
+	}
+	inVal, ok := idFilter["$in"].([]int64)
+	if !ok || len(inVal) != 2 {
+		t.Fatalf("expected $in with 2 IDs, got %T %+v", idFilter["$in"], idFilter["$in"])
 	}
 }
