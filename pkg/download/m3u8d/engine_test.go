@@ -129,4 +129,3 @@ func TestParseM3U8SingleLevel(t *testing.T) {
 		t.Error("expected error for path traversal, got nil")
 	}
 }
-

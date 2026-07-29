@@ -69,8 +69,9 @@ func (e *HTTPExtractor) AddResponseCheck(fn ResponseCheck) {
 }
 
 // Cancel 实现 Canceller 接口，按 URL 取消正在进行的下载。
+// 使用 Load 而非 LoadAndDelete，因为 Extract 的 defer 会清理 e.cancels。
 func (e *HTTPExtractor) Cancel(url string) error {
-	if v, ok := e.cancels.LoadAndDelete(url); ok {
+	if v, ok := e.cancels.Load(url); ok {
 		if cancel, ok := v.(context.CancelFunc); ok {
 			cancel()
 		}
@@ -353,6 +354,8 @@ func handle304Response(tresp *TransportResponse, w io.Writer, req *Request, rPat
 	req.Result.TotalSize = 0
 	if fi, stErr := os.Stat(rPath); stErr == nil {
 		req.Result.TotalSize = fi.Size()
+	} else {
+		slog.Warn("Failed to stat file for 304 handling", "file", rPath, logutil.LogKeyError, stErr)
 	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
@@ -489,7 +492,9 @@ func saveETagAndModTime(tresp *TransportResponse, req *Request, rPath string) {
 	if modTimeStr := tresp.Headers["Last-Modified"]; modTimeStr != "" {
 		if modTime, pErr := time.Parse(time.RFC1123, modTimeStr); pErr == nil {
 			req.Result.ModTime = modTime.Format(time.RFC3339Nano)
-			_ = os.Chtimes(rPath, modTime, modTime)
+			if err := os.Chtimes(rPath, modTime, modTime); err != nil {
+				slog.Warn("Failed to set file modification time", "file", rPath, logutil.LogKeyError, err)
+			}
 		}
 	}
 }
