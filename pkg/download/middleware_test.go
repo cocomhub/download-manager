@@ -274,3 +274,45 @@ func TestWithRuleSetAnnotatesHint(t *testing.T) {
 		t.Errorf("expected no match for .mp4 URL, got rule with pattern: %s", notMatched.Pattern)
 	}
 }
+
+// resultExtractor 返回固定 TotalSize，用于测试 MetricsMiddleware 的字节数记录。
+type resultExtractor struct {
+	totalSize int64
+}
+
+func (e *resultExtractor) Name() string                           { return "resultEx" }
+func (e *resultExtractor) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractor) Extract(_ context.Context, req *download.Request) error {
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
+	req.Result.TotalSize = e.totalSize
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytes(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractor{totalSize: 65535}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["resultEx"]
+	if !ok {
+		t.Fatal("expected 'resultEx' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 65535 {
+		t.Errorf("expected 65535 total_bytes, got %d", metrics["total_bytes"])
+	}
+}
