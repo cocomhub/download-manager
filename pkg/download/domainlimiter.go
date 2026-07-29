@@ -56,31 +56,31 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	host := u.Host
 
 	d.mu.Lock()
-	max := d.limit[host]
-	if max == 0 || d.cur[host] < max {
-		d.cur[host]++
-		d.mu.Unlock()
-		return nil
-	}
+	for {
+		max := d.limit[host]
+		if max == 0 || d.cur[host] < max {
+			d.cur[host]++
+			d.mu.Unlock()
+			return nil
+		}
 
-	// 需要等待：创建通知通道加入等待队列
-	ch := make(chan struct{})
-	d.waiters[host] = append(d.waiters[host], ch)
-	d.mu.Unlock()
+		// 需要等待：创建通知通道加入等待队列
+		ch := make(chan struct{})
+		d.waiters[host] = append(d.waiters[host], ch)
+		d.mu.Unlock()
 
-	select {
-	case <-ch:
-		// 获取到槽位（通知来自 Release 或 Set）
-		d.mu.Lock()
-		d.cur[host]++
-		d.mu.Unlock()
-		return nil
-	case <-ctx.Done():
-		// context 被取消，从等待队列中移除
-		d.mu.Lock()
-		d.removeWaiter(host, ch)
-		d.mu.Unlock()
-		return ctx.Err()
+		select {
+		case <-ch:
+			// 被唤醒，重新获取锁并重新检查条件
+			d.mu.Lock()
+			// 继续 for 循环重新检查条件
+		case <-ctx.Done():
+			// context 被取消，从等待队列中移除
+			d.mu.Lock()
+			d.removeWaiter(host, ch)
+			d.mu.Unlock()
+			return ctx.Err()
+		}
 	}
 }
 

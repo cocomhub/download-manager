@@ -77,7 +77,7 @@ func (s *DefaultSelector) SelectProxy(ctx context.Context, targetURL string, hin
 	ps := s.proxySelector
 	s.mu.Unlock()
 	if ps != nil {
-		return s.proxySelector.Select(ctx, targetURL, hint)
+		return ps.Select(ctx, targetURL, hint)
 	}
 	return "", nil
 }
