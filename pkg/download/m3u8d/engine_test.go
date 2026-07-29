@@ -82,21 +82,6 @@ func TestMarkAndIsDownloaded(t *testing.T) {
 func TestParseM3U8SingleLevel(t *testing.T) {
 	dir := t.TempDir()
 
-	// 创建测试 m3u8 文件，包含 #EXTINF 行
-	m3u8Content := `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:10
-#EXTINF:10,
-seg001.ts
-#EXTINF:10,
-seg002.ts
-#EXT-X-ENDLIST
-`
-	m3u8Path := dir + "/test.m3u8"
-	if err := writeFile(m3u8Path, m3u8Content); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := &DownloadConfig{
 		InputURL:   "https://example.com/stream.m3u8",
 		OutputFile: dir + "/output.mp4",
@@ -108,16 +93,42 @@ seg002.ts
 		t.Fatalf("NewM3U8DEngine failed: %v", err)
 	}
 
-	// 测试 parseM3U8（无实际下载，仅解析）
-	localPath := dir + "/parsed.m3u8"
-	// 直接测试 resolveURL
+	// Test processM3U8Line directly to verify TS segment extraction
 	base, _ := url.Parse(cfg.InputURL)
-	result := resolveURL(base, "seg001.ts")
-	if result != "https://example.com/seg001.ts" {
-		t.Errorf("resolveURL = %q, want %q", result, "https://example.com/seg001.ts")
+
+	tests := []struct {
+		name     string
+		line     string
+		wantTask int
+		wantType string
+	}{
+		{"directive line", "#EXTINF:10,", 0, ""},
+		{"ts segment", "seg001.ts", 1, "ts"},
+		{"ts segment with path", "sub/seg002.ts", 1, "ts"},
+		{"key file", "key.bin", 1, "key"},
+		{"empty line", "", 0, ""},
 	}
-	_ = localPath
-	_ = d
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, tasks, err := d.processM3U8Line(t.Context(), base, tt.line, 0)
+			if err != nil {
+				t.Fatalf("processM3U8Line failed: %v", err)
+			}
+			if len(tasks) != tt.wantTask {
+				t.Errorf("expected %d tasks, got %d", tt.wantTask, len(tasks))
+			}
+			if tt.wantType != "" && len(tasks) > 0 && tasks[0].Type != tt.wantType {
+				t.Errorf("expected type %q, got %q", tt.wantType, tasks[0].Type)
+			}
+		})
+	}
+
+	// Test path traversal protection
+	_, _, err = d.processM3U8Line(t.Context(), base, "../escape.ts", 0)
+	if err == nil {
+		t.Error("expected error for path traversal, got nil")
+	}
 }
 
 func writeFile(path, content string) error {

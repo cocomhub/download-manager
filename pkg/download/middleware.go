@@ -19,7 +19,11 @@ func MetricsMiddleware(registry *MetricRegistry) Middleware {
 		err := next.Extract(ctx, req)
 		elapsed := time.Since(start)
 
-		registry.Record(next.Name(), 0, elapsed, err == nil)
+		bytes := int64(0)
+		if req.Result != nil {
+			bytes = req.Result.TotalSize
+		}
+		registry.Record(next.Name(), bytes, elapsed, err == nil)
 		return err
 	}
 }

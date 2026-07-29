@@ -90,8 +90,10 @@ func (r *ruleSetSelector) MatchExtractor(ctx context.Context, url string, hint *
 	// 先通过规则集匹配，若匹配则注解 Hint
 	if matched := r.rs.Match(url, hint); matched != nil {
 		if hint == nil {
-			hint = &DownloadHint{Extractor: matched.Extractor}
-		} else if matched.Extractor != "" {
+			// hint is nil, cannot annotate; caller guarantees non-nil (see Download)
+			return r.next.MatchExtractor(ctx, url, nil)
+		}
+		if matched.Extractor != "" {
 			hint.Extractor = matched.Extractor
 		}
 	}

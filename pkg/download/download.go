@@ -66,8 +66,8 @@ func Get(ctx context.Context, url, savePath string) error {
 	})
 }
 
-// validateRequest validates and initializes the request.
-func validateRequest(req *Request) error {
+// validateAndInitRequest validates and initializes the request.
+func validateAndInitRequest(req *Request) error {
 	if req == nil || req.URL == "" || req.SavePath == "" {
 		return fmt.Errorf("invalid request: missing URL or SavePath")
 	}
@@ -120,8 +120,13 @@ func (d *Downloader) matchExtractor(ctx context.Context, url string, hint *Downl
 //  2. 注入 Transport 和 Selector（如果 Extractor 支持）
 //  3. 执行 Extractor.Extract
 func (d *Downloader) Download(ctx context.Context, req *Request) error {
-	if err := validateRequest(req); err != nil {
+	if err := validateAndInitRequest(req); err != nil {
 		return err
+	}
+
+	// Ensure Hint is non-nil so that ruleSetSelector can annotate it in-place.
+	if req.Hint == nil {
+		req.Hint = &DownloadHint{}
 	}
 
 	ex := d.matchExtractor(ctx, req.URL, req.Hint)

@@ -643,12 +643,12 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 			if IsNoTry(err) {
 				return err
 			}
-				slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
-				select {
-				case <-dlCtx.Done():
-					return dlCtx.Err()
-				case <-time.After(time.Duration(attempt) * time.Second):
-				}
+			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
+			select {
+			case <-dlCtx.Done():
+				return dlCtx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
 			continue
 		}
 		if !success {
