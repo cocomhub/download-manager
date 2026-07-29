@@ -6,7 +6,6 @@
 package storage
 
 import (
-	"context"
 	"os"
 	"strconv"
 	"testing"
@@ -18,7 +17,7 @@ import (
 )
 
 func TestMongoStorage_CRUD(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start MongoDB container
 	mongoContainer, err := mongodb.Run(ctx, "mongo:8")
@@ -179,7 +178,7 @@ func TestMongoStorage_CRUD(t *testing.T) {
 }
 
 func TestMongoStorage_SearchPagination(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mongoContainer, err := mongodb.Run(ctx, "mongo:8")
 	if err != nil {
@@ -271,7 +270,7 @@ func TestMongoStorage_SearchPagination(t *testing.T) {
 }
 
 func TestMongoStorage_IndexesCreated(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mongoContainer, err := mongodb.Run(ctx, "mongo:8")
 	if err != nil {
