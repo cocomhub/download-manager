@@ -5,7 +5,6 @@ package m3u8d
 
 import (
 	"net/url"
-	"os"
 	"testing"
 )
 
@@ -131,6 +130,3 @@ func TestParseM3U8SingleLevel(t *testing.T) {
 	}
 }
 
-func writeFile(path, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
-}
