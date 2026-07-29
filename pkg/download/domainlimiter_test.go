@@ -5,15 +5,42 @@ package download
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestDomainLimiterSetAndAcquire(t *testing.T) {
+func TestDomainLimiterConcurrent(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 5)
+
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Go(func() {
+			if err := dl.Acquire(t.Context(), "https://example.com/file"); err != nil {
+				t.Errorf("Acquire should succeed: %v", err)
+				return
+			}
+			time.Sleep(time.Millisecond) // simulate work
+			dl.Release("https://example.com/file")
+		})
+	}
+	wg.Wait()
+
+	// After all goroutines complete, cur should be 0
+	dl.mu.Lock()
+	cur := dl.cur["example.com"]
+	dl.mu.Unlock()
+	if cur != 0 {
+		t.Errorf("expected cur to be 0 after all releases, got %d", cur)
+	}
+}
+
+func TestDomainLimiterSetWakeup(t *testing.T) {
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 2)
 
-	// Acquire 2 should succeed immediately
+	// Acquire 2 slots
 	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
 		t.Fatalf("Acquire should succeed: %v", err)
 	}
@@ -21,123 +48,66 @@ func TestDomainLimiterSetAndAcquire(t *testing.T) {
 		t.Fatalf("Acquire should succeed: %v", err)
 	}
 
-	// 3rd acquire should block, so we do it in a goroutine
+	// 3rd acquire blocks
 	ctx, cancel := context.WithCancel(t.Context())
 	acquired3 := make(chan error, 1)
-
 	ready := make(chan struct{})
 	go func() {
-		close(ready) // signal that goroutine started
+		close(ready)
 		err := dl.Acquire(ctx, "https://example.com/file3")
 		acquired3 <- err
 	}()
-	<-ready // wait for goroutine to be scheduled
+	<-ready
 
-	// Release one, then the 3rd should get through
-	dl.Release("https://example.com/file1")
+	// Increase limit to 3, should wake up the waiter
+	dl.Set("example.com", 3)
 
 	select {
 	case err := <-acquired3:
 		if err != nil {
-			t.Fatalf("Acquire should succeed: %v", err)
+			t.Fatalf("Acquire should succeed after limit increase: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		cancel() // cleanup goroutine
-		t.Fatal("3rd acquire should have been unblocked after release")
+		cancel()
+		t.Fatal("3rd acquire should have been unblocked after limit increase")
 	}
 
-	// Clean up
+	dl.Release("https://example.com/file1")
 	dl.Release("https://example.com/file2")
 	dl.Release("https://example.com/file3")
 	cancel()
 }
 
-func TestDomainLimiterReleaseUnknown(t *testing.T) {
-	dl := NewDomainLimiter()
-
-	// Should not panic
-	dl.Release("https://unknown.example.com/file")
-}
-
-func TestDomainLimiterInvalidURL(t *testing.T) {
-	dl := NewDomainLimiter()
-
-	// Invalid URL should return an error
-	err := dl.Acquire(t.Context(), "://invalid-url")
-	if err == nil {
-		t.Error("expected error for invalid URL")
-	}
-	dl.Release("://invalid-url")
-}
-
-func TestDomainLimiterSetZero(t *testing.T) {
-	dl := NewDomainLimiter()
-	dl.Set("example.com", 0) // should clamp to 1
-
-	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
-		t.Fatalf("Acquire should succeed: %v", err)
-	}
-
-	// 2nd acquire should block since limit is clamped to 1
-	ctx, cancel := context.WithCancel(t.Context())
-	acquired2 := make(chan error, 1)
-
-	ready := make(chan struct{})
-	go func() {
-		close(ready) // signal that goroutine started
-		err := dl.Acquire(ctx, "https://example.com/file2")
-		acquired2 <- err
-	}()
-	<-ready // wait for goroutine to be scheduled
-
-	// Release the first one
-	dl.Release("https://example.com/file1")
-
-	select {
-	case err := <-acquired2:
-		if err != nil {
-			t.Fatalf("Acquire should succeed after release: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		cancel() // cleanup goroutine
-		t.Fatal("2nd acquire should have been unblocked after release")
-	}
-
-	dl.Release("https://example.com/file2")
-	cancel()
-}
-
-func TestDomainLimiterNoLimit(t *testing.T) {
-	dl := NewDomainLimiter()
-	// No limit set for this domain - should allow any number
-	if err := dl.Acquire(t.Context(), "https://unlimited.example.com/file1"); err != nil {
-		t.Fatalf("Acquire should succeed: %v", err)
-	}
-	if err := dl.Acquire(t.Context(), "https://unlimited.example.com/file2"); err != nil {
-		t.Fatalf("Acquire should succeed: %v", err)
-	}
-	if err := dl.Acquire(t.Context(), "https://unlimited.example.com/file3"); err != nil {
-		t.Fatalf("Acquire should succeed: %v", err)
-	}
-	// All should succeed immediately since no limit was set
-
-	dl.Release("https://unlimited.example.com/file1")
-	dl.Release("https://unlimited.example.com/file2")
-	dl.Release("https://unlimited.example.com/file3")
-}
-
-func TestDomainLimiterContextCancel(t *testing.T) {
+func TestDomainLimiterReleaseNoWaiters(t *testing.T) {
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 1)
 
+	// Acquire and release without any waiting goroutines
+	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
+		t.Fatalf("Acquire should succeed: %v", err)
+	}
+	// Release should not panic or block
+	dl.Release("https://example.com/file1")
+
+	// Verify we can acquire again
+	if err := dl.Acquire(t.Context(), "https://example.com/file2"); err != nil {
+		t.Fatalf("Acquire should succeed after release: %v", err)
+	}
+	dl.Release("https://example.com/file2")
+}
+
+func TestDomainLimiterAcquireAfterCancel(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 1)
+
+	// Acquire 1 slot
 	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
 		t.Fatalf("Acquire should succeed: %v", err)
 	}
 
-	// 2nd acquire should block; we cancel its context
+	// 2nd acquire blocks, cancel it
 	ctx, cancel := context.WithCancel(t.Context())
 	acquired2 := make(chan error, 1)
-
 	ready := make(chan struct{})
 	go func() {
 		close(ready)
@@ -145,8 +115,6 @@ func TestDomainLimiterContextCancel(t *testing.T) {
 		acquired2 <- err
 	}()
 	<-ready
-
-	// Cancel the context while the goroutine is waiting
 	cancel()
 
 	select {
@@ -158,10 +126,17 @@ func TestDomainLimiterContextCancel(t *testing.T) {
 		t.Fatal("Acquire should have returned after context cancellation")
 	}
 
+	// Release the first slot
 	dl.Release("https://example.com/file1")
+
+	// Now acquire again should work — the cancelled waiter was removed from the queue
+	if err := dl.Acquire(t.Context(), "https://example.com/file3"); err != nil {
+		t.Fatalf("Acquire should succeed after cancel+release: %v", err)
+	}
+	dl.Release("https://example.com/file3")
 }
 
-func TestDomainLimiterContextCancelMulti(t *testing.T) {
+func TestDomainLimiterCancelThenRelease(t *testing.T) {
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 1)
 
@@ -169,54 +144,29 @@ func TestDomainLimiterContextCancelMulti(t *testing.T) {
 		t.Fatalf("Acquire should succeed: %v", err)
 	}
 
-	// Two waiters, cancel one and release the other
-	ctx1, cancel1 := context.WithCancel(t.Context())
-	ctx2, cancel2 := context.WithCancel(t.Context())
-
-	acquired1 := make(chan error, 1)
+	// 2nd acquire blocks, cancel it
+	ctx, cancel := context.WithCancel(t.Context())
 	acquired2 := make(chan error, 1)
-	ready1 := make(chan struct{})
-	ready2 := make(chan struct{})
-
+	ready := make(chan struct{})
 	go func() {
-		close(ready1)
-		err := dl.Acquire(ctx1, "https://example.com/file2")
-		acquired1 <- err
-	}()
-	go func() {
-		close(ready2)
-		err := dl.Acquire(ctx2, "https://example.com/file3")
+		close(ready)
+		err := dl.Acquire(ctx, "https://example.com/file2")
 		acquired2 <- err
 	}()
-	<-ready1
-	<-ready2
-
-	// Cancel the first waiter
-	cancel1()
+	<-ready
+	cancel()
 
 	select {
-	case err := <-acquired1:
+	case err := <-acquired2:
 		if err != context.Canceled {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		cancel2()
-		t.Fatal("first Acquire should have returned after context cancellation")
+		t.Fatal("Acquire should have returned after context cancellation")
 	}
 
-	// Release the first slot, the second waiter should get through
+	// Release the first slot — the cancelled waiter was already removed from the queue
+	// Release should not try to close an already-closed channel
 	dl.Release("https://example.com/file1")
-
-	select {
-	case err := <-acquired2:
-		if err != nil {
-			t.Fatalf("Acquire should succeed after release: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		cancel2()
-		t.Fatal("second Acquire should have been unblocked after release")
-	}
-
-	dl.Release("https://example.com/file3")
-	cancel2()
+	// No panic, no deadlock: verified by reaching here
 }

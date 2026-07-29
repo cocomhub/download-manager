@@ -316,3 +316,110 @@ func TestMetricsMiddlewareRecordsBytes(t *testing.T) {
 		t.Errorf("expected 65535 total_bytes, got %d", metrics["total_bytes"])
 	}
 }
+
+// resultExtractorWithNil 返回成功但 Result 始终为 nil，用于测试字节数记录。
+type resultExtractorWithNil struct{}
+
+func (e *resultExtractorWithNil) Name() string                           { return "nilResult" }
+func (e *resultExtractorWithNil) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractorWithNil) Extract(_ context.Context, _ *download.Request) error {
+	// Do NOT set req.Result — it remains nil
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytesZero(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractorWithNil{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["nilResult"]
+	if !ok {
+		t.Fatal("expected 'nilResult' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes for nil Result, got %d", metrics["total_bytes"])
+	}
+}
+
+// resultExtractorWithZeroBytes 返回成功但 Result.TotalSize 为 0。
+type resultExtractorWithZeroBytes struct{}
+
+func (e *resultExtractorWithZeroBytes) Name() string                           { return "zeroBytes" }
+func (e *resultExtractorWithZeroBytes) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractorWithZeroBytes) Extract(_ context.Context, req *download.Request) error {
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
+	req.Result.TotalSize = 0
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytesZeroTotal(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractorWithZeroBytes{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["zeroBytes"]
+	if !ok {
+		t.Fatal("expected 'zeroBytes' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes, got %d", metrics["total_bytes"])
+	}
+}
+
+func TestMetricsMiddlewareRecordsBytesFailure(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	failEx := &failingExtractor{}
+
+	d := download.New(
+		download.WithExtractor(failEx),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err == nil {
+		t.Fatal("Download should fail with failingExtractor")
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["failer"]
+	if !ok {
+		t.Fatal("expected 'failer' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes on failure, got %d", metrics["total_bytes"])
+	}
+	if metrics["failure_count"] != 1 {
+		t.Errorf("expected 1 failure, got %d", metrics["failure_count"])
+	}
+}

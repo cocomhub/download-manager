@@ -45,6 +45,12 @@ func TestStaticProxySelectorWithForceProxy(t *testing.T) {
 	}
 }
 
+func TestDefaultMaxBandwidthConstant(t *testing.T) {
+	if defaultMaxBandwidth != 999999.0 {
+		t.Errorf("expected defaultMaxBandwidth to be 999999.0, got %f", defaultMaxBandwidth)
+	}
+}
+
 func TestStaticProxySelectorCacheDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	cacheDir := filepath.Join(tmpDir, "proxy_cache")
