@@ -17,9 +17,9 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/logutil"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const (
@@ -35,9 +35,7 @@ var mongoIndexOnce sync.Map
 // InitMongoClients initializes connections based on config
 func InitMongoClients(configs []struct{ Name, URI string }) error {
 	for _, cfg := range configs {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		client, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.URI))
-		cancel()
+		client, err := mongo.Connect(options.Client().ApplyURI(cfg.URI).SetConnectTimeout(10 * time.Second))
 		if err != nil {
 			return fmt.Errorf("failed to connect to mongo %s: %w", cfg.Name, err)
 		}
@@ -123,7 +121,7 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 
 	filter := bson.M{"url": obj.URL}
 	update := bson.M{"$set": obj}
-	opts := options.Update().SetUpsert(true)
+	opts := options.UpdateOne().SetUpsert(true)
 
 	_, err := s.collection.UpdateOne(ctx, filter, update, opts)
 	return err
