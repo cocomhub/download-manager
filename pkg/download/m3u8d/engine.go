@@ -210,7 +210,7 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 			if d.Config.Verbose {
 				fmt.Printf("重试 %d/%d: %s\n", i, d.Config.MaxRetries, filepath.Base(localPath))
 			}
-time.Sleep(time.Duration(i*i) * time.Second)
+			time.Sleep(time.Duration(i*i) * time.Second)
 		}
 
 		if err := d.downloadFile(ctx, fileURL, localPath); err != nil {

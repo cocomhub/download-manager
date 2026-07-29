@@ -18,6 +18,11 @@ import (
 	"github.com/cocomhub/download-manager/config"
 )
 
+const (
+	// defaultMaxBandwidth 是代理探测失败时的默认带宽值（数值越大表示越差）。
+	defaultMaxBandwidth = 999999.0
+)
+
 // StaticProxySelector 是静态代理列表的选择器实现。
 // 它使用文件缓存 + 直连探测 + 带宽评分来选择最佳代理。
 type StaticProxySelector struct {
@@ -136,7 +141,7 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 // selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
 func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
 	bestProxy := ""
-	minBandwidth := 999999.0
+	minBandwidth := defaultMaxBandwidth
 	for _, p := range s.proxies {
 		bw := getProxyBandwidth(ctx, p, s.bandwidthSuffix, s.probeTimeout)
 		if bw < minBandwidth {
@@ -169,7 +174,7 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
+// getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 defaultMaxBandwidth。
 func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
 		suffix = "/bandwidth"
@@ -184,20 +189,20 @@ func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	hreq, err := http.NewRequestWithContext(ctx, "GET", target, nil)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	resp, err := client.Do(hreq)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	val, err := strconv.ParseFloat(strings.TrimSpace(string(body)), 64)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	return val
 }
