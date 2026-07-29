@@ -43,7 +43,9 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 		targetURL = treq.ProxyURL + "/" + targetURL
 	}
 
-	t.dLimiter.Acquire(treq.URL)
+	if err := t.dLimiter.Acquire(ctx, treq.URL); err != nil {
+		return nil, fmt.Errorf("domain limiter acquire: %w", err)
+	}
 	defer t.dLimiter.Release(treq.URL)
 
 	method := treq.Method

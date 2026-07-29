@@ -160,20 +160,30 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 		return fmt.Errorf("hls: ffmpeg start failed: %w", err)
 	}
 
-	// drain stderr to avoid blocking
+	// drain stderr in background goroutine, respond to context cancellation
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		buf := make([]byte, 4096)
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			_, err := stderr.Read(buf)
 			if err != nil {
-				break
+				return
 			}
 		}
 	}()
 
 	if err := cmd.Wait(); err != nil {
+		<-done // ensure drain goroutine exits before returning
 		return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
 	}
+
+	<-done
 
 	reportHLSDownloadResult(rPath, req)
 	return nil

@@ -13,8 +13,8 @@ func TestDomainLimiterSetAndAcquire(t *testing.T) {
 	dl.Set("example.com", 2)
 
 	// Acquire 2 should succeed immediately
-	dl.Acquire("https://example.com/file1")
-	dl.Acquire("https://example.com/file2")
+	dl.Acquire(t.Context(), "https://example.com/file1")
+	dl.Acquire(t.Context(), "https://example.com/file2")
 
 	// 3rd acquire should block, so we do it in a goroutine
 	acquired3 := make(chan struct{}, 1)
@@ -22,7 +22,7 @@ func TestDomainLimiterSetAndAcquire(t *testing.T) {
 	ready := make(chan struct{})
 	go func() {
 		close(ready) // signal that goroutine started
-		dl.Acquire("https://example.com/file3")
+		dl.Acquire(t.Context(), "https://example.com/file3")
 		acquired3 <- struct{}{}
 	}()
 	<-ready // wait for goroutine to be scheduled
@@ -53,7 +53,7 @@ func TestDomainLimiterInvalidURL(t *testing.T) {
 	dl := NewDomainLimiter()
 
 	// Invalid URL should not panic
-	dl.Acquire("://invalid-url")
+	dl.Acquire(t.Context(), "://invalid-url")
 	dl.Release("://invalid-url")
 }
 
@@ -61,7 +61,7 @@ func TestDomainLimiterSetZero(t *testing.T) {
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 0) // should clamp to 1
 
-	dl.Acquire("https://example.com/file1")
+	dl.Acquire(t.Context(), "https://example.com/file1")
 
 	// 2nd acquire should block since limit is clamped to 1
 	acquired2 := make(chan struct{}, 1)
@@ -69,7 +69,7 @@ func TestDomainLimiterSetZero(t *testing.T) {
 	ready := make(chan struct{})
 	go func() {
 		close(ready) // signal that goroutine started
-		dl.Acquire("https://example.com/file2")
+		dl.Acquire(t.Context(), "https://example.com/file2")
 		acquired2 <- struct{}{}
 	}()
 	<-ready // wait for goroutine to be scheduled
@@ -90,9 +90,9 @@ func TestDomainLimiterSetZero(t *testing.T) {
 func TestDomainLimiterNoLimit(t *testing.T) {
 	dl := NewDomainLimiter()
 	// No limit set for this domain - should allow any number
-	dl.Acquire("https://unlimited.example.com/file1")
-	dl.Acquire("https://unlimited.example.com/file2")
-	dl.Acquire("https://unlimited.example.com/file3")
+	dl.Acquire(t.Context(), "https://unlimited.example.com/file1")
+	dl.Acquire(t.Context(), "https://unlimited.example.com/file2")
+	dl.Acquire(t.Context(), "https://unlimited.example.com/file3")
 	// All should succeed immediately since no limit was set
 
 	dl.Release("https://unlimited.example.com/file1")

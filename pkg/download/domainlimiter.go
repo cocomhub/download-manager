@@ -4,27 +4,29 @@
 package download
 
 import (
+	"context"
+	"fmt"
 	"net/url"
 	"sync"
 )
 
 // DomainLimiter 提供基于域名的并发连接数限制。
 // 每个域名独立计数，超过限制的 acquire 会阻塞直到有释放信号。
+// 支持 context 取消，取消时自动退出等待队列。
 type DomainLimiter struct {
-	mu    sync.Mutex
-	cond  *sync.Cond
-	limit map[string]int
-	cur   map[string]int
+	mu      sync.Mutex
+	limit   map[string]int
+	cur     map[string]int
+	waiters map[string][]chan struct{}
 }
 
 // NewDomainLimiter 创建并返回一个新的 DomainLimiter 实例。
 func NewDomainLimiter() *DomainLimiter {
-	d := &DomainLimiter{
-		limit: make(map[string]int),
-		cur:   make(map[string]int),
+	return &DomainLimiter{
+		limit:   make(map[string]int),
+		cur:     make(map[string]int),
+		waiters: make(map[string][]chan struct{}),
 	}
-	d.cond = sync.NewCond(&d.mu)
-	return d
 }
 
 // Set 设置指定主机的最大并发连接数。
@@ -36,27 +38,64 @@ func (d *DomainLimiter) Set(host string, max int) {
 		max = 1
 	}
 	d.limit[host] = max
-	d.cond.Broadcast()
+	// 唤醒所有等待者，让它们重新检查条件
+	for _, ch := range d.waiters[host] {
+		close(ch)
+	}
+	d.waiters[host] = nil
 }
 
-// Acquire 尝试获取一个域的连接槽位。
-// 如果当前连接数已达到限制，会阻塞直到有释放信号或超过限制变更。
+// Acquire 尝试获取一个域的连接槽位，支持 context 取消。
+// 如果当前连接数已达到限制，会阻塞直到有释放信号或 context 被取消。
 // rawURL 可以是完整的 URL，内部会解析出 host。
-func (d *DomainLimiter) Acquire(rawURL string) {
+func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return
+		return fmt.Errorf("domainlimiter: invalid URL: %w", err)
 	}
 	host := u.Host
+
 	d.mu.Lock()
-	for max := d.limit[host]; max != 0 && d.cur[host] >= max; max = d.limit[host] {
-		d.cond.Wait()
+	max := d.limit[host]
+	if max == 0 || d.cur[host] < max {
+		d.cur[host]++
+		d.mu.Unlock()
+		return nil
 	}
-	d.cur[host]++
+
+	// 需要等待：创建通知通道加入等待队列
+	ch := make(chan struct{})
+	d.waiters[host] = append(d.waiters[host], ch)
 	d.mu.Unlock()
+
+	select {
+	case <-ch:
+		// 获取到槽位（通知来自 Release 或 Set）
+		d.mu.Lock()
+		d.cur[host]++
+		d.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		// context 被取消，从等待队列中移除
+		d.mu.Lock()
+		d.removeWaiter(host, ch)
+		d.mu.Unlock()
+		return ctx.Err()
+	}
 }
 
-// Release 释放一个域的连接槽位，唤醒等待者。
+// removeWaiter 从指定主机的等待队列中移除一个通道。
+func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) {
+	waiters := d.waiters[host]
+	for i, w := range waiters {
+		if w == ch {
+			d.waiters[host] = append(waiters[:i], waiters[i+1:]...)
+			return
+		}
+	}
+}
+
+// Release 释放一个域的连接槽位，唤醒一个等待者。
 func (d *DomainLimiter) Release(rawURL string) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -67,6 +106,11 @@ func (d *DomainLimiter) Release(rawURL string) {
 	if d.cur[host] > 0 {
 		d.cur[host]--
 	}
-	d.cond.Broadcast()
+	// 唤醒一个等待者
+	if len(d.waiters[host]) > 0 {
+		ch := d.waiters[host][0]
+		d.waiters[host] = d.waiters[host][1:]
+		close(ch)
+	}
 	d.mu.Unlock()
 }

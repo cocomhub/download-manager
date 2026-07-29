@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -27,6 +28,7 @@ type CompositeExtractor struct {
 	transport  download.Transport
 	extractors []download.Extractor
 	downloader *download.Downloader
+	once       sync.Once
 }
 
 // NewCompositeExtractor 创建 CompositeExtractor 实例。
@@ -48,20 +50,20 @@ func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
 
 // buildDownloader builds or returns the cached downloader instance.
 func (e *CompositeExtractor) buildDownloader() *download.Downloader {
-	if e.downloader != nil {
-		return e.downloader
-	}
-	var opts []download.Option
-	if e.transport != nil {
-		opts = append(opts, download.WithTransport(e.transport))
-	}
-	if e.selector != nil {
-		opts = append(opts, download.WithSelector(e.selector))
-	}
-	for _, ex := range e.extractors {
-		opts = append(opts, download.WithExtractor(ex))
-	}
-	return download.New(opts...)
+	e.once.Do(func() {
+		var opts []download.Option
+		if e.transport != nil {
+			opts = append(opts, download.WithTransport(e.transport))
+		}
+		if e.selector != nil {
+			opts = append(opts, download.WithSelector(e.selector))
+		}
+		for _, ex := range e.extractors {
+			opts = append(opts, download.WithExtractor(ex))
+		}
+		e.downloader = download.New(opts...)
+	})
+	return e.downloader
 }
 
 // processFile handles a single file entry from the composite file list.
