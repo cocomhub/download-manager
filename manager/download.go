@@ -69,6 +69,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	// 发起小对象下载（不阻塞主体下载）
 	m.enqueueSmallObjects(t, obj)
 
+	// 检查对象是否已被取消，避免覆盖 CancelObject 设置的 cancelled 状态。
+	// 对象可能在 enqueue 和 worker 取出之间被取消。
+	if m.isCancelled(t, obj) {
+		slog.Info("Download: object was cancelled before download started, preserving cancelled status",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		return
+	}
+
 	t.UpdateStatus(obj, model.StatusDownloading, nil)
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
