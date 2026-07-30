@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,13 +24,14 @@ import (
 
 var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
 
+var reKeyURL = regexp.MustCompile(`URI="([^"]+)"`)
+
 // M3U8DEngine 是 m3u8 下载引擎，支持 http.Client 注入。
 // 单文件下载（m3u8 解析、密钥下载等）使用注入的 client；
 // 并发 TS 分片下载仍使用 grab 的独立 client。
 type M3U8DEngine struct {
 	Config        *DownloadConfig
 	client        *http.Client
-	baseURL       *url.URL
 	downloaded    map[string]bool
 	mu            sync.RWMutex
 	concurrencyMu sync.Mutex
@@ -39,6 +41,9 @@ type M3U8DEngine struct {
 // NewM3U8DEngine 创建 M3U8DEngine 实例。
 // httpClient 为可选的 HTTP 客户端；传 nil 时使用默认 client（超时由 cfg.Timeout 决定）。
 func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine, error) {
+	cfgCopy := *cfg
+	cfg = &cfgCopy
+
 	parsedURL, err := url.Parse(cfg.InputURL)
 	if err != nil {
 		return nil, fmt.Errorf("无效的URL: %v", err)
@@ -48,6 +53,13 @@ func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine,
 
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = fmt.Sprintf("download_%s", base64URL[:10])
+	}
+
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 4
+	}
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = 3
 	}
 
 	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
@@ -63,7 +75,6 @@ func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine,
 	return &M3U8DEngine{
 		Config:     cfg,
 		client:     httpClient,
-		baseURL:    parsedURL,
 		downloaded: make(map[string]bool),
 	}, nil
 }
@@ -87,7 +98,7 @@ func (d *M3U8DEngine) DownloadAll(ctx context.Context) (string, error) {
 	}
 
 	if d.totalFiles < 10 {
-		return mainM3U8Path, ErrNotEnoughFiles
+		return "", ErrNotEnoughFiles
 	}
 
 	// 并发下载（最多重试一次）
@@ -149,6 +160,9 @@ func (d *M3U8DEngine) Cleanup() error {
 		fmt.Printf("文件保留在: %s\n", d.Config.WorkDir)
 		return nil
 	}
+	if d.Config.WorkDir == "" || d.Config.WorkDir == "." || d.Config.WorkDir == ".." {
+		return fmt.Errorf("m3u8d: refusing to cleanup unsafe workdir %q", d.Config.WorkDir)
+	}
 	return os.RemoveAll(d.Config.WorkDir)
 }
 
@@ -188,6 +202,7 @@ func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath strin
 	defer file.Close()
 
 	if _, err := io.Copy(file, resp.Body); err != nil {
+		os.Remove(localPath)
 		return err
 	}
 
@@ -279,7 +294,13 @@ func (d *M3U8DEngine) processM3U8Line(ctx context.Context, base *url.URL, line s
 		return line, nil, nil
 	}
 
-	if strings.Contains(line, "..") || strings.Contains(line, "\x00") {
+	cleanLine := cleanResourceLine(line)
+
+	if cleaned := path.Clean(cleanLine); strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+		return "", nil, fmt.Errorf("path traversal detected: %s", line)
+	}
+
+	if strings.Contains(line, "\x00") {
 		return "", nil, fmt.Errorf("invalid resource path in m3u8: %s", line)
 	}
 
@@ -323,9 +344,10 @@ func (d *M3U8DEngine) processDirectiveLine(base *url.URL, line string) (string, 
 func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, line string, level int) (string, []DownloadTask, error) {
 	absURL := resolveURL(base, line)
 	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
+	cleanLine := cleanResourceLine(line)
 
 	switch {
-	case strings.HasSuffix(strings.ToLower(line), ".m3u8"):
+	case strings.HasSuffix(strings.ToLower(cleanLine), ".m3u8"):
 		subM3U8Path := filepath.Join(d.Config.WorkDir, fileHash+".m3u8")
 		subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
 		if err != nil {
@@ -333,7 +355,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 		}
 		return filepath.Base(subM3U8Path), subTasks, nil
 
-	case strings.HasSuffix(strings.ToLower(line), ".ts"):
+	case strings.HasSuffix(strings.ToLower(cleanLine), ".ts"):
 		tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
 		return filepath.Base(tsLocalPath), []DownloadTask{{
 			URL:       absURL,
@@ -341,7 +363,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 			Type:      "ts",
 		}}, nil
 
-	case strings.HasSuffix(strings.ToLower(line), ".key") || strings.HasSuffix(strings.ToLower(line), ".bin"):
+	case strings.HasSuffix(strings.ToLower(cleanLine), ".key") || strings.HasSuffix(strings.ToLower(cleanLine), ".bin"):
 		keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
 		return filepath.Base(line), []DownloadTask{{
 			URL:       absURL,
@@ -375,8 +397,7 @@ func (d *M3U8DEngine) markAsDownloaded(url string) {
 
 // extractKeyURL 从 EXT-X-KEY 行中提取密钥 URL。
 func extractKeyURL(line string) (string, bool) {
-	re := regexp.MustCompile(`URI="([^"]+)"`)
-	matches := re.FindStringSubmatch(line)
+	matches := reKeyURL.FindStringSubmatch(line)
 	if len(matches) > 1 {
 		return matches[1], true
 	}
@@ -393,4 +414,12 @@ func resolveURL(base *url.URL, ref string) string {
 		return ref
 	}
 	return base.ResolveReference(refURL).String()
+}
+
+// cleanResourceLine 剥离查询参数，仅用于类型/路径检测。
+func cleanResourceLine(line string) string {
+	if before, _, ok := strings.Cut(line, "?"); ok {
+		return before
+	}
+	return line
 }
