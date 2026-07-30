@@ -150,7 +150,8 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 		if decision == "direct" {
 			return "", nil
 		}
-		// 继续执行原有逻辑，不返回 — 缓存可能已过期
+		// 缓存只存 "direct"/"proxy" 标记，不存具体代理 URL，
+			// 所以即使缓存命中 "proxy" 也需要带宽扫描来选出最佳代理。
 	}
 
 	bestProxy := ""

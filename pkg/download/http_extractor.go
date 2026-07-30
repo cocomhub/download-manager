@@ -47,6 +47,7 @@ type ResponseCheck func(req *Request, tresp *TransportResponse) error
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
+	mu             sync.RWMutex
 	transport      Transport
 	selector       Selector
 	maxRetries     int
@@ -62,11 +63,17 @@ type HTTPExtractor struct {
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
-func (e *HTTPExtractor) SetBrowserHeaders(v bool) { e.browserHdrs = v }
+func (e *HTTPExtractor) SetBrowserHeaders(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.browserHdrs = v
+}
 
 // AddResponseCheck 注册一个响应校验函数，在每次下载拿到响应后执行。
 // 多个 check 按注册顺序执行，任一返回 error 则终止下载。
 func (e *HTTPExtractor) AddResponseCheck(fn ResponseCheck) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.responseChecks = append(e.responseChecks, fn)
 }
 
@@ -101,13 +108,25 @@ func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir strin
 }
 
 // SetTransport 注入 Transport 实例（实现 ExtractorWithTransport 接口）。
-func (e *HTTPExtractor) SetTransport(t Transport) { e.transport = t }
+func (e *HTTPExtractor) SetTransport(t Transport) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.transport = t
+}
 
 // SetSelector 注入 Selector 实例（实现 ExtractorWithSelector 接口）。
-func (e *HTTPExtractor) SetSelector(s Selector) { e.selector = s }
+func (e *HTTPExtractor) SetSelector(s Selector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.selector = s
+}
 
 // SetAllowPaths 设置下载路径白名单（可选）。
-func (e *HTTPExtractor) SetAllowPaths(paths []string) { e.allowPaths = paths }
+func (e *HTTPExtractor) SetAllowPaths(paths []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.allowPaths = paths
+}
 
 // Name 返回提取器名称。
 func (e *HTTPExtractor) Name() string { return "http" }
@@ -119,8 +138,22 @@ func (e *HTTPExtractor) Match(ctx context.Context, url string) bool {
 
 // Extract 执行完整的 HTTP 文件下载编排。
 func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
+	// 局部拷贝所有可变字段，避免后续代码在持有锁的情况下长时间运行
+	e.mu.RLock()
+	localTransport := e.transport
+	localSelector := e.selector
+	localBrowserHdrs := e.browserHdrs
+	localAllowPaths := e.allowPaths
+	localMaxRetries := e.maxRetries
+	localRootDir := e.rootDir
+	localLogDir := e.logDir
+	localUA := e.ua
+	localResponseChecks := make([]ResponseCheck, len(e.responseChecks))
+	copy(localResponseChecks, e.responseChecks)
+	e.mu.RUnlock()
+
 	// 确保 Transport 已注入
-	if e.transport == nil {
+	if localTransport == nil {
 		return fmt.Errorf("http: transport not set, call SetTransport before Extract")
 	}
 
@@ -128,14 +161,18 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	dlCtx, dlCancel := context.WithCancel(ctx)
 	defer e.cancels.Delete(req.URL)
 	defer dlCancel()
-	e.cancels.Store(req.URL, dlCancel)
+	// 使用 LoadOrStore 检测相同 URL 的并发下载
+	if _, loaded := e.cancels.LoadOrStore(req.URL, dlCancel); loaded {
+		dlCancel()
+		return fmt.Errorf("already downloading: %s", req.URL)
+	}
 
-	rPath, err := e.resolveSavePath(req)
+	rPath, err := e.resolveSavePath(req, localRootDir, localAllowPaths)
 	if err != nil {
 		return err
 	}
 
-	proxyURL := e.selectProxy(dlCtx, req)
+	proxyURL := e.selectProxy(dlCtx, req, localSelector)
 	action := e.resolveDownloadAction(rPath, req)
 
 	if action == ActionSkip {
@@ -146,12 +183,12 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	startOffset := e.prepareDownloadOffset(rPath, action)
 	ensureRequestFields(req)
 
-	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req)
+	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req, localTransport, localLogDir, localMaxRetries, localUA, localBrowserHdrs, localResponseChecks)
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
-func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) (success bool, err error) {
-	logWriter := createProgressLogWriter(e.logDir, rPath)
+func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck) (success bool, err error) {
+	logWriter := createProgressLogWriter(localLogDir, rPath)
 	if c, ok := logWriter.(io.Closer); ok {
 		defer c.Close()
 	}
@@ -166,13 +203,13 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		URL:      rawURL,
 		Method:   "GET",
 		ProxyURL: proxyURL,
-		Headers:  e.buildHeaders(req),
+		Headers:  e.buildHeaders(req, localUA, localBrowserHdrs),
 	}
 	if startOffset > 0 {
 		treq.Range = &RangeRequest{Offset: startOffset}
 	}
 
-	tresp, tErr := e.transport.RoundTrip(ctx, treq)
+	tresp, tErr := localTransport.RoundTrip(ctx, treq)
 	if tErr != nil {
 		return false, tErr
 	}
@@ -188,7 +225,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, err
 	}
 
-	for _, check := range e.responseChecks {
+	for _, check := range localResponseChecks {
 		if err := check(req, tresp); err != nil {
 			writeLog(logWriter, "Response check failed: %v\n", err)
 			return false, err
@@ -557,11 +594,11 @@ func setReqMetadata(req *Request, key, value string) {
 // ---------------------------------------------------------------------------
 
 // resolveSavePath 解析保存路径并创建目录。
-func (e *HTTPExtractor) resolveSavePath(req *Request) (string, error) {
+func (e *HTTPExtractor) resolveSavePath(req *Request, rootDir string, allowPaths []string) (string, error) {
 	rPath := req.SavePath
-	if e.rootDir != "" {
+	if rootDir != "" {
 		var err error
-		rPath, err = ResolvePathWithAllowList(e.rootDir, e.allowPaths, req.SavePath)
+		rPath, err = ResolvePathWithAllowList(rootDir, allowPaths, req.SavePath)
 		if err != nil {
 			return "", err
 		}
@@ -573,11 +610,11 @@ func (e *HTTPExtractor) resolveSavePath(req *Request) (string, error) {
 }
 
 // selectProxy 选择代理，失败时降级为直连。
-func (e *HTTPExtractor) selectProxy(ctx context.Context, req *Request) string {
-	if e.selector == nil {
+func (e *HTTPExtractor) selectProxy(ctx context.Context, req *Request, selector Selector) string {
+	if selector == nil {
 		return ""
 	}
-	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	proxyURL, err := selector.SelectProxy(ctx, req.URL, req.Hint)
 	if err != nil {
 		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		return ""
@@ -645,8 +682,8 @@ func ensureRequestFields(req *Request) {
 }
 
 // retryDownload 执行带重试的下载循环。
-func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) error {
-	maxRetries := e.maxRetries
+func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck) error {
+	maxRetries := localMaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 5
 	}
@@ -657,7 +694,7 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		default:
 		}
 
-		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req)
+		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req, localTransport, localLogDir, localUA, localBrowserHdrs, localResponseChecks)
 		if err != nil {
 			if IsNoTry(err) {
 				return err
@@ -684,20 +721,20 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, e.maxRetries)
+	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, localMaxRetries)
 }
 
-func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {
+func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {
 	h := make(map[string]string)
 	if req.Headers != nil {
 		maps.Copy(h, req.Headers)
 	}
-	if _, ok := h["User-Agent"]; !ok && e.ua != "" {
-		h["User-Agent"] = e.ua
+	if _, ok := h["User-Agent"]; !ok && localUA != "" {
+		h["User-Agent"] = localUA
 	}
 
 	// 注入 Chrome 风格浏览器标头（除非禁用），然后在最后用 req.Headers 覆盖
-	if e.browserHdrs {
+	if localBrowserHdrs {
 		browser := map[string]string{
 			"Accept":             "*/*",
 			"Cache-Control":      "no-cache",

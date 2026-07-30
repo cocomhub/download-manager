@@ -170,7 +170,7 @@ func TestComposeProgressConcurrent(t *testing.T) {
 	mu.Lock()
 	count := callCount
 	mu.Unlock()
-	if count == 0 {
-		t.Error("expected progress callbacks to be invoked")
+	if count != 200 {
+		t.Errorf("expected progress callbacks to be invoked 200 times (100 calls × 2 callbacks), got %d", count)
 	}
 }

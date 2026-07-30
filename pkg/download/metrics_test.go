@@ -10,13 +10,6 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-func TestNewMetricRegistry(t *testing.T) {
-	reg := download.NewMetricRegistry()
-	if reg == nil {
-		t.Fatal("NewMetricRegistry returned nil")
-	}
-}
-
 func TestMetricRegistryGet(t *testing.T) {
 	reg := download.NewMetricRegistry()
 	m := reg.Get("http")

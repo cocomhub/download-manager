@@ -4,8 +4,10 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -126,7 +128,11 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 	targetURL = strings.TrimPrefix(targetURL, "https://")
 	fullURL := t.serverURL + "/" + targetURL
 
-	hreq, err := http.NewRequestWithContext(ctx, treq.Method, fullURL, nil)
+	var body io.Reader
+	if len(treq.Body) > 0 {
+		body = bytes.NewReader(treq.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, treq.Method, fullURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("sproxy: create request: %w", err)
 	}
@@ -161,7 +167,11 @@ func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *do
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
 
-	hreq, err := http.NewRequestWithContext(ctx, treq.Method, treq.URL, nil)
+	var body io.Reader
+	if len(treq.Body) > 0 {
+		body = bytes.NewReader(treq.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, treq.Method, treq.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("sproxy: tunnel create request: %w", err)
 	}
@@ -201,7 +211,7 @@ func (t *SproxyTunnelTransport) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("sproxy: health check failed: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("sproxy: health check returned %d", resp.StatusCode)
 	}

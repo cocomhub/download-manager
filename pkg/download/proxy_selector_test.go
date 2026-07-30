@@ -15,24 +15,24 @@ import (
 // ---- StaticProxySelector ----
 
 func TestStaticProxySelectorNoProxies(t *testing.T) {
-	s := NewStaticProxySelector(nil)
-	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
-	if err != nil {
-		t.Errorf("expected no error, got: %v", err)
+	tests := []struct {
+		name    string
+		proxies []string
+	}{
+		{name: "nil", proxies: nil},
+		{name: "empty", proxies: []string{}},
 	}
-	if proxy != "" {
-		t.Errorf("expected empty proxy (direct), got: %s", proxy)
-	}
-}
-
-func TestStaticProxySelectorEmptyProxies(t *testing.T) {
-	s := NewStaticProxySelector([]string{})
-	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
-	if err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-	if proxy != "" {
-		t.Errorf("expected empty proxy (direct), got: %s", proxy)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStaticProxySelector(tt.proxies)
+			proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+			if err != nil {
+				t.Errorf("expected no error, got: %v", err)
+			}
+			if proxy != "" {
+				t.Errorf("expected empty proxy (direct), got: %s", proxy)
+			}
+		})
 	}
 }
 
@@ -45,12 +45,6 @@ func TestStaticProxySelectorWithForceProxy(t *testing.T) {
 	}
 	if proxy != "" {
 		t.Errorf("expected empty proxy on error, got: %s", proxy)
-	}
-}
-
-func TestDefaultMaxBandwidthConstant(t *testing.T) {
-	if defaultMaxBandwidth != 999999.0 {
-		t.Errorf("expected defaultMaxBandwidth to be 999999.0, got %f", defaultMaxBandwidth)
 	}
 }
 

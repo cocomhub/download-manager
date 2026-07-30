@@ -72,7 +72,7 @@ func CheckHealth(ctx context.Context, url string, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("health check: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check: unexpected status %d", resp.StatusCode)

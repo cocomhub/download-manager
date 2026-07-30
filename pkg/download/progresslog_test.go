@@ -141,7 +141,9 @@ func TestWritesOnMaxInterval(t *testing.T) {
 	// 1st call: always writes
 	cb(0, 0, 1000)
 	// sleep past maxInterval
-	<-time.After(60 * time.Millisecond)
+	timer := time.NewTimer(60 * time.Millisecond)
+	<-timer.C
+	timer.Stop()
 	// 2nd call: delta=0.5 < 50, but interval exceeded => should write
 	cb(0.5, 5, 1000)
 

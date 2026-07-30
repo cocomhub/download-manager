@@ -39,12 +39,25 @@ func TestTryGetMd5StrongEtag(t *testing.T) {
 	}
 }
 
-func TestTryGetMd5InvalidEtag(t *testing.T) {
+func TestTryGetMd5EtagWrongLength(t *testing.T) {
+	// ETag with wrong inner length (not 32 hex chars) → should return empty
 	headers := map[string]string{
 		"Etag": `"not-a-valid-md5"`,
 	}
 	result := TryGetMd5(headers)
 	if result != "" {
-		t.Errorf("expected empty for invalid ETag, got %q", result)
+		t.Errorf("expected empty for short ETag, got %q", result)
+	}
+}
+
+func TestTryGetMd5EtagInvalidHex(t *testing.T) {
+	// 38-char ETag (36 chars inner) with non-hex content → goes through non-standard
+	// branch, len(inner) != 32 → returns empty
+	headers := map[string]string{
+		"Etag": `"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"`, // 36 chars inner, 38 total
+	}
+	result := TryGetMd5(headers)
+	if result != "" {
+		t.Errorf("expected empty for non-standard-length ETag with non-hex content, got %q", result)
 	}
 }

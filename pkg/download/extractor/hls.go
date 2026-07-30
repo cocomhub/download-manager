@@ -238,11 +238,30 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 				return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
 			}
 		case <-time.After(5 * time.Second):
-			<-done
+			// Close stderr pipe to wake up the scanner goroutine
+			if pipeErr := stderr.Close(); pipeErr != nil {
+				slog.Warn("Failed to close stderr pipe during cancel timeout", logutil.LogKeyError, pipeErr)
+			}
+			// Wait for scanner with a short grace period; don't block forever
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				slog.Warn("Scanner goroutine did not exit after stderr close, possible leak",
+					logutil.LogKeyURL, req.URL)
+			}
 			return fmt.Errorf("hls: ffmpeg cancel timeout")
 		}
 	case <-time.After(30 * time.Second):
-		<-done
+		// Close stderr pipe to wake up the scanner goroutine on timeout
+		if pipeErr := stderr.Close(); pipeErr != nil {
+			slog.Warn("Failed to close stderr pipe during execution timeout", logutil.LogKeyError, pipeErr)
+		}
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			slog.Warn("Scanner goroutine did not exit after stderr close on timeout",
+				logutil.LogKeyURL, req.URL)
+		}
 		return fmt.Errorf("hls: ffmpeg execution timeout")
 	}
 

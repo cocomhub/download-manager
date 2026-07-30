@@ -26,6 +26,18 @@ func (m *mockExtractor) Name() string                                         { 
 func (m *mockExtractor) Match(_ context.Context, _ string) bool               { return true }
 func (m *mockExtractor) Extract(_ context.Context, _ *download.Request) error { return nil }
 
+type mockNonMatchingExtractor struct{}
+
+func (m *mockNonMatchingExtractor) Name() string                                         { return "mock-non-matching" }
+func (m *mockNonMatchingExtractor) Match(_ context.Context, _ string) bool               { return false }
+func (m *mockNonMatchingExtractor) Extract(_ context.Context, _ *download.Request) error { return nil }
+
+type mockSuccessExtractor struct{}
+
+func (m *mockSuccessExtractor) Name() string                                         { return "mock-success" }
+func (m *mockSuccessExtractor) Match(_ context.Context, _ string) bool               { return true }
+func (m *mockSuccessExtractor) Extract(_ context.Context, _ *download.Request) error { return nil }
+
 type mockTransport struct{}
 
 func (m *mockTransport) Name() string { return "mock" }
@@ -368,13 +380,14 @@ func TestDownloaderInvalidRequestEmptySavePath(t *testing.T) {
 }
 
 func TestDownloaderNoExtractor(t *testing.T) {
-	d := download.New()
+	// Use an extractor that doesn't match any URL to verify the "no extractor found" error path
+	d := download.New(download.WithExtractor(&mockNonMatchingExtractor{}))
 	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
 	})
 	if err == nil {
-		t.Error("Download with no extractor should error")
+		t.Error("Download with no matching extractor should error")
 	}
 }
 
@@ -419,9 +432,14 @@ func TestDefaultNilBeforeSet(t *testing.T) {
 
 func TestGetReturnsNoError(t *testing.T) {
 	// Get() now lazy-initializes, so it shouldn't return ErrNoDefaultDownloader
+	// Use a mock extractor to avoid real network requests
+	d := download.New(download.WithExtractor(&mockSuccessExtractor{}))
+	download.SetDefault(d)
+	t.Cleanup(func() { download.SetDefault(nil) })
+
 	err := download.Get(t.Context(), "http://example.com/file", "/tmp/file")
-	if err == download.ErrNoDefaultDownloader {
-		t.Errorf("Get() should not return ErrNoDefaultDownloader after lazy init")
+	if err != nil {
+		t.Errorf("Get() should not return error with mock extractor: %v", err)
 	}
 }
 

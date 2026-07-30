@@ -23,11 +23,13 @@ type StdlibTransport struct {
 func NewStdlibTransport() *StdlibTransport {
 	return &StdlibTransport{
 		client: &http.Client{
-			Timeout: 5 * time.Minute,
+			// 不使用全局 Timeout，拆分为连接超时 + 响应头超时，
+			// 避免大文件下载被 5 分钟超时截断。
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     30 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
 				DialContext: (&net.Dialer{
 					Timeout:   30 * time.Second,
 					KeepAlive: 30 * time.Second,

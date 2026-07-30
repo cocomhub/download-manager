@@ -105,6 +105,17 @@ func TestTryGetMd5Nil(t *testing.T) {
 	}
 }
 
+func TestTryGetMd5ContentMD5Base64(t *testing.T) {
+	// Content-MD5 with 24-char Base64 value → decoded to hex
+	headers := map[string]string{
+		"Content-MD5": "XUFAKrxLKna5cZ2REBfFkg==", // 24 chars base64
+	}
+	result := TryGetMd5(headers)
+	if result != "5d41402abc4b2a76b9719d911017c592" {
+		t.Errorf("expected hex decoded from base64 Content-MD5, got %q", result)
+	}
+}
+
 func TestTryGetMd5InvalidLengthEtag(t *testing.T) {
 	// Too short
 	headers := map[string]string{

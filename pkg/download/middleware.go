@@ -15,6 +15,9 @@ type Middleware func(ctx context.Context, req *Request, next Extractor) error
 // MetricsMiddleware 创建记录下载指标的中间件。
 func MetricsMiddleware(registry *MetricRegistry) Middleware {
 	return func(ctx context.Context, req *Request, next Extractor) error {
+		if registry == nil {
+			return next.Extract(ctx, req)
+		}
 		start := time.Now()
 		err := next.Extract(ctx, req)
 		elapsed := time.Since(start)

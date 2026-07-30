@@ -35,6 +35,8 @@ type CompositeExtractor struct {
 }
 
 // NewCompositeExtractor 创建 CompositeExtractor 实例。
+// TODO: 预留扩展 - 当前未被自动匹配使用，通过 hint.Extractor == "composite" 显式选择。
+// 后续可根据需求扩展自动匹配逻辑。
 func NewCompositeExtractor() *CompositeExtractor {
 	return &CompositeExtractor{}
 }

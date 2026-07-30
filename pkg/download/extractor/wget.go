@@ -47,6 +47,8 @@ type WgetExtractor struct {
 }
 
 // NewWgetExtractor 创建 WgetExtractor 实例。
+// TODO: 预留扩展 - 当前未被自动匹配使用，通过 hint.Extractor == "wget" 显式选择。
+// 后续可根据需求扩展自动匹配逻辑。
 func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
 	e := &WgetExtractor{
 		userAgent:              DefaultWgetUserAgent,
@@ -115,20 +117,21 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	args := e.buildWgetArgs(req, proxyURL)
 
 	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
-	e.active.Store(req.URL, cmd)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: failed to get stderr pipe: %w", err)
 	}
 	cmd.Stdout = logFile
 
 	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, req.URL, "path", req.SavePath)
 	if err := cmd.Start(); err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: start failed: %w", err)
 	}
+
+	// Store cmd in active map only after cmd.Start() succeeds,
+	// to prevent Cancel from accessing cmd.Process before it's initialized.
+	e.active.Store(req.URL, cmd)
 
 	scanWgetProgress(stderr, logFile, req)
 
@@ -287,7 +290,9 @@ func (e *WgetExtractor) Cancel(url string) error {
 		if !ok {
 			return fmt.Errorf("wget: unexpected type %T in active map", v)
 		}
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		e.active.Delete(url)
 		return nil
 	}

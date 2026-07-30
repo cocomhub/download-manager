@@ -12,6 +12,7 @@ import (
 )
 
 // mockSelector 实现 download.Selector 接口，用于测试。
+var _ download.Selector = (*mockSelector)(nil)
 type mockSelector struct{}
 
 func (m *mockSelector) MatchExtractor(_ context.Context, _ string, _ *download.DownloadHint) download.Extractor {
@@ -49,16 +50,4 @@ func TestWgetExtractorCancel(t *testing.T) {
 	if err != nil {
 		t.Errorf("Cancel on nonexistent should return nil, got: %v", err)
 	}
-}
-
-func TestWgetExtractorSetSelector(t *testing.T) {
-	ex := extractor.NewWgetExtractor()
-	// 设置非 nil selector，验证不 panic 且接口实现正确
-	ex.SetSelector(&mockSelector{})
-}
-
-func TestWgetExtractorSetTransport(t *testing.T) {
-	ex := extractor.NewWgetExtractor()
-	// SetTransport is a no-op for wget, just verify it doesn't panic
-	ex.SetTransport(nil)
 }

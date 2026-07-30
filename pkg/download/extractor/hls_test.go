@@ -32,7 +32,7 @@ func TestHLSExtractorMatchM3U8(t *testing.T) {
 }
 
 func TestHLSExtractorNoFFmpeg(t *testing.T) {
-	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("ffmpeg"))
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("ffmpeg"), extractor.WithFFmpegPath("/nonexistent/ffmpeg"))
 	err := ex.Extract(t.Context(), &download.Request{
 		URL:      "http://example.com/stream.m3u8",
 		SavePath: "/tmp/output.mp4",

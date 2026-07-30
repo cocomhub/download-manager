@@ -14,13 +14,12 @@ import (
 )
 
 // Downloader 是用户使用的主要入口。
-// 持有 Selector、Extractor 注册表、Transport 引用、Middleware 链和 Metrics，编排一次完整下载。
+// 持有 Selector、Extractor 注册表、Transport 引用和 Middleware 链，编排一次完整下载。
 type Downloader struct {
 	selector   Selector
 	extractors []Extractor
 	transport  Transport
 	middleware Middleware
-	metrics    *MetricRegistry
 }
 
 // ErrNoDefaultDownloader 表示未配置默认 Downloader。

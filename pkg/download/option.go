@@ -28,6 +28,9 @@ func WithExtractor(ex Extractor) Option {
 // WithMiddleware 设置下载中间件。
 // 如果之前已设置中间件，新中间件会包装在外部，形成链式调用。
 // 注册顺序：[mw1, mw2] => 执行顺序: mw2_before -> mw1_before -> extractor -> mw1_after -> mw2_after
+// 注意：WithMetricRegistry 内部创建 MetricsMiddleware 并注册到中间件链。
+// 如果希望 MetricsMiddleware 在自定义中间件外层（记录总耗时），
+// 应先调用 WithMiddleware 注册自定义中间件，再调用 WithMetricRegistry。
 func WithMiddleware(mw Middleware) Option {
 	return func(d *Downloader) {
 		if d.middleware == nil {
@@ -46,9 +49,11 @@ func WithMiddleware(mw Middleware) Option {
 }
 
 // WithMetricRegistry 设置指标注册表（并自动启用 MetricsMiddleware）。
+// 注意：此函数创建的 MetricsMiddleware 会包装在已有中间件的最外层。
+// 如果希望 MetricsMiddleware 在自定义中间件外层（记录总耗时），
+// 应在调用此函数前先调用 WithMiddleware 注册自定义中间件。
 func WithMetricRegistry(reg *MetricRegistry) Option {
 	return func(d *Downloader) {
-		d.metrics = reg
 		mw := MetricsMiddleware(reg)
 		if d.middleware == nil {
 			d.middleware = mw

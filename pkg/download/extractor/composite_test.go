@@ -37,7 +37,7 @@ func (m *mockQuickFailExtractor) Extract(_ context.Context, _ *download.Request)
 	return fmt.Errorf("mock extractor failure")
 }
 
-func TestCompositeExtractorBuildDownloaderOnce(t *testing.T) {
+func TestCompositeExtractorExtractConcurrentNoRace(t *testing.T) {
 	ex := extractor.NewCompositeExtractor()
 
 	// Set up a transport that fails quickly (avoids real HTTP calls)
@@ -94,7 +94,7 @@ func TestCompositeExtractorBuildDownloaderOnce(t *testing.T) {
 	}
 }
 
-func TestCompositeExtractorBuildDownloaderCalledOnce(t *testing.T) {
+func TestCompositeExtractorExtractSequentialError(t *testing.T) {
 	ex := extractor.NewCompositeExtractor()
 	ex.SetTransport(&mockFailTransport{})
 	mockExt := &mockQuickFailExtractor{}
