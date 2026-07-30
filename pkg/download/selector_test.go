@@ -4,23 +4,10 @@
 package download_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 )
-
-// mockExtractorForSelector is a test extractor used for selector testing.
-type mockExtractorForSelector struct {
-	name  string
-	match func(ctx context.Context, url string) bool
-}
-
-func (m *mockExtractorForSelector) Name() string { return m.name }
-func (m *mockExtractorForSelector) Match(ctx context.Context, url string) bool {
-	return m.match(ctx, url)
-}
-func (m *mockExtractorForSelector) Extract(_ context.Context, _ *download.Request) error { return nil }
 
 func TestDefaultSelectorSelectProxy(t *testing.T) {
 	sel := download.NewDefaultSelector()

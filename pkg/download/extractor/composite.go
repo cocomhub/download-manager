@@ -93,6 +93,11 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 		SavePath:      subPath,
 		TrackProgress: trackProgress,
 		OnProgress:    req.OnProgress,
+		OnMetadata:    req.OnMetadata,
+		Headers:       copyMap(req.Headers),
+		Metadata:      copyMap(req.Metadata),
+		Hint:          req.Hint,
+		Result:        &download.DownloadResult{},
 	}
 
 	if err := dl.Download(ctx, subReq); err != nil {
