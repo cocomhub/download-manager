@@ -4,10 +4,22 @@
 package extractor_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/download/extractor"
 )
+
+// mockSelector 实现 download.Selector 接口，用于测试。
+type mockSelector struct{}
+
+func (m *mockSelector) MatchExtractor(_ context.Context, _ string, _ *download.DownloadHint) download.Extractor {
+	return nil
+}
+func (m *mockSelector) SelectProxy(_ context.Context, _ string, _ *download.DownloadHint) (string, error) {
+	return "", nil
+}
 
 func TestWgetExtractorName(t *testing.T) {
 	ex := extractor.NewWgetExtractor()
@@ -41,10 +53,12 @@ func TestWgetExtractorCancel(t *testing.T) {
 
 func TestWgetExtractorSetSelector(t *testing.T) {
 	ex := extractor.NewWgetExtractor()
-	ex.SetSelector(nil)
+	// 设置非 nil selector，验证不 panic 且接口实现正确
+	ex.SetSelector(&mockSelector{})
 }
 
 func TestWgetExtractorSetTransport(t *testing.T) {
 	ex := extractor.NewWgetExtractor()
+	// SetTransport is a no-op for wget, just verify it doesn't panic
 	ex.SetTransport(nil)
 }
