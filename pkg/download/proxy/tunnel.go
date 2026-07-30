@@ -143,11 +143,11 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+config.DefaultBandwidthPath, s.probeBytes, s.probeTimeout)
 		if err != nil {
 			slog.Debug("sproxy bandwidth probe failed", logutil.LogKeyURL, inst.ServerURL, logutil.LogKeyError, err)
-			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})
-		} else {
-			s.setCache(inst.ServerURL, bw)
-			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: bw})
+			// 不加入 results —— 带宽未知的实例不可用
+			continue
 		}
+		s.setCache(inst.ServerURL, bw)
+		results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: bw})
 	}
 
 	if len(results) == 0 {

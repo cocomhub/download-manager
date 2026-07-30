@@ -24,26 +24,16 @@ type ProxySelector interface {
 }
 
 // DefaultSelector 是默认的 Selector 实现。
-// 按注册顺序遍历 Extractor，第一个 Match 返回 true 的被选中。
+// 不再持有 extractors 列表，由 Downloader.matchExtractor 的 fallback 循环匹配。
+// MatchExtractor 始终返回 nil，让调用方回退到自身的 extractors 列表。
 // NewDefaultSelector 创建 DefaultSelector 实例。
 func NewDefaultSelector() *DefaultSelector {
-	return &DefaultSelector{
-		extractors: make([]Extractor, 0),
-	}
+	return &DefaultSelector{}
 }
 
 type DefaultSelector struct {
 	mu            sync.Mutex
-	extractors    []Extractor
 	proxySelector ProxySelector
-}
-
-// AddExtractor 向 DefaultSelector 注册一个 Extractor。
-func (s *DefaultSelector) AddExtractor(ex Extractor) *DefaultSelector {
-	s.mu.Lock()
-	s.extractors = append(s.extractors, ex)
-	s.mu.Unlock()
-	return s
 }
 
 // WithProxySelector 设置代理选择器。
@@ -55,23 +45,9 @@ func (s *DefaultSelector) WithProxySelector(ps ProxySelector) *DefaultSelector {
 }
 
 func (s *DefaultSelector) MatchExtractor(ctx context.Context, url string, hint *DownloadHint) Extractor {
-	s.mu.Lock()
-	extractors := make([]Extractor, len(s.extractors))
-	copy(extractors, s.extractors)
-	s.mu.Unlock()
-
-	if hint != nil && hint.Extractor != "" {
-		for _, ex := range extractors {
-			if ex.Name() == hint.Extractor {
-				return ex
-			}
-		}
-	}
-	for _, ex := range extractors {
-		if ex.Match(ctx, url) {
-			return ex
-		}
-	}
+	// DefaultSelector 不再持有 extractors 列表，
+	// 由 Downloader.matchExtractor 的 fallback 循环匹配。
+	// 此处始终返回 nil，让调用方回退到自身的 extractors 列表。
 	return nil
 }
 

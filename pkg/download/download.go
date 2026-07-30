@@ -137,10 +137,10 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 	slog.Debug("Download: matched extractor", "extractor", ex.Name(), logutil.LogKeyURL, req.URL)
 
 	// Inject Transport and Selector into the extractor if it supports them.
-	if hw, ok := ex.(interface{ SetTransport(Transport) }); ok && d.transport != nil {
+	if hw, ok := ex.(TransportSetter); ok && d.transport != nil {
 		hw.SetTransport(d.transport)
 	}
-	if hw, ok := ex.(interface{ SetSelector(Selector) }); ok && d.selector != nil {
+	if hw, ok := ex.(SelectorSetter); ok && d.selector != nil {
 		hw.SetSelector(d.selector)
 	}
 

@@ -11,22 +11,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
+
+var reFFmpegTime = regexp.MustCompile(`time=(\d+):(\d+):(\d+)\.(\d+)`)
 
 // HLSMode 表示 HLS 下载模式。
 type HLSMode string
 
 const (
 	HLSModeFFmpeg HLSMode = "ffmpeg"
-	HLSModeM3U8D  HLSMode = "m3u8d"
+	// TODO: 实现 m3u8d 模式。当前仅 ffmpeg 模式可用。
+	HLSModeM3U8D HLSMode = "m3u8d"
 )
 
 // compile-time interface check
 var _ download.Extractor = (*HLSExtractor)(nil)
+var _ download.Canceller = (*HLSExtractor)(nil)
+var _ download.TransportSetter = (*HLSExtractor)(nil)
+var _ download.SelectorSetter = (*HLSExtractor)(nil)
 
 // HLSExtractor 处理 HLS (m3u8) 流媒体下载。
 type HLSExtractor struct {
@@ -34,6 +43,7 @@ type HLSExtractor struct {
 	ffmpegPath string
 	ffmpegArgs []string
 	userAgent  string
+	active     sync.Map // map[string]context.CancelFunc
 }
 
 // NewHLSExtractor 创建 HLSExtractor。
@@ -70,6 +80,20 @@ func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.us
 // SetTransport is a no-op: HLSExtractor downloads via ffmpeg exec or m3u8d,
 // not through a Go Transport. Implemented for download.TransportSetter interface.
 func (e *HLSExtractor) SetTransport(_ download.Transport) {}
+
+// SetSelector 注入 Selector 实例（当前为 no-op，HLS 通过 ffmpeg 执行）。
+func (e *HLSExtractor) SetSelector(_ download.Selector) {}
+
+// Cancel 取消正在进行的 HLS 下载。
+func (e *HLSExtractor) Cancel(url string) error {
+	if v, ok := e.active.Load(url); ok {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+		e.active.Delete(url)
+	}
+	return nil
+}
 
 func (e *HLSExtractor) Name() string { return "hls" }
 
@@ -132,11 +156,11 @@ func (e *HLSExtractor) buildFFmpegArgs(req *download.Request) []string {
 		args = append(args, "-user_agent", e.userAgent)
 	}
 	var headerLines []string
-	if v := req.Headers["Referer"]; v != "" {
-		headerLines = append(headerLines, fmt.Sprintf("Referer: %s", v))
-	}
-	if v := req.Headers["Cookie"]; v != "" {
-		headerLines = append(headerLines, fmt.Sprintf("Cookie: %s", v))
+	for k, v := range req.Headers {
+		if k == "User-Agent" {
+			continue // 已通过 -user_agent 传递
+		}
+		headerLines = append(headerLines, fmt.Sprintf("%s: %s", k, v))
 	}
 	if len(headerLines) > 0 {
 		args = append(args, "-headers", strings.Join(headerLines, "\r\n"))
@@ -150,7 +174,12 @@ func (e *HLSExtractor) buildFFmpegArgs(req *download.Request) []string {
 func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []string, rPath string, req *download.Request) error {
 	slog.Info("Starting HLS download", "downloader", "ffmpeg", logutil.LogKeyURL, req.URL)
 
-	cmd := exec.CommandContext(ctx, ffmpeg, args...)
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer e.active.Delete(req.URL)
+	defer dlCancel()
+	e.active.Store(req.URL, dlCancel)
+
+	cmd := exec.CommandContext(dlCtx, ffmpeg, args...)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -169,6 +198,16 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 		for scanner.Scan() {
 			line := scanner.Text()
 			slog.Debug("ffmpeg stderr", "line", line)
+
+			if req.OnProgress != nil && req.TrackProgress {
+				if matches := reFFmpegTime.FindStringSubmatch(line); matches != nil {
+					h, _ := strconv.Atoi(matches[1])
+					m, _ := strconv.Atoi(matches[2])
+					s, _ := strconv.Atoi(matches[3])
+					totalSecs := float64(h*3600 + m*60 + s)
+					req.OnProgress(totalSecs, 0, 0)
+				}
+			}
 		}
 	}()
 

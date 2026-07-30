@@ -151,6 +151,9 @@ func validateWgetRequest(req *download.Request) error {
 		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
 			return fmt.Errorf("wget: invalid header contains CR/LF")
 		}
+		if strings.HasPrefix(k, "-") || strings.HasPrefix(v, "-") {
+			return fmt.Errorf("wget: header key/value starts with '-', possible argv injection")
+		}
 	}
 	lowerURL := strings.ToLower(req.URL)
 	if !strings.HasPrefix(lowerURL, "http://") &&
@@ -180,7 +183,11 @@ func (e *WgetExtractor) selectWgetProxy(ctx context.Context, req *download.Reque
 	if e.selector == nil {
 		return ""
 	}
-	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	hint := req.Hint
+	if hint == nil {
+		hint = &download.DownloadHint{}
+	}
+	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, hint)
 	if err != nil {
 		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		return ""

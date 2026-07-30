@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -34,7 +35,8 @@ func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
 //  1. X-Amz-Meta-Md5chksum（24 字符 Base64）
 //  2. Etag（格式 "32hex"，长度为 34，去除引号）
 //  3. 弱 ETag（格式 W/"32hex"，长度为 36，去除前缀）
-//  4. Content-MD5（32 字符 hex 或 24 字符 Base64 标准格式）
+//  4. 其他长度的 ETag，只要以引号包裹且内部为 32 字符 hex 则提取
+//  5. Content-MD5（32 字符 hex 或 24 字符 Base64 标准格式）
 //
 // 所有条件不满足时返回空字符串。
 func TryGetMd5(headers map[string]string) string {
@@ -51,6 +53,16 @@ func TryGetMd5(headers map[string]string) string {
 	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
 	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
 		return etag[3:35]
+	}
+	// 非标准长度 ETag：放宽长度检查，但验证 hex 格式
+	if etag := headers["Etag"]; len(etag) > 2 && etag[0] == '"' && etag[len(etag)-1] == '"' {
+		inner := etag[1 : len(etag)-1]
+		if len(inner) == 32 {
+			if _, err := hex.DecodeString(inner); err == nil {
+				return inner
+			}
+		}
+		slog.Debug("Non-standard ETag length or format, skipping MD5 extraction", "etag", etag, "len", len(inner))
 	}
 	// Content-MD5 — 标准格式是 24 字符 Base64
 	if x := headers["Content-MD5"]; len(x) == 24 {

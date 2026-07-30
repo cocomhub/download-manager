@@ -19,6 +19,8 @@ import (
 
 // compile-time interface check
 var _ download.Extractor = (*CompositeExtractor)(nil)
+var _ download.TransportSetter = (*CompositeExtractor)(nil)
+var _ download.SelectorSetter = (*CompositeExtractor)(nil)
 
 // CompositeExtractor 处理复合下载请求。
 // 从 req.Metadata["files"] 读取 []map[string]string 格式的文件列表，
@@ -105,6 +107,18 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 		req.OnProgress(pct, *totalDownloaded, 0)
 	}
 	return nil
+}
+
+// copyMap 深拷贝 map[string]string。
+func copyMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
 }
 
 // parseFiles 从 req.Metadata["files"] 解析文件列表。
