@@ -4,6 +4,7 @@
 package extractor
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
@@ -164,17 +165,10 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		buf := make([]byte, 4096)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			_, err := stderr.Read(buf)
-			if err != nil {
-				return
-			}
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			slog.Debug("ffmpeg stderr", "line", line)
 		}
 	}()
 

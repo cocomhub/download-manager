@@ -33,7 +33,8 @@ func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
 // TryGetMd5 尝试从响应头中提取 MD5 值。按以下顺序尝试：
 //  1. X-Amz-Meta-Md5chksum（24 字符 Base64）
 //  2. Etag（格式 "32hex"，长度为 34，去除引号）
-//  3. Content-MD5（32 字符 hex）
+//  3. 弱 ETag（格式 W/"32hex"，长度为 36，去除前缀）
+//  4. Content-MD5（32 字符 hex 或 24 字符 Base64 标准格式）
 //
 // 所有条件不满足时返回空字符串。
 func TryGetMd5(headers map[string]string) string {
@@ -51,6 +52,15 @@ func TryGetMd5(headers map[string]string) string {
 	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
 		return etag[3:35]
 	}
+	// Content-MD5 — 标准格式是 24 字符 Base64
+	if x := headers["Content-MD5"]; len(x) == 24 {
+		decoded, err := base64.StdEncoding.DecodeString(x)
+		if err == nil {
+			return hex.EncodeToString(decoded)
+		}
+		return x
+	}
+	// 32 字符 hex 格式（非标准，兼容处理）
 	if x := headers["Content-MD5"]; len(x) == 32 {
 		return x
 	}

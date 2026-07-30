@@ -5,9 +5,12 @@ package download
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // ResolvePath 将给定的路径 p 相对于 rootDir 进行解析。
@@ -49,6 +52,7 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (st
 	for _, ap := range allowPaths {
 		absAP, aErr := filepath.Abs(ap)
 		if aErr != nil {
+			slog.Warn("Failed to resolve allow path", "path", ap, logutil.LogKeyError, aErr)
 			continue
 		}
 		if strings.HasPrefix(resolved, absAP+string(filepath.Separator)) || resolved == absAP {

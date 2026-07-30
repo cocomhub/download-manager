@@ -160,12 +160,10 @@ func TestComposeProgressConcurrent(t *testing.T) {
 	composed := ComposeProgress(cb, cb)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			composed(50.0, 500, 1000)
-		}()
+		})
 	}
 	wg.Wait()
 

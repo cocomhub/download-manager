@@ -5,6 +5,7 @@ package m3u8d
 
 import (
 	"net/url"
+	"path/filepath"
 	"testing"
 )
 
@@ -83,7 +84,7 @@ func TestParseM3U8SingleLevel(t *testing.T) {
 
 	cfg := &DownloadConfig{
 		InputURL:   "https://example.com/stream.m3u8",
-		OutputFile: dir + "/output.mp4",
+		OutputFile: filepath.Join(dir, "output.mp4"),
 		WorkDir:    dir,
 	}
 

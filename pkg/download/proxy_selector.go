@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -32,6 +33,7 @@ type StaticProxySelector struct {
 	decisionCacheTTL int // seconds
 	probeTimeout     int // seconds
 	bandwidthSuffix  string
+	probeMu          sync.Mutex // 保护带宽探测，防止惊群效应
 }
 
 // NewStaticProxySelector 创建基于静态代理列表的选择器。
@@ -140,6 +142,17 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 
 // selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
 func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+
+	// 二次检查缓存（可能其他 goroutine 已经探测过了）
+	if decision, ok := s.readCachedDecision(cachePath); ok {
+		if decision == "direct" {
+			return "", nil
+		}
+		// 继续执行原有逻辑，不返回 — 缓存可能已过期
+	}
+
 	bestProxy := ""
 	minBandwidth := defaultMaxBandwidth
 	for _, p := range s.proxies {

@@ -4,6 +4,7 @@
 package download_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -88,5 +89,29 @@ func TestHTTPExtractorCancelNotFound(t *testing.T) {
 		t.Logf("Cancel returned for non-existent URL: %v", err)
 	} else {
 		t.Fatal("HTTPExtractor does not implement Canceller interface")
+	}
+}
+
+func TestHTTPExtractorTimeout(t *testing.T) {
+	ts := newSlowServer(t, 10*time.Second)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := dir + "/timeout_test.bin"
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	err := ext.Extract(ctx, &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+	})
+	if err == nil {
+		t.Error("expected timeout error, got nil")
+	} else {
+		t.Logf("timeout resulted in error (expected): %v", err)
 	}
 }

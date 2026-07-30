@@ -42,14 +42,17 @@ type WgetExtractor struct {
 	userAgent   string
 	maxRetries  int
 	timeoutSecs int
+	// RedactSensitiveHeaders 控制是否在命令行参数中排除敏感头。默认 true。
+	RedactSensitiveHeaders bool
 }
 
 // NewWgetExtractor 创建 WgetExtractor 实例。
 func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
 	e := &WgetExtractor{
-		userAgent:   DefaultWgetUserAgent,
-		maxRetries:  5,
-		timeoutSecs: 20,
+		userAgent:              DefaultWgetUserAgent,
+		maxRetries:             5,
+		timeoutSecs:            20,
+		RedactSensitiveHeaders: true,
 	}
 	for _, o := range opts {
 		o(e)
@@ -71,6 +74,11 @@ func WithWgetMaxRetries(n int) WgetOption { return func(e *WgetExtractor) { e.ma
 
 // WithWgetTimeout 设置下载超时秒数。
 func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.timeoutSecs = secs } }
+
+// WithWgetRedactSensitiveHeaders 设置敏感头过滤开关。
+func WithWgetRedactSensitiveHeaders(v bool) WgetOption {
+	return func(e *WgetExtractor) { e.RedactSensitiveHeaders = v }
+}
 
 func (e *WgetExtractor) Name() string { return "wget" }
 
@@ -186,6 +194,9 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 	args = append(args, "--header", "User-Agent: "+e.userAgent)
 
 	for k, v := range req.Headers {
+		if e.RedactSensitiveHeaders && download.IsSensitiveHeader(k) {
+			continue
+		}
 		args = append(args, "--header", fmt.Sprintf("%s: %s", k, v))
 	}
 

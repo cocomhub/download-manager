@@ -20,9 +20,11 @@ config.yaml
 config_backups
 download-manager
 local
+pkg-download-*.md
 test/playwright/.cache/
 test/playwright/artifacts/
 test/playwright/node_modules/
 test/playwright/playwright-report/
 test/playwright/specs/visual-regression.spec.ts-snapshots/
 test/playwright/test-results/
+tmp/

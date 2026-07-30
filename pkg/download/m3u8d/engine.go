@@ -325,7 +325,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
 
 	switch {
-	case strings.Contains(line, ".m3u8"):
+	case strings.HasSuffix(strings.ToLower(line), ".m3u8"):
 		subM3U8Path := filepath.Join(d.Config.WorkDir, fileHash+".m3u8")
 		subTasks, err := d.parseM3U8(ctx, absURL, subM3U8Path, level+1)
 		if err != nil {
@@ -333,7 +333,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 		}
 		return filepath.Base(subM3U8Path), subTasks, nil
 
-	case strings.Contains(line, ".ts"):
+	case strings.HasSuffix(strings.ToLower(line), ".ts"):
 		tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
 		return filepath.Base(tsLocalPath), []DownloadTask{{
 			URL:       absURL,
@@ -341,7 +341,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 			Type:      "ts",
 		}}, nil
 
-	case strings.Contains(line, ".key") || strings.Contains(line, ".bin"):
+	case strings.HasSuffix(strings.ToLower(line), ".key") || strings.HasSuffix(strings.ToLower(line), ".bin"):
 		keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
 		return filepath.Base(line), []DownloadTask{{
 			URL:       absURL,

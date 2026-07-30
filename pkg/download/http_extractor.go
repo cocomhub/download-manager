@@ -57,6 +57,8 @@ type HTTPExtractor struct {
 	browserHdrs    bool
 	cancels        sync.Map // map[string]context.CancelFunc
 	responseChecks []ResponseCheck
+	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
+	RedactSensitiveHeaders bool
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
@@ -90,10 +92,11 @@ func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir strin
 		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 	}
 	return &HTTPExtractor{
-		maxRetries: maxRetries,
-		rootDir:    rootDir,
-		logDir:     logDir,
-		ua:         userAgent,
+		maxRetries:             maxRetries,
+		rootDir:                rootDir,
+		logDir:                 logDir,
+		ua:                     userAgent,
+		RedactSensitiveHeaders: true,
 	}
 }
 
@@ -175,7 +178,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 	defer tresp.Body.Close()
 
-	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL)
+	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL, e.RedactSensitiveHeaders)
 
 	if handled, success, err := handleHTTPResponseStatus(tresp, logWriter, req, rPath); handled {
 		return success, err
@@ -278,16 +281,25 @@ func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
 	fmt.Fprintf(w, "Requesting URL: %s\n\n", rawURL)
 }
 
+// IsSensitiveHeader 判断 HTTP 头名是否为敏感头。导出供子包复用。
+func IsSensitiveHeader(name string) bool {
+	lower := strings.ToLower(name)
+	sensitivePrefixes := []string{
+		"authorization", "cookie", "proxy-authorization",
+		"x-api-key", "x-auth", "token", "secret", "auth",
+	}
+	for _, prefix := range sensitivePrefixes {
+		if lower == prefix || strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // logHTTPHeaders 在进度日志中输出请求和响应的 HTTP 头（敏感头脱敏）。
-func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportResponse, rawURL, proxyURL string) {
+func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportResponse, rawURL, proxyURL string, redactSensitive bool) {
 	if w == nil {
 		return
-	}
-	redactedHeaders := map[string]bool{
-		"authorization":       true,
-		"cookie":              true,
-		"proxy-authorization": true,
-		"x-api-key":           true,
 	}
 
 	fmt.Fprintf(w, "[%s] Request:\n", treq.Method)
@@ -299,7 +311,7 @@ func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportRespons
 	}
 	fmt.Fprintf(w, "Headers:\n")
 	for k, v := range treq.Headers {
-		if redactedHeaders[strings.ToLower(k)] {
+		if redactSensitive && IsSensitiveHeader(k) {
 			v = "[REDACTED]"
 		}
 		fmt.Fprintf(w, "\t%s: %s\n", k, v)
@@ -316,7 +328,7 @@ func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportRespons
 	fmt.Fprintf(w, "Content-Length: %d\n", tresp.ContentLength)
 	fmt.Fprintf(w, "Headers:\n")
 	for k, v := range tresp.Headers {
-		if redactedHeaders[strings.ToLower(k)] {
+		if redactSensitive && IsSensitiveHeader(k) {
 			v = "[REDACTED]"
 		}
 		fmt.Fprintf(w, "\t%s: %s\n", k, v)
