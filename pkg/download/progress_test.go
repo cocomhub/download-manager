@@ -6,6 +6,7 @@ package download
 import (
 	"io"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -144,5 +145,34 @@ func TestProgressReader_WithInitialDownloaded(t *testing.T) {
 	expectedMinProgress := float64(initialDownloaded) / float64(totalSize) * 100
 	if firstProgress < expectedMinProgress {
 		t.Errorf("expected progress >= %f%%, got %f%%", expectedMinProgress, firstProgress)
+	}
+}
+
+func TestComposeProgressConcurrent(t *testing.T) {
+	var mu sync.Mutex
+	var callCount int
+	cb := func(p float64, d, t int64) {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+	}
+
+	composed := ComposeProgress(cb, cb)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			composed(50.0, 500, 1000)
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+	if count == 0 {
+		t.Error("expected progress callbacks to be invoked")
 	}
 }

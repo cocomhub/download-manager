@@ -4,6 +4,7 @@
 package extractor_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -37,7 +38,9 @@ func TestHLSExtractorNoFFmpeg(t *testing.T) {
 		SavePath: "/tmp/output.mp4",
 	})
 	if err == nil {
-		t.Skip("ffmpeg not available, skipping")
+		t.Fatal("expected error when ffmpeg is not available")
 	}
-	t.Logf("Got expected error: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
 }

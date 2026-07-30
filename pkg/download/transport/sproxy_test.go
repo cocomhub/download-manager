@@ -23,11 +23,14 @@ func TestSproxyTransportRoundTripNoSproxy(t *testing.T) {
 		URL:    "http://example.com/file",
 		Method: "GET",
 	})
-	if err == nil {
-		t.Skip("sproxy not running, skipping")
+	if err != nil {
+		t.Logf("Got expected error: %v", err)
+		return
 	}
-	t.Logf("Got expected error: %v", err)
-	_ = resp
+	// 如果 sproxy 正在运行，验证响应
+	if resp != nil {
+		t.Logf("Got response: %+v", resp)
+	}
 }
 
 func TestSproxyTransportWithTunnelKey(t *testing.T) {
@@ -42,8 +45,9 @@ func TestSproxyTransportWithTunnelKey(t *testing.T) {
 func TestSproxyTransportHealthCheck(t *testing.T) {
 	tr := transport.NewSproxyTunnelTransport("http://localhost:18083")
 	err := tr.HealthCheck(t.Context())
-	if err == nil {
-		t.Skip("sproxy running, health check passed")
+	if err != nil {
+		t.Logf("Health check error (expected without sproxy): %v", err)
+		return
 	}
-	t.Logf("Health check error (expected): %v", err)
+	t.Log("sproxy running, health check passed")
 }

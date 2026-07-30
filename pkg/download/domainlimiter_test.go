@@ -11,6 +11,7 @@ import (
 )
 
 func TestDomainLimiterConcurrent(t *testing.T) {
+	t.Parallel()
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 5)
 
