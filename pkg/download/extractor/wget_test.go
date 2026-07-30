@@ -13,6 +13,7 @@ import (
 
 // mockSelector 实现 download.Selector 接口，用于测试。
 var _ download.Selector = (*mockSelector)(nil)
+
 type mockSelector struct{}
 
 func (m *mockSelector) MatchExtractor(_ context.Context, _ string, _ *download.DownloadHint) download.Extractor {

@@ -151,7 +151,7 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 			return "", nil
 		}
 		// 缓存只存 "direct"/"proxy" 标记，不存具体代理 URL，
-			// 所以即使缓存命中 "proxy" 也需要带宽扫描来选出最佳代理。
+		// 所以即使缓存命中 "proxy" 也需要带宽扫描来选出最佳代理。
 	}
 
 	bestProxy := ""
