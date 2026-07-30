@@ -247,6 +247,10 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, err
 	}
 
+	// Call Done to ensure 100% progress is reported
+	if req.TrackProgress && req.OnProgress != nil {
+		req.OnProgress(100, totalSize, totalSize)
+	}
 	req.Result.StatusCode = tresp.StatusCode
 	req.Result.ContentLength = totalSize
 	req.Result.TotalSize = totalSize
@@ -721,7 +725,7 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, localMaxRetries)
+	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, maxRetries)
 }
 
 func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 const (
@@ -105,8 +107,12 @@ func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool
 
 // writeCacheDecision 将代理决策写入缓存文件。
 func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision string) {
-	_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-	_ = os.WriteFile(cachePath, []byte(decision), 0644)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+		slog.Warn("Failed to create cache directory for proxy decision", "path", cachePath, logutil.LogKeyError, err)
+	}
+	if err := os.WriteFile(cachePath, []byte(decision), 0644); err != nil {
+		slog.Warn("Failed to write proxy decision cache", "path", cachePath, logutil.LogKeyError, err)
+	}
 }
 
 // Select 实现 ProxySelector 接口。

@@ -106,6 +106,16 @@ func (d *Downloader) matchExtractor(ctx context.Context, url string, hint *Downl
 			return ex
 		}
 	}
+	// 检查 hint 中指定的 Extractor（由 RuleSet 等设置）
+	if hint != nil && hint.Extractor != "" {
+		for _, e := range d.extractors {
+			if e.Name() == hint.Extractor {
+				return e
+			}
+		}
+		slog.Warn("hint.Extractor specified but not found", "extractor", hint.Extractor)
+	}
+	// 原有 fallback 循环
 	for _, e := range d.extractors {
 		if e.Match(ctx, url) {
 			return e

@@ -26,7 +26,10 @@ func TestResolveURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveURL(base, tt.ref)
+			got, err := resolveURL(base, tt.ref)
+			if err != nil {
+				t.Fatalf("resolveURL(%q) returned error: %v", tt.ref, err)
+			}
 			if got != tt.want {
 				t.Errorf("resolveURL(%q) = %q, want %q", tt.ref, got, tt.want)
 			}

@@ -6,7 +6,7 @@ package m3u8d
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -49,12 +49,15 @@ func NewM3U8DEngine(cfg *DownloadConfig, httpClient *http.Client) (*M3U8DEngine,
 		return nil, fmt.Errorf("无效的URL: %v", err)
 	}
 
-	base64URL := base64.URLEncoding.EncodeToString([]byte(parsedURL.String()))
+	hashBytes := sha256.Sum256([]byte(parsedURL.String()))
 
 	if cfg.WorkDir == "" {
-		cfg.WorkDir = fmt.Sprintf("download_%s", base64URL[:10])
+		cfg.WorkDir = fmt.Sprintf("download_%s", hex.EncodeToString(hashBytes[:])[:16])
 	}
 
+	if cfg.MinFiles <= 0 {
+		cfg.MinFiles = 10
+	}
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = 4
 	}
@@ -97,7 +100,7 @@ func (d *M3U8DEngine) DownloadAll(ctx context.Context) (string, error) {
 		fmt.Printf("发现 %d 个资源需要下载\n", d.totalFiles)
 	}
 
-	if d.totalFiles < 10 {
+	if d.totalFiles < d.Config.MinFiles {
 		return "", ErrNotEnoughFiles
 	}
 
@@ -225,7 +228,11 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 			if d.Config.Verbose {
 				fmt.Printf("重试 %d/%d: %s\n", i, d.Config.MaxRetries, filepath.Base(localPath))
 			}
-			time.Sleep(time.Duration(i*i) * time.Second)
+			wait := i * i
+			if wait > 30 {
+				wait = 30
+			}
+			time.Sleep(time.Duration(wait) * time.Second)
 		}
 
 		if err := d.downloadFile(ctx, fileURL, localPath); err != nil {
@@ -327,7 +334,10 @@ func (d *M3U8DEngine) processDirectiveLine(base *url.URL, line string) (string, 
 		return "", nil, fmt.Errorf("invalid key URL scheme in m3u8: %s", keyURL)
 	}
 
-	absKeyURL := resolveURL(base, keyURL)
+	absKeyURL, err := resolveURL(base, keyURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve key URL: %w", err)
+	}
 	keyHash := fmt.Sprintf("key_%x", sha256.Sum256([]byte(keyURL)))[:20]
 	keyLocalPath := filepath.Join(d.Config.WorkDir, keyHash)
 
@@ -342,7 +352,10 @@ func (d *M3U8DEngine) processDirectiveLine(base *url.URL, line string) (string, 
 
 // processResourceLine 处理 m3u8 文件中的资源行（非指令行）。
 func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, line string, level int) (string, []DownloadTask, error) {
-	absURL := resolveURL(base, line)
+	absURL, err := resolveURL(base, line)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve resource URL: %w", err)
+	}
 	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
 	cleanLine := cleanResourceLine(line)
 
@@ -365,7 +378,7 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 
 	case strings.HasSuffix(strings.ToLower(cleanLine), ".key") || strings.HasSuffix(strings.ToLower(cleanLine), ".bin"):
 		keyLocalPath := filepath.Join(d.Config.WorkDir, fileHash)
-		return filepath.Base(line), []DownloadTask{{
+		return filepath.Base(keyLocalPath), []DownloadTask{{
 			URL:       absURL,
 			LocalPath: keyLocalPath,
 			Type:      "key",
@@ -405,15 +418,15 @@ func extractKeyURL(line string) (string, bool) {
 }
 
 // resolveURL 将相对 URL 解析为绝对 URL。
-func resolveURL(base *url.URL, ref string) string {
+func resolveURL(base *url.URL, ref string) (string, error) {
 	if ref == "" {
-		return ""
+		return "", nil
 	}
 	refURL, err := url.Parse(ref)
 	if err != nil {
-		return ref
+		return "", fmt.Errorf("failed to parse reference URL %q: %w", ref, err)
 	}
-	return base.ResolveReference(refURL).String()
+	return base.ResolveReference(refURL).String(), nil
 }
 
 // cleanResourceLine 剥离查询参数，仅用于类型/路径检测。

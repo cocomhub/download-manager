@@ -46,6 +46,6 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 // Done 标记读取完成，强制设置进度为 100%。
 func (pr *ProgressReader) Done() {
 	if pr.onProgress != nil && pr.total > 0 {
-		pr.onProgress(100, pr.total, pr.total)
+		pr.onProgress(100, pr.downloaded.Load(), pr.total)
 	}
 }

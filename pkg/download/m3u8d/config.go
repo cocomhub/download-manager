@@ -18,4 +18,5 @@ type DownloadConfig struct {
 	FFmpegArgs  []string
 	Timeout     time.Duration
 	Verbose     bool
+	MinFiles    int // 最低资源文件数，低于此值视为无效 m3u8（默认 10）
 }

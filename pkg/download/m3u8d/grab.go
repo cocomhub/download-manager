@@ -119,13 +119,10 @@ func (d *M3U8DEngine) recordSuccess(resp *grab.Response) {
 	if resp == nil {
 		return
 	}
-	if resp.HTTPResponse == nil {
+	if resp.Request == nil {
 		return
 	}
-	if resp.HTTPResponse.Request == nil {
-		return
-	}
-	d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
+	d.markAsDownloaded(resp.Request.URL().String())
 	if d.Config.Verbose {
 		fmt.Printf("下载完成: %s\n", filepath.Base(resp.Filename))
 	}

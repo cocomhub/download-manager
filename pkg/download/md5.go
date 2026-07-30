@@ -52,7 +52,11 @@ func TryGetMd5(headers map[string]string) string {
 	}
 	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
 	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
-		return etag[3:35]
+		inner := etag[3:35]
+		if _, err := hex.DecodeString(inner); err == nil {
+			return inner
+		}
+		slog.Debug("Weak ETag content is not valid hex, skipping MD5 extraction", "etag", etag)
 	}
 	// 非标准长度 ETag：放宽长度检查，但验证 hex 格式
 	if etag := headers["Etag"]; len(etag) > 2 && etag[0] == '"' && etag[len(etag)-1] == '"' {

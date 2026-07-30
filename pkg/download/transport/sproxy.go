@@ -82,6 +82,9 @@ func WithSproxyHTTPClient(c *http.Client) SproxyOption {
 
 func (t *SproxyTunnelTransport) Name() string { return "sproxy" }
 
+// TunnelActive 返回当前是否使用加密隧道模式。
+func (t *SproxyTunnelTransport) TunnelActive() bool { return t.useTunnel }
+
 // isSafeTargetURL 验证目标 URL 是否安全（防止 SSRF）。
 // 拒绝私有 IP、回环地址、link-local 地址和非 http/https scheme。
 func isSafeTargetURL(ctx context.Context, rawURL string) error {
