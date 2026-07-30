@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,8 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"github.com/cocomhub/download-manager/pkg/download"
-	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 var reFFmpegTime = regexp.MustCompile(`time=(\d+):(\d+):(\d+)\.(\d+)`)
