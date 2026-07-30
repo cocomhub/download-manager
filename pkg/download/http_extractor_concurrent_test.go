@@ -21,25 +21,21 @@ func TestHTTPExtractorConcurrentAccess(t *testing.T) {
 
 	// Concurrent setters
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ext.SetBrowserHeaders(true)
 			ext.SetAllowPaths([]string{"/tmp", "/var/tmp"})
 			ext.AddResponseCheck(func(req *download.Request, tresp *download.TransportResponse) error {
 				return nil
 			})
-		}()
+		})
 	}
 
 	// Concurrent calls to Name and Match (read-only, should be safe)
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_ = ext.Name()
 			_ = ext.Match(t.Context(), "http://example.com/file.mp4")
-		}()
+		})
 	}
 
 	done := make(chan struct{})
