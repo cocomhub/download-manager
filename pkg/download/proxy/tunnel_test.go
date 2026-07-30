@@ -4,10 +4,20 @@
 package proxy_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download/proxy"
 )
+
+// getTestSproxyURL 返回测试用的 sproxy 地址。
+// 优先使用 TEST_SPROXY_URL 环境变量，否则使用默认值。
+func getTestSproxyURL() string {
+	if v := os.Getenv("TEST_SPROXY_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:18083"
+}
 
 func TestTunnelProxySelectorNoInstances(t *testing.T) {
 	sel := proxy.NewTunnelProxySelector()
@@ -22,7 +32,7 @@ func TestTunnelProxySelectorNoInstances(t *testing.T) {
 
 func TestTunnelProxySelectorWithInstance(t *testing.T) {
 	sel := proxy.NewTunnelProxySelector(
-		proxy.WithTunnelInstance("http://localhost:18083", "0000000000000000000000000000000000000000000000000000000000000000"),
+		proxy.WithTunnelInstance(getTestSproxyURL(), "0000000000000000000000000000000000000000000000000000000000000000"),
 	)
 	proxyURL, err := sel.Select(t.Context(), "http://example.com/file", nil)
 	if err != nil {

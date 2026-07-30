@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+const (
+	// DefaultProbeTimeout 是带宽探测的默认超时时间。
+	DefaultProbeTimeout = 5 * time.Second
+	// DefaultProbeBytes 是带宽探测的默认字节数。
+	DefaultProbeBytes = 512 * 1024
+)
+
 // CheckBandwidth 探测目标 URL 的带宽（字节/秒）。
 // 下载一定字节后计算下载速率。
 func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout time.Duration) (float64, error) {

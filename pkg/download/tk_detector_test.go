@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -32,7 +33,7 @@ func TestTkDetector(t *testing.T) {
 	// Inject tk detector
 	ext.AddResponseCheck(func(req *download.Request, tresp *download.TransportResponse) error {
 		// Heuristic: "tk" in URL + no MD5 + Content-Length=146 or -1
-		if contains(req.URL, "tk") {
+		if strings.Contains(req.URL, "tk") {
 			wantMd5 := download.TryGetMd5(tresp.Headers)
 			if wantMd5 == "" && (tresp.ContentLength == 146 || tresp.ContentLength == -1) {
 				return fmt.Errorf("%w: suspicious tk URL content length: %d", download.ErrNoTry, tresp.ContentLength)
@@ -51,15 +52,6 @@ func TestTkDetector(t *testing.T) {
 	t.Logf("tk detection correctly rejected: %v", err)
 }
 
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // TestTkDetectorNormal verifies that a "tk" URL with valid content passes the check.
 func TestTkDetectorNormal(t *testing.T) {
 	content := "normal-content-with-valid-length"
@@ -76,7 +68,7 @@ func TestTkDetectorNormal(t *testing.T) {
 
 	ext := newHTTPExtractor(t)
 	ext.AddResponseCheck(func(req *download.Request, tresp *download.TransportResponse) error {
-		if contains(req.URL, "tk") {
+		if strings.Contains(req.URL, "tk") {
 			wantMd5 := download.TryGetMd5(tresp.Headers)
 			if wantMd5 == "" && (tresp.ContentLength == 146 || tresp.ContentLength == -1) {
 				return fmt.Errorf("%w: suspicious tk URL content length: %d", download.ErrNoTry, tresp.ContentLength)
