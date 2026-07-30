@@ -4,42 +4,45 @@
 package transport_test
 
 import (
-	"os"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/download/transport"
 )
 
-// getTestSproxyURL 返回测试用的 sproxy 地址。
-// 优先使用 TEST_SPROXY_URL 环境变量，否则使用默认值。
-func getTestSproxyURL() string {
-	if v := os.Getenv("TEST_SPROXY_URL"); v != "" {
-		return v
-	}
-	return "http://localhost:18083"
-}
-
 func TestSproxyTransportName(t *testing.T) {
-	tr := transport.NewSproxyTunnelTransport(getTestSproxyURL())
+	tr := transport.NewSproxyTunnelTransport("http://localhost:18083")
 	if tr.Name() != "sproxy" {
 		t.Errorf("expected 'sproxy', got %s", tr.Name())
 	}
 }
 
-func TestSproxyTransportRoundTripNoSproxy(t *testing.T) {
-	tr := transport.NewSproxyTunnelTransport(getTestSproxyURL())
+func TestSproxyTransportRoundTrip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/example.com/file" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("response data"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	tr := transport.NewSproxyTunnelTransport(srv.URL)
 	resp, err := tr.RoundTrip(t.Context(), &download.TransportRequest{
 		URL:    "http://example.com/file",
 		Method: "GET",
 	})
 	if err != nil {
-		t.Logf("Got expected error: %v", err)
-		return
+		t.Fatalf("RoundTrip should not error: %v", err)
 	}
-	// 如果 sproxy 正在运行，验证响应
-	if resp != nil {
-		t.Logf("Got response: %+v", resp)
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if string(data) != "response data" {
+		t.Errorf("expected 'response data', got %q", string(data))
 	}
 }
 
@@ -53,11 +56,33 @@ func TestSproxyTransportWithTunnelKey(t *testing.T) {
 }
 
 func TestSproxyTransportHealthCheck(t *testing.T) {
-	tr := transport.NewSproxyTunnelTransport(getTestSproxyURL())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	tr := transport.NewSproxyTunnelTransport(srv.URL)
 	err := tr.HealthCheck(t.Context())
 	if err != nil {
-		t.Logf("Health check error (expected without sproxy): %v", err)
-		return
+		t.Fatalf("HealthCheck should not error: %v", err)
 	}
-	t.Log("sproxy running, health check passed")
+}
+
+func TestSproxyTransportRoundTripNoSproxy(t *testing.T) {
+	// 验证当目标 URL 不安全时返回错误（isSafeTargetURL 会拒绝私有 IP）
+	tr := transport.NewSproxyTunnelTransport("http://127.0.0.1:1")
+	resp, err := tr.RoundTrip(t.Context(), &download.TransportRequest{
+		URL:    "http://127.0.0.1/file",
+		Method: "GET",
+	})
+	if err == nil {
+		t.Error("expected error for blocked unsafe URL")
+		if resp != nil {
+			resp.Body.Close()
+		}
+	}
 }
