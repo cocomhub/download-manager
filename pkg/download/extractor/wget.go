@@ -220,7 +220,10 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 				slog.Warn("Failed to parse proxy URL, fallback to raw", "proxy", proxyURL, logutil.LogKeyError, err)
 				targetURL = proxyURL + "/" + req.URL
 			} else {
-				p := *proxy; p.Path = proxy.Path + "/" + u.Host + u.Path; p.RawQuery = u.RawQuery; targetURL = p.String()
+				p := *proxy
+				p.Path = proxy.Path + "/" + u.Host + u.Path
+				p.RawQuery = u.RawQuery
+				targetURL = p.String()
 			}
 		}
 		slog.Info("Using proxy", logutil.LogKeyURL, targetURL, "proxy", proxyURL)

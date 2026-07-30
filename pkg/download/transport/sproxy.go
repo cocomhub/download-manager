@@ -91,7 +91,7 @@ func isSafeTargetURL(ctx context.Context, rawURL string) error {
 		return fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
 	}
 	resolver := net.Resolver{PreferGo: true}
-		addrs, err := resolver.LookupHost(ctx, parsed.Hostname())
+	addrs, err := resolver.LookupHost(ctx, parsed.Hostname())
 	if err != nil {
 		return fmt.Errorf("failed to resolve target host: %w", err)
 	}
