@@ -6,6 +6,7 @@ package download
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,10 +23,15 @@ type StdlibTransport struct {
 func NewStdlibTransport() *StdlibTransport {
 	return &StdlibTransport{
 		client: &http.Client{
+			Timeout: 5 * time.Minute,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     30 * time.Second,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
 			},
 		},
 		dLimiter: NewDomainLimiter(),

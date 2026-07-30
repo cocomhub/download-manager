@@ -82,7 +82,7 @@ func (t *SproxyTunnelTransport) Name() string { return "sproxy" }
 
 // isSafeTargetURL 验证目标 URL 是否安全（防止 SSRF）。
 // 拒绝私有 IP、回环地址、link-local 地址和非 http/https scheme。
-func isSafeTargetURL(rawURL string) error {
+func isSafeTargetURL(ctx context.Context, rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
@@ -90,7 +90,8 @@ func isSafeTargetURL(rawURL string) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
 	}
-	addrs, err := net.LookupHost(parsed.Hostname())
+	resolver := net.Resolver{PreferGo: true}
+		addrs, err := resolver.LookupHost(ctx, parsed.Hostname())
 	if err != nil {
 		return fmt.Errorf("failed to resolve target host: %w", err)
 	}
@@ -116,7 +117,7 @@ func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.Tr
 
 // roundTripViaProxy 通过 sproxy HTTP 代理转发（非加密）。
 func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
-	if err := isSafeTargetURL(treq.URL); err != nil {
+	if err := isSafeTargetURL(ctx, treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
 
@@ -156,7 +157,7 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 
 // roundTripViaTunnel 通过 sproxy 加密隧道转发请求。
 func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
-	if err := isSafeTargetURL(treq.URL); err != nil {
+	if err := isSafeTargetURL(ctx, treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
 
