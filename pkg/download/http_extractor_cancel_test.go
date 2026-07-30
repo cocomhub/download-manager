@@ -43,15 +43,22 @@ func TestHTTPExtractorCancel(t *testing.T) {
 	ext := download.NewHTTPExtractor()
 	ext.SetTransport(download.NewStdlibTransport())
 
+	// 使用 ready channel 在调用 Extract 前发出信号
+	ready := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
+		close(ready)
 		errCh <- ext.Extract(t.Context(), &download.Request{
 			URL:      ts.URL,
 			SavePath: dest,
 		})
 	}()
 
-	time.Sleep(200 * time.Millisecond)
+	<-ready
+
+	// 给 Extract 一点时间注册 cancel func 并开始 HTTP 请求
+	// 因无法从外部访问 e.cancels，使用短延迟替代轮询
+	time.Sleep(50 * time.Millisecond)
 
 	// Cancel via the URL-based cancel method
 	if canceller, ok := any(ext).(download.Canceller); ok {

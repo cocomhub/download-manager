@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -38,9 +39,16 @@ func (t *StdlibTransport) Name() string { return "stdlib" }
 func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
 	targetURL := treq.URL
 	if treq.ProxyURL != "" {
-		targetURL = strings.TrimPrefix(targetURL, "http://")
-		targetURL = strings.TrimPrefix(targetURL, "https://")
-		targetURL = treq.ProxyURL + "/" + targetURL
+		// 使用 url.URL 安全拼接代理 URL，避免字符串操作风险
+		u, err := url.Parse(treq.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse target URL: %w", err)
+		}
+		proxyURL, err := url.Parse(treq.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse proxy URL: %w", err)
+		}
+		targetURL = proxyURL.JoinPath(u.Host + u.RequestURI()).String()
 	}
 
 	if err := t.dLimiter.Acquire(ctx, treq.URL); err != nil {
@@ -71,7 +79,7 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 
 	headers := make(map[string]string)
 	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
+		headers[k] = strings.Join(resp.Header.Values(k), ", ")
 	}
 
 	return &TransportResponse{

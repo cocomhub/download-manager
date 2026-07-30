@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,9 +74,10 @@ func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.ti
 
 func (e *WgetExtractor) Name() string { return "wget" }
 
-// Match 匹配非 m3u8 URL，与 HTTPExtractor 互补。
+// Match 返回 false：WgetExtractor 不参与自动 URL 匹配。
+// 仅通过 hint.Extractor == "wget" 显式选择，不参与自动匹配。
 func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
-	return !strings.Contains(strings.ToLower(url), ".m3u8")
+	return false
 }
 
 // SetSelector 注入 Selector 实例用于代理选择。
@@ -189,9 +191,20 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 
 	targetURL := req.URL
 	if proxyURL != "" {
-		targetURL = strings.TrimPrefix(targetURL, "http://")
-		targetURL = strings.TrimPrefix(targetURL, "https://")
-		targetURL = proxyURL + "/" + targetURL
+		// 使用 url.URL 安全拼接代理 URL，避免字符串操作风险
+		u, err := url.Parse(req.URL)
+		if err != nil {
+			slog.Warn("Failed to parse URL for proxy, fallback to raw", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
+			targetURL = proxyURL + "/" + req.URL
+		} else {
+			proxy, err := url.Parse(proxyURL)
+			if err != nil {
+				slog.Warn("Failed to parse proxy URL, fallback to raw", "proxy", proxyURL, logutil.LogKeyError, err)
+				targetURL = proxyURL + "/" + req.URL
+			} else {
+				targetURL = proxy.JoinPath(u.Host + u.RequestURI()).String()
+			}
+		}
 		slog.Info("Using proxy", logutil.LogKeyURL, targetURL, "proxy", proxyURL)
 	}
 

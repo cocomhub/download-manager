@@ -19,20 +19,15 @@ func TestWgetExtractorName(t *testing.T) {
 func TestWgetExtractorMatch(t *testing.T) {
 	ex := extractor.NewWgetExtractor()
 
-	// WgetExtractor 应匹配普通 HTTP URL
-	if !ex.Match(t.Context(), "http://example.com/file.zip") {
-		t.Error("WgetExtractor should match non-m3u8 URL")
+	// WgetExtractor 不参与自动 URL 匹配，仅通过 hint.Extractor 显式选择
+	if ex.Match(t.Context(), "http://example.com/file.zip") {
+		t.Error("WgetExtractor.Match should always return false")
 	}
-	if !ex.Match(t.Context(), "https://cdn.example.com/video.mp4") {
-		t.Error("WgetExtractor should match https URL")
+	if ex.Match(t.Context(), "https://cdn.example.com/video.mp4") {
+		t.Error("WgetExtractor.Match should always return false")
 	}
-
-	// WgetExtractor 不应匹配 .m3u8 URL（由 HLSExtractor 处理）
 	if ex.Match(t.Context(), "http://cdn.example.com/stream.m3u8") {
-		t.Error("WgetExtractor should NOT match .m3u8 URL")
-	}
-	if ex.Match(t.Context(), "https://cdn.example.com/playlist.M3U8") {
-		t.Error("WgetExtractor should NOT match .M3U8 URL (case-insensitive)")
+		t.Error("WgetExtractor.Match should always return false")
 	}
 }
 

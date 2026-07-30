@@ -143,7 +143,7 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 
 	headers := make(map[string]string)
 	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
+		headers[k] = strings.Join(resp.Header.Values(k), ", ")
 	}
 	return &download.TransportResponse{
 		Body:          resp.Body,
@@ -178,7 +178,7 @@ func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *do
 
 	headers := make(map[string]string)
 	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
+		headers[k] = strings.Join(resp.Header.Values(k), ", ")
 	}
 	return &download.TransportResponse{
 		Body:          resp.Body,

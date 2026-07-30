@@ -38,6 +38,9 @@ func NewCompositeExtractor() *CompositeExtractor {
 
 func (e *CompositeExtractor) Name() string { return "composite" }
 
+// Match 永远返回 false：CompositeExtractor 不参与自动 URL 匹配。
+// 它通过任务系统的 metadata["files"] 被动调用，由任务 UI 或调度器直接使用。
+// 调用方通过 hint.Extractor == "composite" 显式选择，或直接调用 Extract()。
 func (e *CompositeExtractor) Match(ctx context.Context, url string) bool { return false }
 
 func (e *CompositeExtractor) SetSelector(s download.Selector)   { e.selector = s }

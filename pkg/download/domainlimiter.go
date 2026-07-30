@@ -6,8 +6,11 @@ package download
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sync"
+
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // DomainLimiter 提供基于域名的并发连接数限制。
@@ -98,10 +101,12 @@ func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) {
 // Release 释放一个域的连接槽位，唤醒一个等待者。
 func (d *DomainLimiter) Release(rawURL string) {
 	u, err := url.Parse(rawURL)
+	host := rawURL
 	if err != nil {
-		return
+		slog.Warn("DomainLimiter: failed to parse URL in Release, using raw URL as key", "url", rawURL, logutil.LogKeyError, err)
+	} else {
+		host = u.Host
 	}
-	host := u.Host
 	d.mu.Lock()
 	if d.cur[host] > 0 {
 		d.cur[host]--

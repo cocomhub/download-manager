@@ -239,12 +239,6 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 		return nil, err
 	}
 
-	if err := os.Rename(localPath, localPath+".bak"); err != nil {
-		if d.Config.Verbose {
-			fmt.Printf("Warning: failed to backup m3u8 file: %v\n", err)
-		}
-	}
-
 	base, err := url.Parse(m3u8URL)
 	if err != nil {
 		return nil, err
@@ -266,7 +260,13 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	}
 
 	updatedContent := strings.Join(modifiedLines, "\n")
-	if err := os.WriteFile(localPath, []byte(updatedContent), 0644); err != nil {
+
+	// 写临时文件，再原子替换原文件，避免 .bak 重命名失败
+	tmpPath := localPath + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(updatedContent), 0644); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmpPath, localPath); err != nil {
 		return nil, err
 	}
 
