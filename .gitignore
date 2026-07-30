@@ -28,3 +28,4 @@ test/playwright/playwright-report/
 test/playwright/specs/visual-regression.spec.ts-snapshots/
 test/playwright/test-results/
 tmp/
+learnings/

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/testutil/assert"
 )
 
 // newSlowServer creates an httptest.Server that responds slowly,
@@ -57,14 +58,14 @@ func TestHTTPExtractorCancel(t *testing.T) {
 
 	<-ready
 
-	// 给 Extract 一点时间注册 cancel func 并开始 HTTP 请求
-	// 因无法从外部访问 e.cancels，使用短延迟替代轮询
-	time.Sleep(50 * time.Millisecond)
-
-	// Cancel via the URL-based cancel method
+	// 使用轮询等待 cancel func 注册并确认 Cancel 成功
+	// 直接访问 e.cancels 因包外不可见，通过轮询检测
 	if canceller, ok := any(ext).(download.Canceller); ok {
-		err := canceller.Cancel(ts.URL)
-		t.Logf("Cancel returned: %v", err)
+		assert.MustEventually(t, func() bool {
+			err := canceller.Cancel(ts.URL)
+			return err == nil
+		}, time.Second, 50*time.Millisecond, "cancel should succeed")
+		t.Logf("Cancel returned: %v", canceller.Cancel(ts.URL))
 	} else {
 		t.Fatal("HTTPExtractor does not implement Canceller interface")
 	}

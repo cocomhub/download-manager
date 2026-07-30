@@ -664,7 +664,15 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 			select {
 			case <-dlCtx.Done():
 				return dlCtx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
+			default:
+				// 使用 timer 在 ctx 取消时及时释放
+				timer := time.NewTimer(time.Duration(attempt) * time.Second)
+				select {
+				case <-timer.C:
+				case <-dlCtx.Done():
+					timer.Stop()
+					return dlCtx.Err()
+				}
 			}
 			continue
 		}
