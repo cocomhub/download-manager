@@ -85,11 +85,18 @@ func TestHTTPExtractorCancel(t *testing.T) {
 func TestHTTPExtractorCancelNotFound(t *testing.T) {
 	ext := download.NewHTTPExtractor()
 
-	if canceller, ok := any(ext).(download.Canceller); ok {
-		err := canceller.Cancel("http://nonexistent.url/file.bin")
-		t.Logf("Cancel returned for non-existent URL: %v", err)
-	} else {
+	canceller, ok := any(ext).(download.Canceller)
+	if !ok {
 		t.Fatal("HTTPExtractor does not implement Canceller interface")
+	}
+	err := canceller.Cancel("http://nonexistent.url/file.bin")
+	if err != nil {
+		t.Errorf("Cancel on non-existent URL should return nil, got: %v", err)
+	}
+	// 第二次调用也应返回 nil（幂等性）
+	err = canceller.Cancel("http://nonexistent.url/file.bin")
+	if err != nil {
+		t.Errorf("Cancel on non-existent URL (second call) should return nil, got: %v", err)
 	}
 }
 

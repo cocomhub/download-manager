@@ -48,7 +48,10 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse proxy URL: %w", err)
 		}
-		targetURL = proxyURL.JoinPath(u.Host + u.RequestURI()).String()
+		p := *proxyURL
+		p.Path = proxyURL.Path + "/" + u.Host + u.Path
+		p.RawQuery = u.RawQuery
+		targetURL = p.String()
 	}
 
 	if err := t.dLimiter.Acquire(ctx, treq.URL); err != nil {

@@ -175,16 +175,27 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 		timeoutSecs = 3
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	hreq, err := http.NewRequestWithContext(ctx, "HEAD", targetURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
 	if err != nil {
 		return false
 	}
-	resp, err := client.Do(hreq)
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
+	// HEAD 失败，回退到 GET 小量探测
+	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	getReq.Header.Set("Range", "bytes=0-0")
+	resp, err = client.Do(getReq)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 }
 
 // getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 defaultMaxBandwidth。

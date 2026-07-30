@@ -389,6 +389,8 @@ func validateContentTypeByExtension(rawURL string, tresp *TransportResponse, w i
 	mediaExt := ""
 	if parsedURL, parseErr := url.Parse(rawURL); parseErr == nil {
 		mediaExt = strings.ToLower(filepath.Ext(parsedURL.Path))
+	} else {
+		slog.Warn("Failed to parse URL for content-type validation", logutil.LogKeyURL, rawURL, logutil.LogKeyError, parseErr)
 	}
 	if ext := mediaExt; mediaExtensionSet[ext] != "" {
 		expectedPrefix := mediaExtensionSet[ext]

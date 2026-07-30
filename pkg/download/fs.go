@@ -13,11 +13,8 @@ import (
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
-// ResolvePath 将给定的路径 p 相对于 rootDir 进行解析。
-//   - 如果 rootDir 为空，直接返回 p。
-//   - 如果 p 是绝对路径且在 rootDir 内，原样返回。
-//   - 如果 p 是相对路径，与 rootDir 拼接后返回。
-//   - 任何试图逃逸 rootDir 的行为均返回错误。
+// ResolvePath 将路径 p 解析为绝对路径并验证其位于 rootDir 之下。
+// 如果 rootDir 为空字符串，则不进行路径限制（p 按原样返回）。
 func ResolvePath(rootDir, p string) (string, error) {
 	if rootDir == "" {
 		return p, nil

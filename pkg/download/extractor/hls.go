@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
+	"time"
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -142,10 +142,18 @@ func validateHLSParams(req *download.Request) error {
 	if !strings.HasPrefix(lowerURL, "http://") && !strings.HasPrefix(lowerURL, "https://") {
 		return fmt.Errorf("hls: invalid URL scheme")
 	}
-	for _, v := range []string{req.Headers["Referer"], req.Headers["Cookie"]} {
-		if strings.ContainsAny(v, "\r\n") {
-			return fmt.Errorf("hls: invalid header value contains CR/LF")
+	// 验证所有 header 的 CR/LF 和 - 前缀（防止通过 -headers 注入）
+	for k, v := range req.Headers {
+		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("hls: invalid header contains CR/LF: %q", k)
 		}
+		if strings.HasPrefix(k, "-") || strings.HasPrefix(v, "-") {
+			return fmt.Errorf("hls: header key/value starts with '-'")
+		}
+	}
+	// 验证 URL 不包含 CR/LF
+	if strings.ContainsAny(req.URL, "\r\n") {
+		return fmt.Errorf("hls: invalid URL contains CR/LF")
 	}
 	return nil
 }
@@ -211,12 +219,32 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 		}
 	}()
 
-	if err := cmd.Wait(); err != nil {
-		<-done // ensure drain goroutine exits before returning
-		return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
-	}
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
 
-	<-done
+	select {
+	case err := <-waitCh:
+		<-done
+		if err != nil {
+			return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
+		}
+	case <-dlCtx.Done():
+		select {
+		case err := <-waitCh:
+			<-done
+			if err != nil {
+				return fmt.Errorf("hls: ffmpeg execution failed: %w", err)
+			}
+		case <-time.After(5 * time.Second):
+			<-done
+			return fmt.Errorf("hls: ffmpeg cancel timeout")
+		}
+	case <-time.After(30 * time.Second):
+		<-done
+		return fmt.Errorf("hls: ffmpeg execution timeout")
+	}
 
 	reportHLSDownloadResult(rPath, req)
 	return nil

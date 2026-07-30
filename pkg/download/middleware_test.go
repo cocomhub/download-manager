@@ -273,6 +273,31 @@ func TestWithRuleSetAnnotatesHint(t *testing.T) {
 	if notMatched != nil {
 		t.Errorf("expected no match for .mp4 URL, got rule with pattern: %s", notMatched.Pattern)
 	}
+
+	// Verify that during download the Hint is annotated by the RuleSet
+	sel := download.NewDefaultSelector()
+	ex := &recordingExtractor{}
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithSelector(sel),
+		download.WithRuleSet(rs),
+	)
+
+	req := &download.Request{
+		URL:      "http://example.com/video.ts",
+		SavePath: "/tmp/output.ts",
+	}
+	err := d.Download(t.Context(), req)
+	if err != nil {
+		t.Errorf("Download should succeed: %v", err)
+	}
+	if req.Hint == nil || req.Hint.Extractor != "segment" {
+		got := "<nil>"
+		if req.Hint != nil {
+			got = req.Hint.Extractor
+		}
+		t.Errorf("expected Hint.Extractor to be 'segment', got %q", got)
+	}
 }
 
 // resultExtractor 返回固定 TotalSize，用于测试 MetricsMiddleware 的字节数记录。

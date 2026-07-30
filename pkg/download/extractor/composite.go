@@ -79,7 +79,7 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 	fType := fileMap[model.MetadataKeyType]
 
 	if subURL == "" || subPath == "" {
-		return nil
+		return fmt.Errorf("composite: file entry missing url or path at index %d", fileIndex)
 	}
 
 	dir := filepath.Dir(subPath)
@@ -118,7 +118,7 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 // copyMap 深拷贝 map[string]string。
 func copyMap(m map[string]string) map[string]string {
 	if m == nil {
-		return nil
+		return make(map[string]string) // 返回空 map，避免 nil map 赋值 panic
 	}
 	cp := make(map[string]string, len(m))
 	maps.Copy(cp, m)

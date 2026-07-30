@@ -267,6 +267,9 @@ func TestHTTPExtractorDownload(t *testing.T) {
 				if capturedEtag != `"abc123"` {
 					t.Errorf("expected OnMetadata etag from 304 '%s', got '%s'", `"abc123"`, capturedEtag)
 				}
+				if req2.Metadata["etag"] != `"abc123"` {
+					t.Errorf("expected etag to be preserved after 304, got %q", req2.Metadata["etag"])
+				}
 			},
 		},
 		{

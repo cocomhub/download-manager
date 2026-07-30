@@ -22,7 +22,7 @@ type Metrics struct {
 
 // MetricRegistry 管理所有 Metrics 实例，按名称索引。
 type MetricRegistry struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	metrics map[string]*Metrics
 }
 
@@ -62,8 +62,8 @@ func (r *MetricRegistry) Record(name string, bytes int64, duration time.Duration
 // Snapshot 返回所有 metrics 的当前快照（线程安全）。
 // 返回 map[handler_name]map[field_name]value
 func (r *MetricRegistry) Snapshot() map[string]map[string]int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	result := make(map[string]map[string]int64, len(r.metrics))
 	for name, m := range r.metrics {

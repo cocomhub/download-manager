@@ -69,9 +69,12 @@ func TestStaticProxySelectorCacheDir(t *testing.T) {
 	s.forceProxy = true
 	s.cacheDir = cacheDir
 
-	_, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err != nil {
 		t.Fatalf("Select should succeed with mock proxy: %v", err)
+	}
+	if proxy != mockProxy.URL {
+		t.Errorf("expected proxy URL %s, got %s", mockProxy.URL, proxy)
 	}
 
 	// 验证缓存文件创建

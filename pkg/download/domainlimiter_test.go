@@ -51,6 +51,7 @@ func TestDomainLimiterSetWakeup(t *testing.T) {
 
 	// 3rd acquire blocks
 	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
 	acquired3 := make(chan error, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -108,6 +109,7 @@ func TestDomainLimiterAcquireAfterCancel(t *testing.T) {
 
 	// 2nd acquire blocks, cancel it
 	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
 	acquired2 := make(chan error, 1)
 	ready := make(chan struct{})
 	go func() {
@@ -147,6 +149,7 @@ func TestDomainLimiterCancelThenRelease(t *testing.T) {
 
 	// 2nd acquire blocks, cancel it
 	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
 	acquired2 := make(chan error, 1)
 	ready := make(chan struct{})
 	go func() {

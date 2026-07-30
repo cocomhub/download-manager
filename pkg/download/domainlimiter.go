@@ -41,11 +41,20 @@ func (d *DomainLimiter) Set(host string, max int) {
 		max = 1
 	}
 	d.limit[host] = max
-	// 唤醒所有等待者，让它们重新检查条件
-	for _, ch := range d.waiters[host] {
-		close(ch)
+
+	waiters := d.waiters[host]
+	if len(waiters) == 0 {
+		return
 	}
-	d.waiters[host] = nil
+	available := max - d.cur[host]
+	if available <= 0 {
+		return
+	}
+	toWake := min(available, len(waiters))
+	for i := range toWake {
+		close(waiters[i])
+	}
+	d.waiters[host] = waiters[toWake:]
 }
 
 // Acquire 尝试获取一个域的连接槽位，支持 context 取消。

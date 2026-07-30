@@ -56,8 +56,8 @@ func TestCheckBandwidthBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckBandwidth should not error: %v", err)
 	}
-	if bw <= 0 {
-		t.Errorf("expected positive bandwidth, got %f", bw)
+	if bw < 1024 {
+		t.Errorf("expected bandwidth > 1KB/s, got %f", bw)
 	}
 	t.Logf("Bandwidth: %.2f bytes/sec", bw)
 }

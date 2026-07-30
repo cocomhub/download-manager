@@ -87,20 +87,22 @@ type ruleSetSelector struct {
 }
 
 func (r *ruleSetSelector) MatchExtractor(ctx context.Context, url string, hint *DownloadHint) Extractor {
-	// 先通过规则集匹配，若匹配则注解 Hint
-	if matched := r.rs.Match(url, hint); matched != nil {
-		if hint == nil {
-			// hint is nil, cannot annotate; caller guarantees non-nil (see Download)
+	// 如果 hint 为 nil，跳过规则匹配（无法注解），直接委托给 next
+	if hint == nil {
+		if r.next != nil {
 			return r.next.MatchExtractor(ctx, url, nil)
 		}
-		if matched.Extractor != "" {
-			hint.Extractor = matched.Extractor
-		}
+		return nil
 	}
-	if r.next != nil {
-		return r.next.MatchExtractor(ctx, url, hint)
+	matched := r.rs.Match(url, hint)
+	if matched != nil && matched.Extractor != "" {
+		hint.Extractor = matched.Extractor
+		return nil // will fall back to extractors list via hint
 	}
-	return nil
+	if r.next == nil {
+		return nil
+	}
+	return r.next.MatchExtractor(ctx, url, hint)
 }
 
 func (r *ruleSetSelector) SelectProxy(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {

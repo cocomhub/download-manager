@@ -488,7 +488,9 @@ func TestDownloaderWithHintExtractor(t *testing.T) {
 		download.WithSelector(sel),
 	)
 
-	// mockExtractor.Match returns true, but hint-based match works by name
+	// The mockExtractor.Match returns true, so the extractor is matched via URL match
+	// (not hint-based). DefaultSelector.MatchExtractor returns nil, so Downloader
+	// falls through to the registered extractors list.
 	err := d.Download(t.Context(), &download.Request{
 		URL:      "http://example.com/file",
 		SavePath: "/tmp/file",
