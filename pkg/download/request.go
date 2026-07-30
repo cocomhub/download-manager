@@ -16,6 +16,7 @@ type DownloadHint struct {
 // Request 包含下载请求的所有参数。
 // 注意：在传递给 Download 或 Extractor.Extract 后，Request 的字段会被修改
 // （包括 Metadata、Result、Hint 等）。不要在多个 goroutine 中复用同一个 Request 实例。
+// Download 返回后，Result 字段仅在调用方持有锁或未并发访问时可靠读取。
 type Request struct {
 	URL           string
 	SavePath      string

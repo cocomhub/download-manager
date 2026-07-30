@@ -26,7 +26,7 @@ import (
 const (
 	mimePrefixVideo = "video/"
 	mimePrefixImage = "image/"
-	chromeVersion    = "145"
+	chromeVersion   = "145"
 )
 
 var mediaExtensionSet = map[string]string{
@@ -656,15 +656,19 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 		req.Result = &DownloadResult{}
 	}
 	req.Result.StatusCode = http.StatusNotModified
-	req.Result.TotalSize = func() int64 {
-		if fi, _ := os.Stat(rPath); fi != nil {
-			return fi.Size()
-		}
-		return 0
-	}()
+	req.Result.TotalSize = getFileSize(rPath)
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
 	}
+}
+
+// getFileSize 返回文件大小，文件不存在时返回 0。
+func getFileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
 }
 
 // prepareDownloadOffset 检查已有文件并决定起始偏移量，必要时清除失效文件。

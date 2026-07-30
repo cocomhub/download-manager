@@ -31,6 +31,13 @@ func ComputeFileMD5(filePath string) (base64MD5, hexMD5 string, err error) {
 	return base64.StdEncoding.EncodeToString(hashBytes), hex.EncodeToString(hashBytes), nil
 }
 
+const (
+	// etagQuotedLen 是标准双引号包裹的 ETag 长度：2 个引号 + 32 个 hex 字符 = 34
+	etagQuotedLen = 34
+	// weakETagQuotedLen 是弱 ETag 长度：W/" 前缀 + 32 个 hex 字符 + 引号 = 36
+	weakETagQuotedLen = 36
+)
+
 // TryGetMd5 尝试从响应头中提取 MD5 值。按以下顺序尝试：
 //  1. X-Amz-Meta-Md5chksum（24 字符 Base64）
 //  2. Etag（格式 "32hex"，长度为 34，去除引号）
@@ -47,11 +54,11 @@ func TryGetMd5(headers map[string]string) string {
 	if x := headers["X-Amz-Meta-Md5chksum"]; len(x) == 24 {
 		return x
 	}
-	if etag := headers["Etag"]; len(etag) == 34 && etag[0] == '"' && etag[33] == '"' {
+	if etag := headers["Etag"]; len(etag) == etagQuotedLen && etag[0] == '"' && etag[etagQuotedLen-1] == '"' {
 		return etag[1:33]
 	}
 	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
-	if etag := headers["Etag"]; len(etag) == 36 && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[35] == '"' {
+	if etag := headers["Etag"]; len(etag) == weakETagQuotedLen && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[weakETagQuotedLen-1] == '"' {
 		inner := etag[3:35]
 		if _, err := hex.DecodeString(inner); err == nil {
 			return inner
@@ -68,21 +75,23 @@ func TryGetMd5(headers map[string]string) string {
 		}
 		slog.Debug("Non-standard ETag length or format, skipping MD5 extraction", "etag", etag, "len", len(inner))
 	}
-	// Content-MD5 — 标准格式是 24 字符 Base64
-	if x := headers["Content-MD5"]; len(x) == 24 {
-		decoded, err := base64.StdEncoding.DecodeString(x)
-		if err == nil {
-			return hex.EncodeToString(decoded)
+	// Content-MD5 — 不区分大小写匹配
+	for k, v := range headers {
+		if !strings.EqualFold(k, "Content-MD5") {
+			continue
 		}
-		return x
-	}
-	// 32 字符 hex 格式（非标准，兼容处理）
-	if x := headers["Content-MD5"]; len(x) == 32 {
-		return x
-	}
-	// Go 标准库 canonical 将 Content-MD5 转为 Content-Md5
-	if x := headers["Content-Md5"]; len(x) == 32 {
-		return x
+		// 24 字符 Base64 标准格式
+		if len(v) == 24 {
+			decoded, err := base64.StdEncoding.DecodeString(v)
+			if err == nil {
+				return hex.EncodeToString(decoded)
+			}
+			return v
+		}
+		// 32 字符 hex 格式（非标准，兼容处理）
+		if len(v) == 32 {
+			return v
+		}
 	}
 	return ""
 }

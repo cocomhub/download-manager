@@ -53,8 +53,8 @@ func (s *DefaultSelector) MatchExtractor(ctx context.Context, url string, hint *
 
 func (s *DefaultSelector) SelectProxy(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	ps := s.proxySelector
-	s.mu.Unlock()
 	if ps != nil {
 		return ps.Select(ctx, targetURL, hint)
 	}

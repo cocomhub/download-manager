@@ -174,13 +174,13 @@ func defaultProgressFormatter(w io.Writer, r ProgressReport) {
 	switch {
 	case speedVal >= 1<<30:
 		speedVal /= 1 << 30
-		unit = "GB/s"
+		unit = "GiB/s"
 	case speedVal >= 1<<20:
 		speedVal /= 1 << 20
-		unit = "MB/s"
+		unit = "MiB/s"
 	case speedVal >= 1<<10:
 		speedVal /= 1 << 10
-		unit = "KB/s"
+		unit = "KiB/s"
 	}
 
 	// ETA
