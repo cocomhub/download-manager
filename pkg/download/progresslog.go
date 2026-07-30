@@ -116,6 +116,7 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 		now := time.Now()
 
 		mu.Lock()
+		defer mu.Unlock()
 
 		// 计算速度（保护除零）
 		var speed float64
@@ -141,16 +142,12 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 		timeSinceLastWrite := now.Sub(lastTime)
 
 		if !firstCallDone || deltaPct >= cfg.minStep || timeSinceLastWrite >= cfg.maxInterval {
-			mu.Unlock()
 			cfg.formatter(cfg.w, report)
-			mu.Lock()
 			firstCallDone = true
 			lastTime = now
 			lastProgress = progress
 			lastBytes = downloaded
 		}
-
-		mu.Unlock()
 	}
 }
 

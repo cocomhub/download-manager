@@ -56,15 +56,18 @@ func (s *DefaultSelector) WithProxySelector(ps ProxySelector) *DefaultSelector {
 
 func (s *DefaultSelector) MatchExtractor(ctx context.Context, url string, hint *DownloadHint) Extractor {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	extractors := make([]Extractor, len(s.extractors))
+	copy(extractors, s.extractors)
+	s.mu.Unlock()
+
 	if hint != nil && hint.Extractor != "" {
-		for _, ex := range s.extractors {
+		for _, ex := range extractors {
 			if ex.Name() == hint.Extractor {
 				return ex
 			}
 		}
 	}
-	for _, ex := range s.extractors {
+	for _, ex := range extractors {
 		if ex.Match(ctx, url) {
 			return ex
 		}

@@ -143,6 +143,10 @@ func (d *M3U8DEngine) recordFailure(resp *grab.Response, ctx context.Context, er
 	}
 	fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
 
+	// 加 nil guard 防止 panic
+	if resp.Request == nil || resp.Request.HTTPRequest == nil {
+		return fmt.Errorf("下载失败: %s - %v", filepath.Base(resp.Filename), resp.Err())
+	}
 	req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
 	if err != nil {
 		return err

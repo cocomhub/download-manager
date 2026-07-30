@@ -6,6 +6,7 @@ package download
 import (
 	"path"
 	"strings"
+	"sync"
 )
 
 // Rule 描述一个 URL 路由规则。
@@ -47,6 +48,7 @@ func matchPattern(pattern, url string) bool {
 
 // RuleSet 管理一组有序的 URL 路由规则。
 type RuleSet struct {
+	mu    sync.RWMutex
 	rules []*Rule
 }
 
@@ -59,11 +61,15 @@ func NewRuleSet(rules ...*Rule) *RuleSet {
 
 // Add 添加规则到末尾。
 func (rs *RuleSet) Add(r *Rule) {
+	rs.mu.Lock()
 	rs.rules = append(rs.rules, r)
+	rs.mu.Unlock()
 }
 
 // Match 按注册顺序返回第一个匹配的规则，无匹配返回 nil。
 func (rs *RuleSet) Match(url string, hint *DownloadHint) *Rule {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
 	for _, r := range rs.rules {
 		if r.Match(url) {
 			return r

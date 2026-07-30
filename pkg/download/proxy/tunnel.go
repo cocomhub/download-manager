@@ -59,10 +59,12 @@ type TunnelOption func(*TunnelProxySelector)
 // WithTunnelInstance 添加一个 sproxy 隧道实例。
 func WithTunnelInstance(serverURL, tunnelKey string) TunnelOption {
 	return func(s *TunnelProxySelector) {
+		s.mu.Lock()
 		s.instances = append(s.instances, TunnelInstance{
 			ServerURL: strings.TrimRight(serverURL, "/"),
 			TunnelKey: tunnelKey,
 		})
+		s.mu.Unlock()
 	}
 }
 
