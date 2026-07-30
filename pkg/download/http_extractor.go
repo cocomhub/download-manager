@@ -26,6 +26,7 @@ import (
 const (
 	mimePrefixVideo = "video/"
 	mimePrefixImage = "image/"
+	chromeVersion    = "145"
 )
 
 var mediaExtensionSet = map[string]string{
@@ -96,7 +97,7 @@ func NewHTTPExtractor() *HTTPExtractor {
 // NewHTTPExtractorWithConfig 根据配置创建 HTTPExtractor 实例。
 func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir string) *HTTPExtractor {
 	if userAgent == "" {
-		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+		userAgent = fmt.Sprintf("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36", chromeVersion)
 	}
 	return &HTTPExtractor{
 		maxRetries:             maxRetries,
@@ -303,6 +304,19 @@ func writeLog(w io.Writer, format string, args ...any) {
 	fmt.Fprintf(w, format, args...)
 }
 
+// redactProxyURL 脱敏代理 URL 中的用户名密码。
+func redactProxyURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	parsed.User = nil
+	return parsed.String()
+}
+
 // logDownloadStart 在进度日志开头写入保存路径、代理、URL 信息。
 func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
 	if w == nil {
@@ -310,12 +324,7 @@ func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
 	}
 	fmt.Fprintf(w, "Save file to %s\n", rPath)
 	if proxyURL != "" {
-		safeProxy := proxyURL
-		if parsed, pErr := url.Parse(proxyURL); pErr == nil {
-			parsed.User = nil
-			safeProxy = parsed.String()
-		}
-		fmt.Fprintf(w, "Using proxy: %s\n", safeProxy)
+		fmt.Fprintf(w, "Using proxy: %s\n", redactProxyURL(proxyURL))
 	} else {
 		fmt.Fprintf(w, "Direct connection\n")
 	}
@@ -346,9 +355,9 @@ func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportRespons
 	fmt.Fprintf(w, "[%s] Request:\n", treq.Method)
 	fmt.Fprintf(w, "URL: %s\n", rawURL)
 	if treq.ProxyURL != "" {
-		fmt.Fprintf(w, "Proxy: %s\n", treq.ProxyURL)
+		fmt.Fprintf(w, "Proxy: %s\n", redactProxyURL(treq.ProxyURL))
 	} else if proxyURL != "" {
-		fmt.Fprintf(w, "Proxy: %s\n", proxyURL)
+		fmt.Fprintf(w, "Proxy: %s\n", redactProxyURL(proxyURL))
 	}
 	fmt.Fprintf(w, "Headers:\n")
 	for k, v := range treq.Headers {
@@ -744,12 +753,12 @@ func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserH
 			"Cache-Control":      "no-cache",
 			"Pragma":             "no-cache",
 			"Priority":           "i",
-			"Sec-Ch-Ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"Sec-Ch-Ua":          fmt.Sprintf(`"Google Chrome";v=%q, "Chromium";v=%q, "Not A(Brand";v="24"`, chromeVersion, chromeVersion),
 			"Sec-Ch-Ua-Mobile":   "?0",
 			"Sec-Ch-Ua-Platform": `"macOS"`,
 			"Sec-Fetch-Dest":     "video",
 			"Sec-Fetch-Mode":     "no-cors",
-			"Sec-Fetch-Site":     "same-origin",
+			"Sec-Fetch-Site":     "cross-site",
 		}
 		for k, v := range browser {
 			if _, exists := h[k]; !exists {

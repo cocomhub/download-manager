@@ -44,12 +44,12 @@ func TestHTTPExtractorBrowserHeaders(t *testing.T) {
 		expect string
 	}
 	checks := []headerCheck{
-		{"sec-ch-ua", "Sec-Ch-Ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`},
+		{"sec-ch-ua", "Sec-Ch-Ua", `"Google Chrome";v="145", "Chromium";v="145", "Not A(Brand";v="24"`},
 		{"sec-ch-ua-mobile", "Sec-Ch-Ua-Mobile", "?0"},
 		{"sec-ch-ua-platform", "Sec-Ch-Ua-Platform", `"macOS"`},
 		{"sec-fetch-dest", "Sec-Fetch-Dest", "video"},
 		{"sec-fetch-mode", "Sec-Fetch-Mode", "no-cors"},
-		{"sec-fetch-site", "Sec-Fetch-Site", "same-origin"},
+		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
 		{"cache-control", "Cache-Control", "no-cache"},
 		{"pragma", "Pragma", "no-cache"},
 		{"priority", "Priority", "i"},

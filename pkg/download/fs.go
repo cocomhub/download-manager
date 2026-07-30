@@ -60,6 +60,7 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (st
 }
 
 // isWithinRoot 检查 p 是否在 rootDir 的安全范围内。
+// 对 p 和 rootDir 都解析符号链接，防止通过符号链接绕过路径检查。
 func isWithinRoot(rootDir, p string) bool {
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
@@ -69,6 +70,15 @@ func isWithinRoot(rootDir, p string) bool {
 	if err != nil {
 		return false
 	}
+
+	// 解析符号链接，防止路径穿越绕过
+	if resolvedRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
+		absRoot = resolvedRoot
+	}
+	if resolvedP, err := filepath.EvalSymlinks(absP); err == nil {
+		absP = resolvedP
+	}
+
 	if absRoot == absP {
 		return true
 	}

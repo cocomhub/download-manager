@@ -13,12 +13,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/sproxy/pkg/tunnel"
 )
+
+// dnsCacheEntry 缓存一个 DNS 解析结果及其过期时间。
+type dnsCacheEntry struct {
+	addrs    []string
+	expireAt time.Time
+}
 
 // compile-time interface checks
 var _ download.Transport = (*SproxyTunnelTransport)(nil)
@@ -28,11 +35,13 @@ var _ download.Transport = (*SproxyTunnelTransport)(nil)
 //   - 加密隧道模式（配置 TunnelKey）：使用 tunnel.Client 做 AES-256-GCM 加密隧道
 //   - HTTP 代理模式（无 TunnelKey）：通过 sproxy 的 HTTP 代理转发
 type SproxyTunnelTransport struct {
-	serverURL string
-	client    *http.Client
-	tunnelCl  *tunnel.Client
-	useTunnel bool
-	logger    *slog.Logger
+	serverURL   string
+	client      *http.Client
+	tunnelCl    *tunnel.Client
+	useTunnel   bool
+	logger      *slog.Logger
+	dnsCache    sync.Map
+	dnsCacheTTL time.Duration
 }
 
 // NewSproxyTunnelTransport 创建 SproxyTunnelTransport。
@@ -49,9 +58,10 @@ func NewSproxyTunnelTransport(serverURL string, opts ...SproxyOption) *SproxyTun
 	}
 
 	t := &SproxyTunnelTransport{
-		serverURL: serverURL,
-		client:    baseClient,
-		logger:    slog.Default(),
+		serverURL:   serverURL,
+		client:      baseClient,
+		logger:      slog.Default(),
+		dnsCacheTTL: 5 * time.Minute,
 	}
 	for _, o := range opts {
 		o(t)
@@ -87,7 +97,8 @@ func (t *SproxyTunnelTransport) TunnelActive() bool { return t.useTunnel }
 
 // isSafeTargetURL 验证目标 URL 是否安全（防止 SSRF）。
 // 拒绝私有 IP、回环地址、link-local 地址和非 http/https scheme。
-func isSafeTargetURL(ctx context.Context, rawURL string) error {
+// DNS 解析结果带 TTL 缓存（5 分钟），避免每次 RoundTrip 重新解析。
+func (t *SproxyTunnelTransport) isSafeTargetURL(ctx context.Context, rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
@@ -95,11 +106,38 @@ func isSafeTargetURL(ctx context.Context, rawURL string) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
 	}
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("empty hostname in target URL")
+	}
+
+	// 检查缓存
+	if entry, ok := t.dnsCache.Load(hostname); ok {
+		cached := entry.(dnsCacheEntry)
+		if time.Now().Before(cached.expireAt) {
+			for _, addr := range cached.addrs {
+				ip := net.ParseIP(addr)
+				if ip == nil {
+					continue
+				}
+				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+					return fmt.Errorf("target resolves to protected address %s", addr)
+				}
+			}
+			return nil
+		}
+	}
+
 	resolver := net.Resolver{PreferGo: true}
-	addrs, err := resolver.LookupHost(ctx, parsed.Hostname())
+	addrs, err := resolver.LookupHost(ctx, hostname)
 	if err != nil {
 		return fmt.Errorf("failed to resolve target host: %w", err)
 	}
+	// 写入缓存
+	t.dnsCache.Store(hostname, dnsCacheEntry{
+		addrs:    addrs,
+		expireAt: time.Now().Add(t.dnsCacheTTL),
+	})
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)
 		if ip == nil {
@@ -122,7 +160,7 @@ func (t *SproxyTunnelTransport) RoundTrip(ctx context.Context, treq *download.Tr
 
 // roundTripViaProxy 通过 sproxy HTTP 代理转发（非加密）。
 func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
-	if err := isSafeTargetURL(ctx, treq.URL); err != nil {
+	if err := t.isSafeTargetURL(ctx, treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
 
@@ -166,7 +204,7 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 
 // roundTripViaTunnel 通过 sproxy 加密隧道转发请求。
 func (t *SproxyTunnelTransport) roundTripViaTunnel(ctx context.Context, treq *download.TransportRequest) (*download.TransportResponse, error) {
-	if err := isSafeTargetURL(ctx, treq.URL); err != nil {
+	if err := t.isSafeTargetURL(ctx, treq.URL); err != nil {
 		return nil, fmt.Errorf("sproxy: blocked unsafe URL: %w", err)
 	}
 
