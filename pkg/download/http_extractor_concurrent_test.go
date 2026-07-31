@@ -78,10 +78,13 @@ func TestHTTPExtractorConcurrentSameURL(t *testing.T) {
 
 	// One should succeed (or get a download error from the server), the other
 	// should get "already downloading" error.
-	firstOK := err1 == nil || err1.Error() != "already downloading: "+ts.URL
-	secondOK := err2 == nil || err2.Error() != "already downloading: "+ts.URL
-
-	if !firstOK && !secondOK {
-		t.Errorf("expected at least one download to proceed, got errors: %v, %v", err1, err2)
+	var conflictCount int
+	for _, err := range []error{err1, err2} {
+		if err != nil && err.Error() == "already downloading: "+ts.URL {
+			conflictCount++
+		}
+	}
+	if conflictCount == 0 {
+		t.Errorf("expected at least one 'already downloading' conflict, got errors: %v, %v", err1, err2)
 	}
 }

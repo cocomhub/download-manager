@@ -159,7 +159,6 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 
 	// 创建 per-URL 可取消的 context，支持按 URL 精确取消
 	dlCtx, dlCancel := context.WithCancel(ctx)
-	defer e.cancels.Delete(req.URL)
 	defer dlCancel()
 	// 使用 LoadOrStore 检测相同 URL 的并发下载
 	if _, loaded := e.cancels.LoadOrStore(req.URL, dlCancel); loaded {
@@ -167,6 +166,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 		return fmt.Errorf("already downloading: %s", req.URL)
 	}
 
+	defer e.cancels.Delete(req.URL)
 	rPath, err := e.resolveSavePath(req, localRootDir, localAllowPaths)
 	if err != nil {
 		return err
