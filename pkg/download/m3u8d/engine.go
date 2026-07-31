@@ -23,6 +23,8 @@ import (
 
 var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
 
+const maxRecursionDepth = 10
+
 var reKeyURL = regexp.MustCompile(`URI="([^"]+)"`)
 
 // M3U8DEngine 是 m3u8 下载引擎，支持 http.Client 注入。
@@ -260,6 +262,10 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 
 // parseM3U8 递归解析 m3u8 文件，收集所有下载任务。
 func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, level int) ([]DownloadTask, error) {
+	if level > maxRecursionDepth {
+		return nil, fmt.Errorf("m3u8: max recursion depth exceeded (%d)", maxRecursionDepth)
+	}
+
 	if d.Config.Verbose {
 		fmt.Printf("[L%d] 解析: %s\n", level, m3u8URL)
 	}
