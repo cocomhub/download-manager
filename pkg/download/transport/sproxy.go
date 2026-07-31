@@ -113,8 +113,10 @@ func (t *SproxyTunnelTransport) isSafeTargetURL(ctx context.Context, rawURL stri
 
 	// 检查缓存
 	if entry, ok := t.dnsCache.Load(hostname); ok {
-		cached := entry.(dnsCacheEntry)
-		if time.Now().Before(cached.expireAt) {
+		cached, ok := entry.(dnsCacheEntry)
+		if !ok {
+			slog.Warn("sproxy: unexpected type in DNS cache, skipping", "hostname", hostname)
+		} else if time.Now().Before(cached.expireAt) {
 			for _, addr := range cached.addrs {
 				ip := net.ParseIP(addr)
 				if ip == nil {

@@ -575,13 +575,13 @@ func logDownloadComplete(w io.Writer, started time.Time, totalSize int64) {
 	switch {
 	case speedVal >= 1<<30:
 		speedVal /= 1 << 30
-		speedUnit = "GB/s"
+		speedUnit = "GiB/s"
 	case speedVal >= 1<<20:
 		speedVal /= 1 << 20
-		speedUnit = "MB/s"
+		speedUnit = "MiB/s"
 	case speedVal >= 1<<10:
 		speedVal /= 1 << 10
-		speedUnit = "KB/s"
+		speedUnit = "KiB/s"
 	default:
 		speedUnit = "B/s"
 	}
