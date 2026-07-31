@@ -152,6 +152,9 @@ func validateWgetRequest(req *download.Request) error {
 	if strings.HasPrefix(req.SavePath, "-") {
 		return fmt.Errorf("wget: invalid save path (starts with '-')")
 	}
+	if strings.ContainsAny(req.SavePath, "\r\n") {
+		return fmt.Errorf("wget: invalid save path contains CR/LF")
+	}
 	for k, v := range req.Headers {
 		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
 			return fmt.Errorf("wget: invalid header contains CR/LF")
@@ -165,6 +168,9 @@ func validateWgetRequest(req *download.Request) error {
 		!strings.HasPrefix(lowerURL, "https://") &&
 		!strings.HasPrefix(lowerURL, "ftp://") {
 		return fmt.Errorf("wget: invalid URL scheme: %s", req.URL)
+	}
+	if strings.ContainsAny(req.URL, "\r\n") {
+		return fmt.Errorf("wget: invalid URL contains CR/LF")
 	}
 	return nil
 }

@@ -55,7 +55,11 @@ func TryGetMd5(headers map[string]string) string {
 		return x
 	}
 	if etag := headers["Etag"]; len(etag) == etagQuotedLen && etag[0] == '"' && etag[etagQuotedLen-1] == '"' {
-		return etag[1:33]
+		inner := etag[1:33]
+		if _, err := hex.DecodeString(inner); err == nil {
+			return inner
+		}
+		slog.Debug("Strong ETag content is not valid hex, skipping MD5 extraction", "etag", etag)
 	}
 	// 弱 ETag 支持：处理 W/"32hex" 格式（36 字符）
 	if etag := headers["Etag"]; len(etag) == weakETagQuotedLen && (strings.HasPrefix(etag, `W/"`) || strings.HasPrefix(etag, `w/"`)) && etag[weakETagQuotedLen-1] == '"' {
@@ -90,7 +94,9 @@ func TryGetMd5(headers map[string]string) string {
 		}
 		// 32 字符 hex 格式（非标准，兼容处理）
 		if len(v) == 32 {
-			return v
+			if _, err := hex.DecodeString(v); err == nil {
+				return v
+			}
 		}
 	}
 	return ""

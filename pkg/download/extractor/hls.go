@@ -135,6 +135,9 @@ func validateHLSParams(req *download.Request) error {
 	if strings.HasPrefix(req.SavePath, "-") {
 		return fmt.Errorf("hls: invalid save path (starts with '-')")
 	}
+	if strings.ContainsAny(req.SavePath, "\r\n") {
+		return fmt.Errorf("hls: invalid save path contains CR/LF")
+	}
 	if strings.HasPrefix(req.URL, "-") {
 		return fmt.Errorf("hls: invalid URL (starts with '-')")
 	}
@@ -252,12 +255,17 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 			return fmt.Errorf("hls: ffmpeg cancel timeout")
 		}
 	case <-time.After(30 * time.Second):
+		dlCancel() // 立即终止 ffmpeg 进程
 		// Close stderr pipe to wake up the scanner goroutine on timeout
 		if pipeErr := stderr.Close(); pipeErr != nil {
 			slog.Warn("Failed to close stderr pipe during execution timeout", logutil.LogKeyError, pipeErr)
 		}
 		select {
-		case <-done:
+		case err := <-waitCh:
+			<-done
+			if err != nil {
+				slog.Warn("ffmpeg killed on timeout", logutil.LogKeyError, err)
+			}
 		case <-time.After(3 * time.Second):
 			slog.Warn("Scanner goroutine did not exit after stderr close on timeout",
 				logutil.LogKeyURL, req.URL)

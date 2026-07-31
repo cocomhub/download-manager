@@ -143,7 +143,7 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 		deltaPct := progress - lastProgress
 		timeSinceLastWrite := now.Sub(lastTime)
 
-		if !firstCallDone || deltaPct >= cfg.minStep || timeSinceLastWrite >= cfg.maxInterval {
+		if !firstCallDone || deltaPct >= cfg.minStep || (cfg.maxInterval > 0 && timeSinceLastWrite >= cfg.maxInterval) {
 			firstCallDone = true
 			lastTime = now
 			lastProgress = progress

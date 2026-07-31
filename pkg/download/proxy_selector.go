@@ -58,7 +58,7 @@ func (s *StaticProxySelector) WithForceProxy(v bool) *StaticProxySelector {
 	return s
 }
 
-// WithCache 设置代理决策缓存目录和 TTL（天数）。
+// WithCache 设置代理决策缓存目录和 TTL（秒）。
 func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelector {
 	s.cacheDir = dir
 	s.decisionCacheTTL = ttl
@@ -68,6 +68,14 @@ func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelecto
 // WithProbe 设置直连探测超时（秒）。
 func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
 	s.probeTimeout = timeout
+	return s
+}
+
+// WithBandwidthSuffix 设置代理带宽探测路径后缀。默认为 "/bandwidth"。
+func (s *StaticProxySelector) WithBandwidthSuffix(suffix string) *StaticProxySelector {
+	if suffix != "" {
+		s.bandwidthSuffix = suffix
+	}
 	return s
 }
 

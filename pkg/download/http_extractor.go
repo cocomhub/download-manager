@@ -150,6 +150,8 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	localUA := e.ua
 	localResponseChecks := make([]ResponseCheck, len(e.responseChecks))
 	copy(localResponseChecks, e.responseChecks)
+	localRedactSensitiveHeaders := e.RedactSensitiveHeaders
+
 	e.mu.RUnlock()
 
 	// 确保 Transport 已注入
@@ -183,11 +185,11 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	startOffset := e.prepareDownloadOffset(rPath, action)
 	ensureRequestFields(req)
 
-	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req, localTransport, localLogDir, localMaxRetries, localUA, localBrowserHdrs, localResponseChecks)
+	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req, localTransport, localLogDir, localMaxRetries, localUA, localBrowserHdrs, localResponseChecks, localRedactSensitiveHeaders)
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
-func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck) (success bool, err error) {
+func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) (success bool, err error) {
 	logWriter := createProgressLogWriter(localLogDir, rPath)
 	if c, ok := logWriter.(io.Closer); ok {
 		defer c.Close()
@@ -215,7 +217,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 	defer tresp.Body.Close()
 
-	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL, e.RedactSensitiveHeaders)
+	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL, localRedactSensitiveHeaders)
 
 	if handled, success, err := handleHTTPResponseStatus(tresp, logWriter, req, rPath); handled {
 		return success, err
@@ -702,7 +704,7 @@ func ensureRequestFields(req *Request) {
 }
 
 // retryDownload 执行带重试的下载循环。
-func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck) error {
+func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) error {
 	maxRetries := localMaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 5
@@ -714,7 +716,7 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		default:
 		}
 
-		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req, localTransport, localLogDir, localUA, localBrowserHdrs, localResponseChecks)
+		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req, localTransport, localLogDir, localUA, localBrowserHdrs, localResponseChecks, localRedactSensitiveHeaders)
 		if err != nil {
 			if IsNoTry(err) {
 				return err

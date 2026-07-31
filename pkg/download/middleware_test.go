@@ -448,3 +448,47 @@ func TestMetricsMiddlewareRecordsBytesFailure(t *testing.T) {
 		t.Errorf("expected 1 failure, got %d", metrics["failure_count"])
 	}
 }
+
+// TestMetricsMiddlewareNilRegistry 验证 MetricsMiddleware(nil) 安全 pass-through。
+func TestMetricsMiddlewareNilRegistry(t *testing.T) {
+	ex := &recordingExtractor{}
+
+	// 直接创建 nil registry 的 MetricsMiddleware
+	mw := download.MetricsMiddleware(nil)
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMiddleware(mw),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed with nil MetricsMiddleware: %v", err)
+	}
+	if !ex.called {
+		t.Error("expected extractor to be called")
+	}
+}
+
+// TestWithMetricRegistryNil 验证 WithMetricRegistry(nil) 安全 pass-through。
+func TestWithMetricRegistryNil(t *testing.T) {
+	ex := &recordingExtractor{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(nil),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed with nil MetricRegistry option: %v", err)
+	}
+	if !ex.called {
+		t.Error("expected extractor to be called")
+	}
+}

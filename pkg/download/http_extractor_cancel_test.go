@@ -59,13 +59,11 @@ func TestHTTPExtractorCancel(t *testing.T) {
 	<-ready
 
 	// 使用轮询等待 cancel func 注册并确认 Cancel 成功
-	// 直接访问 e.cancels 因包外不可见，通过轮询检测
 	if canceller, ok := any(ext).(download.Canceller); ok {
 		assert.MustEventually(t, func() bool {
 			err := canceller.Cancel(ts.URL)
 			return err == nil
 		}, time.Second, 50*time.Millisecond, "cancel should succeed")
-		t.Logf("Cancel returned: %v", canceller.Cancel(ts.URL))
 	} else {
 		t.Fatal("HTTPExtractor does not implement Canceller interface")
 	}

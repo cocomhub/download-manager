@@ -7,22 +7,27 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// retryCancelServer returns 500 repeatedly so the extractor enters retry loop.
-func newRetryServer(t *testing.T) *httptest.Server {
+// retryCancelServer 返回 500 使提取器进入重试循环。
+// firstRequestCh 在收到第一个 HTTP 请求时关闭，用于同步。
+func newRetryServer(t *testing.T, firstRequestCh chan struct{}) *httptest.Server {
 	t.Helper()
+	var once sync.Once
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { close(firstRequestCh) })
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 }
 
 func TestHTTPExtractorRetryCancel(t *testing.T) {
-	ts := newRetryServer(t)
+	firstRequestCh := make(chan struct{})
+	ts := newRetryServer(t, firstRequestCh)
 	defer ts.Close()
 
 	dir := t.TempDir()
@@ -35,19 +40,17 @@ func TestHTTPExtractorRetryCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
-	startCh := make(chan struct{})
 	go func() {
-		close(startCh)
 		errCh <- ext.Extract(ctx, &download.Request{
 			URL:      ts.URL,
 			SavePath: dest,
 		})
 	}()
 
-	// Wait for the goroutine to start
-	<-startCh
-	// Give the first attempt time to fail and enter the retry sleep
-	time.Sleep(500 * time.Millisecond)
+	// 等待第一个 HTTP 请求被服务器接收（500 立即返回）
+	<-firstRequestCh
+	// 短暂等待确保已进入重试循环的 sleep 阶段（retry sleep = 1s）
+	time.Sleep(50 * time.Millisecond)
 
 	// Cancel the context while the retry is waiting
 	cancel()

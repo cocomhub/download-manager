@@ -69,6 +69,12 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 
 	d.mu.Lock()
 	for {
+		// 在检查条件之前先检查 context 是否已取消
+		if err := ctx.Err(); err != nil {
+			d.mu.Unlock()
+			return err
+		}
+
 		max := d.limit[host]
 		if max == 0 || d.cur[host] < max {
 			d.cur[host]++
@@ -83,8 +89,17 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 
 		select {
 		case <-ch:
-			// 被唤醒，重新获取锁并重新检查条件
+			// 被唤醒，重新获取锁
 			d.mu.Lock()
+			// 被唤醒后检查 context 是否已被取消。
+			// 如果已被取消，不能使用这个 slot，需要传递给下一个等待者。
+			if err := ctx.Err(); err != nil {
+				// 传递 slot 给下一个等待者（如果有）
+				// Release 已减 cur，或 Set 已增 limit，slot 已释放
+				d.passSlot(host)
+				d.mu.Unlock()
+				return err
+			}
 			// 继续 for 循环重新检查条件
 		case <-ctx.Done():
 			// context 被取消，从等待队列中移除
@@ -96,15 +111,28 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	}
 }
 
+// passSlot 将当前可用的 slot 传递给下一个等待者（如果有）。
+// 调用者必须持有 d.mu。
+func (d *DomainLimiter) passSlot(host string) {
+	if len(d.waiters[host]) > 0 {
+		nextCh := d.waiters[host][0]
+		d.waiters[host] = d.waiters[host][1:]
+		close(nextCh)
+	}
+}
+
 // removeWaiter 从指定主机的等待队列中移除一个通道。
-func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) {
+// 如果通道在队列中被找到并移除，返回 true。如果通道不在队列中（已被 Release/Set 移除），返回 false。
+// 调用者必须持有 d.mu。
+func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) bool {
 	waiters := d.waiters[host]
 	for i, w := range waiters {
 		if w == ch {
 			d.waiters[host] = append(waiters[:i], waiters[i+1:]...)
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // Release 释放一个域的连接槽位，唤醒一个等待者。

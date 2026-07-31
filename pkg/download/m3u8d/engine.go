@@ -169,7 +169,15 @@ func (d *M3U8DEngine) Cleanup() error {
 	if d.Config.WorkDir == "" || d.Config.WorkDir == "." || d.Config.WorkDir == ".." {
 		return fmt.Errorf("m3u8d: refusing to cleanup unsafe workdir %q", d.Config.WorkDir)
 	}
-	return os.RemoveAll(d.Config.WorkDir)
+	abs, err := filepath.Abs(d.Config.WorkDir)
+	if err != nil {
+		return fmt.Errorf("m3u8d: failed to resolve absolute workdir: %w", err)
+	}
+	// 拒绝根目录或仅含盘符根部的路径，防止误删整个文件系统
+	if abs == "/" || abs == `\` || len(abs) == 3 && abs[1] == ':' && abs[2] == '\\' {
+		return fmt.Errorf("m3u8d: refusing to cleanup root workdir %q", abs)
+	}
+	return os.RemoveAll(abs)
 }
 
 // downloadFile 下载单个文件，使用注入的 http.Client。
@@ -205,9 +213,14 @@ func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath strin
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	if _, err := io.Copy(file, resp.Body); err != nil {
+		file.Close()
+		os.Remove(localPath)
+		return err
+	}
+
+	if err := file.Close(); err != nil {
 		os.Remove(localPath)
 		return err
 	}
@@ -289,6 +302,7 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 		return nil, err
 	}
 	if err := os.Rename(tmpPath, localPath); err != nil {
+		os.Remove(tmpPath) // 清理残留的临时文件
 		return nil, err
 	}
 
@@ -303,7 +317,7 @@ func (d *M3U8DEngine) processM3U8Line(ctx context.Context, base *url.URL, line s
 
 	cleanLine := cleanResourceLine(line)
 
-	if cleaned := path.Clean(cleanLine); strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+	if cleaned := path.Clean(cleanLine); cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
 		return "", nil, fmt.Errorf("path traversal detected: %s", line)
 	}
 

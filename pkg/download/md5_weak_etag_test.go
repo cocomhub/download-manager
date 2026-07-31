@@ -39,6 +39,28 @@ func TestTryGetMd5StrongEtag(t *testing.T) {
 	}
 }
 
+func TestTryGetMd5WeakEtagNonHexContent(t *testing.T) {
+	// Weak ETag with 36 chars but non-hex inner content → should be skipped
+	headers := map[string]string{
+		"Etag": `W/"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"`, // 36 chars, inner is 32 chars but not hex
+	}
+	result := TryGetMd5(headers)
+	if result != "" {
+		t.Errorf("expected empty for weak ETag with non-hex content, got %q", result)
+	}
+}
+
+func TestTryGetMd5StrongEtagNonHexContent(t *testing.T) {
+	// Strong ETag with 34 chars but non-hex inner content → should be skipped
+	headers := map[string]string{
+		"Etag": `"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"`, // 34 chars, inner is 32 chars but not hex
+	}
+	result := TryGetMd5(headers)
+	if result != "" {
+		t.Errorf("expected empty for strong ETag with non-hex content, got %q", result)
+	}
+}
+
 func TestTryGetMd5EtagWrongLength(t *testing.T) {
 	// ETag with wrong inner length (not 32 hex chars) → should return empty
 	headers := map[string]string{

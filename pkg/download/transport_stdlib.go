@@ -4,8 +4,10 @@
 package download
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -58,7 +60,9 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 			return nil, fmt.Errorf("failed to parse proxy URL: %w", err)
 		}
 		p := *proxyURL
-		p.Path = proxyURL.Path + "/" + u.Host + u.Path
+		// TrimRight 防止 proxyURL.Path 以 "/" 结尾时产生双斜杠
+		basePath := strings.TrimRight(proxyURL.Path, "/")
+		p.Path = basePath + "/" + u.Host + u.Path
 		p.RawQuery = u.RawQuery
 		targetURL = p.String()
 	}
@@ -73,7 +77,11 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 		method = "GET"
 	}
 
-	hreq, err := http.NewRequestWithContext(ctx, method, targetURL, nil)
+	var body io.Reader
+	if len(treq.Body) > 0 {
+		body = bytes.NewReader(treq.Body)
+	}
+	hreq, err := http.NewRequestWithContext(ctx, method, targetURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

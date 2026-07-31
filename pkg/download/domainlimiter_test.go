@@ -178,3 +178,179 @@ func TestDomainLimiterCancelThenRelease(t *testing.T) {
 	dl.Release("https://example.com/file1")
 	// No panic, no deadlock: verified by reaching here
 }
+
+func TestDomainLimiterAcquireAlreadyCancelled(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 1)
+
+	// 使用已取消的 context 调用 Acquire
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // 立即取消
+	err := dl.Acquire(ctx, "https://example.com/file1")
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled for already-cancelled context, got %v", err)
+	}
+	// 验证 cur 未被增加
+	dl.mu.Lock()
+	cur := dl.cur["example.com"]
+	dl.mu.Unlock()
+	if cur != 0 {
+		t.Errorf("expected cur=0 after cancelled acquire, got %d", cur)
+	}
+}
+
+func TestDomainLimiterAlreadyCancelledAllSlotsFull(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 1)
+
+	// 占满所有 slot
+	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
+		t.Fatalf("Acquire should succeed: %v", err)
+	}
+
+	// 用已取消的 context 尝试获取
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := dl.Acquire(ctx, "https://example.com/file2")
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	// 验证 waiter 队列未被污染
+	dl.mu.Lock()
+	waiters := len(dl.waiters["example.com"])
+	dl.mu.Unlock()
+	if waiters != 0 {
+		t.Errorf("expected 0 waiters after cancelled acquire, got %d", waiters)
+	}
+
+	dl.Release("https://example.com/file1")
+}
+
+func TestDomainLimiterMultipleDomains(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("a.com", 1)
+	dl.Set("b.com", 2)
+
+	// 占满 a.com
+	if err := dl.Acquire(t.Context(), "https://a.com/1"); err != nil {
+		t.Fatalf("Acquire a.com/1 should succeed: %v", err)
+	}
+	// 占满 b.com
+	if err := dl.Acquire(t.Context(), "https://b.com/1"); err != nil {
+		t.Fatalf("Acquire b.com/1 should succeed: %v", err)
+	}
+	if err := dl.Acquire(t.Context(), "https://b.com/2"); err != nil {
+		t.Fatalf("Acquire b.com/2 should succeed: %v", err)
+	}
+
+	// 验证各域名独立计数
+	dl.mu.Lock()
+	curA := dl.cur["a.com"]
+	curB := dl.cur["b.com"]
+	dl.mu.Unlock()
+	if curA != 1 {
+		t.Errorf("expected a.com cur=1, got %d", curA)
+	}
+	if curB != 2 {
+		t.Errorf("expected b.com cur=2, got %d", curB)
+	}
+
+	dl.Release("https://a.com/1")
+	dl.Release("https://b.com/1")
+	dl.Release("https://b.com/2")
+}
+
+func TestDomainLimiterSetZeroMax(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 0) // 应被钳位为 1
+
+	if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
+		t.Fatalf("Acquire should succeed: %v", err)
+	}
+
+	// 第二个 acquire 应阻塞
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	acquired2 := make(chan error, 1)
+	go func() {
+		err := dl.Acquire(ctx, "https://example.com/file2")
+		acquired2 <- err
+	}()
+	// 验证确实阻塞
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-acquired2:
+		t.Fatal("Acquire should block when limit=1")
+	default:
+	}
+
+	cancel()
+	select {
+	case err := <-acquired2:
+		if err != context.Canceled {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Acquire should return after cancel")
+	}
+
+	dl.Release("https://example.com/file1")
+
+	// 验证 Set(..., -1) 也被钳位为 1
+	dl.Set("example.com", -1)
+	if err := dl.Acquire(t.Context(), "https://example.com/file3"); err != nil {
+		t.Fatalf("Acquire after Set(-1) should succeed: %v", err)
+	}
+	dl.Release("https://example.com/file3")
+}
+
+func TestDomainLimiterCancelReleaseRace(t *testing.T) {
+	dl := NewDomainLimiter()
+	dl.Set("example.com", 1)
+
+	// 多轮：每轮先占满一个 slot，然后启动一个要取消的 acquire，再 release
+	for range 100 {
+		if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
+			t.Fatalf("Acquire should succeed: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		acquired := make(chan error, 1)
+		go func() {
+			acquired <- dl.Acquire(ctx, "https://example.com/file2")
+		}()
+
+		time.Sleep(time.Millisecond)
+		cancel()
+		dl.Release("https://example.com/file1")
+
+		select {
+		case err := <-acquired:
+			if err != nil && err != context.Canceled {
+				t.Fatalf("expected nil or context.Canceled, got %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out")
+		}
+
+		// 清理：如果 Acquire 成功了，需要释放它
+		dl.mu.Lock()
+		if dl.cur["example.com"] > 0 {
+			dl.cur["example.com"]--
+		}
+		dl.waiters["example.com"] = nil
+		dl.mu.Unlock()
+	}
+
+	dl.mu.Lock()
+	cur := dl.cur["example.com"]
+	waiters := len(dl.waiters["example.com"])
+	dl.mu.Unlock()
+	if cur != 0 {
+		t.Errorf("expected cur=0, got %d", cur)
+	}
+	if waiters != 0 {
+		t.Errorf("expected 0 waiters, got %d", waiters)
+	}
+}
