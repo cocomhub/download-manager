@@ -25,10 +25,7 @@ func ResolvePath(rootDir, p string) (string, error) {
 		}
 		return "", fmt.Errorf("path outside root: %s", p)
 	}
-	rp, err := cleanJoin(rootDir, p)
-	if err != nil {
-		return "", err
-	}
+	rp := cleanJoin(rootDir, p)
 	if !isWithinRoot(rootDir, rp) {
 		return "", fmt.Errorf("path outside root: %s", p)
 	}
@@ -89,9 +86,9 @@ func isWithinRoot(rootDir, p string) bool {
 }
 
 // cleanJoin 将 rootDir 与任意元素拼接并用 filepath.Clean 规范化。
-func cleanJoin(rootDir string, elems ...string) (string, error) {
+func cleanJoin(rootDir string, elems ...string) string {
 	all := append([]string{rootDir}, elems...)
-	return filepath.Clean(filepath.Join(all...)), nil
+	return filepath.Clean(filepath.Join(all...))
 }
 
 // EnsureDir 确保文件路径的父目录存在（如 MkdirAll）。

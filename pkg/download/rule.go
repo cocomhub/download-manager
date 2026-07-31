@@ -66,6 +66,9 @@ func NewRuleSet(rules ...*Rule) *RuleSet {
 
 // Add 添加规则到末尾。
 func (rs *RuleSet) Add(r *Rule) {
+	if r == nil {
+		return
+	}
 	rs.mu.Lock()
 	rs.rules = append(rs.rules, r)
 	rs.mu.Unlock()

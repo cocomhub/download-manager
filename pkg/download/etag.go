@@ -12,6 +12,7 @@ type DownloadAction int
 
 const (
 	// ActionDownload 全新下载（文件不存在或无法验证）。
+	// 注：ETag 存在但无 checksum 记录时也返回此值，触发条件请求（If-None-Match）。
 	ActionDownload DownloadAction = iota
 	// ActionResume 断点续传（文件存在不完整，无 checksum 但有 ETag）。
 	ActionResume

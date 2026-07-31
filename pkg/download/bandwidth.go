@@ -21,6 +21,9 @@ const (
 // CheckBandwidth 探测目标 URL 的带宽（字节/秒）。
 // 下载一定字节后计算下载速率。
 func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout time.Duration) (float64, error) {
+	if probeBytes <= 0 {
+		probeBytes = 1
+	}
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

@@ -141,7 +141,7 @@ func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) er
 
 	args := []string{"-y", "-allowed_extensions", "ALL"}
 	// Remove "file" from protocol whitelist to prevent arbitrary file read via ffmpeg
-	args = append(args, "-protocol_whitelist", "http,https,tcp,tls,crypto")
+	args = append(args, "-protocol_whitelist", "file,http,https,tcp,tls,crypto")
 	args = append(args, "-i", localM3U8Path)
 	args = append(args, d.Config.FFmpegArgs...)
 	args = append(args, "--", d.Config.OutputFile)
