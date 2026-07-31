@@ -125,3 +125,20 @@ func TestCheckDirectOnUnreachable(t *testing.T) {
 		t.Error("checkDirect should return false for unreachable server")
 	}
 }
+
+func TestStaticProxySelectorAllUnreachable(t *testing.T) {
+	// 多个不可达代理，全部不可用时返回空字符串（直连降级）
+	s := NewStaticProxySelector([]string{
+		"http://127.0.0.1:1",
+		"http://127.0.0.1:2",
+		"http://127.0.0.1:3",
+	})
+	s.forceProxy = true
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+	if err == nil {
+		t.Error("expected error when all proxies unreachable")
+	}
+	if proxy != "" {
+		t.Errorf("expected empty proxy on all unreachable, got: %s", proxy)
+	}
+}

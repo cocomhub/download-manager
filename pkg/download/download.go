@@ -5,7 +5,6 @@ package download
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -21,10 +20,6 @@ type Downloader struct {
 	transport  Transport
 	middleware Middleware
 }
-
-// ErrNoDefaultDownloader 表示未配置默认 Downloader。
-// Deprecated: 当前未被生产代码返回（Default() 惰性初始化），保留作为 sentinel 参考。
-var ErrNoDefaultDownloader = errors.New("default downloader not initialized; call download.SetDefault() or configure via download.New()")
 
 // defaultDl 是包级默认 Downloader 实例，通过 SetDefault 配置。
 var (

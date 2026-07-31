@@ -121,3 +121,58 @@ func TestHTTPExtractorTimeout(t *testing.T) {
 		t.Logf("timeout resulted in error (expected): %v", err)
 	}
 }
+
+// TestHTTPExtractorCancelThenRedownload 验证取消后同一 URL 可重新下载。
+// 场景：取消一个正在下载的 URL 后，再次调用 Extract() 应能成功下载。
+func TestHTTPExtractorCancelThenRedownload(t *testing.T) {
+	ts := newSlowServer(t, 2*time.Second)
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := dir + "/redownload_test.bin"
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+
+	canceller, ok := any(ext).(download.Canceller)
+	if !ok {
+		t.Fatal("HTTPExtractor does not implement Canceller interface")
+	}
+
+	// 第一步：启动下载后取消
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ext.Extract(t.Context(), &download.Request{
+			URL:      ts.URL,
+			SavePath: dest,
+		})
+	}()
+
+	// 轮询：不断调用 Cancel，直到下载因取消而返回错误。
+	// 注意：Cancel() 始终返回 nil，所以不能直接用 Cancel 的返回值判断是否生效。
+	// 必须通过 errCh 确认下载确实被取消了。
+	var firstErr error
+	assert.MustEventually(t, func() bool {
+		_ = canceller.Cancel(ts.URL)
+		select {
+		case firstErr = <-errCh:
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 50*time.Millisecond, "download should complete (cancelled) within 3s")
+
+	if firstErr == nil {
+		t.Fatal("expected cancel error, got nil")
+	}
+	t.Logf("first download cancelled (expected): %v", firstErr)
+
+	// 第二步：重新下载同一 URL — 应成功
+	err := ext.Extract(t.Context(), &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+	})
+	if err != nil {
+		t.Errorf("redownload should succeed, got: %v", err)
+	}
+}

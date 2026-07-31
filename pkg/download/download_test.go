@@ -431,7 +431,7 @@ func TestDefaultNilBeforeSet(t *testing.T) {
 }
 
 func TestGetReturnsNoError(t *testing.T) {
-	// Get() now lazy-initializes, so it shouldn't return ErrNoDefaultDownloader
+	// Get() now lazy-initializes, so it shouldn't return an error
 	// Use a mock extractor to avoid real network requests
 	d := download.New(download.WithExtractor(&mockSuccessExtractor{}))
 	download.SetDefault(d)

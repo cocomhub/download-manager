@@ -68,10 +68,56 @@ func TestRuleSetOrderedMatch(t *testing.T) {
 	}
 }
 
-func TestRuleSetAddRule(t *testing.T) {
+func TestRuleWildcardMatch(t *testing.T) {
+	r := &download.Rule{Pattern: "*"}
+	if !r.Match("http://example.com/any-file.zip") {
+		t.Error("* should match any URL")
+	}
+	if !r.Match("ftp://some-other/path/file") {
+		t.Error("* should match any URL regardless of scheme")
+	}
+	if !r.Match("") {
+		t.Error("* should match empty string")
+	}
+}
+
+func TestRuleSetConcurrent(t *testing.T) {
 	rs := download.NewRuleSet()
-	rs.Add(&download.Rule{Pattern: "*.mp4"})
-	if rs.Match("http://example.com/file.mp4", nil) == nil {
-		t.Error("expected match after Add")
+	done := make(chan struct{})
+	n := 50
+
+	// 并发添加规则
+	go func() {
+		for range n {
+			rs.Add(&download.Rule{Pattern: "*.mp4"})
+		}
+		done <- struct{}{}
+	}()
+
+	// 并发匹配
+	go func() {
+		for range n {
+			rs.Match("http://example.com/file.mp4", nil)
+		}
+		done <- struct{}{}
+	}()
+
+	// 并发添加带提取器的规则
+	go func() {
+		for range n {
+			rs.Add(&download.Rule{Pattern: "*.m3u8", Extractor: "hls"})
+		}
+		done <- struct{}{}
+	}()
+
+	// 等待所有 goroutine 完成
+	for range 3 {
+		<-done
+	}
+
+	// 验证最终状态：所有规则应被添加成功
+	r := rs.Match("http://example.com/file.mp4", nil)
+	if r == nil {
+		t.Error("expected match after concurrent adds")
 	}
 }

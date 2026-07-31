@@ -27,6 +27,7 @@ func newRetryServer(t *testing.T, firstRequestCh chan struct{}) *httptest.Server
 
 func TestHTTPExtractorRetryCancel(t *testing.T) {
 	firstRequestCh := make(chan struct{})
+	retrySleepCh := make(chan struct{}) // 测试钩子关闭此通道，表示已进入 retry sleep 阶段
 	ts := newRetryServer(t, firstRequestCh)
 	defer ts.Close()
 
@@ -35,6 +36,11 @@ func TestHTTPExtractorRetryCancel(t *testing.T) {
 
 	ext := download.NewHTTPExtractor()
 	ext.SetTransport(download.NewStdlibTransport())
+	// 设置测试钩子：在进入 retry sleep 前关闭 retrySleepCh，用于同步
+	var once sync.Once
+	ext.TestHookRetrySleep = func() {
+		once.Do(func() { close(retrySleepCh) })
+	}
 
 	// Create a context we can cancel during retry wait
 	ctx, cancel := context.WithCancel(t.Context())
@@ -49,8 +55,8 @@ func TestHTTPExtractorRetryCancel(t *testing.T) {
 
 	// 等待第一个 HTTP 请求被服务器接收（500 立即返回）
 	<-firstRequestCh
-	// 短暂等待确保已进入重试循环的 sleep 阶段（retry sleep = 1s）
-	time.Sleep(50 * time.Millisecond)
+	// 等待确认已进入 retry sleep 阶段（钩子已在 time.Sleep 前触发）
+	<-retrySleepCh
 
 	// Cancel the context while the retry is waiting
 	cancel()

@@ -59,6 +59,8 @@ type HTTPExtractor struct {
 	responseChecks []ResponseCheck
 	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
 	RedactSensitiveHeaders bool
+	// TestHookRetrySleep 是测试钩子，在进入重试 sleep 前被调用。仅测试使用。
+	TestHookRetrySleep func()
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
@@ -660,7 +662,7 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 	req.Result.StatusCode = http.StatusNotModified
 	req.Result.TotalSize = getFileSize(rPath)
 	if req.Result.TotalSize == 0 {
-		slog.Warn("Failed to stat file for skip result", "file", rPath, logutil.LogKeyError, nil)
+		slog.Warn("File not found or unreadable after skip result", "file", rPath)
 	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
@@ -687,7 +689,9 @@ func (e *HTTPExtractor) prepareDownloadOffset(rPath string, action DownloadActio
 		slog.Info("Resuming download (best-effort)", "file", rPath, "offset", fi.Size())
 		return fi.Size()
 	case ActionReDownload:
-		_ = os.Remove(rPath)
+		if err := os.Remove(rPath); err != nil {
+			slog.Warn("Failed to remove stale file for re-download", "file", rPath, logutil.LogKeyError, err)
+		}
 		slog.Info("Removing stale file for re-download", "file", rPath)
 	}
 	return 0
@@ -722,6 +726,10 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 				return err
 			}
 			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
+			// 测试钩子：在进入 sleep 前通知调用方
+			if hook := e.TestHookRetrySleep; hook != nil {
+				hook()
+			}
 			select {
 			case <-dlCtx.Done():
 				return dlCtx.Err()

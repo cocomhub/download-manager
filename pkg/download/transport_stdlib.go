@@ -48,6 +48,8 @@ func (t *StdlibTransport) Name() string { return "stdlib" }
 // RoundTrip 实现 Transport 接口，执行一次 HTTP 往返。
 func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
 	targetURL := treq.URL
+	var targetHost string
+
 	if treq.ProxyURL != "" {
 		// 使用 url.URL 结构体安全拼接代理 URL：
 		// url.URL 已处理编码，Path 追加 u.Host + u.Path 是安全的。
@@ -64,6 +66,7 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 		basePath := strings.TrimRight(proxyURL.Path, "/")
 		p.Path = basePath + "/" + u.Host + u.Path
 		p.RawQuery = u.RawQuery
+		targetHost = u.Host
 		targetURL = p.String()
 	}
 
@@ -90,6 +93,12 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 	}
 	if treq.Range != nil && treq.Range.Offset > 0 {
 		hreq.Header.Set("Range", fmt.Sprintf("bytes=%d-", treq.Range.Offset))
+	}
+
+	// 在代理模式下，显式设置 Host header 为目标主机，
+	// 防止 http.NewRequestWithContext 将 Host 设为代理服务器地址。
+	if targetHost != "" {
+		hreq.Host = targetHost
 	}
 
 	resp, err := t.client.Do(hreq)

@@ -148,6 +148,73 @@ func TestProgressReader_WithInitialDownloaded(t *testing.T) {
 	}
 }
 
+// readerFunc 将函数适配为 io.Reader，用于测试中生成可被多个 goroutine 并发读取的数据源。
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+// TestProgressReaderConcurrentSafety 验证 ProgressReader.downloaded 的并发安全性。
+// 多个 goroutine 同时读取，所有 goroutine 完成后调用 Done()，验证最终进度和已下载字节数正确。
+func TestProgressReaderConcurrentSafety(t *testing.T) {
+	total := int64(100000)
+	goroutines := 10
+
+	// 共享的底层 reader，通过 mutex 保护内部位置指针，确保多个 goroutine 可并发调用
+	var mu sync.Mutex
+	var pos int64
+	r := readerFunc(func(p []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if pos >= total {
+			return 0, io.EOF
+		}
+		n := len(p)
+		if pos+int64(n) > total {
+			n = int(total - pos)
+		}
+		pos += int64(n)
+		return n, nil
+	})
+
+	var muProgress sync.Mutex
+	var finalProgress float64
+	var finalDownloaded int64
+
+	pr := NewProgressReader(r, 0, total,
+		func(progress float64, downloaded, _ int64) {
+			muProgress.Lock()
+			finalProgress = progress
+			finalDownloaded = downloaded
+			muProgress.Unlock()
+		},
+	)
+
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			buf := make([]byte, 100)
+			for {
+				_, err := pr.Read(buf)
+				if err != nil {
+					break
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	pr.Done()
+
+	muProgress.Lock()
+	if finalProgress != 100.0 {
+		t.Errorf("expected final progress 100%%, got %f%%", finalProgress)
+	}
+	if finalDownloaded != total {
+		t.Errorf("expected final downloaded %d, got %d", total, finalDownloaded)
+	}
+	muProgress.Unlock()
+}
+
 func TestComposeProgressConcurrent(t *testing.T) {
 	var mu sync.Mutex
 	var callCount int
