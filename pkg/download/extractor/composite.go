@@ -26,6 +26,8 @@ var _ download.SelectorSetter = (*CompositeExtractor)(nil)
 // CompositeExtractor 处理复合下载请求。
 // 从 req.Metadata["files"] 读取 []map[string]string 格式的文件列表，
 // 对每个文件通过注入的 Downloader 执行下载。
+// Deprecated: CompositeExtractor is not currently registered or used in production.
+// Use HTTPExtractor or HLSExtractor instead. Retained for future reference.
 type CompositeExtractor struct {
 	selector   download.Selector
 	transport  download.Transport

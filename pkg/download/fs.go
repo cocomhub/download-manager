@@ -92,6 +92,7 @@ func cleanJoin(rootDir string, elems ...string) string {
 }
 
 // EnsureDir 确保文件路径的父目录存在（如 MkdirAll）。
+// Deprecated: 仅被测试文件引用，生产代码未使用。可考虑删除或合并到调用方。
 func EnsureDir(path string) error {
 	dir := filepath.Dir(path)
 	if dir != "" {

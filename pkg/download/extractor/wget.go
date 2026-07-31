@@ -35,6 +35,8 @@ var _ download.Canceller = (*WgetExtractor)(nil)
 
 // WgetExtractor 将 wget 命令行工具包装为 Extractor 接口。
 // 不依赖 Transport，自己管理 exec.Command 来执行 wget 进程。
+// Deprecated: WgetExtractor is not currently registered or used in production.
+// Use HTTPExtractor instead. Retained for future reference.
 type WgetExtractor struct {
 	logDir      string
 	selector    download.Selector

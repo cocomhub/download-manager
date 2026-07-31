@@ -13,8 +13,10 @@ import (
 
 const (
 	// DefaultProbeTimeout 是带宽探测的默认超时时间。
+	// Deprecated: 当前未被 CheckBandwidth 等函数读取，仅作为文档性参考值保留。
 	DefaultProbeTimeout = 5 * time.Second
 	// DefaultProbeBytes 是带宽探测的默认字节数。
+	// Deprecated: 当前未被 CheckBandwidth 等函数读取，仅作为文档性参考值保留。
 	DefaultProbeBytes = 512 * 1024
 )
 

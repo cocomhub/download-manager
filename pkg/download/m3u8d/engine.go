@@ -29,6 +29,9 @@ var reKeyURL = regexp.MustCompile(`URI="([^"]+)"`)
 // M3U8DEngine 是 m3u8 下载引擎，支持 http.Client 注入。
 // 单文件下载（m3u8 解析、密钥下载等）使用注入的 client；
 // 并发 TS 分片下载仍使用 grab 的独立 client。
+// Deprecated: M3U8DEngine is not currently used by HLSExtractor.
+// Use HLSExtractor in pkg/download/extractor/hls.go instead.
+// Retained as a standalone API for future reference.
 type M3U8DEngine struct {
 	Config        *DownloadConfig
 	client        *http.Client
