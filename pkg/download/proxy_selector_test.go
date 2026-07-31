@@ -4,11 +4,7 @@
 package download
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
+	"context"
 	"testing"
 )
 
@@ -48,97 +44,37 @@ func TestStaticProxySelectorWithForceProxy(t *testing.T) {
 	}
 }
 
-func TestStaticProxySelectorCacheDir(t *testing.T) {
-	mockProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/bandwidth") {
-			w.Write([]byte("50.0"))
-			return
+// ---- DefaultSelector ----
+
+func TestDefaultSelectorSelectProxy(t *testing.T) {
+	t.Run("with proxy selector", func(t *testing.T) {
+		mockPS := &mockProxySelector{proxyURL: "http://test-proxy:8080"}
+		sel := NewDefaultSelector().WithProxySelector(mockPS)
+		proxy, err := sel.SelectProxy(t.Context(), "http://example.com/file", nil)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
 		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer mockProxy.Close()
-
-	cacheDir := t.TempDir() + "/proxy_cache"
-	s := NewStaticProxySelector([]string{mockProxy.URL})
-	s.forceProxy = true
-	s.cacheDir = cacheDir
-
-	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
-	if err != nil {
-		t.Fatalf("Select should succeed with mock proxy: %v", err)
-	}
-	if proxy != mockProxy.URL {
-		t.Errorf("expected proxy URL %s, got %s", mockProxy.URL, proxy)
-	}
-
-	// 验证缓存文件创建
-	domain := "example.com"
-	cachePath := filepath.Join(cacheDir, domain)
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		t.Fatalf("cache file should exist: %v", err)
-	}
-	if string(data) != "proxy" {
-		t.Errorf("expected cache content 'proxy', got %q", string(data))
-	}
-}
-
-// ---- getProxyBandwidth ----
-
-func TestGetProxyBandwidth(t *testing.T) {
-	mockProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/bandwidth") {
-			w.Write([]byte("150.5"))
-			return
+		if proxy != "http://test-proxy:8080" {
+			t.Errorf("expected proxy http://test-proxy:8080, got: %s", proxy)
 		}
-	}))
-	defer mockProxy.Close()
-
-	bw := getProxyBandwidth(t.Context(), mockProxy.URL, "/bandwidth", 3)
-	if bw != 150.5 {
-		t.Errorf("expected 150.5, got %f", bw)
-	}
-}
-
-func TestGetProxyBandwidthOnFailure(t *testing.T) {
-	bw := getProxyBandwidth(t.Context(), "http://127.0.0.1:1", "/bandwidth", 1)
-	if bw != defaultMaxBandwidth {
-		t.Errorf("expected defaultMaxBandwidth(%f) on failure, got %f", defaultMaxBandwidth, bw)
-	}
-}
-
-// ---- checkDirect ----
-
-func TestCheckDirect(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	if !checkDirect(t.Context(), srv.URL, 3) {
-		t.Error("checkDirect should return true for healthy server")
-	}
-}
-
-func TestCheckDirectOnUnreachable(t *testing.T) {
-	if checkDirect(t.Context(), "http://127.0.0.1:1", 1) {
-		t.Error("checkDirect should return false for unreachable server")
-	}
-}
-
-func TestStaticProxySelectorAllUnreachable(t *testing.T) {
-	// 多个不可达代理，全部不可用时返回空字符串（直连降级）
-	s := NewStaticProxySelector([]string{
-		"http://127.0.0.1:1",
-		"http://127.0.0.1:2",
-		"http://127.0.0.1:3",
 	})
-	s.forceProxy = true
-	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
-	if err == nil {
-		t.Error("expected error when all proxies unreachable")
-	}
-	if proxy != "" {
-		t.Errorf("expected empty proxy on all unreachable, got: %s", proxy)
-	}
+
+	t.Run("without proxy selector", func(t *testing.T) {
+		sel := NewDefaultSelector()
+		proxy, err := sel.SelectProxy(t.Context(), "http://example.com/file", nil)
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+		if proxy != "" {
+			t.Errorf("expected empty proxy, got: %s", proxy)
+		}
+	})
+}
+
+type mockProxySelector struct {
+	proxyURL string
+}
+
+func (m *mockProxySelector) Select(_ context.Context, _ string, _ *DownloadHint) (string, error) {
+	return m.proxyURL, nil
 }

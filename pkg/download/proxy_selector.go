@@ -140,11 +140,16 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	// 检查缓存
 	if decision, ok := s.readCachedDecision(cachePath); ok {
 		if decision == "direct" {
+			if s.forceProxy {
+				// forceProxy=true 时忽略直连缓存，继续走代理选择
+				goto skipCache
+			}
 			return "", nil
 		}
 		return s.selectBestProxy(ctx, cachePath)
 	}
 
+skipCache:
 	// 直连探测
 	if !s.forceProxy && checkDirect(ctx, targetURL, s.probeTimeout) {
 		s.writeCacheDecision(cachePath, "direct")
