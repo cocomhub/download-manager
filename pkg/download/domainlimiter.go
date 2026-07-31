@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -16,10 +17,15 @@ import (
 // DomainLimiter 提供基于域名的并发连接数限制。
 // 每个域名独立计数，超过限制的 acquire 会阻塞直到有释放信号。
 // 支持 context 取消，取消时自动退出等待队列。
+//
+// 使用 atomic 管理 slot 计数，消除 channel 唤醒与 context 取消之间的竞态条件：
+// - cur[host] 使用 atomic.Int64 管理活跃连接数
+// - Acquire 成功时 atomic 递增 cur，失败时进入 waiter 队列
+// - 被唤醒后不自动获得 slot，而是重新检查 cur < limit
 type DomainLimiter struct {
 	mu      sync.Mutex
 	limit   map[string]int
-	cur     map[string]int
+	cur     map[string]*atomic.Int64
 	waiters map[string][]chan struct{}
 }
 
@@ -27,9 +33,20 @@ type DomainLimiter struct {
 func NewDomainLimiter() *DomainLimiter {
 	return &DomainLimiter{
 		limit:   make(map[string]int),
-		cur:     make(map[string]int),
+		cur:     make(map[string]*atomic.Int64),
 		waiters: make(map[string][]chan struct{}),
 	}
+}
+
+// getCur 获取或创建 host 对应的 atomic 计数器。
+// 调用者必须持有 d.mu。
+func (d *DomainLimiter) getCur(host string) *atomic.Int64 {
+	c, ok := d.cur[host]
+	if !ok {
+		c = new(atomic.Int64)
+		d.cur[host] = c
+	}
+	return c
 }
 
 // Set 设置指定主机的最大并发连接数。
@@ -46,10 +63,13 @@ func (d *DomainLimiter) Set(host string, max int) {
 	if len(waiters) == 0 {
 		return
 	}
-	available := max - d.cur[host]
+
+	c := d.getCur(host)
+	available := max - int(c.Load())
 	if available <= 0 {
 		return
 	}
+
 	toWake := min(available, len(waiters))
 	for i := range toWake {
 		close(waiters[i])
@@ -59,7 +79,6 @@ func (d *DomainLimiter) Set(host string, max int) {
 
 // Acquire 尝试获取一个域的连接槽位，支持 context 取消。
 // 如果当前连接数已达到限制，会阻塞直到有释放信号或 context 被取消。
-// rawURL 可以是完整的 URL，内部会解析出 host。
 func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -67,17 +86,26 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	}
 	host := u.Host
 
-	d.mu.Lock()
 	for {
-		// 在检查条件之前先检查 context 是否已取消
+		// 在拿锁之前先检查 context
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		d.mu.Lock()
+
+		// 再次检查 context（拿锁期间可能已取消）
 		if err := ctx.Err(); err != nil {
 			d.mu.Unlock()
 			return err
 		}
 
 		max := d.limit[host]
-		if max == 0 || d.cur[host] < max {
-			d.cur[host]++
+		c := d.getCur(host)
+		cur := c.Load()
+
+		if max == 0 || cur < int64(max) {
+			c.Add(1)
 			d.mu.Unlock()
 			return nil
 		}
@@ -89,20 +117,10 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 
 		select {
 		case <-ch:
-			// 被唤醒，重新获取锁
-			d.mu.Lock()
-			// 被唤醒后检查 context 是否已被取消。
-			// 如果已被取消，不能使用这个 slot，需要传递给下一个等待者。
-			if err := ctx.Err(); err != nil {
-				// 传递 slot 给下一个等待者（如果有）
-				// Release 已减 cur，或 Set 已增 limit，slot 已释放
-				d.passSlot(host)
-				d.mu.Unlock()
-				return err
-			}
-			// 继续 for 循环重新检查条件
+			// 被 Set() 或 Release() 唤醒，重试循环
+			continue
 		case <-ctx.Done():
-			// context 被取消，从等待队列中移除
+			// context 取消，从 waiter 队列移除自身
 			d.mu.Lock()
 			d.removeWaiter(host, ch)
 			d.mu.Unlock()
@@ -111,18 +129,9 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 	}
 }
 
-// passSlot 将当前可用的 slot 传递给下一个等待者（如果有）。
-// 调用者必须持有 d.mu。
-func (d *DomainLimiter) passSlot(host string) {
-	if len(d.waiters[host]) > 0 {
-		nextCh := d.waiters[host][0]
-		d.waiters[host] = d.waiters[host][1:]
-		close(nextCh)
-	}
-}
-
 // removeWaiter 从指定主机的等待队列中移除一个通道。
-// 如果通道在队列中被找到并移除，返回 true。如果通道不在队列中（已被 Release/Set 移除），返回 false。
+// 如果通道在队列中被找到并移除，返回 true。
+// 如果通道不在队列中（已被 Release/Set 移除），返回 false。
 // 调用者必须持有 d.mu。
 func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) bool {
 	waiters := d.waiters[host]
@@ -143,10 +152,13 @@ func (d *DomainLimiter) Release(rawURL string) {
 		return
 	}
 	host := u.Host
+
 	d.mu.Lock()
-	if d.cur[host] > 0 {
-		d.cur[host]--
+	c := d.getCur(host)
+	if c.Load() > 0 {
+		c.Add(-1)
 	}
+
 	// 唤醒一个等待者
 	if len(d.waiters[host]) > 0 {
 		ch := d.waiters[host][0]

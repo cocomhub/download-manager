@@ -31,7 +31,9 @@ func TestDomainLimiterConcurrent(t *testing.T) {
 	// After all goroutines complete, cur should be 0
 	// 注意：同包测试直接访问私有字段是 Go 合法模式，外部包需通过导出方法访问。
 	dl.mu.Lock()
-	cur := dl.cur["example.com"]
+
+	cur := dl.getCur("example.com").Load()
+
 	dl.mu.Unlock()
 	if cur != 0 {
 		t.Errorf("expected cur to be 0 after all releases, got %d", cur)
@@ -192,7 +194,9 @@ func TestDomainLimiterAcquireAlreadyCancelled(t *testing.T) {
 	}
 	// 验证 cur 未被增加
 	dl.mu.Lock()
-	cur := dl.cur["example.com"]
+
+	cur := dl.getCur("example.com").Load()
+
 	dl.mu.Unlock()
 	if cur != 0 {
 		t.Errorf("expected cur=0 after cancelled acquire, got %d", cur)
@@ -246,8 +250,10 @@ func TestDomainLimiterMultipleDomains(t *testing.T) {
 
 	// 验证各域名独立计数
 	dl.mu.Lock()
-	curA := dl.cur["a.com"]
-	curB := dl.cur["b.com"]
+
+	curA := dl.getCur("a.com").Load()
+	curB := dl.getCur("b.com").Load()
+
 	dl.mu.Unlock()
 	if curA != 1 {
 		t.Errorf("expected a.com cur=1, got %d", curA)
@@ -336,15 +342,12 @@ func TestDomainLimiterCancelReleaseRace(t *testing.T) {
 
 		// 清理：如果 Acquire 成功了，需要释放它
 		dl.mu.Lock()
-		if dl.cur["example.com"] > 0 {
-			dl.cur["example.com"]--
-		}
 		dl.waiters["example.com"] = nil
 		dl.mu.Unlock()
 	}
 
 	dl.mu.Lock()
-	cur := dl.cur["example.com"]
+	cur := dl.getCur("example.com").Load()
 	waiters := len(dl.waiters["example.com"])
 	dl.mu.Unlock()
 	if cur != 0 {
