@@ -44,6 +44,9 @@ func TestRuleExactMatch(t *testing.T) {
 	if !r.Match("http://example.com/file.zip") {
 		t.Error("should match exact URL")
 	}
+	if r.Match("http://example.com/other.zip") {
+		t.Error("should NOT match different URL")
+	}
 }
 
 func TestRuleSetNoMatch(t *testing.T) {

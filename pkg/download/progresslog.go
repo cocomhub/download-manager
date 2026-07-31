@@ -195,6 +195,7 @@ func defaultProgressFormatter(w io.Writer, r ProgressReport) {
 	_, err := fmt.Fprintf(w, "%s Progress: %s  %.2f %s expected time: %s\n",
 		ts, pctStr, speedVal, unit, etaStr)
 	if err != nil {
+		// I/O 错误不会中止下载，仅记录警告日志
 		slog.Warn("Failed to write progress log", logutil.LogKeyError, err)
 	}
 }

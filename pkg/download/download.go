@@ -33,6 +33,7 @@ var (
 
 // SetDefault 替换包级默认 Downloader 实例。
 // 调用后 Default() 和 Get() 将使用此实例。
+// 传入 nil 会重置默认实例，下次 Default() 调用时惰性创建新实例。
 func SetDefault(d *Downloader) {
 	defaultDlMu.Lock()
 	defaultDl = d

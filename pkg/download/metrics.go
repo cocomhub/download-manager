@@ -10,6 +10,7 @@ import (
 )
 
 // Metrics 记录单个 Extractor/Transport 的下载统计。
+// Name 字段在创建后只读，其余字段通过 atomic 操作并发安全。
 type Metrics struct {
 	Name            string
 	TotalRequests   atomic.Int64

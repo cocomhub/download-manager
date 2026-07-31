@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,13 +36,12 @@ var mediaExtensionSet = map[string]string{
 	".gif":  mimePrefixImage,
 	".webp": mimePrefixImage,
 	".bmp":  mimePrefixImage,
+	".avif": mimePrefixImage,
+	".heic": mimePrefixImage,
+	".av1":  mimePrefixVideo,
 }
 
 const logTimestampFmt = "20060102150405"
-
-// ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
-// 返回 error 则终止下载（ErrNoTry 表示永久终止，其他 error 可重试）。
-type ResponseCheck func(req *Request, tresp *TransportResponse) error
 
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
@@ -80,6 +78,7 @@ func (e *HTTPExtractor) AddResponseCheck(fn ResponseCheck) {
 
 // Cancel 实现 Canceller 接口，按 URL 取消正在进行的下载。
 // 使用 Load 而非 LoadAndDelete，因为 Extract 的 defer 会清理 e.cancels。
+// 即使使用 Load，cancel 闭包在被提取后仍然有效，因为 defer dlCancel() 会处理上下文。
 func (e *HTTPExtractor) Cancel(url string) error {
 	if v, ok := e.cancels.Load(url); ok {
 		if cancel, ok := v.(context.CancelFunc); ok {
@@ -446,7 +445,8 @@ func validateContentTypeByExtension(rawURL string, tresp *TransportResponse, w i
 		expectedPrefix := mediaExtensionSet[ext]
 		ct := tresp.Headers["Content-Type"]
 		if ct == "" {
-			ct = tresp.Headers["content-type"]
+			slog.Warn("Content-Type header is empty, skipping validation", "ext", ext, logutil.LogKeyURL, rawURL)
+			return nil
 		}
 		if !strings.HasPrefix(ct, expectedPrefix) {
 			writeLog(w, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
@@ -657,6 +657,9 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 	}
 	req.Result.StatusCode = http.StatusNotModified
 	req.Result.TotalSize = getFileSize(rPath)
+	if req.Result.TotalSize == 0 {
+		slog.Warn("Failed to stat file for skip result", "file", rPath, logutil.LogKeyError, nil)
+	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
 	}
@@ -740,11 +743,14 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 	}
 	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, maxRetries)
 }
-
 func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {
 	h := make(map[string]string)
 	if req.Headers != nil {
-		maps.Copy(h, req.Headers)
+		for k, v := range req.Headers {
+			if v != "" {
+				h[k] = v
+			}
+		}
 	}
 	if _, ok := h["User-Agent"]; !ok && localUA != "" {
 		h["User-Agent"] = localUA

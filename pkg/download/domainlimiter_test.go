@@ -29,6 +29,7 @@ func TestDomainLimiterConcurrent(t *testing.T) {
 	wg.Wait()
 
 	// After all goroutines complete, cur should be 0
+	// 注意：同包测试直接访问私有字段是 Go 合法模式，外部包需通过导出方法访问。
 	dl.mu.Lock()
 	cur := dl.cur["example.com"]
 	dl.mu.Unlock()
@@ -60,6 +61,9 @@ func TestDomainLimiterSetWakeup(t *testing.T) {
 		acquired3 <- err
 	}()
 	<-ready
+
+	// 注意：ready 通道仅通知 goroutine 已启动，但 Acquire 可能在 close 后仍未进入阻塞。
+	// 2s 超时作为兜底，确保测试不会因竞态窗口而挂起。
 
 	// Increase limit to 3, should wake up the waiter
 	dl.Set("example.com", 3)

@@ -208,7 +208,7 @@ func TestTransportResponseStruct(t *testing.T) {
 	if string(data) != "response body" {
 		t.Errorf("unexpected body content: %s", string(data))
 	}
-	tresp.Body.Close()
+	defer tresp.Body.Close()
 }
 
 // ---- RangeRequest ----

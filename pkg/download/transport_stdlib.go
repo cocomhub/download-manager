@@ -47,7 +47,8 @@ func (t *StdlibTransport) Name() string { return "stdlib" }
 func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
 	targetURL := treq.URL
 	if treq.ProxyURL != "" {
-		// 使用 url.URL 安全拼接代理 URL，避免字符串操作风险
+		// 使用 url.URL 结构体安全拼接代理 URL：
+		// url.URL 已处理编码，Path 追加 u.Host + u.Path 是安全的。
 		u, err := url.Parse(treq.URL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse target URL: %w", err)

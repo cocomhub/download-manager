@@ -36,7 +36,8 @@ type DefaultSelector struct {
 	proxySelector ProxySelector
 }
 
-// WithProxySelector 设置代理选择器。
+// WithProxySelector 设置代理选择器并返回自身，支持链式调用。
+// 注意：这是 DefaultSelector 中唯一返回自身的 setter，其他 setter 可能不遵循此模式。
 func (s *DefaultSelector) WithProxySelector(ps ProxySelector) *DefaultSelector {
 	s.mu.Lock()
 	s.proxySelector = ps
