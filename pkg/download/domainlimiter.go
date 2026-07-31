@@ -138,12 +138,11 @@ func (d *DomainLimiter) removeWaiter(host string, ch chan struct{}) bool {
 // Release 释放一个域的连接槽位，唤醒一个等待者。
 func (d *DomainLimiter) Release(rawURL string) {
 	u, err := url.Parse(rawURL)
-	host := rawURL
 	if err != nil {
-		slog.Warn("DomainLimiter: failed to parse URL in Release, using raw URL as key", "url", rawURL, logutil.LogKeyError, err)
-	} else {
-		host = u.Host
+		slog.Warn("DomainLimiter: failed to parse URL in Release, skipping", "url", rawURL, logutil.LogKeyError, err)
+		return
 	}
+	host := u.Host
 	d.mu.Lock()
 	if d.cur[host] > 0 {
 		d.cur[host]--

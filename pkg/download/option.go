@@ -74,6 +74,9 @@ func WithMetricRegistry(reg *MetricRegistry) Option {
 // RuleSet 用于在选择 Extractor 之前注解 Request 的 Hint 字段。
 func WithRuleSet(rs *RuleSet) Option {
 	return func(d *Downloader) {
+		if rs == nil {
+			return
+		}
 		// 包装 selector，在匹配前应用规则集注解
 		if d.selector == nil {
 			d.selector = &ruleSetSelector{rs: rs}

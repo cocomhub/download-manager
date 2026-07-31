@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -317,7 +316,11 @@ func (d *M3U8DEngine) processM3U8Line(ctx context.Context, base *url.URL, line s
 
 	cleanLine := cleanResourceLine(line)
 
-	if cleaned := path.Clean(cleanLine); cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+	normalized := strings.ReplaceAll(cleanLine, "\\", "/")
+	cleaned := filepath.Clean(normalized)
+	// Windows 上 filepath.Clean 会将 / 转换为 \, 统一回正斜杠再检测
+	cleaned = strings.ReplaceAll(cleaned, "\\", "/")
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
 		return "", nil, fmt.Errorf("path traversal detected: %s", line)
 	}
 

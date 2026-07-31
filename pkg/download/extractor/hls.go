@@ -39,20 +39,22 @@ var _ download.SelectorSetter = (*HLSExtractor)(nil)
 
 // HLSExtractor 处理 HLS (m3u8) 流媒体下载。
 type HLSExtractor struct {
-	mode       HLSMode
-	ffmpegPath string
-	ffmpegArgs []string
-	userAgent  string
-	active     sync.Map // map[string]context.CancelFunc
+	mode          HLSMode
+	ffmpegPath    string
+	ffmpegArgs    []string
+	ffmpegTimeout time.Duration
+	userAgent     string
+	active        sync.Map // map[string]context.CancelFunc
 }
 
 // NewHLSExtractor 创建 HLSExtractor。
 func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
 	e := &HLSExtractor{
-		mode:       HLSModeFFmpeg,
-		ffmpegPath: "ffmpeg",
-		ffmpegArgs: []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-f", "mp4"},
-		userAgent:  DefaultWgetUserAgent,
+		mode:          HLSModeFFmpeg,
+		ffmpegPath:    "ffmpeg",
+		ffmpegArgs:    []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-f", "mp4"},
+		ffmpegTimeout: 5 * time.Minute,
+		userAgent:     DefaultWgetUserAgent,
 	}
 	for _, o := range opts {
 		o(e)
@@ -73,6 +75,11 @@ func WithFFmpegPath(path string) HLSOption { return func(e *HLSExtractor) { e.ff
 
 // WithFFmpegArgs 设置 ffmpeg 额外参数。
 func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.ffmpegArgs = args } }
+
+// WithFFmpegTimeout 设置 ffmpeg 执行超时时间。
+func WithFFmpegTimeout(d time.Duration) HLSOption {
+	return func(e *HLSExtractor) { e.ffmpegTimeout = d }
+}
 
 // WithHLSUserAgent 设置自定义 User-Agent。
 func WithHLSUserAgent(ua string) HLSOption { return func(e *HLSExtractor) { e.userAgent = ua } }
@@ -178,7 +185,7 @@ func (e *HLSExtractor) buildFFmpegArgs(req *download.Request) []string {
 	}
 	args = append(args, "-i", req.URL)
 	args = append(args, e.ffmpegArgs...)
-	args = append(args, req.SavePath)
+	args = append(args, "--", req.SavePath)
 	return args
 }
 
@@ -254,7 +261,7 @@ func (e *HLSExtractor) executeFFmpeg(ctx context.Context, ffmpeg string, args []
 			}
 			return fmt.Errorf("hls: ffmpeg cancel timeout")
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(e.ffmpegTimeout):
 		dlCancel() // 立即终止 ffmpeg 进程
 		// Close stderr pipe to wake up the scanner goroutine on timeout
 		if pipeErr := stderr.Close(); pipeErr != nil {
