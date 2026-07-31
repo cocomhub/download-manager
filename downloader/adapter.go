@@ -75,6 +75,8 @@ func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 func (a *DownloaderAdapter) ApplyDomainLimits(limits map[string]int) {
 	if tr, ok := a.transport.(*download.StdlibTransport); ok {
 		tr.SetDomainLimits(limits)
+	} else {
+		slog.Warn("ApplyDomainLimits: transport is not StdlibTransport, domain limits not applied", "transport_type", fmt.Sprintf("%T", a.transport))
 	}
 }
 
