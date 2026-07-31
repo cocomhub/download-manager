@@ -39,6 +39,9 @@ type cachedBandwidth struct {
 	checkedAt time.Time
 }
 
+// 编译期接口断言：确保 TunnelProxySelector 实现了 download.ProxySelector。
+var _ download.ProxySelector = (*TunnelProxySelector)(nil)
+
 // NewTunnelProxySelector 创建 TunnelProxySelector。
 func NewTunnelProxySelector(opts ...TunnelOption) *TunnelProxySelector {
 	s := &TunnelProxySelector{

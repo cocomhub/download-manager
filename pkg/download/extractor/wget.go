@@ -118,6 +118,11 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	proxyURL := e.selectWgetProxy(ctx, req)
 	args := e.buildWgetArgs(req, proxyURL)
 
+	// Pre-check: verify wget is available in PATH before constructing the command.
+	if _, err := exec.LookPath("wget"); err != nil {
+		return fmt.Errorf("wget: not found in PATH: %w", err)
+	}
+
 	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
 
 	stderr, err := cmd.StderrPipe()

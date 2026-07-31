@@ -36,7 +36,7 @@ func newSlowServer(t *testing.T, delay time.Duration) *httptest.Server {
 }
 
 func TestHTTPExtractorCancel(t *testing.T) {
-	ts := newSlowServer(t, 10*time.Second)
+	ts := newSlowServer(t, 3*time.Second)
 	defer ts.Close()
 
 	dir := t.TempDir()
@@ -58,25 +58,27 @@ func TestHTTPExtractorCancel(t *testing.T) {
 
 	<-ready
 
-	// 使用轮询等待 cancel func 注册并确认 Cancel 成功
-	if canceller, ok := any(ext).(download.Canceller); ok {
-		assert.MustEventually(t, func() bool {
-			err := canceller.Cancel(ts.URL)
-			return err == nil
-		}, time.Second, 50*time.Millisecond, "cancel should succeed")
-	} else {
+	// 使用轮询不断调用 Cancel，直到 errCh 返回取消错误。
+	// 注意：Cancel() 始终返回 nil，不能用于判断是否生效，必须检查 errCh。
+	canceller, ok := any(ext).(download.Canceller)
+	if !ok {
 		t.Fatal("HTTPExtractor does not implement Canceller interface")
 	}
-
-	select {
-	case err := <-errCh:
-		if err == nil {
-			t.Error("expected cancel error, got nil")
-		} else {
-			t.Logf("cancel resulted in error (expected): %v", err)
+	var cancelErr error
+	assert.MustEventually(t, func() bool {
+		_ = canceller.Cancel(ts.URL)
+		select {
+		case cancelErr = <-errCh:
+			return true
+		default:
+			return false
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("download did not cancel within 5s")
+	}, 3*time.Second, 50*time.Millisecond, "download should cancel within 3s")
+
+	if cancelErr == nil {
+		t.Error("expected cancel error, got nil")
+	} else {
+		t.Logf("cancel resulted in error (expected): %v", cancelErr)
 	}
 }
 
@@ -99,7 +101,7 @@ func TestHTTPExtractorCancelNotFound(t *testing.T) {
 }
 
 func TestHTTPExtractorTimeout(t *testing.T) {
-	ts := newSlowServer(t, 10*time.Second)
+	ts := newSlowServer(t, 3*time.Second)
 	defer ts.Close()
 
 	dir := t.TempDir()
