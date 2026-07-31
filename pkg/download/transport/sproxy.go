@@ -182,6 +182,7 @@ func (t *SproxyTunnelTransport) roundTripViaProxy(ctx context.Context, treq *dow
 	for k, v := range treq.Headers {
 		hreq.Header.Set(k, v)
 	}
+	hreq.Host = hreq.URL.Host
 	if treq.Range != nil && treq.Range.Offset > 0 {
 		hreq.Header.Set("Range", fmt.Sprintf("bytes=%d-", treq.Range.Offset))
 	}
