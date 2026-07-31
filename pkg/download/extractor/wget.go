@@ -284,14 +284,17 @@ func parseWgetProgressLine(line string, savePath string) (progress float64, down
 	return float64(p), size, true
 }
 
-// reportWgetFinalProgress reports 100% completion after a successful download.
 func reportWgetFinalProgress(req *download.Request) {
-	if req.OnProgress == nil {
-		return
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
 	}
 	var size int64
 	if info, err := os.Stat(req.SavePath); err == nil {
 		size = info.Size()
+	}
+	req.Result.TotalSize = size
+	if req.OnProgress == nil {
+		return
 	}
 	req.OnProgress(100, size, size)
 }

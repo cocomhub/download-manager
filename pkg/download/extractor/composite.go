@@ -166,7 +166,10 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 			return err
 		}
 	}
-
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
+	req.Result.TotalSize = totalDownloaded
 	if req.OnProgress != nil {
 		req.OnProgress(100, totalDownloaded, totalDownloaded)
 	}
