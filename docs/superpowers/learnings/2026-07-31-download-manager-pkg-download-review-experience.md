@@ -167,3 +167,99 @@ case <-time.After(30 * time.Second):
 | CompositeExtractor 不实现 Canceller | `extractor/composite.go` | 功能未缺失 |
 | CompositeExtractor 失败不清理 | `extractor/composite.go` | 调用方负责 |
 | TransportResponse.Headers map[string]string | `request.go` | 兼容性 |
+
+---
+
+## 第二轮：独立功能可用性审查 + 全量修复（2026-07-31 19:00~23:55）
+
+> 审查范围：pkg/download/ 全部 29 个实现文件 + 29 个测试文件
+> 修复统计：三轮修复，15+10+13 个文件，共约 +700/-100 行
+
+### 修复统计
+
+| 类别 | 数量 | 说明 |
+|------|------|------|
+| 🔴 生产 Bug 修复 | 10 | `--` 分隔符、30s 超时可配置、Windows 路径遍历、`WithRuleSet(nil)` panic、`Release` slot 泄漏、`CheckBandwidth` 状态码缺失、`ErrNoDefaultDownloader` 清理、`DefaultProbe*` 清理、`LogKeyError,nil` 误导、`os.Remove` 静默错误 |
+| 🟢 新增测试 | 12 | 取消重试、符号链接路径安全、白名单路径解析、ProgressReader 并发安全、代理全部不可达、`*` 通配匹配、RuleSet 并发安全、带宽失败路径、取消后重试 |
+| 🔧 防御性修复 | 2 | 代理模式 `Host` header、`TestHookRetrySleep` 测试钩子 |
+| 📝 文档/注释修正 | 2 | `download_test.go` 注释更新、日志信息修复 |
+
+### 通用问题模式（本轮新增）
+
+#### 6. 并行 agent 文件冲突
+
+多个并行修复 agent 修改同一文件时，后完成的 agent 会覆盖前一个的修改。
+
+**案例**：`transport_stdlib.go` 被 3 个并行 agent 同时修改（Host header + 废弃常量 + 编译错误修复），导致部分修复被覆盖出现编译错误。
+
+**防御**：并行修复必须严格按文件隔离分组，确保每个文件只出现在一个批次中。修复完成后统一验证所有文件的完整性。
+
+#### 7. 测试钩子模式
+
+需要精确同步测试边界条件时，在生产代码中添加测试钩子：
+
+```go
+TestHookRetrySleep func() // 仅测试使用
+
+// 生产代码中调用
+if hook := e.TestHookRetrySleep; hook != nil {
+    hook()
+}
+```
+
+测试钩子通过 `sync.Once` 确保只触发一次，避免并发问题。
+
+#### 8. 废弃代码清理
+
+**案例**：`ErrNoDefaultDownloader` 和 `DefaultProbeTimeout`/`DefaultProbeBytes` 标记为 `Deprecated` 但未实际删除，作为文档残留存在。
+
+**教训**：标记为 `Deprecated` 的常量/变量应在下一个版本中清理，不留残留。清理时使用 `grep` 确认无引用。
+
+#### 9. 多个 agent 的编译错误累积
+
+多个并行 agent 各自修复了生产代码，但每个 agent 只验证了自己的子包，导致其他子包的编译错误未被发现。
+
+**案例**：`m3u8d` 子包在 `Option` 修复 agent 运行全量测试时出现 `undefined: path` 编译错误，因为 `path` import 被移除但 `path.Clean` 调用还没被替换。
+
+**教训**：每个修复 agent 提交前应运行 `go build ./...` 而非仅 `go build ./<affected_packages>/...`。
+
+### 测试最佳实践（本轮新增）
+
+#### 4. 时序依赖消除
+
+| 模式 | 推荐 | 不推荐 |
+|------|------|--------|
+| 异步同步 | 信号驱动（channel close + `sync.Once`） | `time.Sleep(500ms)` 固定等待 |
+| 阻塞验证 | `time.Sleep` + `time.After` 超时兜底 | 仅 `time.Sleep` 无超时 |
+| 取消验证 | 轮询 `MustEventually` + channel 检查 | 依赖 `Cancel()` 返回值 |
+
+#### 5. 断言强度分级
+
+| 级别 | 描述 | 示例 |
+|------|------|------|
+| 🟢 强 | 可验证精确值 | `finalProgress != 100.0` |
+| 🟡 中 | 可验证存在性 | `strings.Contains(err.Error(), "already downloading")` |
+| 🔴 弱 | 避免永真断言 | 不要用 `bw > 0`，改为 `bw > 1024` |
+
+### 本轮关键修复
+
+| 修复 | 文件 | 风险等级 |
+|------|------|---------|
+| `buildFFmpegArgs` SavePath 前加 `--` 分隔符 | `extractor/hls.go:181` | 🔴 高 |
+| 30s 硬编码超时改为可配置（默认 5min） | `extractor/hls.go:261` | 🔴 高 |
+| Windows 路径遍历 `path.Clean` → `filepath.Clean` | `m3u8d/engine.go:320` | 🔴 高 |
+| `WithRuleSet(nil)` 增加 nil 保护 | `option.go:75` | 🔴 高 |
+| `DomainLimiter.Release` URL 解析失败直接 return | `domainlimiter.go:138` | 🔴 高 |
+| `CheckBandwidth` 增加 HTTP 状态码校验 | `bandwidth.go:35` | 🔴 中 |
+| 代理模式显式设置 `hreq.Host = targetHost` | `transport_stdlib.go:98` | 🟡 中 |
+| 测试 `time.Sleep` → `TestHookRetrySleep` 信号驱动 | `http_extractor_retry_cancel_test.go` | 🟡 中 |
+| 新增取消后重试测试 | `http_extractor_cancel_test.go` | 🟢 低 |
+| 新增符号链接 + 白名单路径解析测试 | `fs_test.go` | 🟢 低 |
+| 新增 ProgressReader 并发安全测试 | `progress_test.go` | 🟢 低 |
+| 新增代理全部不可达 + `*` 通配 + 并发安全测试 | `proxy_selector_test.go`, `rule_test.go` | 🟢 低 |
+
+### 残留问题（建议改进项）
+
+1. **缺少 `ErrAlreadyDownloading` sentinel error** — 当前用 `fmt.Errorf("already downloading: %s", req.URL)` 动态构造，测试用 `strings.Contains` 检测，建议定义 sentinel 便于 `errors.Is`
+2. **`hls.go` 5s/3s grace period 硬编码** — cancel/timeout 场景的 goroutine 清理等待时间，当前值合理但极端场景下可能不够
+3. **`CompositeExtractor`/`WgetExtractor`/`M3U8DEngine` 标记为 Deprecated** — 保留代码但标记为已废弃，未来可考虑清理
