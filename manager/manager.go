@@ -516,6 +516,162 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 	return result, nil
 }
 
+// lightCopyObject creates a lightweight copy of a download object, deep-cloning
+// Metadata and dropping the large array fields from Extra (files/images/links) so
+// payloads stay small. The original object is never mutated.
+func lightCopyObject(o *model.DownloadObject, taskType string) *model.DownloadObject {
+	o.RLock()
+	c := &model.DownloadObject{
+		TaskID:   o.TaskID,
+		URL:      o.URL,
+		ID:       o.ID,
+		SavePath: o.SavePath,
+		Status:   o.Status,
+		Progress: o.Progress,
+		Metadata: maps.Clone(o.Metadata),
+		Extra:    make(map[string]any, len(o.Extra)),
+	}
+	for k, v := range o.Extra {
+		if k == "files" || k == "images" || k == "links" {
+			continue
+		}
+		c.Extra[k] = v
+	}
+	o.RUnlock()
+	c.EnsureTaskType(taskType)
+	return c
+}
+
+// GetTaskObjectsMeta returns lightweight copies of a task's objects, optionally
+// restricted to one content_group, with the large array fields stripped from
+// Extra (files/images/links) so the Web UI can build library/navigation views
+// without transferring the bulk image file lists. The content_group filter is a
+// plain metadata match, served by the {task_id, metadata.content_group} index.
+// Originals are never mutated; Metadata is deep-cloned.
+func (m *Manager) GetTaskObjectsMeta(id, contentGroup string) ([]*model.DownloadObject, error) {
+	t, ok := m.getTask(id)
+	if !ok {
+		return nil, fmt.Errorf("%w", errTaskNotFound)
+	}
+	q := &core.StorageQuery{Filter: core.StorageFilter{}, Light: true}
+	if contentGroup != "" {
+		q.Filter.Metadata = map[string]string{model.MetadataKeyContentGroup: contentGroup}
+	}
+	objs, err := m.collectTaskObjects(t, q, 200)
+	if err != nil {
+		return nil, err
+	}
+	if objs == nil {
+		return []*model.DownloadObject{}, nil
+	}
+	taskType := t.Type()
+	out := make([]*model.DownloadObject, 0, len(objs))
+	for _, o := range objs {
+		out = append(out, lightCopyObject(o, taskType))
+	}
+	return out, nil
+}
+
+// GetTaskContentGroups returns one representative object per content group for
+// a task, grouped by metadata.content_group and sorted by the representative's
+// metadata.date descending (date is the generic recency field; e.g. mxs encodes
+// the zero-padded chapter id there so each group's newest chapter leads).
+// Used by task pages to show a one-card-per-group shelf. Representatives are
+// lightweight copies (large array fields stripped) with Extra.group_size holding
+// the member count. Response shape matches taskDetails ({objects,total,page,limit}).
+func (m *Manager) GetTaskContentGroups(id string, page, limit int64) (map[string]any, error) {
+	t, ok := m.getTask(id)
+	if !ok {
+		return nil, fmt.Errorf("%w", errTaskNotFound)
+	}
+	objs, err := m.collectTaskObjects(t, &core.StorageQuery{Filter: core.StorageFilter{}, Light: true}, 200)
+	if err != nil {
+		return nil, err
+	}
+
+	// Group objects by content_group.
+	type groupAcc struct {
+		group   string
+		members []*model.DownloadObject
+	}
+	byGroup := make(map[string]*groupAcc)
+	for _, o := range objs {
+		g := o.Metadata[model.MetadataKeyContentGroup]
+		if g == "" {
+			continue
+		}
+		acc, ok := byGroup[g]
+		if !ok {
+			acc = &groupAcc{group: g}
+			byGroup[g] = acc
+		}
+		acc.members = append(acc.members, o)
+	}
+
+	// Representative = member with the max metadata.date; sort groups by that desc.
+	type groupRep struct {
+		group string
+		rep   *model.DownloadObject
+		date  string
+		size  int
+	}
+	reps := make([]groupRep, 0, len(byGroup))
+	for _, acc := range byGroup {
+		var rep *model.DownloadObject
+		var maxDate string
+		for _, o := range acc.members {
+			d := o.Metadata["date"]
+			if rep == nil || d > maxDate {
+				rep = o
+				maxDate = d
+			}
+		}
+		reps = append(reps, groupRep{group: acc.group, rep: rep, date: maxDate, size: len(acc.members)})
+	}
+	sort.Slice(reps, func(i, j int) bool {
+		if reps[i].date != reps[j].date {
+			return reps[i].date > reps[j].date
+		}
+		return reps[i].group > reps[j].group
+	})
+
+	// Paginate.
+	total := int64(len(reps))
+	if page < 1 {
+		page = 1
+	}
+	var offset int64
+	if limit <= 0 {
+		page = 1
+		limit = total
+	} else {
+		offset = (page - 1) * limit
+	}
+	start := min(int(offset), len(reps))
+	end := min(start+int(limit), len(reps))
+
+	taskType := t.Type()
+	out := make([]*model.DownloadObject, 0, end-start)
+	for _, r := range reps[start:end] {
+		c := lightCopyObject(r.rep, taskType)
+		if c.Extra == nil {
+			c.Extra = map[string]any{}
+		}
+		c.Extra["group_size"] = r.size
+		out = append(out, c)
+	}
+	if out == nil {
+		out = []*model.DownloadObject{}
+	}
+
+	return map[string]any{
+		"objects": out,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	}, nil
+}
+
 // --- Config Management ---
 
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {

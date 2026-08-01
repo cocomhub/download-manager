@@ -206,6 +206,12 @@ func (t *Task) scrapeAndBuild(pageURL string) (*model.DownloadObject, error) {
 		},
 		Status: model.StatusPending,
 	}
+	// 封面 = 首图（og:image 已 prepend 到 images[0]），写入固定字段 cover_url / cover_path
+	if len(images) > 0 && len(files) > 0 {
+		if p, ok := files[0]["path"]; ok {
+			obj.SetMedia(model.MediaRelCover, images[0], p)
+		}
+	}
 	t.CheckRestoreCompleted(obj)
 	return obj, nil
 }

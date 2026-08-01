@@ -237,3 +237,59 @@ func TestGetSetContentGroup(t *testing.T) {
 		t.Fatalf("empty object GetContentGroup() = %q, want empty", got)
 	}
 }
+
+func TestSetMedia_RoundTrip(t *testing.T) {
+	o := &DownloadObject{}
+	o.SetMedia(MediaRelCover, "https://example.com/c.jpg", "/tmp/c.jpg")
+	if u, p := o.GetMedia(MediaRelCover); u != "https://example.com/c.jpg" || p != "/tmp/c.jpg" {
+		t.Fatalf("GetMedia = %q, %q", u, p)
+	}
+	if o.GetCoverURL() != "https://example.com/c.jpg" || o.GetCoverPath() != "/tmp/c.jpg" {
+		t.Fatalf("cover accessors = %q, %q", o.GetCoverURL(), o.GetCoverPath())
+	}
+	// 幂等更新 URL
+	o.SetCoverURL("https://example.com/new.jpg")
+	if o.GetCoverURL() != "https://example.com/new.jpg" || o.GetCoverPath() != "/tmp/c.jpg" {
+		t.Fatalf("after SetCoverURL: %q, %q", o.GetCoverURL(), o.GetCoverPath())
+	}
+	// 空值删除
+	o.SetMedia(MediaRelCover, "", "")
+	if u, p := o.GetMedia(MediaRelCover); u != "" || p != "" {
+		t.Fatalf("after clear: %q, %q", u, p)
+	}
+	if _, ok := o.Extra[MediaKeyCoverURL]; ok {
+		t.Fatalf("cover_url key should be deleted")
+	}
+}
+
+func TestSetMedia_ThumbAndPreview(t *testing.T) {
+	o := &DownloadObject{}
+	o.SetMedia(MediaRelThumb, "https://example.com/t.jpg", "/tmp/t.jpg")
+	o.SetMedia(MediaRelPreview, "https://example.com/p.mp4", "/tmp/p.mp4")
+	if o.GetThumbURL() != "https://example.com/t.jpg" || o.GetThumbPath() != "/tmp/t.jpg" {
+		t.Fatalf("thumb = %q, %q", o.GetThumbURL(), o.GetThumbPath())
+	}
+	if o.GetPreviewURL() != "https://example.com/p.mp4" || o.GetPreviewPath() != "/tmp/p.mp4" {
+		t.Fatalf("preview = %q, %q", o.GetPreviewURL(), o.GetPreviewPath())
+	}
+}
+
+func TestSetMedia_InvalidRelIgnored(t *testing.T) {
+	o := &DownloadObject{}
+	o.SetMedia("poster", "https://example.com/x.jpg", "/tmp/x.jpg")
+	if o.Extra["poster_url"] != nil {
+		t.Fatalf("invalid rel should not write keys: %v", o.Extra)
+	}
+}
+
+func TestSetLocalCover_RoundTrip(t *testing.T) {
+	o := &DownloadObject{}
+	o.SetLocalCover("/tmp/c.jpg")
+	if o.GetLocalCover() != "/tmp/c.jpg" {
+		t.Fatalf("GetLocalCover = %q", o.GetLocalCover())
+	}
+	o.SetLocalCover("")
+	if o.GetLocalCover() != "" {
+		t.Fatalf("GetLocalCover after clear = %q", o.GetLocalCover())
+	}
+}

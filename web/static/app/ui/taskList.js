@@ -37,7 +37,17 @@
     state.searchQuery = ''
     state.pagination.page = 1
     state.viewMode = 'grid'
-    fetchTaskDetails(state, id, false)
+    // 先加载任务类型 UI（含 groupBy 等能力），再拉取任务详情，
+    // 保证 fetchTaskDetails 能依据 TaskUI.get(type).groupBy 请求服务端分组。
+    var task = state.tasks.find(function (t) { return t.id === id })
+    var type = task && task.type
+    var doFetch = function () { fetchTaskDetails(state, id, false) }
+    if (type && typeof state.loadTaskUI === 'function') {
+      Log.debug('selectTask loading task UI', { type: type })
+      state.loadTaskUI(type, doFetch)
+    } else {
+      doFetch()
+    }
     // Safety timeout: force-reset loading state after 15s
     setTimeout(function () {
       if (state.isLoadingTask && state.selectedTaskId === id) {
@@ -45,14 +55,6 @@
         console.warn('fetchTaskDetails safety timeout for', id)
       }
     }, 15000)
-    // Load task-type-specific UI
-    var task = state.tasks.find(function (t) { return t.id === id })
-    if (task && task.type) {
-      Log.debug('selectTask loading task UI', { type: task.type })
-      if (typeof state.loadTaskUI === 'function') {
-        state.loadTaskUI(task.type)
-      }
-    }
   }
 
   function toggleSelectAll (state) {
@@ -94,7 +96,13 @@
     }
     var limit = state.pagination.limit
     var signal = state.abortController ? state.abortController.signal : null
-    AppAPI.taskDetails(id, state.pagination.page, limit, state.searchQuery, state.sortBy, signal)
+    // 任务类型插件可声明 groupBy（如 mxs → "book"），请求任务详情按书分组（书橱视图）。
+    var type = null
+    var task = state.tasks && state.tasks.find(function (t) { return t.id === id })
+    if (task) type = task.type
+    var handler = type ? TaskUI.get(type) : null
+    var groupBy = (handler && handler.groupBy) ? handler.groupBy : ''
+    AppAPI.taskDetails(id, state.pagination.page, limit, state.searchQuery, state.sortBy, signal, groupBy)
       .then(function (data) {
         state.selectedTask = data
         if (data.concurrency !== undefined) state.taskConfigForm.concurrency = data.concurrency

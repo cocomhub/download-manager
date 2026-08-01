@@ -60,6 +60,7 @@ func collectMatchingTasks(cfg *config.Config, getTask func(string) (core.Task, b
 func buildContentQuery(search, status string) *core.StorageQuery {
 	q := &core.StorageQuery{
 		Filter: core.StorageFilter{Search: search},
+		Light:  true,
 	}
 	if status != "" && status != "all" {
 		q.Filter.Statuses = []string{status}

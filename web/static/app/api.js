@@ -30,11 +30,14 @@
   // getThumbImage 获取缩略图（小尺寸，用于合集、推荐列表）
   window.__dm_getThumbImage = function (obj) {
     if (!obj) return ''
+    if (obj.extra && obj.extra.thumb_path) return window.__dm_pathToUrl(obj.extra.thumb_path)
     if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_path) return window.__dm_pathToUrl(obj.extra.preview_path)
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
+    if (obj.extra && obj.extra.local_preview) return window.__dm_pathToUrl(obj.extra.local_preview)
     if (obj.extra && obj.extra.local_cover) return window.__dm_pathToUrl(obj.extra.local_cover)
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
     if (obj.extra && obj.extra.cover) return obj.extra.cover
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.local_url) return window.__dm_pathToUrl(obj.extra.local_url)
     // 从 extra.files 中找第一个图片
     if (obj.extra && Array.isArray(obj.extra.files)) {
@@ -49,8 +52,9 @@
   // getCoverImage 获取封面图（大尺寸，用于视频播放器海报）
   window.__dm_getCoverImage = function (obj) {
     if (!obj) return ''
-    if (obj.extra && obj.extra.local_cover) return window.__dm_pathToUrl(obj.extra.local_cover)
+    if (obj.extra && obj.extra.cover_path) return window.__dm_pathToUrl(obj.extra.cover_path)
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.local_cover) return window.__dm_pathToUrl(obj.extra.local_cover)
     if (obj.extra && obj.extra.cover) return obj.extra.cover
     // 从 extra.files 中找 cover/thumb 命名的图片
     if (obj.extra && Array.isArray(obj.extra.files)) {
@@ -75,6 +79,7 @@
   // getPreviewUrl 获取预览视频 URL（用于鼠标悬停预览）
   window.__dm_getPreviewUrl = function (obj) {
     if (!obj) return ''
+    if (obj.extra && obj.extra.preview_path) return window.__dm_pathToUrl(obj.extra.preview_path)
     if (obj.extra && obj.extra.local_preview) return window.__dm_pathToUrl(obj.extra.local_preview)
     if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     return ''
@@ -89,11 +94,12 @@
       return fetch('/api/tasks').then(function (r) { return r.json() })
     },
 
-    taskDetails: function (id, page, limit, search, sortBy, signal) {
+    taskDetails: function (id, page, limit, search, sortBy, signal, groupBy) {
       var url = '/api/tasks/' + encodeURIComponent(id) + '?page=' + page
       if (limit === 'all') { url += '&limit=all' } else { url += '&limit=' + (limit || 50) }
       if (search) { url += '&search=' + encodeURIComponent(search) }
       if (sortBy && sortBy !== 'default') { url += '&sort=' + sortBy }
+      if (groupBy) { url += '&group_by=' + encodeURIComponent(groupBy) }
       var opts = { method: 'GET' }
       if (signal) opts.signal = signal
       return fetch(url, opts).then(function (r) {

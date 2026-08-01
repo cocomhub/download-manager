@@ -142,6 +142,14 @@ func (s *MongoStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject
 	query = normalizeMongoQuery(query)
 	filter := buildMongoFilter(query)
 	opts := options.Find()
+	if query.Light {
+		// 轻量查询：投影排除大数组字段，显著减少传输/解码开销。
+		opts.SetProjection(bson.M{
+			"extra.files":  0,
+			"extra.images": 0,
+			"extra.links":  0,
+		})
+	}
 	if query.Offset > 0 {
 		opts.SetSkip(int64(query.Offset))
 	}

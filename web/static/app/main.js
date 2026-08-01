@@ -656,8 +656,8 @@
         })
       },
       // 保留 loadTaskUI 别名，兼容 taskList.js 等通过 mixin 共享 this 的模块
-      loadTaskUI: function (taskType) {
-        this.loadTaskUIForType(taskType)
+      loadTaskUI: function (taskType, callback) {
+        this.loadTaskUIForType(taskType, callback)
       },
       showTaskTypeViewer: function (obj) {
         if (!obj) return false

@@ -3,12 +3,42 @@
 
 package model
 
+// 媒体类型（cover/thumb/preview）的固定关系词汇表，与 core.SmallObjectInfo.Rel 一致。
+// 每个媒体类型在 Extra 中有两个固定字段：{rel}_url（原始源 URL）与 {rel}_path（本地保存路径）。
+const (
+	MediaRelCover   = "cover"
+	MediaRelThumb   = "thumb"
+	MediaRelPreview = "preview"
+
+	MediaKeyCoverURL    = "cover_url"
+	MediaKeyCoverPath   = "cover_path"
+	MediaKeyThumbURL    = "thumb_url"
+	MediaKeyThumbPath   = "thumb_path"
+	MediaKeyPreviewURL  = "preview_url"
+	MediaKeyPreviewPath = "preview_path"
+)
+
+// validMediaRel 校验 rel 是否为受支持的媒体类型。
+func validMediaRel(rel string) bool {
+	switch rel {
+	case MediaRelCover, MediaRelThumb, MediaRelPreview:
+		return true
+	}
+	return false
+}
+
 // ObjectMeta represents structured fields stored in Extra map[string]any.
 // These accessors provide type-safe get/set while maintaining backward
 // compatibility with code that reads/writes Extra directly.
 type ObjectMeta struct {
 	Tags         []string `json:"tags,omitempty"`
+	CoverURL     string   `json:"cover_url,omitempty"`
+	CoverPath    string   `json:"cover_path,omitempty"`
+	ThumbURL     string   `json:"thumb_url,omitempty"`
+	ThumbPath    string   `json:"thumb_path,omitempty"`
 	PreviewURL   string   `json:"preview_url,omitempty"`
+	PreviewPath  string   `json:"preview_path,omitempty"`
+	LocalCover   string   `json:"local_cover,omitempty"`
 	LocalPreview string   `json:"local_preview,omitempty"`
 	Files        []any    `json:"files,omitempty"`
 	Links        []any    `json:"links,omitempty"`
@@ -160,6 +190,107 @@ func (o *DownloadObject) SetContentGroup(group string) {
 		o.Extra = make(map[string]any)
 	}
 	o.Extra["content_group"] = group
+}
+
+// --- 媒体（cover/thumb/preview）固定字段访问器 ---
+// 每个媒体类型在 Extra 中保存两个固定 key：{rel}_url（原始源 URL）与 {rel}_path（本地保存路径）。
+// 空值会删除对应 key，避免残留空串。
+
+func (o *DownloadObject) SetMedia(rel, url, path string) {
+	if o == nil || !validMediaRel(rel) {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Extra == nil {
+		o.Extra = make(map[string]any)
+	}
+	setOrDeleteExtra(o.Extra, rel+"_url", url)
+	setOrDeleteExtra(o.Extra, rel+"_path", path)
+}
+
+// GetMedia 返回某媒体类型的原始 URL 与本地路径。
+func (o *DownloadObject) GetMedia(rel string) (url, path string) {
+	if o == nil || !validMediaRel(rel) {
+		return "", ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
+		return "", ""
+	}
+	url, _ = o.Extra[rel+"_url"].(string)
+	path, _ = o.Extra[rel+"_path"].(string)
+	return url, path
+}
+
+// GetMediaURL 返回某媒体类型的原始源 URL。
+func (o *DownloadObject) GetMediaURL(rel string) string {
+	url, _ := o.GetMedia(rel)
+	return url
+}
+
+// GetMediaPath 返回某媒体类型的本地保存路径。
+func (o *DownloadObject) GetMediaPath(rel string) string {
+	_, path := o.GetMedia(rel)
+	return path
+}
+
+func (o *DownloadObject) GetCoverURL() string { return o.GetMediaURL(MediaRelCover) }
+func (o *DownloadObject) SetCoverURL(url string) {
+	_, p := o.GetMedia(MediaRelCover)
+	o.SetMedia(MediaRelCover, url, p)
+}
+func (o *DownloadObject) GetCoverPath() string { return o.GetMediaPath(MediaRelCover) }
+func (o *DownloadObject) SetCoverPath(path string) {
+	u, _ := o.GetMedia(MediaRelCover)
+	o.SetMedia(MediaRelCover, u, path)
+}
+
+func (o *DownloadObject) GetThumbURL() string { return o.GetMediaURL(MediaRelThumb) }
+func (o *DownloadObject) SetThumbURL(url string) {
+	_, p := o.GetMedia(MediaRelThumb)
+	o.SetMedia(MediaRelThumb, url, p)
+}
+func (o *DownloadObject) GetThumbPath() string { return o.GetMediaPath(MediaRelThumb) }
+func (o *DownloadObject) SetThumbPath(path string) {
+	u, _ := o.GetMedia(MediaRelThumb)
+	o.SetMedia(MediaRelThumb, u, path)
+}
+
+func (o *DownloadObject) GetPreviewPath() string { return o.GetMediaPath(MediaRelPreview) }
+func (o *DownloadObject) SetPreviewPath(path string) {
+	u, _ := o.GetMedia(MediaRelPreview)
+	o.SetMedia(MediaRelPreview, u, path)
+}
+
+// GetLocalCover 返回旧的 local_cover 兼容字段（封面/缩略图本地路径）。
+func (o *DownloadObject) GetLocalCover() string {
+	if o == nil || o.Extra == nil {
+		return ""
+	}
+	s, _ := o.Extra["local_cover"].(string)
+	return s
+}
+
+// SetLocalCover 设置旧的 local_cover 兼容字段。
+func (o *DownloadObject) SetLocalCover(path string) {
+	if o == nil {
+		return
+	}
+	if o.Extra == nil {
+		o.Extra = make(map[string]any)
+	}
+	setOrDeleteExtra(o.Extra, "local_cover", path)
+}
+
+// setOrDeleteExtra 写入或删除（值为空时）Extra 中的字符串字段。
+func setOrDeleteExtra(m map[string]any, key, value string) {
+	if value == "" {
+		delete(m, key)
+		return
+	}
+	m[key] = value
 }
 
 // --- Metadata accessors ---

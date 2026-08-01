@@ -158,13 +158,16 @@ func (m *Manager) processSO(req smallObjectRequest) {
 			"url", req.info.URL, "rel", req.info.Rel, logutil.LogKeyError, err)
 	}
 
-	// 下载成功后将路径写回 parentObj.Extra，供前端读取
+	// 下载成功后将路径写回 parentObj 的固定媒体字段（{rel}_url / {rel}_path），
+	// 供前端统一读取；同时保留旧的 local_cover / local_preview 兼容字段。
 	if err == nil {
-		switch rel := req.info.Rel; rel {
+		rel := req.info.Rel
+		req.parentObj.SetMedia(rel, req.info.URL, req.info.SavePath)
+		switch rel {
 		case "cover", "thumb":
-			req.parentObj.Extra["local_cover"] = req.info.SavePath
+			req.parentObj.SetLocalCover(req.info.SavePath)
 		case "preview":
-			req.parentObj.Extra["local_preview"] = req.info.SavePath
+			req.parentObj.SetLocalPreview(req.info.SavePath)
 		}
 	}
 

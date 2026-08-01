@@ -80,12 +80,38 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	sortBy := r.URL.Query().Get("sort")
 
-	details, err := s.mgr.GetTaskDetails(id, page, limit, search, sortBy)
+	// group_by=content → 每个 content_group 一个代表对象（书橱/合集视图），否则返回全部对象。
+	var details map[string]any
+	var err error
+	if r.URL.Query().Get("group_by") == "content" {
+		details, err = s.mgr.GetTaskContentGroups(id, page, limit)
+	} else {
+		details, err = s.mgr.GetTaskDetails(id, page, limit, search, sortBy)
+	}
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, "task_not_found", fmt.Sprintf("Task %s not found: %v", id, err))
 		return
 	}
 	json.NewEncoder(w).Encode(details)
+}
+
+// getTaskObjectsMeta returns lightweight metadata for all objects of a task,
+// with the large array fields (extra.files/images/links) stripped so the Web UI
+// can build library/navigation views quickly.
+// GET /api/tasks/{id}/objects/meta
+func (s *Server) getTaskObjectsMeta(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	objs, err := s.mgr.GetTaskObjectsMeta(id, r.URL.Query().Get("content_group"))
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "task_not_found", fmt.Sprintf("Task %s not found: %v", id, err))
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"objects": objs,
+		"total":   len(objs),
+	})
 }
 
 type RetryRequest struct {

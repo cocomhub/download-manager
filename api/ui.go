@@ -83,7 +83,8 @@ func (s *Server) serveUIAsset(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// 插件资产不缓存：开发/升级期间避免浏览器复用旧版本插件（如 groupBy 能力变化）。
+	w.Header().Set(hdrCacheControl, hdrNoCache)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }

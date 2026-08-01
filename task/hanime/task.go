@@ -540,21 +540,28 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 		})
 	}
 	if lock {
-		t.resolveApplyLocked(obj, info, files, videoPath)
+		t.resolveApplyLocked(obj, info, files, videoPath, coverPath, thumbPath)
 	} else {
-		t.resolveApply(obj, info, files, videoPath)
+		t.resolveApply(obj, info, files, videoPath, coverPath, thumbPath)
 	}
 	return nil
 }
 
 // resolveApply sets resolved metadata and extras onto the download object.
-func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
+func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath, coverPath, thumbPath string) {
 	obj.Metadata[model.MetadataKeyTitle] = info.title
 	obj.Metadata["date"] = info.date
 	obj.Metadata["task_type"] = t.Type()
 	obj.SavePath = videoPath
 	if _, ok := obj.Extra["files"]; !ok {
 		obj.Extra["files"] = files
+	}
+	// 封面/缩略图固定字段（cover_url/cover_path、thumb_url/thumb_path）
+	if info.imageURL != "" {
+		obj.SetMedia(model.MediaRelCover, info.imageURL, coverPath)
+	}
+	if tu, ok := obj.Extra["thumb_url"].(string); ok && tu != "" {
+		obj.SetMedia(model.MediaRelThumb, tu, thumbPath)
 	}
 	obj.Extra["tags"] = info.tags
 	if info.artist != "" {
@@ -577,8 +584,8 @@ func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files
 }
 
 // resolveApplyLocked wraps resolveApply with the manager lock.
-func (t *Task) resolveApplyLocked(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
-	t.WithLock(func() { t.resolveApply(obj, info, files, videoPath) })
+func (t *Task) resolveApplyLocked(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath, coverPath, thumbPath string) {
+	t.WithLock(func() { t.resolveApply(obj, info, files, videoPath, coverPath, thumbPath) })
 }
 
 func extractVideoIDFromURL(u string) string {

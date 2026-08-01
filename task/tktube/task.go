@@ -208,14 +208,14 @@ func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
 		})
 	}
 
-	// Cover 缩略图
+	// 缩略图（Rel 使用 "thumb"，写入固定字段 thumb_url / thumb_path）
 	if thumbURL, ok := obj.Extra["thumb_url"].(string); ok && thumbURL != "" {
 		baseName := strings.ReplaceAll(obj.Metadata[model.MetadataKeyTitle], "/", "_")
 		path := filepath.Join(t.SaveDir(), baseName+"_thumb.jpg")
 		items = append(items, core.SmallObjectInfo{
 			URL:      thumbURL,
 			SavePath: path,
-			Rel:      "cover",
+			Rel:      model.MediaRelThumb,
 		})
 	}
 

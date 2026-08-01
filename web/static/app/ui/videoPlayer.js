@@ -270,12 +270,14 @@
 
   function getThumbImage (obj) {
     if (!obj) return ''
+    if (obj.extra && obj.extra.thumb_path) return UiHelpers.pathToUrl(obj.extra.thumb_path, window.__dm_runtime)
     if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
-    if (obj.extra && obj.extra.local_cover) return UiHelpers.pathToUrl(obj.extra.local_cover, window.__dm_runtime)
+    if (obj.extra && obj.extra.preview_path) return UiHelpers.pathToUrl(obj.extra.preview_path, window.__dm_runtime)
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.local_preview) return UiHelpers.pathToUrl(obj.extra.local_preview, window.__dm_runtime)
+    if (obj.extra && obj.extra.local_cover) return UiHelpers.pathToUrl(obj.extra.local_cover, window.__dm_runtime)
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
     if (obj.extra && obj.extra.cover) return obj.extra.cover
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.local_url) return UiHelpers.pathToUrl(obj.extra.local_url, window.__dm_runtime)
     return getCoverImage(obj)
   }
@@ -285,8 +287,9 @@
     var candidates = []
     function pushUrl (u) { if (typeof u === 'string' && u) candidates.push(u) }
     if (obj.extra) {
-      if (obj.extra.local_cover) { return UiHelpers.pathToUrl(obj.extra.local_cover, window.__dm_runtime) }
+      if (obj.extra.cover_path) { return UiHelpers.pathToUrl(obj.extra.cover_path, window.__dm_runtime) }
       if (obj.extra.cover_url) return obj.extra.cover_url
+      if (obj.extra.local_cover) { return UiHelpers.pathToUrl(obj.extra.local_cover, window.__dm_runtime) }
       if (obj.extra.cover) return obj.extra.cover
       if (Array.isArray(obj.extra.files)) {
         for (var fi = 0; fi < obj.extra.files.length; fi++) {
@@ -322,6 +325,7 @@
 
   function getPreviewUrl (obj) {
     if (!obj) return ''
+    if (obj.extra && obj.extra.preview_path) return UiHelpers.pathToUrl(obj.extra.preview_path, window.__dm_runtime)
     if (obj.extra && obj.extra.local_preview) return UiHelpers.pathToUrl(obj.extra.local_preview, window.__dm_runtime)
     if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     return ''

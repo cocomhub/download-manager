@@ -36,6 +36,9 @@
       onClick: typeof handler.onClick === 'function' ? handler.onClick : null,
       shouldShowViewer: typeof handler.shouldShowViewer === 'function' ? handler.shouldShowViewer : defaultShouldShowViewer,
       viewerLabel: handler.viewerLabel || '查看',
+      // groupBy: 任务类型希望任务详情按指定字段分组（如 mxs → "book"），
+      // 前端据此为 taskDetails 附加 &group_by=...，实现「一书一卡」书橱视图。
+      groupBy: handler.groupBy || '',
       // collectExtra: 将 formData 映射为 API 请求的 payload 字段
       // 返回 { urls_text, keyword, ... } 或 { extra: { ... } } 等
       collectExtra: typeof handler.collectExtra === 'function' ? handler.collectExtra : defaultCollectExtra,

@@ -101,8 +101,10 @@
 
   Data.getCoverImage = function (obj) {
     if (!obj) return ''
-    if (obj.extra && obj.extra.local_cover) return Data.fileUrl(obj.extra.local_cover)
+    // 统一固定字段：cover_path（本地）→ cover_url（源 URL）→ 旧字段兼容
+    if (obj.extra && obj.extra.cover_path) return Data.fileUrl(obj.extra.cover_path)
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
+    if (obj.extra && obj.extra.local_cover) return Data.fileUrl(obj.extra.local_cover)
     if (obj.extra && obj.extra.cover) return obj.extra.cover
     if (obj.extra && Array.isArray(obj.extra.files)) {
       for (var fi = 0; fi < obj.extra.files.length; fi++) {
@@ -129,10 +131,13 @@
 
   Data.getThumbImage = function (obj) {
     if (!obj) return ''
+    // 统一固定字段：thumb_path/thumb_url → preview_path/preview_url → 旧字段兼容
+    if (obj.extra && obj.extra.thumb_path) return Data.fileUrl(obj.extra.thumb_path)
+    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
+    if (obj.extra && obj.extra.preview_path) return Data.fileUrl(obj.extra.preview_path)
+    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.local_preview) return Data.fileUrl(obj.extra.local_preview)
     if (obj.extra && obj.extra.local_cover) return Data.fileUrl(obj.extra.local_cover)
-    if (obj.extra && obj.extra.thumb_url) return obj.extra.thumb_url
-    if (obj.extra && obj.extra.preview_url) return obj.extra.preview_url
     if (obj.extra && obj.extra.cover_url) return obj.extra.cover_url
     if (obj.extra && Array.isArray(obj.extra.files)) {
       for (var fi = 0; fi < obj.extra.files.length; fi++) {
