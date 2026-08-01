@@ -131,13 +131,16 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 
 	if info, statErr := os.Stat(subPath); statErr == nil {
 		progress.downloadedBytes += info.Size()
+		progress.totalProcessedSize += info.Size()
 	}
 	progress.doneFiles++
 
 	if req.OnProgress != nil && totalFiles > 1 {
 		// Dynamic weight progress:
 		// pct = (doneFiles / totalFiles) * (downloadedBytes / totalProcessedSize)
-		// If totalProcessedSize is 0, fall back to file-count-based progress.
+		// totalProcessedSize is accumulated from completed files, so byteRatio
+		// approaches 1.0 as files complete, making the formula effectively
+		// file-count-based but via the dynamic weight code path.
 		var pct float64
 		if progress.totalProcessedSize > 0 {
 			fileRatio := float64(progress.doneFiles) / float64(totalFiles)

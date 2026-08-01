@@ -46,24 +46,27 @@ type WgetExtractor struct {
 	userAgent   string
 	maxRetries  int
 	timeoutSecs int
-	// RedactSensitiveHeaders 控制是否在命令行参数中排除敏感头。默认 true。
-	RedactSensitiveHeaders bool
+	// redactSensitiveHeaders 控制是否在命令行参数中排除敏感头。默认 true。
+	redactSensitiveHeaders bool
 }
 
 // NewWgetExtractor 创建 WgetExtractor 实例。
 // TODO: 预留扩展 - 当前未被自动匹配使用，通过 hint.Extractor == "wget" 显式选择。
 // 后续可根据需求扩展自动匹配逻辑。
-func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
+func NewWgetExtractor(opts ...WgetOption) (*WgetExtractor, error) {
+	if _, err := exec.LookPath("wget"); err != nil {
+		return nil, fmt.Errorf("wget: not found in PATH: %w", err)
+	}
 	e := &WgetExtractor{
 		userAgent:              DefaultWgetUserAgent,
 		maxRetries:             5,
 		timeoutSecs:            20,
-		RedactSensitiveHeaders: true,
+		redactSensitiveHeaders: true,
 	}
 	for _, o := range opts {
 		o(e)
 	}
-	return e
+	return e, nil
 }
 
 // WgetOption 是 WgetExtractor 的配置函数。
@@ -83,7 +86,12 @@ func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.ti
 
 // WithWgetRedactSensitiveHeaders 设置敏感头过滤开关。
 func WithWgetRedactSensitiveHeaders(v bool) WgetOption {
-	return func(e *WgetExtractor) { e.RedactSensitiveHeaders = v }
+	return func(e *WgetExtractor) { e.redactSensitiveHeaders = v }
+}
+
+// SetRedactSensitiveHeaders 设置敏感头脱敏开关。
+func (e *WgetExtractor) SetRedactSensitiveHeaders(v bool) {
+	e.redactSensitiveHeaders = v
 }
 
 func (e *WgetExtractor) Name() string { return "wget" }
@@ -119,11 +127,6 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 
 	proxyURL := e.selectWgetProxy(ctx, req)
 	args := e.buildWgetArgs(req, proxyURL)
-
-	// Pre-check: verify wget is available in PATH before constructing the command.
-	if _, err := exec.LookPath("wget"); err != nil {
-		return fmt.Errorf("wget: not found in PATH: %w", err)
-	}
 
 	dlCtx, dlCancel := context.WithCancel(ctx)
 	defer e.active.Delete(req.URL)
@@ -218,7 +221,7 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 	args = append(args, "--header", "User-Agent: "+e.userAgent)
 
 	for k, v := range req.Headers {
-		if e.RedactSensitiveHeaders && download.IsSensitiveHeader(k) {
+		if e.redactSensitiveHeaders && download.IsSensitiveHeader(k) {
 			continue
 		}
 		args = append(args, "--header", fmt.Sprintf("%s: %s", k, v))
