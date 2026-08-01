@@ -46,7 +46,11 @@ func NewStdlibTransport() *StdlibTransport {
 func (t *StdlibTransport) Name() string { return "stdlib" }
 
 // RoundTrip 实现 Transport 接口，执行一次 HTTP 往返。
+// treq 参数不能为 nil，否则返回错误。
 func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest) (*TransportResponse, error) {
+	if treq == nil {
+		return nil, fmt.Errorf("stdlib: nil TransportRequest")
+	}
 	targetURL := treq.URL
 	var targetHost string
 
@@ -124,5 +128,12 @@ func (t *StdlibTransport) RoundTrip(ctx context.Context, treq *TransportRequest)
 func (t *StdlibTransport) SetDomainLimits(limits map[string]int) {
 	for domain, limit := range limits {
 		t.dLimiter.Set(domain, limit)
+	}
+}
+
+// CloseIdleConnections 关闭底层 http.Transport 的空闲连接。
+func (t *StdlibTransport) CloseIdleConnections() {
+	if tr, ok := t.client.Transport.(*http.Transport); ok {
+		tr.CloseIdleConnections()
 	}
 }
