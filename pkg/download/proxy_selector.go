@@ -128,28 +128,6 @@ func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision stri
 	}
 }
 
-// cleanStaleCacheEntries 扫描缓存目录，删除所有超过 TTL 的缓存文件。
-func (s *StaticProxySelector) cleanStaleCacheEntries(dir string) {
-	ttl := time.Duration(s.decisionCacheTTL.Load()) * time.Second
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	now := time.Now()
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if now.Sub(info.ModTime()) > ttl {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
-		}
-	}
-}
-
 // Select 实现 ProxySelector 接口。
 // 返回空字符串表示直连（不使用代理）。
 func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
