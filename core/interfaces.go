@@ -114,6 +114,7 @@ type ContextInjecter interface {
 // DomainLimiter 表示支持域名并发限制的下载器。
 type DomainLimiter interface {
 	ApplyDomainLimits(limits map[string]int)
+	Remove(domain string)
 }
 
 // MetricsProvider 表示支持暴露下载指标的下载器。

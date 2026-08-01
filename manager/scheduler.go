@@ -110,7 +110,12 @@ func (m *Manager) Stop(ctx context.Context) {
 	m.StopResolveWorkers()
 	m.StopSmallObjectWorkers()
 
-	// 2. Wait for workers and force-downloads with context deadline
+	// 2. Close idle connections on the transport
+	if dl, ok := m.getDownloader().(interface{ CloseIdleConnections() }); ok {
+		dl.CloseIdleConnections()
+	}
+
+	// 3. Wait for workers and force-downloads with context deadline
 	done := make(chan struct{})
 	go func() {
 		m.workerWg.Wait()

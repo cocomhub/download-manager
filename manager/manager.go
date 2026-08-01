@@ -143,6 +143,10 @@ func (m *Manager) getDownloader() core.Downloader {
 // setDownloader replaces the downloader under write lock.
 func (m *Manager) setDownloader(dl core.Downloader) {
 	m.downloaderMu.Lock()
+	// 关闭旧 Transport 的空闲连接
+	if old, ok := m.downloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
 	m.downloader = dl
 	m.downloaderMu.Unlock()
 }
@@ -529,7 +533,14 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Reload components
 	m.setDownloader(downloader.New(cfgCopy.Downloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
+	// 先清理旧配置中已移除的域名
+	cfg := m.currentCfg()
 	if nd, ok := m.getDownloader().(core.DomainLimiter); ok {
+		for domain := range cfg.Downloader.DomainLimits {
+			if _, exists := cfgCopy.Downloader.DomainLimits[domain]; !exists {
+				nd.Remove(domain)
+			}
+		}
 		nd.ApplyDomainLimits(cfgCopy.Downloader.DomainLimits)
 	}
 	logutil.InitLogger(cfgCopy.Log)
@@ -538,9 +549,8 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	m.applyTaskRuntime(newCfg)
 
 	// Reconcile runtime state from the now-active config
-	cfg := m.currentCfg()
-	m.reconcileScheduler(cfg)
-	m.reconcileWorkers(cfg)
+	m.reconcileScheduler(cfgCopy)
+	m.reconcileWorkers(cfgCopy)
 
 	// Load missing tasks
 	m.loadTasks()

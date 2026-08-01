@@ -131,6 +131,18 @@ func (t *StdlibTransport) SetDomainLimits(limits map[string]int) {
 	}
 }
 
+// RemoveDomainLimits 删除指定域名的并发限制并唤醒所有等待者。
+func (t *StdlibTransport) RemoveDomainLimits(domains []string) {
+	for _, domain := range domains {
+		t.dLimiter.Remove(domain)
+	}
+}
+
+// Remove 删除指定域名的并发限制。
+func (t *StdlibTransport) Remove(domain string) {
+	t.dLimiter.Remove(domain)
+}
+
 // CloseIdleConnections 关闭底层 http.Transport 的空闲连接。
 func (t *StdlibTransport) CloseIdleConnections() {
 	if tr, ok := t.client.Transport.(*http.Transport); ok {
