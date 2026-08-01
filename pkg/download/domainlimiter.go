@@ -122,7 +122,16 @@ func (d *DomainLimiter) Acquire(ctx context.Context, rawURL string) error {
 		case <-ctx.Done():
 			// context 取消，从 waiter 队列移除自身
 			d.mu.Lock()
-			d.removeWaiter(host, ch)
+			removed := d.removeWaiter(host, ch)
+			if !removed {
+				// 通道已被 Release/Set 移除——有 slot 被释放给了自己
+				// 自己不消费，传给下一个 waiter
+				if len(d.waiters[host]) > 0 {
+					nextCh := d.waiters[host][0]
+					d.waiters[host] = d.waiters[host][1:]
+					close(nextCh)
+				}
+			}
 			d.mu.Unlock()
 			return ctx.Err()
 		}
@@ -164,6 +173,19 @@ func (d *DomainLimiter) Release(rawURL string) {
 		ch := d.waiters[host][0]
 		d.waiters[host] = d.waiters[host][1:]
 		close(ch)
+	}
+	d.mu.Unlock()
+}
+
+// Remove 删除指定主机的限制，并唤醒所有等待该主机的 waiter。
+func (d *DomainLimiter) Remove(host string) {
+	d.mu.Lock()
+	delete(d.limit, host)
+	if waiters := d.waiters[host]; len(waiters) > 0 {
+		for _, ch := range waiters {
+			close(ch)
+		}
+		delete(d.waiters, host)
 	}
 	d.mu.Unlock()
 }
