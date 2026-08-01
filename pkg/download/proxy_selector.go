@@ -52,6 +52,7 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 	s.decisionCacheTTL.Store(1)
 	s.probeTimeout.Store(3)
 	s.bandwidthSuffix.Store(config.DefaultBandwidthPath)
+	s.cacheDir.Store("")
 	return s
 }
 
@@ -122,8 +123,6 @@ func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision stri
 		slog.Warn("Failed to create cache directory for proxy decision", "path", cachePath, logutil.LogKeyError, err)
 		return
 	}
-	// 写入前清理同一目录下的过期缓存文件
-	s.cleanStaleCacheEntries(filepath.Dir(cachePath))
 	if err := os.WriteFile(cachePath, []byte(decision), 0644); err != nil {
 		slog.Warn("Failed to write proxy decision cache", "path", cachePath, logutil.LogKeyError, err)
 	}

@@ -657,6 +657,13 @@ func (e *HTTPExtractor) resolveDownloadAction(rPath string, req *Request) Downlo
 	}
 	return ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
 		_, hexMD5, err := ComputeFileMD5(path)
+		if err == nil {
+			// 将计算出的 MD5 写入 req.Result，避免 handleSkipResult 重复计算
+			if req.Result == nil {
+				req.Result = &DownloadResult{}
+			}
+			req.Result.MD5Hex = hexMD5
+		}
 		return hexMD5, err
 	})
 }
@@ -677,13 +684,6 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 		req.Result.ContentLength = 0
 		req.Result.TotalSize = 0
 		slog.Warn("File not found or unreadable after skip result", "file", rPath)
-	}
-	// 惰性计算 MD5（仅首次），用于后续 ETag 校验
-	if req.Result.MD5Hex == "" {
-		_, hexMD5, md5Err := ComputeFileMD5(rPath)
-		if md5Err == nil {
-			req.Result.MD5Hex = hexMD5
-		}
 	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
@@ -722,9 +722,9 @@ func ensureRequestFields(req *Request) {
 // retryDownload 执行带重试的下载循环。
 func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) error {
 	maxRetries := localMaxRetries
-	// 将 maxRetries=0 视为"使用默认重试次数"，钳位到 5。
+	// 将 maxRetries=0 视为"不重试"。
 	// 注意：dlcore 将 maxRetries=0 视为"无限重试"，这是两者的行为差异。
-	if maxRetries <= 0 {
+	if maxRetries < 0 {
 		maxRetries = 5
 	}
 	for attempt := 1; attempt <= maxRetries; attempt++ {
