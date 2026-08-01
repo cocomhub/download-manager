@@ -22,23 +22,21 @@ import (
 var _ download.Extractor = (*CompositeExtractor)(nil)
 var _ download.TransportSetter = (*CompositeExtractor)(nil)
 var _ download.SelectorSetter = (*CompositeExtractor)(nil)
+var _ download.Canceller = (*CompositeExtractor)(nil)
 
 // CompositeExtractor 处理复合下载请求。
 // 从 req.Metadata["files"] 读取 []map[string]string 格式的文件列表，
-// 对每个文件通过注入的 Downloader 执行下载。
-// Deprecated: CompositeExtractor is not currently registered or used in production.
-// Use HTTPExtractor or HLSExtractor instead. Retained for future reference.
+// 对每个文件通过注入的 Extractor 执行下载。
 type CompositeExtractor struct {
 	selector   download.Selector
 	transport  download.Transport
 	extractors []download.Extractor
 	downloader *download.Downloader
 	once       sync.Once
+	active     sync.Map // map[string]context.CancelFunc
 }
 
 // NewCompositeExtractor 创建 CompositeExtractor 实例。
-// TODO: 预留扩展 - 当前未被自动匹配使用，通过 hint.Extractor == "composite" 显式选择。
-// 后续可根据需求扩展自动匹配逻辑。
 func NewCompositeExtractor() *CompositeExtractor {
 	return &CompositeExtractor{}
 }
@@ -58,6 +56,25 @@ func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
 	e.extractors = append(e.extractors, ex)
 }
 
+// Cancel 取消指定 URL 的子下载。
+func (e *CompositeExtractor) Cancel(url string) error {
+	if v, ok := e.active.Load(url); ok {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+		e.active.Delete(url)
+	}
+	return nil
+}
+
+// downloadProgress tracks the aggregate progress across sub-downloads.
+type downloadProgress struct {
+	totalFiles         int
+	doneFiles          int
+	downloadedBytes    int64
+	totalProcessedSize int64
+}
+
 // buildDownloader builds or returns the cached downloader instance.
 func (e *CompositeExtractor) buildDownloader() *download.Downloader {
 	e.once.Do(func() {
@@ -71,13 +88,16 @@ func (e *CompositeExtractor) buildDownloader() *download.Downloader {
 		for _, ex := range e.extractors {
 			opts = append(opts, download.WithExtractor(ex))
 		}
+		// Always add HTTPExtractor as the last fallback extractor,
+		// so HTTP direct links in sub-requests are always handled.
+		opts = append(opts, download.WithExtractor(download.NewHTTPExtractor()))
 		e.downloader = download.New(opts...)
 	})
 	return e.downloader
 }
 
 // processFile handles a single file entry from the composite file list.
-func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downloader, fileMap map[string]string, req *download.Request, totalDownloaded *int64, fileIndex int, totalFiles int) error {
+func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downloader, fileMap map[string]string, req *download.Request, progress *downloadProgress, fileIndex int, totalFiles int) error {
 	subURL := fileMap["url"]
 	subPath := fileMap["path"]
 	fType := fileMap[model.MetadataKeyType]
@@ -110,11 +130,23 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 	}
 
 	if info, statErr := os.Stat(subPath); statErr == nil {
-		*totalDownloaded += info.Size()
+		progress.downloadedBytes += info.Size()
 	}
+	progress.doneFiles++
+
 	if req.OnProgress != nil && totalFiles > 1 {
-		pct := float64(fileIndex+1) / float64(totalFiles) * 100
-		req.OnProgress(pct, *totalDownloaded, 0)
+		// Dynamic weight progress:
+		// pct = (doneFiles / totalFiles) * (downloadedBytes / totalProcessedSize)
+		// If totalProcessedSize is 0, fall back to file-count-based progress.
+		var pct float64
+		if progress.totalProcessedSize > 0 {
+			fileRatio := float64(progress.doneFiles) / float64(totalFiles)
+			byteRatio := float64(progress.downloadedBytes) / float64(progress.totalProcessedSize)
+			pct = fileRatio * byteRatio * 100
+		} else {
+			pct = float64(progress.doneFiles) / float64(totalFiles) * 100
+		}
+		req.OnProgress(pct, progress.downloadedBytes, 0)
 	}
 	return nil
 }
@@ -158,20 +190,30 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 
 	slog.Info("Starting composite download", "count", len(fileList), logutil.LogKeyURL, req.URL)
 
-	var totalDownloaded int64
 	dl := e.buildDownloader()
+	progress := &downloadProgress{
+		totalFiles: len(fileList),
+	}
 
 	for i, fileMap := range fileList {
-		if err := e.processFile(ctx, dl, fileMap, req, &totalDownloaded, i, len(fileList)); err != nil {
+		subURL := fileMap["url"]
+		dlCtx, dlCancel := context.WithCancel(ctx)
+		e.active.Store(subURL, dlCancel)
+
+		if err := e.processFile(dlCtx, dl, fileMap, req, progress, i, len(fileList)); err != nil {
+			e.active.Delete(subURL)
+			dlCancel()
 			return err
 		}
+		e.active.Delete(subURL)
+		dlCancel()
 	}
 	if req.Result == nil {
 		req.Result = &download.DownloadResult{}
 	}
-	req.Result.TotalSize = totalDownloaded
+	req.Result.TotalSize = progress.downloadedBytes
 	if req.OnProgress != nil {
-		req.OnProgress(100, totalDownloaded, totalDownloaded)
+		req.OnProgress(100, progress.downloadedBytes, progress.downloadedBytes)
 	}
 	return nil
 }
