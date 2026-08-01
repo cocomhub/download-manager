@@ -33,8 +33,7 @@ func TestStaticProxySelectorNoProxies(t *testing.T) {
 }
 
 func TestStaticProxySelectorWithForceProxy(t *testing.T) {
-	s := NewStaticProxySelector([]string{"http://127.0.0.1:1"})
-	s.forceProxy = true
+	s := NewStaticProxySelector([]string{"http://127.0.0.1:1"}).WithForceProxy(true)
 	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
 	if err == nil {
 		t.Error("expected error when forceProxy and no proxy available")
