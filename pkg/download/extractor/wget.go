@@ -32,6 +32,8 @@ var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
 // compile-time interface check
 var _ download.Extractor = (*WgetExtractor)(nil)
 var _ download.Canceller = (*WgetExtractor)(nil)
+var _ download.TransportSetter = (*WgetExtractor)(nil)
+var _ download.SelectorSetter = (*WgetExtractor)(nil)
 
 // WgetExtractor 将 wget 命令行工具包装为 Extractor 接口。
 // 不依赖 Transport，自己管理 exec.Command 来执行 wget 进程。
@@ -40,7 +42,7 @@ var _ download.Canceller = (*WgetExtractor)(nil)
 type WgetExtractor struct {
 	logDir      string
 	selector    download.Selector
-	active      sync.Map
+	active      sync.Map // stores context.CancelFunc keyed by URL
 	userAgent   string
 	maxRetries  int
 	timeoutSecs int
@@ -123,7 +125,12 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		return fmt.Errorf("wget: not found in PATH: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer e.active.Delete(req.URL)
+	defer dlCancel()
+	e.active.Store(req.URL, dlCancel)
+
+	cmd := exec.CommandContext(dlCtx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -136,17 +143,11 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 		return fmt.Errorf("wget: start failed: %w", err)
 	}
 
-	// Store cmd in active map only after cmd.Start() succeeds,
-	// to prevent Cancel from accessing cmd.Process before it's initialized.
-	e.active.Store(req.URL, cmd)
-
 	scanWgetProgress(stderr, logFile, req)
 
 	if err := cmd.Wait(); err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: execution failed: %w", err)
 	}
-	e.active.Delete(req.URL)
 
 	reportWgetFinalProgress(req)
 	return nil
@@ -302,12 +303,8 @@ func reportWgetFinalProgress(req *download.Request) {
 // Cancel 取消正在进行的 wget 下载。
 func (e *WgetExtractor) Cancel(url string) error {
 	if v, ok := e.active.Load(url); ok {
-		cmd, ok := v.(*exec.Cmd)
-		if !ok {
-			return fmt.Errorf("wget: unexpected type %T in active map", v)
-		}
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
 		}
 		e.active.Delete(url)
 		return nil
