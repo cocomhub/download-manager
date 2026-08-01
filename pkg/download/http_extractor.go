@@ -58,7 +58,7 @@ type HTTPExtractor struct {
 	cancels        sync.Map // map[string]context.CancelFunc
 	responseChecks []ResponseCheck
 	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
-	RedactSensitiveHeaders bool
+	redactSensitiveHeaders bool
 	// TestHookRetrySleep 是测试钩子，在进入重试 sleep 前被调用。仅测试使用。
 	TestHookRetrySleep func()
 }
@@ -105,7 +105,7 @@ func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir strin
 		rootDir:                rootDir,
 		logDir:                 logDir,
 		ua:                     userAgent,
-		RedactSensitiveHeaders: true,
+		redactSensitiveHeaders: true,
 	}
 }
 
@@ -130,6 +130,13 @@ func (e *HTTPExtractor) SetAllowPaths(paths []string) {
 	e.allowPaths = paths
 }
 
+// SetRedactSensitiveHeaders 设置敏感头脱敏开关。
+func (e *HTTPExtractor) SetRedactSensitiveHeaders(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.redactSensitiveHeaders = v
+}
+
 // Name 返回提取器名称。
 func (e *HTTPExtractor) Name() string { return "http" }
 
@@ -152,7 +159,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	localUA := e.ua
 	localResponseChecks := make([]ResponseCheck, len(e.responseChecks))
 	copy(localResponseChecks, e.responseChecks)
-	localRedactSensitiveHeaders := e.RedactSensitiveHeaders
+	localRedactSensitiveHeaders := e.redactSensitiveHeaders
 
 	e.mu.RUnlock()
 
@@ -251,12 +258,8 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, err
 	}
 
-	// Call Done to ensure 100% progress is reported
-	if req.TrackProgress && req.OnProgress != nil {
-		req.OnProgress(100, totalSize, totalSize)
-	}
 	req.Result.StatusCode = tresp.StatusCode
-	req.Result.ContentLength = totalSize
+	req.Result.ContentLength = tresp.ContentLength
 	req.Result.TotalSize = totalSize
 
 	if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
@@ -419,6 +422,7 @@ func handle304Response(tresp *TransportResponse, w io.Writer, req *Request, rPat
 	req.Result.TotalSize = 0
 	if fi, stErr := os.Stat(rPath); stErr == nil {
 		req.Result.TotalSize = fi.Size()
+		req.Result.ContentLength = fi.Size()
 	} else {
 		slog.Warn("Failed to stat file for 304 handling", "file", rPath, logutil.LogKeyError, stErr)
 	}
@@ -500,6 +504,10 @@ func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize 
 	reader := buildProgressReader(body, startOffset, totalSize, req, w)
 	if _, cErr := io.Copy(file, reader); cErr != nil {
 		return fmt.Errorf("failed to write file: %w", cErr)
+	}
+	// Call Done to ensure 100% progress is reported
+	if pr, ok := reader.(*ProgressReader); ok {
+		pr.Done()
 	}
 	return nil
 }
@@ -660,22 +668,26 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 		req.Result = &DownloadResult{}
 	}
 	req.Result.StatusCode = http.StatusNotModified
-	req.Result.TotalSize = getFileSize(rPath)
-	if req.Result.TotalSize == 0 {
+	fi, err := os.Stat(rPath)
+	if err == nil {
+		req.Result.ContentLength = fi.Size()
+		req.Result.TotalSize = fi.Size()
+		req.Result.ModTime = fi.ModTime().Format(time.RFC3339Nano)
+	} else {
+		req.Result.ContentLength = 0
+		req.Result.TotalSize = 0
 		slog.Warn("File not found or unreadable after skip result", "file", rPath)
+	}
+	// 惰性计算 MD5（仅首次），用于后续 ETag 校验
+	if req.Result.MD5Hex == "" {
+		_, hexMD5, md5Err := ComputeFileMD5(rPath)
+		if md5Err == nil {
+			req.Result.MD5Hex = hexMD5
+		}
 	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
 	}
-}
-
-// getFileSize 返回文件大小，文件不存在时返回 0。
-func getFileSize(path string) int64 {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return fi.Size()
 }
 
 // prepareDownloadOffset 检查已有文件并决定起始偏移量，必要时清除失效文件。
@@ -710,6 +722,8 @@ func ensureRequestFields(req *Request) {
 // retryDownload 执行带重试的下载循环。
 func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) error {
 	maxRetries := localMaxRetries
+	// 将 maxRetries=0 视为"使用默认重试次数"，钳位到 5。
+	// 注意：dlcore 将 maxRetries=0 视为"无限重试"，这是两者的行为差异。
 	if maxRetries <= 0 {
 		maxRetries = 5
 	}
