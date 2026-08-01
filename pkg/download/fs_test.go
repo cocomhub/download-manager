@@ -71,7 +71,7 @@ func TestEnsureDir(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "sub", "nested", "file.txt")
 
-	if err := EnsureDir(testFile); err != nil {
+	if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestEnsureDir(t *testing.T) {
 func TestEnsureDirExisting(t *testing.T) {
 	dir := t.TempDir()
 	// Should not error on existing directory
-	if err := EnsureDir(filepath.Join(dir, "file.txt")); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, "file.txt")), 0755); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -103,8 +103,8 @@ func TestIsWithinRootSymlink(t *testing.T) {
 
 	// Test: path through symlink within root should return true
 	pathViaLink := filepath.Join(linkDir, "target")
-	if !isWithinRoot(dir, pathViaLink) {
-		t.Errorf("isWithinRoot(%q, %q) = false, want true", dir, pathViaLink)
+	if !IsWithinRoot(dir, pathViaLink) {
+		t.Errorf("IsWithinRoot(%q, %q) = false, want true", dir, pathViaLink)
 	}
 
 	// Test: symlink pointing outside root should return false
@@ -113,8 +113,8 @@ func TestIsWithinRootSymlink(t *testing.T) {
 	if err := os.Symlink(outsideDir, outsideLink); err != nil {
 		t.Skip("symlink not supported:", err)
 	}
-	if isWithinRoot(dir, outsideLink) {
-		t.Errorf("isWithinRoot(%q, %q) = true, want false", dir, outsideLink)
+	if IsWithinRoot(dir, outsideLink) {
+		t.Errorf("IsWithinRoot(%q, %q) = true, want false", dir, outsideLink)
 	}
 }
 

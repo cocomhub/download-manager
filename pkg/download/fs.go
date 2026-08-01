@@ -6,7 +6,6 @@ package download
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,13 +19,13 @@ func ResolvePath(rootDir, p string) (string, error) {
 		return p, nil
 	}
 	if filepath.IsAbs(p) {
-		if isWithinRoot(rootDir, p) {
+		if IsWithinRoot(rootDir, p) {
 			return p, nil
 		}
 		return "", fmt.Errorf("path outside root: %s", p)
 	}
 	rp := cleanJoin(rootDir, p)
-	if !isWithinRoot(rootDir, rp) {
+	if !IsWithinRoot(rootDir, rp) {
 		return "", fmt.Errorf("path outside root: %s", p)
 	}
 	return rp, nil
@@ -49,6 +48,9 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (st
 			slog.Warn("Failed to resolve allow path", "path", ap, logutil.LogKeyError, aErr)
 			continue
 		}
+		if evalAP, evalErr := filepath.EvalSymlinks(absAP); evalErr == nil {
+			absAP = evalAP
+		}
 		if strings.HasPrefix(resolved, absAP+string(filepath.Separator)) || resolved == absAP {
 			return resolved, nil
 		}
@@ -56,9 +58,9 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string) (st
 	return "", fmt.Errorf("path not in allowed list: %s", p)
 }
 
-// isWithinRoot 检查 p 是否在 rootDir 的安全范围内。
+// IsWithinRoot 检查 p 是否在 rootDir 的安全范围内。
 // 对 p 和 rootDir 都解析符号链接，防止通过符号链接绕过路径检查。
-func isWithinRoot(rootDir, p string) bool {
+func IsWithinRoot(rootDir, p string) bool {
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		return false
@@ -89,14 +91,4 @@ func isWithinRoot(rootDir, p string) bool {
 func cleanJoin(rootDir string, elems ...string) string {
 	all := append([]string{rootDir}, elems...)
 	return filepath.Clean(filepath.Join(all...))
-}
-
-// EnsureDir 确保文件路径的父目录存在（如 MkdirAll）。
-// Deprecated: 仅被测试文件引用，生产代码未使用。可考虑删除或合并到调用方。
-func EnsureDir(path string) error {
-	dir := filepath.Dir(path)
-	if dir != "" {
-		return os.MkdirAll(dir, 0755)
-	}
-	return nil
 }
