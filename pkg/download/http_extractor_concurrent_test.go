@@ -4,7 +4,7 @@
 package download_test
 
 import (
-	"strings"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -81,7 +81,7 @@ func TestHTTPExtractorConcurrentSameURL(t *testing.T) {
 	// should get "already downloading" error.
 	var conflictCount int
 	for _, err := range []error{err1, err2} {
-		if err != nil && strings.Contains(err.Error(), "already downloading") {
+		if err != nil && errors.Is(err, download.ErrAlreadyDownloading) {
 			conflictCount++
 		}
 	}

@@ -121,10 +121,10 @@ func TestHTTPExtractorDownload(t *testing.T) {
 		{
 			name: "retries on server error",
 			run: func(t *testing.T) {
-				var attempts int32
+				var attempts atomic.Int32
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					attempts++
-					if attempts < 2 {
+					attempts.Add(1)
+					if attempts.Load() < 2 {
 						w.WriteHeader(http.StatusInternalServerError)
 						return
 					}

@@ -497,7 +497,7 @@ func TestDownloaderRealDownload(t *testing.T) {
 	}
 }
 
-func TestDownloaderWithHintExtractor(t *testing.T) {
+func TestDownloader_DefaultSelectorFallbackToURLMatch(t *testing.T) {
 	// When hint specifies an extractor name, DefaultSelector should use it
 	ex := &mockExtractor{}
 	sel := download.NewDefaultSelector()

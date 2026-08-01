@@ -167,7 +167,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	// 使用 LoadOrStore 检测相同 URL 的并发下载
 	if _, loaded := e.cancels.LoadOrStore(req.URL, dlCancel); loaded {
 		dlCancel()
-		return fmt.Errorf("already downloading: %s", req.URL)
+		return fmt.Errorf("%w: %s", ErrAlreadyDownloading, req.URL)
 	}
 
 	defer e.cancels.Delete(req.URL)

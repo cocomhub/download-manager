@@ -315,6 +315,11 @@ func TestDomainLimiterCancelReleaseRace(t *testing.T) {
 	dl := NewDomainLimiter()
 	dl.Set("example.com", 1)
 
+	type acquireResult struct {
+		err      error
+		acquired bool
+	}
+
 	// 多轮：每轮先占满一个 slot，然后启动一个要取消的 acquire，再 release
 	for range 100 {
 		if err := dl.Acquire(t.Context(), "https://example.com/file1"); err != nil {
@@ -322,9 +327,10 @@ func TestDomainLimiterCancelReleaseRace(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(t.Context())
-		acquired := make(chan error, 1)
+		resultCh := make(chan acquireResult, 1)
 		go func() {
-			acquired <- dl.Acquire(ctx, "https://example.com/file2")
+			err := dl.Acquire(ctx, "https://example.com/file2")
+			resultCh <- acquireResult{err: err, acquired: err == nil}
 		}()
 
 		time.Sleep(time.Millisecond)
@@ -332,18 +338,16 @@ func TestDomainLimiterCancelReleaseRace(t *testing.T) {
 		dl.Release("https://example.com/file1")
 
 		select {
-		case err := <-acquired:
-			if err != nil && err != context.Canceled {
-				t.Fatalf("expected nil or context.Canceled, got %v", err)
+		case res := <-resultCh:
+			if res.err != nil && res.err != context.Canceled {
+				t.Fatalf("expected nil or context.Canceled, got %v", res.err)
+			}
+			if res.acquired {
+				dl.Release("https://example.com/file2")
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out")
 		}
-
-		// 清理：如果 Acquire 成功了，需要释放它
-		dl.mu.Lock()
-		dl.waiters["example.com"] = nil
-		dl.mu.Unlock()
 	}
 
 	dl.mu.Lock()
