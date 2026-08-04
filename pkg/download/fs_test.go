@@ -169,3 +169,106 @@ func TestResolvePathWithAllowList(t *testing.T) {
 		t.Fatal("expected error for path outside root")
 	}
 }
+
+// TestResolvePathNoFollow 验证 ResolvePathNoFollow 不解析符号链接。
+func TestResolvePathNoFollow(t *testing.T) {
+	root := t.TempDir()
+	result, err := ResolvePathNoFollow(root, "sub/file.txt")
+	if err != nil {
+		t.Fatalf("ResolvePathNoFollow unexpected error: %v", err)
+	}
+	expected := filepath.Join(root, "sub/file.txt")
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// TestResolvePathFollowSymlinksFalse 验证 followSymlinks=false 时行为与 ResolvePathNoFollow 一致。
+func TestResolvePathFollowSymlinksFalse(t *testing.T) {
+	root := t.TempDir()
+	result, err := ResolvePath(root, "sub/file.txt", false)
+	if err != nil {
+		t.Fatalf("ResolvePath(..., false) unexpected error: %v", err)
+	}
+	expected := filepath.Join(root, "sub/file.txt")
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+	_, err = ResolvePath(root, "../outside", false)
+	if err == nil {
+		t.Fatal("expected error for path outside root with followSymlinks=false")
+	}
+}
+
+// TestResolvePathFollowSymlinksTrue 验证 followSymlinks=true 时默认行为。
+func TestResolvePathFollowSymlinksTrue(t *testing.T) {
+	root := t.TempDir()
+	result, err := ResolvePath(root, "sub/file.txt", true)
+	if err != nil {
+		t.Fatalf("ResolvePath(..., true) unexpected error: %v", err)
+	}
+	expected := filepath.Join(root, "sub/file.txt")
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// TestResolveSymlinksSafe 验证 resolveSymlinksSafe 对不存在路径的处理。
+func TestResolveSymlinksSafe(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create sub dir: %v", err)
+	}
+	nonExistent := filepath.Join(subDir, "nonexistent", "file.txt")
+	result, err := resolveSymlinksSafe(nonExistent)
+	if err != nil {
+		t.Fatalf("resolveSymlinksSafe unexpected error: %v", err)
+	}
+	if result != nonExistent {
+		t.Errorf("expected %q, got %q", nonExistent, result)
+	}
+	root := filepath.VolumeName(dir) + "\\"
+	_, err = resolveSymlinksSafe(root)
+	if err != nil {
+		t.Fatalf("resolveSymlinksSafe unexpected error for root: %v", err)
+	}
+}
+
+// TestIsWithinRootNonExistentPath 验证 IsWithinRoot 对 rootDir 中不存在的路径能正确处理。
+func TestIsWithinRootNonExistentPath(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create sub dir: %v", err)
+	}
+	nonExistent := filepath.Join(subDir, "future_file.txt")
+	if !IsWithinRoot(dir, nonExistent) {
+		t.Errorf("IsWithinRoot(%q, %q) = false, want true", dir, nonExistent)
+	}
+	outsideNonExistent := filepath.Join(dir, "..", "outside", "future_file.txt")
+	if IsWithinRoot(dir, outsideNonExistent) {
+		t.Errorf("IsWithinRoot(%q, %q) = true, want false", dir, outsideNonExistent)
+	}
+	traversalNonExistent := filepath.Join(subDir, "..", "..", "outside", "file.txt")
+	if IsWithinRoot(dir, traversalNonExistent) {
+		t.Errorf("IsWithinRoot(%q, %q) = true, want false", dir, traversalNonExistent)
+	}
+}
+
+// TestIsWithinRootNoFollow 验证 followSymlinks=false 时符号链接不被解析。
+func TestIsWithinRootNoFollow(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create sub dir: %v", err)
+	}
+	nonExistent := filepath.Join(subDir, "future_file.txt")
+	if !IsWithinRoot(dir, nonExistent, false) {
+		t.Errorf("IsWithinRoot(%q, %q, false) = false, want true", dir, nonExistent)
+	}
+	outside := filepath.Join(dir, "..", "outside", "file.txt")
+	if IsWithinRoot(dir, outside, false) {
+		t.Errorf("IsWithinRoot(%q, %q, false) = true, want false", dir, outside)
+	}
+}

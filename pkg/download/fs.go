@@ -55,6 +55,13 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string, fol
 	if len(allowPaths) == 0 {
 		return resolved, nil
 	}
+	// 对 resolved 也做符号链接解析，使与 allowPaths 的解析结果一致
+	resolvedForCheck := resolved
+	if fs {
+		if r, e := resolveSymlinksSafe(resolved); e == nil {
+			resolvedForCheck = r
+		}
+	}
 	for _, ap := range allowPaths {
 		absAP, aErr := filepath.Abs(ap)
 		if aErr != nil {
@@ -66,7 +73,7 @@ func ResolvePathWithAllowList(rootDir string, allowPaths []string, p string, fol
 				absAP = evalAP
 			}
 		}
-		if strings.HasPrefix(resolved, absAP+string(filepath.Separator)) || resolved == absAP {
+		if strings.HasPrefix(resolvedForCheck, absAP+string(filepath.Separator)) || resolvedForCheck == absAP {
 			return resolved, nil
 		}
 	}
