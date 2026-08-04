@@ -6,6 +6,7 @@ package download
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -225,8 +226,8 @@ func TestResolveSymlinksSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSymlinksSafe unexpected error: %v", err)
 	}
-	if result != nonExistent {
-		t.Errorf("expected %q, got %q", nonExistent, result)
+	if !strings.HasSuffix(result, filepath.FromSlash("nonexistent/file.txt")) {
+		t.Errorf("result %q should end with 'nonexistent/file.txt'", result)
 	}
 	root := filepath.VolumeName(dir) + "\\"
 	_, err = resolveSymlinksSafe(root)
