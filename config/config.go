@@ -68,10 +68,11 @@ type MongoSource struct {
 }
 
 type DcFilesystem struct {
-	RootDir    string   `yaml:"root_dir" json:"root_dir"`
-	LogDir     string   `yaml:"log_dir" json:"log_dir"`
-	CacheDir   string   `yaml:"cache_dir" json:"cache_dir"`
-	AllowPaths []string `yaml:"allow_paths" json:"allow_paths"`
+	RootDir        string   `yaml:"root_dir" json:"root_dir"`
+	LogDir         string   `yaml:"log_dir" json:"log_dir"`
+	CacheDir       string   `yaml:"cache_dir" json:"cache_dir"`
+	AllowPaths     []string `yaml:"allow_paths" json:"allow_paths"`
+	FollowSymlinks *bool    `yaml:"follow_symlinks,omitempty" json:"follow_symlinks,omitempty"`
 }
 
 type DcHTTP struct {

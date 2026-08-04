@@ -33,3 +33,8 @@ func IsWithinRoot(rootDir, p string) bool {
 func ResolvePath(rootDir, p string) (string, error) {
 	return download.ResolvePath(rootDir, p)
 }
+
+// ResolvePathNoFollow 委托给 pkg/download.ResolvePathNoFollow。
+func ResolvePathNoFollow(rootDir, p string) (string, error) {
+	return download.ResolvePathNoFollow(rootDir, p)
+}

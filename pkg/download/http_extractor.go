@@ -59,8 +59,22 @@ type HTTPExtractor struct {
 	responseChecks []ResponseCheck
 	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
 	redactSensitiveHeaders bool
+	// followSymlinks 控制是否解析符号链接。默认 true（安全检查）。
+	// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
+	// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
+	followSymlinks bool
 	// TestHookRetrySleep 是测试钩子，在进入重试 sleep 前被调用。仅测试使用。
 	TestHookRetrySleep func()
+}
+
+// SetFollowSymlinks 设置符号链接解析开关。
+// 默认 true（解析符号链接，安全检查）。
+// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
+// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
+func (e *HTTPExtractor) SetFollowSymlinks(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.followSymlinks = v
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
@@ -106,6 +120,7 @@ func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir strin
 		logDir:                 logDir,
 		ua:                     userAgent,
 		redactSensitiveHeaders: true,
+		followSymlinks:         true,
 	}
 }
 
@@ -157,6 +172,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	localRootDir := e.rootDir
 	localLogDir := e.logDir
 	localUA := e.ua
+	localFollowSymlinks := e.followSymlinks
 	localResponseChecks := make([]ResponseCheck, len(e.responseChecks))
 	copy(localResponseChecks, e.responseChecks)
 	localRedactSensitiveHeaders := e.redactSensitiveHeaders
@@ -178,7 +194,7 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	}
 
 	defer e.cancels.Delete(req.URL)
-	rPath, err := e.resolveSavePath(req, localRootDir, localAllowPaths)
+	rPath, err := e.resolveSavePath(req, localRootDir, localAllowPaths, localFollowSymlinks)
 	if err != nil {
 		return err
 	}
@@ -619,11 +635,11 @@ func setReqMetadata(req *Request, key, value string) {
 // ---------------------------------------------------------------------------
 
 // resolveSavePath 解析保存路径并创建目录。
-func (e *HTTPExtractor) resolveSavePath(req *Request, rootDir string, allowPaths []string) (string, error) {
+func (e *HTTPExtractor) resolveSavePath(req *Request, rootDir string, allowPaths []string, followSymlinks bool) (string, error) {
 	rPath := req.SavePath
 	if rootDir != "" {
 		var err error
-		rPath, err = ResolvePathWithAllowList(rootDir, allowPaths, req.SavePath)
+		rPath, err = ResolvePathWithAllowList(rootDir, allowPaths, req.SavePath, followSymlinks)
 		if err != nil {
 			return "", err
 		}

@@ -55,6 +55,9 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	if len(cfg.Filesystem.AllowPaths) > 0 {
 		httpEx.SetAllowPaths(cfg.Filesystem.AllowPaths)
 	}
+	if cfg.Filesystem.FollowSymlinks != nil {
+		httpEx.SetFollowSymlinks(*cfg.Filesystem.FollowSymlinks)
+	}
 	hlsEx := extractor.NewHLSExtractor(
 		extractor.WithFFmpegPath(cfg.FFmpeg.Path),
 		extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
