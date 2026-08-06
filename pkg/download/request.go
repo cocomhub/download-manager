@@ -35,8 +35,7 @@ type Request struct {
 // Extractor 在下载成功后填充此结构体，不再直接写入 Request.Metadata。
 type DownloadResult struct {
 	StatusCode    int
-	ContentLength int64
-	TotalSize     int64
+	ContentLength int64 // 实际下载内容大小（字节），-1 表示未知
 	MD5Base64     string
 	MD5Hex        string
 	ModTime       string // RFC3339Nano 格式

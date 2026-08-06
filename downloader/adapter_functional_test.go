@@ -533,10 +533,6 @@ func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 			if !oldIsNoTry && !newIsNoTry {
 				t.Error("expected at least one side to return ErrNoTry")
 			}
-			// 检查 metadata 不应包含 total_size（下载未完成）
-			if old.Obj.Metadata["total_size"] != "" {
-				t.Logf("old metadata total_size set (may be expected in dlcore): %q", old.Obj.Metadata["total_size"])
-			}
 		},
 	)
 }

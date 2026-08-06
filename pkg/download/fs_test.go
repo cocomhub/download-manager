@@ -68,27 +68,6 @@ func TestResolvePathAbsOutsideRoot(t *testing.T) {
 	}
 }
 
-func TestEnsureDir(t *testing.T) {
-	dir := t.TempDir()
-	testFile := filepath.Join(dir, "sub", "nested", "file.txt")
-
-	if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Dir(testFile)); os.IsNotExist(err) {
-		t.Fatal("directory was not created")
-	}
-}
-
-func TestEnsureDirExisting(t *testing.T) {
-	dir := t.TempDir()
-	// Should not error on existing directory
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, "file.txt")), 0755); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestIsWithinRootSymlink(t *testing.T) {
 	dir := t.TempDir()
 	realDir := filepath.Join(dir, "real", "target")

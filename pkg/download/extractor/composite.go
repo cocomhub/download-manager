@@ -28,6 +28,7 @@ var _ download.Canceller = (*CompositeExtractor)(nil)
 // 从 req.Metadata["files"] 读取 []map[string]string 格式的文件列表，
 // 对每个文件通过注入的 Extractor 执行下载。
 type CompositeExtractor struct {
+	mu         sync.RWMutex
 	selector   download.Selector
 	transport  download.Transport
 	extractors []download.Extractor
@@ -48,8 +49,16 @@ func (e *CompositeExtractor) Name() string { return "composite" }
 // 调用方通过 hint.Extractor == "composite" 显式选择，或直接调用 Extract()。
 func (e *CompositeExtractor) Match(ctx context.Context, url string) bool { return false }
 
-func (e *CompositeExtractor) SetSelector(s download.Selector)   { e.selector = s }
-func (e *CompositeExtractor) SetTransport(t download.Transport) { e.transport = t }
+func (e *CompositeExtractor) SetSelector(s download.Selector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.selector = s
+}
+func (e *CompositeExtractor) SetTransport(t download.Transport) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.transport = t
+}
 
 // AddExtractor 向 CompositeExtractor 注册一个 Extractor（用于子下载）。
 func (e *CompositeExtractor) AddExtractor(ex download.Extractor) {
@@ -78,14 +87,21 @@ type downloadProgress struct {
 // buildDownloader builds or returns the cached downloader instance.
 func (e *CompositeExtractor) buildDownloader() *download.Downloader {
 	e.once.Do(func() {
+		e.mu.RLock()
+		transport := e.transport
+		selector := e.selector
+		extractors := make([]download.Extractor, len(e.extractors))
+		copy(extractors, e.extractors)
+		e.mu.RUnlock()
+
 		var opts []download.Option
-		if e.transport != nil {
-			opts = append(opts, download.WithTransport(e.transport))
+		if transport != nil {
+			opts = append(opts, download.WithTransport(transport))
 		}
-		if e.selector != nil {
-			opts = append(opts, download.WithSelector(e.selector))
+		if selector != nil {
+			opts = append(opts, download.WithSelector(selector))
 		}
-		for _, ex := range e.extractors {
+		for _, ex := range extractors {
 			opts = append(opts, download.WithExtractor(ex))
 		}
 		// Always add HTTPExtractor as the last fallback extractor,
@@ -214,7 +230,7 @@ func (e *CompositeExtractor) Extract(ctx context.Context, req *download.Request)
 	if req.Result == nil {
 		req.Result = &download.DownloadResult{}
 	}
-	req.Result.TotalSize = progress.downloadedBytes
+	req.Result.ContentLength = progress.downloadedBytes
 	if req.OnProgress != nil {
 		req.OnProgress(100, progress.downloadedBytes, progress.downloadedBytes)
 	}

@@ -296,7 +296,7 @@ func reportWgetFinalProgress(req *download.Request) {
 	if info, err := os.Stat(req.SavePath); err == nil {
 		size = info.Size()
 	}
-	req.Result.TotalSize = size
+	req.Result.ContentLength = size
 	if req.OnProgress == nil {
 		return
 	}

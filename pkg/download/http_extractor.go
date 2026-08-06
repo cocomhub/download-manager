@@ -275,8 +275,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	}
 
 	req.Result.StatusCode = tresp.StatusCode
-	req.Result.ContentLength = tresp.ContentLength
-	req.Result.TotalSize = totalSize
+	req.Result.ContentLength = totalSize
 
 	if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
 		return false, err
@@ -435,15 +434,13 @@ func handle304Response(tresp *TransportResponse, w io.Writer, req *Request, rPat
 	writeLog(w, "Server responded with 304 Not Modified, file unchanged\n")
 	req.Result.StatusCode = http.StatusNotModified
 	req.Result.ContentLength = 0
-	req.Result.TotalSize = 0
 	if fi, stErr := os.Stat(rPath); stErr == nil {
-		req.Result.TotalSize = fi.Size()
 		req.Result.ContentLength = fi.Size()
 	} else {
 		slog.Warn("Failed to stat file for 304 handling", "file", rPath, logutil.LogKeyError, stErr)
 	}
 	if req.OnProgress != nil {
-		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		req.OnProgress(100, req.Result.ContentLength, req.Result.ContentLength)
 	}
 	saveEtag(tresp, req)
 }
@@ -694,15 +691,13 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 	fi, err := os.Stat(rPath)
 	if err == nil {
 		req.Result.ContentLength = fi.Size()
-		req.Result.TotalSize = fi.Size()
 		req.Result.ModTime = fi.ModTime().Format(time.RFC3339Nano)
 	} else {
 		req.Result.ContentLength = 0
-		req.Result.TotalSize = 0
 		slog.Warn("File not found or unreadable after skip result", "file", rPath)
 	}
 	if req.OnProgress != nil {
-		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		req.OnProgress(100, req.Result.ContentLength, req.Result.ContentLength)
 	}
 }
 

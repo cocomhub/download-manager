@@ -291,7 +291,7 @@ func reportHLSDownloadResult(rPath string, req *download.Request) {
 		if req.Result == nil {
 			req.Result = &download.DownloadResult{}
 		}
-		req.Result.TotalSize = size
+		req.Result.ContentLength = size
 	}
 	if req.OnProgress != nil {
 		req.OnProgress(100, size, size)

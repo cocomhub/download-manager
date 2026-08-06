@@ -24,7 +24,6 @@ func TestE2E_NormalDownload(t *testing.T) {
 		CheckBothNil(),
 		CheckFileBytes(),
 		CheckFileSize(),
-		CheckMetadata("total_size"),
 		CheckProgressEnd(),
 	)
 }

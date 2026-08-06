@@ -300,7 +300,7 @@ func TestWithRuleSetAnnotatesHint(t *testing.T) {
 	}
 }
 
-// resultExtractor 返回固定 TotalSize，用于测试 MetricsMiddleware 的字节数记录。
+// resultExtractor 返回固定 ContentLength，用于测试 MetricsMiddleware 的字节数记录。
 type resultExtractor struct {
 	totalSize int64
 }
@@ -311,7 +311,7 @@ func (e *resultExtractor) Extract(_ context.Context, req *download.Request) erro
 	if req.Result == nil {
 		req.Result = &download.DownloadResult{}
 	}
-	req.Result.TotalSize = e.totalSize
+	req.Result.ContentLength = e.totalSize
 	return nil
 }
 
@@ -379,7 +379,7 @@ func TestMetricsMiddlewareRecordsBytesZero(t *testing.T) {
 	}
 }
 
-// resultExtractorWithZeroBytes 返回成功但 Result.TotalSize 为 0。
+// resultExtractorWithZeroBytes 返回成功但 Result.ContentLength 为 0。
 type resultExtractorWithZeroBytes struct{}
 
 func (e *resultExtractorWithZeroBytes) Name() string                           { return "zeroBytes" }
@@ -388,7 +388,7 @@ func (e *resultExtractorWithZeroBytes) Extract(_ context.Context, req *download.
 	if req.Result == nil {
 		req.Result = &download.DownloadResult{}
 	}
-	req.Result.TotalSize = 0
+	req.Result.ContentLength = 0
 	return nil
 }
 

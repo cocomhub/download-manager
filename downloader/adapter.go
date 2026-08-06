@@ -173,9 +173,6 @@ func writeResultToMetadata(obj *model.DownloadObject, req *download.Request) {
 		if r.ContentLength > 0 {
 			obj.Metadata["content_length"] = strconv.FormatInt(r.ContentLength, 10)
 		}
-		if r.TotalSize > 0 {
-			obj.Metadata["total_size"] = strconv.FormatInt(r.TotalSize, 10)
-		}
 		if r.MD5Base64 != "" {
 			obj.Metadata["md5_base64"] = r.MD5Base64
 		}

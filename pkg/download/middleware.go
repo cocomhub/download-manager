@@ -24,7 +24,7 @@ func MetricsMiddleware(registry *MetricRegistry) Middleware {
 
 		bytes := int64(0)
 		if req.Result != nil {
-			bytes = req.Result.TotalSize
+			bytes = req.Result.ContentLength
 		}
 		registry.Record(next.Name(), bytes, elapsed, err == nil)
 		return err

@@ -370,8 +370,8 @@ func (c *Config) migrateDownloaderType() {
 
 func (c *Config) clampDownloaderParams() {
 	c.Downloader.GlobalConcurrent = clampInt(c.Downloader.GlobalConcurrent, 1, 100)
-	if c.Downloader.MaxRetries < 0 {
-		c.Downloader.MaxRetries = 0
+	if c.Downloader.MaxRetries <= 0 {
+		c.Downloader.MaxRetries = 5
 	}
 }
 
