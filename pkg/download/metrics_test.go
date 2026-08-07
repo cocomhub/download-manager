@@ -10,13 +10,6 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-func TestNewMetricRegistry(t *testing.T) {
-	reg := download.NewMetricRegistry()
-	if reg == nil {
-		t.Fatal("NewMetricRegistry returned nil")
-	}
-}
-
 func TestMetricRegistryGet(t *testing.T) {
 	reg := download.NewMetricRegistry()
 	m := reg.Get("http")
@@ -84,5 +77,34 @@ func TestMetricRegistrySnapshot(t *testing.T) {
 	}
 	if httpMetrics["total_bytes"] != 100 {
 		t.Errorf("expected 100 total_bytes, got %d", httpMetrics["total_bytes"])
+	}
+	if httpMetrics["success_count"] != 1 {
+		t.Errorf("expected 1 success_count, got %d", httpMetrics["success_count"])
+	}
+	if httpMetrics["failure_count"] != 0 {
+		t.Errorf("expected 0 failure_count, got %d", httpMetrics["failure_count"])
+	}
+	if httpMetrics["total_duration_ms"] != 1000 {
+		t.Errorf("expected 1000 total_duration_ms, got %d", httpMetrics["total_duration_ms"])
+	}
+	if httpMetrics["last_request_at"] == 0 {
+		t.Error("expected last_request_at to be non-zero")
+	}
+
+	hlsMetrics, ok := snap["hls"]
+	if !ok {
+		t.Fatal("expected 'hls' in snapshot")
+	}
+	if hlsMetrics["total_requests"] != 1 {
+		t.Errorf("expected 1 total_request for hls, got %d", hlsMetrics["total_requests"])
+	}
+	if hlsMetrics["total_bytes"] != 200 {
+		t.Errorf("expected 200 total_bytes for hls, got %d", hlsMetrics["total_bytes"])
+	}
+	if hlsMetrics["success_count"] != 0 {
+		t.Errorf("expected 0 success_count for hls, got %d", hlsMetrics["success_count"])
+	}
+	if hlsMetrics["failure_count"] != 1 {
+		t.Errorf("expected 1 failure_count for hls, got %d", hlsMetrics["failure_count"])
 	}
 }

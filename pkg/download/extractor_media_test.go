@@ -37,6 +37,6 @@ func TestHTTPExtractorContentTypeWithQuery(t *testing.T) {
 	}
 	err := ext.Extract(t.Context(), req)
 	if !download.IsNoTry(err) {
-		t.Fatalf("expected ErrNoTry for text/html with .mp4 URL (with query params), got: %v (bug: filepath.Ext parses raw URL including query string, check was bypassed)", err)
+		t.Fatalf("expected ErrNoTry for text/html with .mp4 URL+query, got: %v", err)
 	}
 }

@@ -11,5 +11,6 @@ type Transport interface {
 	Name() string
 
 	// RoundTrip 执行一次完整的 HTTP 往返，返回响应或错误。
+	// 实现必须处理 req == nil 的情况（返回非 nil 错误）。
 	RoundTrip(ctx context.Context, req *TransportRequest) (*TransportResponse, error)
 }

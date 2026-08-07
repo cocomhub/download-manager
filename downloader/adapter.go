@@ -45,6 +45,32 @@ func NewDownloaderAdapter(dl *download.Downloader) *DownloaderAdapter {
 	}
 }
 
+// Transport 返回适配器使用的传输层，供 Manager 关闭空闲连接等操作。
+func (a *DownloaderAdapter) Transport() download.Transport {
+	return a.transport
+}
+
+// RemoveDomainLimits 删除指定域名的并发限制。
+func (a *DownloaderAdapter) RemoveDomainLimits(domains []string) {
+	if tr, ok := a.transport.(*download.StdlibTransport); ok {
+		tr.RemoveDomainLimits(domains)
+	}
+}
+
+// Remove 实现 core.DomainLimiter 接口，删除指定域名的并发限制。
+func (a *DownloaderAdapter) Remove(domain string) {
+	if tr, ok := a.transport.(*download.StdlibTransport); ok {
+		tr.Remove(domain)
+	}
+}
+
+// CloseIdleConnections 关闭底层传输的空闲连接。
+func (a *DownloaderAdapter) CloseIdleConnections() {
+	if tr, ok := a.transport.(interface{ CloseIdleConnections() }); ok {
+		tr.CloseIdleConnections()
+	}
+}
+
 // SetMetadataFlusher 设置一个回调，在每次 OnMetadata 写入 obj.Metadata 后调用，
 // 用于立即持久化（避免 crash 窗口）。
 // 必须在 Download 前调用，不可并发调用。
@@ -75,6 +101,8 @@ func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 func (a *DownloaderAdapter) ApplyDomainLimits(limits map[string]int) {
 	if tr, ok := a.transport.(*download.StdlibTransport); ok {
 		tr.SetDomainLimits(limits)
+	} else {
+		slog.Warn("ApplyDomainLimits: transport is not StdlibTransport, domain limits not applied", "transport_type", fmt.Sprintf("%T", a.transport))
 	}
 }
 
@@ -144,9 +172,6 @@ func writeResultToMetadata(obj *model.DownloadObject, req *download.Request) {
 		}
 		if r.ContentLength > 0 {
 			obj.Metadata["content_length"] = strconv.FormatInt(r.ContentLength, 10)
-		}
-		if r.TotalSize > 0 {
-			obj.Metadata["total_size"] = strconv.FormatInt(r.TotalSize, 10)
 		}
 		if r.MD5Base64 != "" {
 			obj.Metadata["md5_base64"] = r.MD5Base64

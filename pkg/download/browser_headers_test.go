@@ -13,6 +13,43 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
+// TestIsSensitiveHeader 验证敏感头识别函数对所有已知敏感前缀的覆盖。
+func TestIsSensitiveHeader(t *testing.T) {
+	tests := []struct {
+		name          string
+		headerName    string
+		wantSensitive bool
+	}{
+		// 敏感头（必须脱敏）
+		{"exact authorization", "authorization", true},
+		{"upper Authorization", "Authorization", true},
+		{"cookie", "cookie", true},
+		{"proxy-authorization", "proxy-authorization", true},
+		{"x-api-key", "x-api-key", true},
+		{"x-auth-token", "x-auth-token", true},
+		{"token", "token", true},
+		{"secret-key", "secret-key", true},
+		{"auth-bearer", "auth-bearer", true},
+		// 非敏感头（不脱敏）
+		{"content-type", "content-type", false},
+		{"user-agent", "user-agent", false},
+		{"accept", "accept", false},
+		{"referer", "referer", false},
+		{"cache-control", "cache-control", false},
+		{"x-request-id", "x-request-id", false},
+		{"x-forwarded-for", "x-forwarded-for", false},
+		{"x-real-ip", "x-real-ip", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := download.IsSensitiveHeader(tt.headerName)
+			if got != tt.wantSensitive {
+				t.Errorf("IsSensitiveHeader(%q) = %v, want %v", tt.headerName, got, tt.wantSensitive)
+			}
+		})
+	}
+}
+
 // TestHTTPExtractorBrowserHeaders verifies that Chrome-style browser headers are injected.
 func TestHTTPExtractorBrowserHeaders(t *testing.T) {
 	var capturedHeaders http.Header
@@ -44,12 +81,12 @@ func TestHTTPExtractorBrowserHeaders(t *testing.T) {
 		expect string
 	}
 	checks := []headerCheck{
-		{"sec-ch-ua", "Sec-Ch-Ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`},
+		{"sec-ch-ua", "Sec-Ch-Ua", `"Google Chrome";v="145", "Chromium";v="145", "Not A(Brand";v="24"`},
 		{"sec-ch-ua-mobile", "Sec-Ch-Ua-Mobile", "?0"},
 		{"sec-ch-ua-platform", "Sec-Ch-Ua-Platform", `"macOS"`},
 		{"sec-fetch-dest", "Sec-Fetch-Dest", "video"},
 		{"sec-fetch-mode", "Sec-Fetch-Mode", "no-cors"},
-		{"sec-fetch-site", "Sec-Fetch-Site", "same-origin"},
+		{"sec-fetch-site", "Sec-Fetch-Site", "cross-site"},
 		{"cache-control", "Cache-Control", "no-cache"},
 		{"pragma", "Pragma", "no-cache"},
 		{"priority", "Priority", "i"},

@@ -105,6 +105,50 @@ func TestTryGetMd5Nil(t *testing.T) {
 	}
 }
 
+func TestTryGetMd5ContentMD5Base64(t *testing.T) {
+	// Content-MD5 with 24-char Base64 value → decoded to hex
+	headers := map[string]string{
+		"Content-MD5": "XUFAKrxLKna5cZ2REBfFkg==", // 24 chars base64
+	}
+	result := TryGetMd5(headers)
+	if result != "5d41402abc4b2a76b9719d911017c592" {
+		t.Errorf("expected hex decoded from base64 Content-MD5, got %q", result)
+	}
+}
+
+func TestTryGetMd5ContentMD5CaseInsensitive(t *testing.T) {
+	// Content-MD5 header with lowercase key → should match via EqualFold
+	headers := map[string]string{
+		"content-md5": "5d41402abc4b2a76b9719d911017c592", // 32 hex chars
+	}
+	result := TryGetMd5(headers)
+	if result != "5d41402abc4b2a76b9719d911017c592" {
+		t.Errorf("expected Content-MD5 value with lowercase key, got %q", result)
+	}
+}
+
+func TestTryGetMd5ContentMD5NonHex(t *testing.T) {
+	// 32-char non-hex Content-MD5 → should return empty (hex validation fails)
+	headers := map[string]string{
+		"Content-MD5": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", // 32 chars, not hex
+	}
+	result := TryGetMd5(headers)
+	if result != "" {
+		t.Errorf("expected empty for non-hex Content-MD5, got %q", result)
+	}
+}
+
+func TestTryGetMd5ContentMD5WithPadding(t *testing.T) {
+	// Content-MD5 with 24-char non-base64 value → raw value returned
+	headers := map[string]string{
+		"Content-MD5": "!!!!not!base64!!!!val!!!", // 24 chars, not valid base64
+	}
+	result := TryGetMd5(headers)
+	if result != "!!!!not!base64!!!!val!!!" {
+		t.Errorf("expected raw value for non-base64 24-char Content-MD5, got %q", result)
+	}
+}
+
 func TestTryGetMd5InvalidLengthEtag(t *testing.T) {
 	// Too short
 	headers := map[string]string{

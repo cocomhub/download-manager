@@ -5,7 +5,6 @@ package download
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -14,17 +13,13 @@ import (
 )
 
 // Downloader 是用户使用的主要入口。
-// 持有 Selector、Extractor 注册表、Transport 引用、Middleware 链和 Metrics，编排一次完整下载。
+// 持有 Selector、Extractor 注册表、Transport 引用和 Middleware 链，编排一次完整下载。
 type Downloader struct {
 	selector   Selector
 	extractors []Extractor
 	transport  Transport
 	middleware Middleware
-	metrics    *MetricRegistry
 }
-
-// ErrNoDefaultDownloader 表示未配置默认 Downloader。
-var ErrNoDefaultDownloader = errors.New("default downloader not initialized; call download.SetDefault() or configure via download.New()")
 
 // defaultDl 是包级默认 Downloader 实例，通过 SetDefault 配置。
 var (
@@ -34,6 +29,7 @@ var (
 
 // SetDefault 替换包级默认 Downloader 实例。
 // 调用后 Default() 和 Get() 将使用此实例。
+// 传入 nil 会重置默认实例，下次 Default() 调用时惰性创建新实例。
 func SetDefault(d *Downloader) {
 	defaultDlMu.Lock()
 	defaultDl = d
@@ -66,8 +62,8 @@ func Get(ctx context.Context, url, savePath string) error {
 	})
 }
 
-// validateRequest validates and initializes the request.
-func validateRequest(req *Request) error {
+// validateAndInitRequest validates and initializes the request.
+func validateAndInitRequest(req *Request) error {
 	if req == nil || req.URL == "" || req.SavePath == "" {
 		return fmt.Errorf("invalid request: missing URL or SavePath")
 	}
@@ -107,6 +103,16 @@ func (d *Downloader) matchExtractor(ctx context.Context, url string, hint *Downl
 			return ex
 		}
 	}
+	// 检查 hint 中指定的 Extractor（由 RuleSet 等设置）
+	if hint != nil && hint.Extractor != "" {
+		for _, e := range d.extractors {
+			if e.Name() == hint.Extractor {
+				return e
+			}
+		}
+		slog.Warn("hint.Extractor specified but not found", "extractor", hint.Extractor)
+	}
+	// 原有 fallback 循环
 	for _, e := range d.extractors {
 		if e.Match(ctx, url) {
 			return e
@@ -120,8 +126,13 @@ func (d *Downloader) matchExtractor(ctx context.Context, url string, hint *Downl
 //  2. 注入 Transport 和 Selector（如果 Extractor 支持）
 //  3. 执行 Extractor.Extract
 func (d *Downloader) Download(ctx context.Context, req *Request) error {
-	if err := validateRequest(req); err != nil {
+	if err := validateAndInitRequest(req); err != nil {
 		return err
+	}
+
+	// Ensure Hint is non-nil so that ruleSetSelector can annotate it in-place.
+	if req.Hint == nil {
+		req.Hint = &DownloadHint{}
 	}
 
 	ex := d.matchExtractor(ctx, req.URL, req.Hint)
@@ -132,10 +143,10 @@ func (d *Downloader) Download(ctx context.Context, req *Request) error {
 	slog.Debug("Download: matched extractor", "extractor", ex.Name(), logutil.LogKeyURL, req.URL)
 
 	// Inject Transport and Selector into the extractor if it supports them.
-	if hw, ok := ex.(interface{ SetTransport(Transport) }); ok && d.transport != nil {
+	if hw, ok := ex.(TransportSetter); ok && d.transport != nil {
 		hw.SetTransport(d.transport)
 	}
-	if hw, ok := ex.(interface{ SetSelector(Selector) }); ok && d.selector != nil {
+	if hw, ok := ex.(SelectorSetter); ok && d.selector != nil {
 		hw.SetSelector(d.selector)
 	}
 

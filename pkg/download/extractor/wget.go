@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,29 +32,41 @@ var reWgetProgress = regexp.MustCompile(`\s+(\d+)%`)
 // compile-time interface check
 var _ download.Extractor = (*WgetExtractor)(nil)
 var _ download.Canceller = (*WgetExtractor)(nil)
+var _ download.TransportSetter = (*WgetExtractor)(nil)
+var _ download.SelectorSetter = (*WgetExtractor)(nil)
 
 // WgetExtractor 将 wget 命令行工具包装为 Extractor 接口。
 // 不依赖 Transport，自己管理 exec.Command 来执行 wget 进程。
+// Deprecated: WgetExtractor is not currently registered or used in production.
+// Use HTTPExtractor instead. Retained for future reference.
 type WgetExtractor struct {
 	logDir      string
 	selector    download.Selector
-	active      sync.Map
+	active      sync.Map // stores context.CancelFunc keyed by URL
 	userAgent   string
 	maxRetries  int
 	timeoutSecs int
+	// redactSensitiveHeaders 控制是否在命令行参数中排除敏感头。默认 true。
+	redactSensitiveHeaders bool
 }
 
 // NewWgetExtractor 创建 WgetExtractor 实例。
-func NewWgetExtractor(opts ...WgetOption) *WgetExtractor {
+// TODO: 预留扩展 - 当前未被自动匹配使用，通过 hint.Extractor == "wget" 显式选择。
+// 后续可根据需求扩展自动匹配逻辑。
+func NewWgetExtractor(opts ...WgetOption) (*WgetExtractor, error) {
+	if _, err := exec.LookPath("wget"); err != nil {
+		return nil, fmt.Errorf("wget: not found in PATH: %w", err)
+	}
 	e := &WgetExtractor{
-		userAgent:   DefaultWgetUserAgent,
-		maxRetries:  5,
-		timeoutSecs: 20,
+		userAgent:              DefaultWgetUserAgent,
+		maxRetries:             5,
+		timeoutSecs:            20,
+		redactSensitiveHeaders: true,
 	}
 	for _, o := range opts {
 		o(e)
 	}
-	return e
+	return e, nil
 }
 
 // WgetOption 是 WgetExtractor 的配置函数。
@@ -71,11 +84,22 @@ func WithWgetMaxRetries(n int) WgetOption { return func(e *WgetExtractor) { e.ma
 // WithWgetTimeout 设置下载超时秒数。
 func WithWgetTimeout(secs int) WgetOption { return func(e *WgetExtractor) { e.timeoutSecs = secs } }
 
+// WithWgetRedactSensitiveHeaders 设置敏感头过滤开关。
+func WithWgetRedactSensitiveHeaders(v bool) WgetOption {
+	return func(e *WgetExtractor) { e.redactSensitiveHeaders = v }
+}
+
+// SetRedactSensitiveHeaders 设置敏感头脱敏开关。
+func (e *WgetExtractor) SetRedactSensitiveHeaders(v bool) {
+	e.redactSensitiveHeaders = v
+}
+
 func (e *WgetExtractor) Name() string { return "wget" }
 
-// Match 匹配非 m3u8 URL，与 HTTPExtractor 互补。
+// Match 返回 false：WgetExtractor 不参与自动 URL 匹配。
+// 仅通过 hint.Extractor == "wget" 显式选择，不参与自动匹配。
 func (e *WgetExtractor) Match(ctx context.Context, url string) bool {
-	return !strings.Contains(strings.ToLower(url), ".m3u8")
+	return false
 }
 
 // SetSelector 注入 Selector 实例用于代理选择。
@@ -104,29 +128,29 @@ func (e *WgetExtractor) Extract(ctx context.Context, req *download.Request) erro
 	proxyURL := e.selectWgetProxy(ctx, req)
 	args := e.buildWgetArgs(req, proxyURL)
 
-	cmd := exec.CommandContext(ctx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
-	e.active.Store(req.URL, cmd)
+	dlCtx, dlCancel := context.WithCancel(ctx)
+	defer e.active.Delete(req.URL)
+	defer dlCancel()
+	e.active.Store(req.URL, dlCancel)
+
+	cmd := exec.CommandContext(dlCtx, "wget", args...) //nolint:gosec // wget lookup via PATH is standard
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: failed to get stderr pipe: %w", err)
 	}
 	cmd.Stdout = logFile
 
 	slog.Info("Starting download", "downloader", "wget", logutil.LogKeyURL, req.URL, "path", req.SavePath)
 	if err := cmd.Start(); err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: start failed: %w", err)
 	}
 
 	scanWgetProgress(stderr, logFile, req)
 
 	if err := cmd.Wait(); err != nil {
-		e.active.Delete(req.URL)
 		return fmt.Errorf("wget: execution failed: %w", err)
 	}
-	e.active.Delete(req.URL)
 
 	reportWgetFinalProgress(req)
 	return nil
@@ -137,9 +161,15 @@ func validateWgetRequest(req *download.Request) error {
 	if strings.HasPrefix(req.SavePath, "-") {
 		return fmt.Errorf("wget: invalid save path (starts with '-')")
 	}
+	if strings.ContainsAny(req.SavePath, "\r\n") {
+		return fmt.Errorf("wget: invalid save path contains CR/LF")
+	}
 	for k, v := range req.Headers {
 		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
 			return fmt.Errorf("wget: invalid header contains CR/LF")
+		}
+		if strings.HasPrefix(k, "-") || strings.HasPrefix(v, "-") {
+			return fmt.Errorf("wget: header key/value starts with '-', possible argv injection")
 		}
 	}
 	lowerURL := strings.ToLower(req.URL)
@@ -147,6 +177,9 @@ func validateWgetRequest(req *download.Request) error {
 		!strings.HasPrefix(lowerURL, "https://") &&
 		!strings.HasPrefix(lowerURL, "ftp://") {
 		return fmt.Errorf("wget: invalid URL scheme: %s", req.URL)
+	}
+	if strings.ContainsAny(req.URL, "\r\n") {
+		return fmt.Errorf("wget: invalid URL contains CR/LF")
 	}
 	return nil
 }
@@ -170,7 +203,11 @@ func (e *WgetExtractor) selectWgetProxy(ctx context.Context, req *download.Reque
 	if e.selector == nil {
 		return ""
 	}
-	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	hint := req.Hint
+	if hint == nil {
+		hint = &download.DownloadHint{}
+	}
+	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, hint)
 	if err != nil {
 		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		return ""
@@ -184,14 +221,31 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 	args = append(args, "--header", "User-Agent: "+e.userAgent)
 
 	for k, v := range req.Headers {
+		if e.redactSensitiveHeaders && download.IsSensitiveHeader(k) {
+			continue
+		}
 		args = append(args, "--header", fmt.Sprintf("%s: %s", k, v))
 	}
 
 	targetURL := req.URL
 	if proxyURL != "" {
-		targetURL = strings.TrimPrefix(targetURL, "http://")
-		targetURL = strings.TrimPrefix(targetURL, "https://")
-		targetURL = proxyURL + "/" + targetURL
+		// 使用 url.URL 安全拼接代理 URL，避免字符串操作风险
+		u, err := url.Parse(req.URL)
+		if err != nil {
+			slog.Warn("Failed to parse URL for proxy, fallback to raw", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
+			targetURL = proxyURL + "/" + req.URL
+		} else {
+			proxy, err := url.Parse(proxyURL)
+			if err != nil {
+				slog.Warn("Failed to parse proxy URL, fallback to raw", "proxy", proxyURL, logutil.LogKeyError, err)
+				targetURL = proxyURL + "/" + req.URL
+			} else {
+				p := *proxy
+				p.Path = proxy.Path + "/" + u.Host + u.Path
+				p.RawQuery = u.RawQuery
+				targetURL = p.String()
+			}
+		}
 		slog.Info("Using proxy", logutil.LogKeyURL, targetURL, "proxy", proxyURL)
 	}
 
@@ -234,14 +288,17 @@ func parseWgetProgressLine(line string, savePath string) (progress float64, down
 	return float64(p), size, true
 }
 
-// reportWgetFinalProgress reports 100% completion after a successful download.
 func reportWgetFinalProgress(req *download.Request) {
-	if req.OnProgress == nil {
-		return
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
 	}
 	var size int64
 	if info, err := os.Stat(req.SavePath); err == nil {
 		size = info.Size()
+	}
+	req.Result.ContentLength = size
+	if req.OnProgress == nil {
+		return
 	}
 	req.OnProgress(100, size, size)
 }
@@ -249,11 +306,9 @@ func reportWgetFinalProgress(req *download.Request) {
 // Cancel 取消正在进行的 wget 下载。
 func (e *WgetExtractor) Cancel(url string) error {
 	if v, ok := e.active.Load(url); ok {
-		cmd, ok := v.(*exec.Cmd)
-		if !ok {
-			return fmt.Errorf("wget: unexpected type %T in active map", v)
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
 		}
-		_ = cmd.Process.Kill()
 		e.active.Delete(url)
 		return nil
 	}

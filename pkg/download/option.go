@@ -28,6 +28,9 @@ func WithExtractor(ex Extractor) Option {
 // WithMiddleware 设置下载中间件。
 // 如果之前已设置中间件，新中间件会包装在外部，形成链式调用。
 // 注册顺序：[mw1, mw2] => 执行顺序: mw2_before -> mw1_before -> extractor -> mw1_after -> mw2_after
+// 注意：WithMetricRegistry 内部创建 MetricsMiddleware 并注册到中间件链。
+// 如果希望 MetricsMiddleware 在自定义中间件外层（记录总耗时），
+// 应先调用 WithMiddleware 注册自定义中间件，再调用 WithMetricRegistry。
 func WithMiddleware(mw Middleware) Option {
 	return func(d *Downloader) {
 		if d.middleware == nil {
@@ -46,9 +49,11 @@ func WithMiddleware(mw Middleware) Option {
 }
 
 // WithMetricRegistry 设置指标注册表（并自动启用 MetricsMiddleware）。
+// 注意：此函数创建的 MetricsMiddleware 会包装在已有中间件的最外层。
+// 如果希望 MetricsMiddleware 在自定义中间件外层（记录总耗时），
+// 应在调用此函数前先调用 WithMiddleware 注册自定义中间件。
 func WithMetricRegistry(reg *MetricRegistry) Option {
 	return func(d *Downloader) {
-		d.metrics = reg
 		mw := MetricsMiddleware(reg)
 		if d.middleware == nil {
 			d.middleware = mw
@@ -69,6 +74,9 @@ func WithMetricRegistry(reg *MetricRegistry) Option {
 // RuleSet 用于在选择 Extractor 之前注解 Request 的 Hint 字段。
 func WithRuleSet(rs *RuleSet) Option {
 	return func(d *Downloader) {
+		if rs == nil {
+			return
+		}
 		// 包装 selector，在匹配前应用规则集注解
 		if d.selector == nil {
 			d.selector = &ruleSetSelector{rs: rs}
@@ -87,18 +95,22 @@ type ruleSetSelector struct {
 }
 
 func (r *ruleSetSelector) MatchExtractor(ctx context.Context, url string, hint *DownloadHint) Extractor {
-	// 先通过规则集匹配，若匹配则注解 Hint
-	if matched := r.rs.Match(url, hint); matched != nil {
-		if hint == nil {
-			hint = &DownloadHint{Extractor: matched.Extractor}
-		} else if matched.Extractor != "" {
-			hint.Extractor = matched.Extractor
+	// 如果 hint 为 nil，跳过规则匹配（无法注解），直接委托给 next
+	if hint == nil {
+		if r.next != nil {
+			return r.next.MatchExtractor(ctx, url, nil)
 		}
+		return nil
 	}
-	if r.next != nil {
-		return r.next.MatchExtractor(ctx, url, hint)
+	matched := r.rs.Match(url, hint)
+	if matched != nil && matched.Extractor != "" {
+		hint.Extractor = matched.Extractor
+		return nil // will fall back to extractors list via hint
 	}
-	return nil
+	if r.next == nil {
+		return nil
+	}
+	return r.next.MatchExtractor(ctx, url, hint)
 }
 
 func (r *ruleSetSelector) SelectProxy(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {

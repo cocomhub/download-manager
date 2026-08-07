@@ -21,10 +21,12 @@ func TestHTTPExtractorResumeContentChanged(t *testing.T) {
 	originalContent := "original-long-content-for-testing"
 	newContent := "NEW-shorter"
 
+	var rangeRequested bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		rh := r.Header.Get("Range")
 		if rh != "" {
+			rangeRequested = true
 			// Supports Range but returns content shorter than the existing file
 			w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(newContent)-1, len(newContent)))
 			w.Header().Set("Accept-Ranges", "bytes")
@@ -61,5 +63,8 @@ func TestHTTPExtractorResumeContentChanged(t *testing.T) {
 	// Should have the full new content (either via full download or reset+download)
 	if string(data) != newContent {
 		t.Errorf("expected full new content %q, got %q (len=%d)", newContent, string(data), len(data))
+	}
+	if !rangeRequested {
+		t.Error("expected Range request to be sent")
 	}
 }

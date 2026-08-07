@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -120,10 +121,10 @@ func TestHTTPExtractorDownload(t *testing.T) {
 		{
 			name: "retries on server error",
 			run: func(t *testing.T) {
-				var attempts int32
+				var attempts atomic.Int32
 				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					attempts++
-					if attempts < 2 {
+					attempts.Add(1)
+					if attempts.Load() < 2 {
 						w.WriteHeader(http.StatusInternalServerError)
 						return
 					}
@@ -267,6 +268,9 @@ func TestHTTPExtractorDownload(t *testing.T) {
 				if capturedEtag != `"abc123"` {
 					t.Errorf("expected OnMetadata etag from 304 '%s', got '%s'", `"abc123"`, capturedEtag)
 				}
+				if req2.Metadata["etag"] != `"abc123"` {
+					t.Errorf("expected etag to be preserved after 304, got %q", req2.Metadata["etag"])
+				}
 			},
 		},
 		{
@@ -287,7 +291,9 @@ func TestHTTPExtractorDownload(t *testing.T) {
 					SavePath: filepath.Join(dir, "inm.txt"),
 					Metadata: map[string]string{"etag": `"xyz789"`},
 				}
-				_ = ext.Extract(t.Context(), req)
+				if err := ext.Extract(t.Context(), req); err != nil {
+					t.Fatalf("Extract failed: %v", err)
+				}
 				if seenHeader != `"xyz789"` {
 					t.Errorf("expected If-None-Match header 'xyz789', got '%s'", seenHeader)
 				}
@@ -313,7 +319,9 @@ func TestHTTPExtractorDownload(t *testing.T) {
 					SavePath: filepath.Join(dir, "noetag.txt"),
 					Metadata: map[string]string{},
 				}
-				_ = ext.Extract(t.Context(), req)
+				if err := ext.Extract(t.Context(), req); err != nil {
+					t.Fatalf("Extract failed: %v", err)
+				}
 				if seenETagHeader {
 					t.Error("If-None-Match should not be sent without prior ETag")
 				}
@@ -330,16 +338,16 @@ func TestHTTPExtractorDownload(t *testing.T) {
 func TestHTTPExtractorResume(t *testing.T) {
 	tests := []struct {
 		name            string
-		serverHandler   func(t *testing.T) http.HandlerFunc
+		serverHandler   func(t *testing.T, sawRange *atomic.Bool) http.HandlerFunc
 		expectedContent string
 		initialContent  string
 	}{
 		{
 			name: "supported",
-			serverHandler: func(t *testing.T) http.HandlerFunc {
+			serverHandler: func(t *testing.T, sawRange *atomic.Bool) http.HandlerFunc {
 				return func(w http.ResponseWriter, r *http.Request) {
-					if r.Header.Get("Range") == "" {
-						t.Error("expected Range header for resume download")
+					if r.Header.Get("Range") != "" {
+						sawRange.Store(true)
 					}
 					w.WriteHeader(http.StatusPartialContent)
 					_, _ = w.Write([]byte("resumed_content"))
@@ -350,7 +358,7 @@ func TestHTTPExtractorResume(t *testing.T) {
 		},
 		{
 			name: "unsupported",
-			serverHandler: func(t *testing.T) http.HandlerFunc {
+			serverHandler: func(t *testing.T, sawRange *atomic.Bool) http.HandlerFunc {
 				return func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte("full_content"))
@@ -363,6 +371,7 @@ func TestHTTPExtractorResume(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			var sawRange atomic.Bool
 			dir := t.TempDir()
 			dest := filepath.Join(dir, "resume.txt")
 
@@ -370,7 +379,7 @@ func TestHTTPExtractorResume(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			ts := httptest.NewServer(tc.serverHandler(t))
+			ts := httptest.NewServer(tc.serverHandler(t, &sawRange))
 			defer ts.Close()
 
 			ext := newHTTPExtractor(t)
@@ -388,6 +397,9 @@ func TestHTTPExtractorResume(t *testing.T) {
 			}
 			if string(data) != tc.expectedContent {
 				t.Errorf("expected %q, got: %q", tc.expectedContent, string(data))
+			}
+			if tc.name == "supported" && !sawRange.Load() {
+				t.Error("expected Range header for resume download")
 			}
 		})
 	}

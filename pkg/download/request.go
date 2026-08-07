@@ -13,7 +13,10 @@ type DownloadHint struct {
 	Tags        map[string]string
 }
 
-// Request 描述一个下载请求，包含目标 URL、保存路径、头信息、进度回调等。
+// Request 包含下载请求的所有参数。
+// 注意：在传递给 Download 或 Extractor.Extract 后，Request 的字段会被修改
+// （包括 Metadata、Result、Hint 等）。不要在多个 goroutine 中复用同一个 Request 实例。
+// Download 返回后，Result 字段仅在调用方持有锁或未并发访问时可靠读取。
 type Request struct {
 	URL           string
 	SavePath      string
@@ -32,8 +35,7 @@ type Request struct {
 // Extractor 在下载成功后填充此结构体，不再直接写入 Request.Metadata。
 type DownloadResult struct {
 	StatusCode    int
-	ContentLength int64
-	TotalSize     int64
+	ContentLength int64 // 实际下载内容大小（字节），-1 表示未知
 	MD5Base64     string
 	MD5Hex        string
 	ModTime       string // RFC3339Nano 格式

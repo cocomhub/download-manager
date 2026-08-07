@@ -23,3 +23,17 @@ type Canceller interface {
 	// Cancel 取消指定 URL 的下载。
 	Cancel(url string) error
 }
+
+// TransportSetter 是 Extractor 可选实现的接口，用于接收 Transport 实例。
+type TransportSetter interface {
+	SetTransport(Transport)
+}
+
+// SelectorSetter 是 Extractor 可选实现的接口，用于接收 Selector 实例。
+type SelectorSetter interface {
+	SetSelector(Selector)
+}
+
+// ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
+// 返回 error 则终止下载（ErrNoTry 表示永久终止，其他 error 可重试）。
+type ResponseCheck func(req *Request, tresp *TransportResponse) error

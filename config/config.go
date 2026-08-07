@@ -68,10 +68,11 @@ type MongoSource struct {
 }
 
 type DcFilesystem struct {
-	RootDir    string   `yaml:"root_dir" json:"root_dir"`
-	LogDir     string   `yaml:"log_dir" json:"log_dir"`
-	CacheDir   string   `yaml:"cache_dir" json:"cache_dir"`
-	AllowPaths []string `yaml:"allow_paths" json:"allow_paths"`
+	RootDir        string   `yaml:"root_dir" json:"root_dir"`
+	LogDir         string   `yaml:"log_dir" json:"log_dir"`
+	CacheDir       string   `yaml:"cache_dir" json:"cache_dir"`
+	AllowPaths     []string `yaml:"allow_paths" json:"allow_paths"`
+	FollowSymlinks *bool    `yaml:"follow_symlinks,omitempty" json:"follow_symlinks,omitempty"`
 }
 
 type DcHTTP struct {
@@ -369,8 +370,8 @@ func (c *Config) migrateDownloaderType() {
 
 func (c *Config) clampDownloaderParams() {
 	c.Downloader.GlobalConcurrent = clampInt(c.Downloader.GlobalConcurrent, 1, 100)
-	if c.Downloader.MaxRetries < 0 {
-		c.Downloader.MaxRetries = 0
+	if c.Downloader.MaxRetries <= 0 {
+		c.Downloader.MaxRetries = 5
 	}
 }
 

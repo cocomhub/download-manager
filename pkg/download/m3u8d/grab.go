@@ -6,6 +6,7 @@ package m3u8d
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -119,13 +120,10 @@ func (d *M3U8DEngine) recordSuccess(resp *grab.Response) {
 	if resp == nil {
 		return
 	}
-	if resp.HTTPResponse == nil {
+	if resp.Request == nil {
 		return
 	}
-	if resp.HTTPResponse.Request == nil {
-		return
-	}
-	d.markAsDownloaded(resp.HTTPResponse.Request.URL.String())
+	d.markAsDownloaded(resp.Request.URL().String())
 	if d.Config.Verbose {
 		fmt.Printf("下载完成: %s\n", filepath.Base(resp.Filename))
 	}
@@ -143,6 +141,11 @@ func (d *M3U8DEngine) recordFailure(resp *grab.Response, ctx context.Context, er
 	}
 	fmt.Printf("下载失败: %s - %s - %v\n", filepath.Base(resp.Filename), status, resp.Err())
 
+	// 加 nil guard 防止 panic
+	if resp.Request == nil || resp.Request.HTTPRequest == nil {
+		slog.Warn("grab: response has no associated request, skipping")
+		return nil
+	}
 	req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
 	if err != nil {
 		return err

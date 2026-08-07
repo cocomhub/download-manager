@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +25,7 @@ import (
 const (
 	mimePrefixVideo = "video/"
 	mimePrefixImage = "image/"
+	chromeVersion   = "145"
 )
 
 var mediaExtensionSet = map[string]string{
@@ -36,17 +36,17 @@ var mediaExtensionSet = map[string]string{
 	".gif":  mimePrefixImage,
 	".webp": mimePrefixImage,
 	".bmp":  mimePrefixImage,
+	".avif": mimePrefixImage,
+	".heic": mimePrefixImage,
+	".av1":  mimePrefixVideo,
 }
 
 const logTimestampFmt = "20060102150405"
 
-// ResponseCheck 是 HTTP 响应校验函数。在 tryDownload 拿到响应后、写文件之前调用。
-// 返回 error 则终止下载（ErrNoTry 表示永久终止，其他 error 可重试）。
-type ResponseCheck func(req *Request, tresp *TransportResponse) error
-
 // HTTPExtractor 是通用 HTTP 文件下载编排器。
 // 它使用 Transport 做字节传输，自己管理重试、断点续传、MD5 校验。
 type HTTPExtractor struct {
+	mu             sync.RWMutex
 	transport      Transport
 	selector       Selector
 	maxRetries     int
@@ -57,20 +57,46 @@ type HTTPExtractor struct {
 	browserHdrs    bool
 	cancels        sync.Map // map[string]context.CancelFunc
 	responseChecks []ResponseCheck
+	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
+	redactSensitiveHeaders bool
+	// followSymlinks 控制是否解析符号链接。默认 true（安全检查）。
+	// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
+	// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
+	followSymlinks bool
+	// TestHookRetrySleep 是测试钩子，在进入重试 sleep 前被调用。仅测试使用。
+	TestHookRetrySleep func()
+}
+
+// SetFollowSymlinks 设置符号链接解析开关。
+// 默认 true（解析符号链接，安全检查）。
+// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
+// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
+func (e *HTTPExtractor) SetFollowSymlinks(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.followSymlinks = v
 }
 
 // SetBrowserHeaders 控制是否注入 Chrome 风格浏览器标头。
-func (e *HTTPExtractor) SetBrowserHeaders(v bool) { e.browserHdrs = v }
+func (e *HTTPExtractor) SetBrowserHeaders(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.browserHdrs = v
+}
 
 // AddResponseCheck 注册一个响应校验函数，在每次下载拿到响应后执行。
 // 多个 check 按注册顺序执行，任一返回 error 则终止下载。
 func (e *HTTPExtractor) AddResponseCheck(fn ResponseCheck) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.responseChecks = append(e.responseChecks, fn)
 }
 
 // Cancel 实现 Canceller 接口，按 URL 取消正在进行的下载。
+// 使用 Load 而非 LoadAndDelete，因为 Extract 的 defer 会清理 e.cancels。
+// 即使使用 Load，cancel 闭包在被提取后仍然有效，因为 defer dlCancel() 会处理上下文。
 func (e *HTTPExtractor) Cancel(url string) error {
-	if v, ok := e.cancels.LoadAndDelete(url); ok {
+	if v, ok := e.cancels.Load(url); ok {
 		if cancel, ok := v.(context.CancelFunc); ok {
 			cancel()
 		}
@@ -86,24 +112,45 @@ func NewHTTPExtractor() *HTTPExtractor {
 // NewHTTPExtractorWithConfig 根据配置创建 HTTPExtractor 实例。
 func NewHTTPExtractorWithConfig(maxRetries int, userAgent, rootDir, logDir string) *HTTPExtractor {
 	if userAgent == "" {
-		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+		userAgent = fmt.Sprintf("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36", chromeVersion)
 	}
 	return &HTTPExtractor{
-		maxRetries: maxRetries,
-		rootDir:    rootDir,
-		logDir:     logDir,
-		ua:         userAgent,
+		maxRetries:             maxRetries,
+		rootDir:                rootDir,
+		logDir:                 logDir,
+		ua:                     userAgent,
+		redactSensitiveHeaders: true,
+		followSymlinks:         true,
 	}
 }
 
 // SetTransport 注入 Transport 实例（实现 ExtractorWithTransport 接口）。
-func (e *HTTPExtractor) SetTransport(t Transport) { e.transport = t }
+func (e *HTTPExtractor) SetTransport(t Transport) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.transport = t
+}
 
 // SetSelector 注入 Selector 实例（实现 ExtractorWithSelector 接口）。
-func (e *HTTPExtractor) SetSelector(s Selector) { e.selector = s }
+func (e *HTTPExtractor) SetSelector(s Selector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.selector = s
+}
 
 // SetAllowPaths 设置下载路径白名单（可选）。
-func (e *HTTPExtractor) SetAllowPaths(paths []string) { e.allowPaths = paths }
+func (e *HTTPExtractor) SetAllowPaths(paths []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.allowPaths = paths
+}
+
+// SetRedactSensitiveHeaders 设置敏感头脱敏开关。
+func (e *HTTPExtractor) SetRedactSensitiveHeaders(v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.redactSensitiveHeaders = v
+}
 
 // Name 返回提取器名称。
 func (e *HTTPExtractor) Name() string { return "http" }
@@ -115,23 +162,44 @@ func (e *HTTPExtractor) Match(ctx context.Context, url string) bool {
 
 // Extract 执行完整的 HTTP 文件下载编排。
 func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
+	// 局部拷贝所有可变字段，避免后续代码在持有锁的情况下长时间运行
+	e.mu.RLock()
+	localTransport := e.transport
+	localSelector := e.selector
+	localBrowserHdrs := e.browserHdrs
+	localAllowPaths := e.allowPaths
+	localMaxRetries := e.maxRetries
+	localRootDir := e.rootDir
+	localLogDir := e.logDir
+	localUA := e.ua
+	localFollowSymlinks := e.followSymlinks
+	localResponseChecks := make([]ResponseCheck, len(e.responseChecks))
+	copy(localResponseChecks, e.responseChecks)
+	localRedactSensitiveHeaders := e.redactSensitiveHeaders
+
+	e.mu.RUnlock()
+
 	// 确保 Transport 已注入
-	if e.transport == nil {
+	if localTransport == nil {
 		return fmt.Errorf("http: transport not set, call SetTransport before Extract")
 	}
 
 	// 创建 per-URL 可取消的 context，支持按 URL 精确取消
 	dlCtx, dlCancel := context.WithCancel(ctx)
-	defer e.cancels.Delete(req.URL)
 	defer dlCancel()
-	e.cancels.Store(req.URL, dlCancel)
+	// 使用 LoadOrStore 检测相同 URL 的并发下载
+	if _, loaded := e.cancels.LoadOrStore(req.URL, dlCancel); loaded {
+		dlCancel()
+		return fmt.Errorf("%w: %s", ErrAlreadyDownloading, req.URL)
+	}
 
-	rPath, err := e.resolveSavePath(req)
+	defer e.cancels.Delete(req.URL)
+	rPath, err := e.resolveSavePath(req, localRootDir, localAllowPaths, localFollowSymlinks)
 	if err != nil {
 		return err
 	}
 
-	proxyURL := e.selectProxy(dlCtx, req)
+	proxyURL := e.selectProxy(dlCtx, req, localSelector)
 	action := e.resolveDownloadAction(rPath, req)
 
 	if action == ActionSkip {
@@ -142,12 +210,12 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	startOffset := e.prepareDownloadOffset(rPath, action)
 	ensureRequestFields(req)
 
-	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req)
+	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req, localTransport, localLogDir, localMaxRetries, localUA, localBrowserHdrs, localResponseChecks, localRedactSensitiveHeaders)
 }
 
 // tryDownload 执行单次下载尝试。返回 success=true 表示下载完成，否则返回错误。
-func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) (success bool, err error) {
-	logWriter := createProgressLogWriter(e.logDir, rPath)
+func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) (success bool, err error) {
+	logWriter := createProgressLogWriter(localLogDir, rPath)
 	if c, ok := logWriter.(io.Closer); ok {
 		defer c.Close()
 	}
@@ -162,19 +230,19 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		URL:      rawURL,
 		Method:   "GET",
 		ProxyURL: proxyURL,
-		Headers:  e.buildHeaders(req),
+		Headers:  e.buildHeaders(req, localUA, localBrowserHdrs),
 	}
 	if startOffset > 0 {
 		treq.Range = &RangeRequest{Offset: startOffset}
 	}
 
-	tresp, tErr := e.transport.RoundTrip(ctx, treq)
+	tresp, tErr := localTransport.RoundTrip(ctx, treq)
 	if tErr != nil {
 		return false, tErr
 	}
 	defer tresp.Body.Close()
 
-	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL)
+	logHTTPHeaders(logWriter, treq, tresp, rawURL, proxyURL, localRedactSensitiveHeaders)
 
 	if handled, success, err := handleHTTPResponseStatus(tresp, logWriter, req, rPath); handled {
 		return success, err
@@ -184,7 +252,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 		return false, err
 	}
 
-	for _, check := range e.responseChecks {
+	for _, check := range localResponseChecks {
 		if err := check(req, tresp); err != nil {
 			writeLog(logWriter, "Response check failed: %v\n", err)
 			return false, err
@@ -208,7 +276,6 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	req.Result.StatusCode = tresp.StatusCode
 	req.Result.ContentLength = totalSize
-	req.Result.TotalSize = totalSize
 
 	if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
 		return false, err
@@ -258,6 +325,19 @@ func writeLog(w io.Writer, format string, args ...any) {
 	fmt.Fprintf(w, format, args...)
 }
 
+// redactProxyURL 脱敏代理 URL 中的用户名密码。
+func redactProxyURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	parsed.User = nil
+	return parsed.String()
+}
+
 // logDownloadStart 在进度日志开头写入保存路径、代理、URL 信息。
 func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
 	if w == nil {
@@ -265,40 +345,44 @@ func logDownloadStart(w io.Writer, rPath, proxyURL, rawURL string) {
 	}
 	fmt.Fprintf(w, "Save file to %s\n", rPath)
 	if proxyURL != "" {
-		safeProxy := proxyURL
-		if parsed, pErr := url.Parse(proxyURL); pErr == nil {
-			parsed.User = nil
-			safeProxy = parsed.String()
-		}
-		fmt.Fprintf(w, "Using proxy: %s\n", safeProxy)
+		fmt.Fprintf(w, "Using proxy: %s\n", redactProxyURL(proxyURL))
 	} else {
 		fmt.Fprintf(w, "Direct connection\n")
 	}
 	fmt.Fprintf(w, "Requesting URL: %s\n\n", rawURL)
 }
 
+// IsSensitiveHeader 判断 HTTP 头名是否为敏感头。导出供子包复用。
+func IsSensitiveHeader(name string) bool {
+	lower := strings.ToLower(name)
+	sensitivePrefixes := []string{
+		"authorization", "cookie", "proxy-authorization",
+		"x-api-key", "x-auth", "token", "secret", "auth",
+	}
+	for _, prefix := range sensitivePrefixes {
+		if lower == prefix || strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // logHTTPHeaders 在进度日志中输出请求和响应的 HTTP 头（敏感头脱敏）。
-func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportResponse, rawURL, proxyURL string) {
+func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportResponse, rawURL, proxyURL string, redactSensitive bool) {
 	if w == nil {
 		return
-	}
-	redactedHeaders := map[string]bool{
-		"authorization":       true,
-		"cookie":              true,
-		"proxy-authorization": true,
-		"x-api-key":           true,
 	}
 
 	fmt.Fprintf(w, "[%s] Request:\n", treq.Method)
 	fmt.Fprintf(w, "URL: %s\n", rawURL)
 	if treq.ProxyURL != "" {
-		fmt.Fprintf(w, "Proxy: %s\n", treq.ProxyURL)
+		fmt.Fprintf(w, "Proxy: %s\n", redactProxyURL(treq.ProxyURL))
 	} else if proxyURL != "" {
-		fmt.Fprintf(w, "Proxy: %s\n", proxyURL)
+		fmt.Fprintf(w, "Proxy: %s\n", redactProxyURL(proxyURL))
 	}
 	fmt.Fprintf(w, "Headers:\n")
 	for k, v := range treq.Headers {
-		if redactedHeaders[strings.ToLower(k)] {
+		if redactSensitive && IsSensitiveHeader(k) {
 			v = "[REDACTED]"
 		}
 		fmt.Fprintf(w, "\t%s: %s\n", k, v)
@@ -315,7 +399,7 @@ func logHTTPHeaders(w io.Writer, treq *TransportRequest, tresp *TransportRespons
 	fmt.Fprintf(w, "Content-Length: %d\n", tresp.ContentLength)
 	fmt.Fprintf(w, "Headers:\n")
 	for k, v := range tresp.Headers {
-		if redactedHeaders[strings.ToLower(k)] {
+		if redactSensitive && IsSensitiveHeader(k) {
 			v = "[REDACTED]"
 		}
 		fmt.Fprintf(w, "\t%s: %s\n", k, v)
@@ -350,12 +434,13 @@ func handle304Response(tresp *TransportResponse, w io.Writer, req *Request, rPat
 	writeLog(w, "Server responded with 304 Not Modified, file unchanged\n")
 	req.Result.StatusCode = http.StatusNotModified
 	req.Result.ContentLength = 0
-	req.Result.TotalSize = 0
 	if fi, stErr := os.Stat(rPath); stErr == nil {
-		req.Result.TotalSize = fi.Size()
+		req.Result.ContentLength = fi.Size()
+	} else {
+		slog.Warn("Failed to stat file for 304 handling", "file", rPath, logutil.LogKeyError, stErr)
 	}
 	if req.OnProgress != nil {
-		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		req.OnProgress(100, req.Result.ContentLength, req.Result.ContentLength)
 	}
 	saveEtag(tresp, req)
 }
@@ -374,12 +459,15 @@ func validateContentTypeByExtension(rawURL string, tresp *TransportResponse, w i
 	mediaExt := ""
 	if parsedURL, parseErr := url.Parse(rawURL); parseErr == nil {
 		mediaExt = strings.ToLower(filepath.Ext(parsedURL.Path))
+	} else {
+		slog.Warn("Failed to parse URL for content-type validation", logutil.LogKeyURL, rawURL, logutil.LogKeyError, parseErr)
 	}
 	if ext := mediaExt; mediaExtensionSet[ext] != "" {
 		expectedPrefix := mediaExtensionSet[ext]
 		ct := tresp.Headers["Content-Type"]
 		if ct == "" {
-			ct = tresp.Headers["content-type"]
+			slog.Warn("Content-Type header is empty, skipping validation", "ext", ext, logutil.LogKeyURL, rawURL)
+			return nil
 		}
 		if !strings.HasPrefix(ct, expectedPrefix) {
 			writeLog(w, "Content-Type mismatch for %s: expected %s*, got %s\n", ext, expectedPrefix, ct)
@@ -429,6 +517,10 @@ func writeResponseBody(body io.ReadCloser, rPath string, startOffset, totalSize 
 	reader := buildProgressReader(body, startOffset, totalSize, req, w)
 	if _, cErr := io.Copy(file, reader); cErr != nil {
 		return fmt.Errorf("failed to write file: %w", cErr)
+	}
+	// Call Done to ensure 100% progress is reported
+	if pr, ok := reader.(*ProgressReader); ok {
+		pr.Done()
 	}
 	return nil
 }
@@ -489,7 +581,9 @@ func saveETagAndModTime(tresp *TransportResponse, req *Request, rPath string) {
 	if modTimeStr := tresp.Headers["Last-Modified"]; modTimeStr != "" {
 		if modTime, pErr := time.Parse(time.RFC1123, modTimeStr); pErr == nil {
 			req.Result.ModTime = modTime.Format(time.RFC3339Nano)
-			_ = os.Chtimes(rPath, modTime, modTime)
+			if err := os.Chtimes(rPath, modTime, modTime); err != nil {
+				slog.Warn("Failed to set file modification time", "file", rPath, logutil.LogKeyError, err)
+			}
 		}
 	}
 }
@@ -506,13 +600,13 @@ func logDownloadComplete(w io.Writer, started time.Time, totalSize int64) {
 	switch {
 	case speedVal >= 1<<30:
 		speedVal /= 1 << 30
-		speedUnit = "GB/s"
+		speedUnit = "GiB/s"
 	case speedVal >= 1<<20:
 		speedVal /= 1 << 20
-		speedUnit = "MB/s"
+		speedUnit = "MiB/s"
 	case speedVal >= 1<<10:
 		speedVal /= 1 << 10
-		speedUnit = "KB/s"
+		speedUnit = "KiB/s"
 	default:
 		speedUnit = "B/s"
 	}
@@ -538,11 +632,11 @@ func setReqMetadata(req *Request, key, value string) {
 // ---------------------------------------------------------------------------
 
 // resolveSavePath 解析保存路径并创建目录。
-func (e *HTTPExtractor) resolveSavePath(req *Request) (string, error) {
+func (e *HTTPExtractor) resolveSavePath(req *Request, rootDir string, allowPaths []string, followSymlinks bool) (string, error) {
 	rPath := req.SavePath
-	if e.rootDir != "" {
+	if rootDir != "" {
 		var err error
-		rPath, err = ResolvePathWithAllowList(e.rootDir, e.allowPaths, req.SavePath)
+		rPath, err = ResolvePathWithAllowList(rootDir, allowPaths, req.SavePath, followSymlinks)
 		if err != nil {
 			return "", err
 		}
@@ -554,11 +648,11 @@ func (e *HTTPExtractor) resolveSavePath(req *Request) (string, error) {
 }
 
 // selectProxy 选择代理，失败时降级为直连。
-func (e *HTTPExtractor) selectProxy(ctx context.Context, req *Request) string {
-	if e.selector == nil {
+func (e *HTTPExtractor) selectProxy(ctx context.Context, req *Request, selector Selector) string {
+	if selector == nil {
 		return ""
 	}
-	proxyURL, err := e.selector.SelectProxy(ctx, req.URL, req.Hint)
+	proxyURL, err := selector.SelectProxy(ctx, req.URL, req.Hint)
 	if err != nil {
 		slog.Warn("Proxy selection failed, falling back to direct", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
 		return ""
@@ -576,6 +670,13 @@ func (e *HTTPExtractor) resolveDownloadAction(rPath string, req *Request) Downlo
 	}
 	return ResolveAction(rPath, prevETag, prevChecksum, os.Stat, func(path string) (string, error) {
 		_, hexMD5, err := ComputeFileMD5(path)
+		if err == nil {
+			// 将计算出的 MD5 写入 req.Result，避免 handleSkipResult 重复计算
+			if req.Result == nil {
+				req.Result = &DownloadResult{}
+			}
+			req.Result.MD5Hex = hexMD5
+		}
 		return hexMD5, err
 	})
 }
@@ -587,14 +688,16 @@ func (e *HTTPExtractor) handleSkipResult(rPath string, req *Request) {
 		req.Result = &DownloadResult{}
 	}
 	req.Result.StatusCode = http.StatusNotModified
-	req.Result.TotalSize = func() int64 {
-		if fi, _ := os.Stat(rPath); fi != nil {
-			return fi.Size()
-		}
-		return 0
-	}()
+	fi, err := os.Stat(rPath)
+	if err == nil {
+		req.Result.ContentLength = fi.Size()
+		req.Result.ModTime = fi.ModTime().Format(time.RFC3339Nano)
+	} else {
+		req.Result.ContentLength = 0
+		slog.Warn("File not found or unreadable after skip result", "file", rPath)
+	}
 	if req.OnProgress != nil {
-		req.OnProgress(100, req.Result.TotalSize, req.Result.TotalSize)
+		req.OnProgress(100, req.Result.ContentLength, req.Result.ContentLength)
 	}
 }
 
@@ -609,7 +712,9 @@ func (e *HTTPExtractor) prepareDownloadOffset(rPath string, action DownloadActio
 		slog.Info("Resuming download (best-effort)", "file", rPath, "offset", fi.Size())
 		return fi.Size()
 	case ActionReDownload:
-		_ = os.Remove(rPath)
+		if err := os.Remove(rPath); err != nil {
+			slog.Warn("Failed to remove stale file for re-download", "file", rPath, logutil.LogKeyError, err)
+		}
 		slog.Info("Removing stale file for re-download", "file", rPath)
 	}
 	return 0
@@ -626,9 +731,11 @@ func ensureRequestFields(req *Request) {
 }
 
 // retryDownload 执行带重试的下载循环。
-func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request) error {
-	maxRetries := e.maxRetries
-	if maxRetries <= 0 {
+func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, proxyURL string, startOffset int64, req *Request, localTransport Transport, localLogDir string, localMaxRetries int, localUA string, localBrowserHdrs bool, localResponseChecks []ResponseCheck, localRedactSensitiveHeaders bool) error {
+	maxRetries := localMaxRetries
+	// 将 maxRetries=0 视为"不重试"。
+	// 注意：dlcore 将 maxRetries=0 视为"无限重试"，这是两者的行为差异。
+	if maxRetries < 0 {
 		maxRetries = 5
 	}
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -638,13 +745,29 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		default:
 		}
 
-		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req)
+		success, err := e.tryDownload(dlCtx, rPath, rawURL, proxyURL, startOffset, req, localTransport, localLogDir, localUA, localBrowserHdrs, localResponseChecks, localRedactSensitiveHeaders)
 		if err != nil {
 			if IsNoTry(err) {
 				return err
 			}
 			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
-			time.Sleep(time.Duration(attempt) * time.Second)
+			// 测试钩子：在进入 sleep 前通知调用方
+			if hook := e.TestHookRetrySleep; hook != nil {
+				hook()
+			}
+			select {
+			case <-dlCtx.Done():
+				return dlCtx.Err()
+			default:
+				// 使用 timer 在 ctx 取消时及时释放
+				timer := time.NewTimer(time.Duration(attempt) * time.Second)
+				select {
+				case <-timer.C:
+				case <-dlCtx.Done():
+					timer.Stop()
+					return dlCtx.Err()
+				}
+			}
 			continue
 		}
 		if !success {
@@ -653,31 +776,34 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, e.maxRetries)
+	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, maxRetries)
 }
-
-func (e *HTTPExtractor) buildHeaders(req *Request) map[string]string {
+func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {
 	h := make(map[string]string)
 	if req.Headers != nil {
-		maps.Copy(h, req.Headers)
+		for k, v := range req.Headers {
+			if v != "" {
+				h[k] = v
+			}
+		}
 	}
-	if _, ok := h["User-Agent"]; !ok && e.ua != "" {
-		h["User-Agent"] = e.ua
+	if _, ok := h["User-Agent"]; !ok && localUA != "" {
+		h["User-Agent"] = localUA
 	}
 
 	// 注入 Chrome 风格浏览器标头（除非禁用），然后在最后用 req.Headers 覆盖
-	if e.browserHdrs {
+	if localBrowserHdrs {
 		browser := map[string]string{
 			"Accept":             "*/*",
 			"Cache-Control":      "no-cache",
 			"Pragma":             "no-cache",
 			"Priority":           "i",
-			"Sec-Ch-Ua":          `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`,
+			"Sec-Ch-Ua":          fmt.Sprintf(`"Google Chrome";v=%q, "Chromium";v=%q, "Not A(Brand";v="24"`, chromeVersion, chromeVersion),
 			"Sec-Ch-Ua-Mobile":   "?0",
 			"Sec-Ch-Ua-Platform": `"macOS"`,
 			"Sec-Fetch-Dest":     "video",
 			"Sec-Fetch-Mode":     "no-cors",
-			"Sec-Fetch-Site":     "same-origin",
+			"Sec-Fetch-Site":     "cross-site",
 		}
 		for k, v := range browser {
 			if _, exists := h[k]; !exists {

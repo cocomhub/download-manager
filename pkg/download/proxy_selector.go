@@ -7,26 +7,37 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/pkg/logutil"
+)
+
+const (
+	// defaultMaxBandwidth 是代理探测失败时的默认带宽值（数值越大表示越差）。
+	defaultMaxBandwidth = math.MaxFloat64
 )
 
 // StaticProxySelector 是静态代理列表的选择器实现。
 // 它使用文件缓存 + 直连探测 + 带宽评分来选择最佳代理。
 type StaticProxySelector struct {
 	proxies          []string
-	forceProxy       bool
-	cacheDir         string
-	decisionCacheTTL int // seconds
-	probeTimeout     int // seconds
-	bandwidthSuffix  string
+	forceProxy       atomic.Bool
+	cacheDir         atomic.Value // string
+	decisionCacheTTL atomic.Int64 // seconds
+	probeTimeout     atomic.Int64 // seconds
+	bandwidthSuffix  atomic.Value // string
+	probeMu          sync.Mutex   // 保护带宽探测，防止惊群效应
 }
 
 // NewStaticProxySelector 创建基于静态代理列表的选择器。
@@ -35,36 +46,46 @@ type StaticProxySelector struct {
 //   - 探测超时：3 秒
 //   - 带宽路径后缀："/bandwidth"
 func NewStaticProxySelector(proxies []string) *StaticProxySelector {
-	return &StaticProxySelector{
-		proxies:          proxies,
-		decisionCacheTTL: 1,
-		probeTimeout:     3,
-		bandwidthSuffix:  config.DefaultBandwidthPath,
+	s := &StaticProxySelector{
+		proxies: proxies,
 	}
+	s.decisionCacheTTL.Store(1)
+	s.probeTimeout.Store(3)
+	s.bandwidthSuffix.Store(config.DefaultBandwidthPath)
+	s.cacheDir.Store("")
+	return s
 }
 
 // WithForceProxy 设置是否强制使用代理（跳过直连探测）。
 func (s *StaticProxySelector) WithForceProxy(v bool) *StaticProxySelector {
-	s.forceProxy = v
+	s.forceProxy.Store(v)
 	return s
 }
 
-// WithCache 设置代理决策缓存目录和 TTL（天数）。
+// WithCache 设置代理决策缓存目录和 TTL（秒）。
 func (s *StaticProxySelector) WithCache(dir string, ttl int) *StaticProxySelector {
-	s.cacheDir = dir
-	s.decisionCacheTTL = ttl
+	s.cacheDir.Store(dir)
+	s.decisionCacheTTL.Store(int64(ttl))
 	return s
 }
 
 // WithProbe 设置直连探测超时（秒）。
 func (s *StaticProxySelector) WithProbe(timeout int) *StaticProxySelector {
-	s.probeTimeout = timeout
+	s.probeTimeout.Store(int64(timeout))
+	return s
+}
+
+// WithBandwidthSuffix 设置代理带宽探测路径后缀。默认为 "/bandwidth"。
+func (s *StaticProxySelector) WithBandwidthSuffix(suffix string) *StaticProxySelector {
+	if suffix != "" {
+		s.bandwidthSuffix.Store(suffix)
+	}
 	return s
 }
 
 // cachePathForDomain 返回指定域名的缓存文件路径。
 func (s *StaticProxySelector) cachePathForDomain(domain string) string {
-	cacheBase := s.cacheDir
+	cacheBase, _ := s.cacheDir.Load().(string)
 	if cacheBase == "" {
 		cacheDir, err := os.UserCacheDir()
 		if err != nil {
@@ -82,7 +103,7 @@ func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool
 	if err != nil {
 		return "", false
 	}
-	ttl := s.decisionCacheTTL
+	ttl := int(s.decisionCacheTTL.Load())
 	if ttl <= 0 {
 		ttl = 1
 	}
@@ -98,8 +119,13 @@ func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool
 
 // writeCacheDecision 将代理决策写入缓存文件。
 func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision string) {
-	_ = os.MkdirAll(filepath.Dir(cachePath), 0755)
-	_ = os.WriteFile(cachePath, []byte(decision), 0644)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+		slog.Warn("Failed to create cache directory for proxy decision", "path", cachePath, logutil.LogKeyError, err)
+		return
+	}
+	if err := os.WriteFile(cachePath, []byte(decision), 0644); err != nil {
+		slog.Warn("Failed to write proxy decision cache", "path", cachePath, logutil.LogKeyError, err)
+	}
 }
 
 // Select 实现 ProxySelector 接口。
@@ -108,6 +134,10 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	if len(s.proxies) == 0 {
 		return "", nil
 	}
+
+	// 快照所有原子值，后续 Select 热路径使用局部变量（无锁读）
+	forceProxy := s.forceProxy.Load()
+	probeTimeout := int(s.probeTimeout.Load())
 
 	u, err := url.Parse(targetURL)
 	if err != nil {
@@ -119,26 +149,45 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	// 检查缓存
 	if decision, ok := s.readCachedDecision(cachePath); ok {
 		if decision == "direct" {
+			if forceProxy {
+				// forceProxy=true 时忽略直连缓存，继续走代理选择
+				goto skipCache
+			}
 			return "", nil
 		}
-		return s.selectBestProxy(ctx, cachePath)
+		return s.selectBestProxy(ctx, cachePath, probeTimeout)
 	}
 
+skipCache:
 	// 直连探测
-	if !s.forceProxy && checkDirect(ctx, targetURL, s.probeTimeout) {
+	if !forceProxy && checkDirect(ctx, targetURL, probeTimeout) {
 		s.writeCacheDecision(cachePath, "direct")
 		return "", nil
 	}
 
-	return s.selectBestProxy(ctx, cachePath)
+	return s.selectBestProxy(ctx, cachePath, probeTimeout)
 }
 
 // selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
-func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string) (string, error) {
+func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string, probeTimeout int) (string, error) {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+
+	// 二次检查缓存（可能其他 goroutine 已经探测过了）
+	if decision, ok := s.readCachedDecision(cachePath); ok {
+		if decision == "direct" {
+			return "", nil
+		}
+		// 缓存只存 "direct"/"proxy" 标记，不存具体代理 URL，
+		// 所以即使缓存命中 "proxy" 也需要带宽扫描来选出最佳代理。
+	}
+
+	bandwidthSuffix, _ := s.bandwidthSuffix.Load().(string)
+
 	bestProxy := ""
-	minBandwidth := 999999.0
+	minBandwidth := defaultMaxBandwidth
 	for _, p := range s.proxies {
-		bw := getProxyBandwidth(ctx, p, s.bandwidthSuffix, s.probeTimeout)
+		bw := getProxyBandwidth(ctx, p, bandwidthSuffix, probeTimeout)
 		if bw < minBandwidth {
 			minBandwidth = bw
 			bestProxy = p
@@ -157,19 +206,30 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 		timeoutSecs = 3
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
-	hreq, err := http.NewRequestWithContext(ctx, "HEAD", targetURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
 	if err != nil {
 		return false
 	}
-	resp, err := client.Do(hreq)
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
+	// HEAD 失败，回退到 GET 小量探测
+	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	getReq.Header.Set("Range", "bytes=0-0")
+	resp, err = client.Do(getReq)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
 }
 
-// getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 999999。
+// getProxyBandwidth 查询代理的带宽值（数值越小越好），失败时返回 defaultMaxBandwidth。
 func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs int) float64 {
 	if strings.TrimSpace(suffix) == "" {
 		suffix = "/bandwidth"
@@ -184,20 +244,23 @@ func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs
 	client := &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second}
 	hreq, err := http.NewRequestWithContext(ctx, "GET", target, nil)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	resp, err := client.Do(hreq)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
 	}
 	val, err := strconv.ParseFloat(strings.TrimSpace(string(body)), 64)
 	if err != nil {
-		return 999999
+		return defaultMaxBandwidth
+	}
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return defaultMaxBandwidth
 	}
 	return val
 }

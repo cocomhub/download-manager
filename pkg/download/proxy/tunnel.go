@@ -39,6 +39,9 @@ type cachedBandwidth struct {
 	checkedAt time.Time
 }
 
+// 编译期接口断言：确保 TunnelProxySelector 实现了 download.ProxySelector。
+var _ download.ProxySelector = (*TunnelProxySelector)(nil)
+
 // NewTunnelProxySelector 创建 TunnelProxySelector。
 func NewTunnelProxySelector(opts ...TunnelOption) *TunnelProxySelector {
 	s := &TunnelProxySelector{
@@ -59,10 +62,12 @@ type TunnelOption func(*TunnelProxySelector)
 // WithTunnelInstance 添加一个 sproxy 隧道实例。
 func WithTunnelInstance(serverURL, tunnelKey string) TunnelOption {
 	return func(s *TunnelProxySelector) {
+		s.mu.Lock()
 		s.instances = append(s.instances, TunnelInstance{
 			ServerURL: strings.TrimRight(serverURL, "/"),
 			TunnelKey: tunnelKey,
 		})
+		s.mu.Unlock()
 	}
 }
 
@@ -141,11 +146,11 @@ func (s *TunnelProxySelector) Select(ctx context.Context, targetURL string, hint
 		bw, err := download.CheckBandwidth(ctx, inst.ServerURL+config.DefaultBandwidthPath, s.probeBytes, s.probeTimeout)
 		if err != nil {
 			slog.Debug("sproxy bandwidth probe failed", logutil.LogKeyURL, inst.ServerURL, logutil.LogKeyError, err)
-			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: 0})
-		} else {
-			s.setCache(inst.ServerURL, bw)
-			results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: bw})
+			// 不加入 results —— 带宽未知的实例不可用
+			continue
 		}
+		s.setCache(inst.ServerURL, bw)
+		results = append(results, instanceResult{serverURL: inst.ServerURL, bandwidth: bw})
 	}
 
 	if len(results) == 0 {

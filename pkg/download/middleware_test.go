@@ -273,4 +273,222 @@ func TestWithRuleSetAnnotatesHint(t *testing.T) {
 	if notMatched != nil {
 		t.Errorf("expected no match for .mp4 URL, got rule with pattern: %s", notMatched.Pattern)
 	}
+
+	// Verify that during download the Hint is annotated by the RuleSet
+	sel := download.NewDefaultSelector()
+	ex := &recordingExtractor{}
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithSelector(sel),
+		download.WithRuleSet(rs),
+	)
+
+	req := &download.Request{
+		URL:      "http://example.com/video.ts",
+		SavePath: "/tmp/output.ts",
+	}
+	err := d.Download(t.Context(), req)
+	if err != nil {
+		t.Errorf("Download should succeed: %v", err)
+	}
+	if req.Hint == nil || req.Hint.Extractor != "segment" {
+		got := "<nil>"
+		if req.Hint != nil {
+			got = req.Hint.Extractor
+		}
+		t.Errorf("expected Hint.Extractor to be 'segment', got %q", got)
+	}
+}
+
+// resultExtractor 返回固定 ContentLength，用于测试 MetricsMiddleware 的字节数记录。
+type resultExtractor struct {
+	totalSize int64
+}
+
+func (e *resultExtractor) Name() string                           { return "resultEx" }
+func (e *resultExtractor) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractor) Extract(_ context.Context, req *download.Request) error {
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
+	req.Result.ContentLength = e.totalSize
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytes(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractor{totalSize: 65535}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["resultEx"]
+	if !ok {
+		t.Fatal("expected 'resultEx' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 65535 {
+		t.Errorf("expected 65535 total_bytes, got %d", metrics["total_bytes"])
+	}
+}
+
+// resultExtractorWithNil 返回成功但 Result 始终为 nil，用于测试字节数记录。
+type resultExtractorWithNil struct{}
+
+func (e *resultExtractorWithNil) Name() string                           { return "nilResult" }
+func (e *resultExtractorWithNil) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractorWithNil) Extract(_ context.Context, _ *download.Request) error {
+	// Do NOT set req.Result — it remains nil
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytesZero(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractorWithNil{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["nilResult"]
+	if !ok {
+		t.Fatal("expected 'nilResult' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes for nil Result, got %d", metrics["total_bytes"])
+	}
+}
+
+// resultExtractorWithZeroBytes 返回成功但 Result.ContentLength 为 0。
+type resultExtractorWithZeroBytes struct{}
+
+func (e *resultExtractorWithZeroBytes) Name() string                           { return "zeroBytes" }
+func (e *resultExtractorWithZeroBytes) Match(_ context.Context, _ string) bool { return true }
+func (e *resultExtractorWithZeroBytes) Extract(_ context.Context, req *download.Request) error {
+	if req.Result == nil {
+		req.Result = &download.DownloadResult{}
+	}
+	req.Result.ContentLength = 0
+	return nil
+}
+
+func TestMetricsMiddlewareRecordsBytesZeroTotal(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	ex := &resultExtractorWithZeroBytes{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed: %v", err)
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["zeroBytes"]
+	if !ok {
+		t.Fatal("expected 'zeroBytes' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes, got %d", metrics["total_bytes"])
+	}
+}
+
+func TestMetricsMiddlewareRecordsBytesFailure(t *testing.T) {
+	reg := download.NewMetricRegistry()
+	failEx := &failingExtractor{}
+
+	d := download.New(
+		download.WithExtractor(failEx),
+		download.WithMetricRegistry(reg),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err == nil {
+		t.Fatal("Download should fail with failingExtractor")
+	}
+
+	snap := reg.Snapshot()
+	metrics, ok := snap["failer"]
+	if !ok {
+		t.Fatal("expected 'failer' in metrics snapshot")
+	}
+	if metrics["total_bytes"] != 0 {
+		t.Errorf("expected 0 total_bytes on failure, got %d", metrics["total_bytes"])
+	}
+	if metrics["failure_count"] != 1 {
+		t.Errorf("expected 1 failure, got %d", metrics["failure_count"])
+	}
+}
+
+// TestMetricsMiddlewareNilRegistry 验证 MetricsMiddleware(nil) 安全 pass-through。
+func TestMetricsMiddlewareNilRegistry(t *testing.T) {
+	ex := &recordingExtractor{}
+
+	// 直接创建 nil registry 的 MetricsMiddleware
+	mw := download.MetricsMiddleware(nil)
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMiddleware(mw),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed with nil MetricsMiddleware: %v", err)
+	}
+	if !ex.called {
+		t.Error("expected extractor to be called")
+	}
+}
+
+// TestWithMetricRegistryNil 验证 WithMetricRegistry(nil) 安全 pass-through。
+func TestWithMetricRegistryNil(t *testing.T) {
+	ex := &recordingExtractor{}
+
+	d := download.New(
+		download.WithExtractor(ex),
+		download.WithMetricRegistry(nil),
+	)
+
+	err := d.Download(t.Context(), &download.Request{
+		URL:      "http://example.com/file",
+		SavePath: "/tmp/file",
+	})
+	if err != nil {
+		t.Fatalf("Download should succeed with nil MetricRegistry option: %v", err)
+	}
+	if !ex.called {
+		t.Error("expected extractor to be called")
+	}
 }

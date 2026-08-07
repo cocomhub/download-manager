@@ -121,10 +121,7 @@ func TestSkipsBelowMinStep(t *testing.T) {
 	// 3rd call: delta=1.0 < 5.0, should NOT write
 	cb(3.0, 30, 1000)
 
-	lines := strings.Count(strings.TrimSpace(buf.String()), "\n") + 1
-	if buf.Len() > 0 && strings.TrimSpace(buf.String()) == "" {
-		lines = 0
-	}
+	lines := strings.Count(buf.String(), "\n")
 	// Should only have 1 line (from first call)
 	if lines != 1 {
 		t.Errorf("expected 1 line (first call only), got %d lines:\n%s", lines, buf.String())
@@ -141,7 +138,9 @@ func TestWritesOnMaxInterval(t *testing.T) {
 	// 1st call: always writes
 	cb(0, 0, 1000)
 	// sleep past maxInterval
-	<-time.After(60 * time.Millisecond)
+	timer := time.NewTimer(60 * time.Millisecond)
+	defer timer.Stop()
+	<-timer.C
 	// 2nd call: delta=0.5 < 50, but interval exceeded => should write
 	cb(0.5, 5, 1000)
 

@@ -14,6 +14,9 @@ import (
 // CheckBandwidth 探测目标 URL 的带宽（字节/秒）。
 // 下载一定字节后计算下载速率。
 func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout time.Duration) (float64, error) {
+	if probeBytes <= 0 {
+		probeBytes = 1
+	}
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -28,6 +31,10 @@ func CheckBandwidth(ctx context.Context, url string, probeBytes int64, timeout t
 		return 0, fmt.Errorf("bandwidth probe: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("bandwidth probe: unexpected status %d", resp.StatusCode)
+	}
 
 	start := time.Now()
 	var total int64
@@ -65,7 +72,7 @@ func CheckHealth(ctx context.Context, url string, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("health check: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check: unexpected status %d", resp.StatusCode)

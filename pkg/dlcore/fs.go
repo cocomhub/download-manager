@@ -4,17 +4,19 @@
 package dlcore
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/cocomhub/download-manager/pkg/download" //nolint:staticcheck
 )
 
+// Root 返回 rootDir 的 DirFS。
 func Root(rootDir string) fs.FS {
 	return os.DirFS(rootDir)
 }
 
+// CleanJoin 将 rootDir 与任意元素拼接并用 filepath.Clean 规范化。
 func CleanJoin(rootDir string, elems ...string) (string, error) {
 	all := append([]string{rootDir}, elems...)
 	p := filepath.Join(all...)
@@ -22,40 +24,17 @@ func CleanJoin(rootDir string, elems ...string) (string, error) {
 	return p, nil
 }
 
+// IsWithinRoot 委托给 pkg/download.IsWithinRoot。
 func IsWithinRoot(rootDir, p string) bool {
-	absRoot, err := filepath.Abs(rootDir)
-	if err != nil {
-		return false
-	}
-	absP, err := filepath.Abs(p)
-	if err != nil {
-		return false
-	}
-	if absRoot == absP {
-		return true
-	}
-	if !strings.HasSuffix(absRoot, string(filepath.Separator)) {
-		absRoot = absRoot + string(filepath.Separator)
-	}
-	return strings.HasPrefix(absP, absRoot)
+	return download.IsWithinRoot(rootDir, p)
 }
 
+// ResolvePath 委托给 pkg/download.ResolvePath。
 func ResolvePath(rootDir, p string) (string, error) {
-	if rootDir == "" {
-		return p, nil
-	}
-	if filepath.IsAbs(p) {
-		if IsWithinRoot(rootDir, p) {
-			return p, nil
-		}
-		return "", fmt.Errorf("path outside root: %s", p)
-	}
-	rp, err := CleanJoin(rootDir, p)
-	if err != nil {
-		return "", err
-	}
-	if !IsWithinRoot(rootDir, rp) {
-		return "", fmt.Errorf("path outside root: %s", p)
-	}
-	return rp, nil
+	return download.ResolvePath(rootDir, p)
+}
+
+// ResolvePathNoFollow 委托给 pkg/download.ResolvePathNoFollow。
+func ResolvePathNoFollow(rootDir, p string) (string, error) {
+	return download.ResolvePathNoFollow(rootDir, p)
 }

@@ -63,10 +63,13 @@ func WithMinPercentStep(step float64) ProgressLogOption {
 
 // WithMaxInterval 设置两次日志写入之间的最大间隔。默认 10s。
 // 即使进度变化未达到最小步长，超过此间隔也会强制写入。
+// 传入负值可禁用间隔写入（仅按进度步长触发）。
 func WithMaxInterval(d time.Duration) ProgressLogOption {
 	return func(c *progressLogConfig) {
-		if d <= 0 {
-			d = time.Second
+		if d < 0 {
+			d = 0 // 禁用间隔写入
+		} else if d == 0 {
+			d = defaultConfig().maxInterval // 使用默认值
 		}
 		c.maxInterval = d
 	}
@@ -140,14 +143,14 @@ func NewProgressLogCallback(opts ...ProgressLogOption) func(float64, int64, int6
 		deltaPct := progress - lastProgress
 		timeSinceLastWrite := now.Sub(lastTime)
 
-		if !firstCallDone || deltaPct >= cfg.minStep || timeSinceLastWrite >= cfg.maxInterval {
-			mu.Unlock()
-			cfg.formatter(cfg.w, report)
-			mu.Lock()
+		if !firstCallDone || deltaPct >= cfg.minStep || (cfg.maxInterval > 0 && timeSinceLastWrite >= cfg.maxInterval) {
 			firstCallDone = true
 			lastTime = now
 			lastProgress = progress
 			lastBytes = downloaded
+			mu.Unlock() // 在 formatter（I/O）前释放锁
+			cfg.formatter(cfg.w, report)
+			return
 		}
 
 		mu.Unlock()
@@ -171,13 +174,13 @@ func defaultProgressFormatter(w io.Writer, r ProgressReport) {
 	switch {
 	case speedVal >= 1<<30:
 		speedVal /= 1 << 30
-		unit = "GB/s"
+		unit = "GiB/s"
 	case speedVal >= 1<<20:
 		speedVal /= 1 << 20
-		unit = "MB/s"
+		unit = "MiB/s"
 	case speedVal >= 1<<10:
 		speedVal /= 1 << 10
-		unit = "KB/s"
+		unit = "KiB/s"
 	}
 
 	// ETA
@@ -192,6 +195,7 @@ func defaultProgressFormatter(w io.Writer, r ProgressReport) {
 	_, err := fmt.Fprintf(w, "%s Progress: %s  %.2f %s expected time: %s\n",
 		ts, pctStr, speedVal, unit, etaStr)
 	if err != nil {
+		// I/O 错误不会中止下载，仅记录警告日志
 		slog.Warn("Failed to write progress log", logutil.LogKeyError, err)
 	}
 }

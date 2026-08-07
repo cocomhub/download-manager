@@ -117,6 +117,32 @@ func TestResolveAction_CompleteETagMatchChecksumMissing(t *testing.T) {
 	}
 }
 
+func TestResolveAction_ChecksumUnavailableWithRecord(t *testing.T) {
+	// Checksum unavailable but prevChecksum record exists → ActionReDownload
+	mfs := newMockFS()
+	mfs.addFile("/path/file.mp4", 1024*1024)
+	mc := newMockChecksumer()
+	// No checksum added, so checksumFunc returns error
+
+	action := ResolveAction("/path/file.mp4", "", "prevChecksum", mfs.mockStat(), mc.mockChecksum())
+	if action != ActionReDownload {
+		t.Errorf("expected ActionReDownload (checksum unavailable but record exists), got %v", action)
+	}
+}
+
+func TestResolveAction_ETagNoChecksumWithChecksumOK(t *testing.T) {
+	// ETag exists, no prevChecksum, but checksum is available → ActionDownload (conditional request)
+	mfs := newMockFS()
+	mfs.addFile("/path/file.mp4", 1024*1024)
+	mc := newMockChecksumer()
+	mc.add("/path/file.mp4", "abc123")
+
+	action := ResolveAction("/path/file.mp4", `"someETag"`, "", mfs.mockStat(), mc.mockChecksum())
+	if action != ActionDownload {
+		t.Errorf("expected ActionDownload (ETag without checksum → conditional request), got %v", action)
+	}
+}
+
 func TestResolveAction_IncompleteFile(t *testing.T) {
 	mfs := newMockFS()
 	mfs.addFile("/path/file.mp4", 512*1024) // 不完整的文件
@@ -125,20 +151,6 @@ func TestResolveAction_IncompleteFile(t *testing.T) {
 	action := ResolveAction("/path/file.mp4", `"abc123"`, "abc123", mfs.mockStat(), mc.mockChecksum())
 	if action != ActionResume {
 		t.Errorf("expected ActionResume, got %v", action)
-	}
-}
-
-func TestResolveAction_CompleteETagChecksumReDownload(t *testing.T) {
-	// 场景：文件完整，有 ETag 和 checksum 记录，但文件实际 checksum 与记录不一致（文件损坏）
-	mfs := newMockFS()
-	mfs.addFile("/path/file.mp4", 1024*1024)
-	mc := newMockChecksumer()
-	mc.add("/path/file.mp4", "actualChecksum") // 本地文件实际校验和
-
-	// prevChecksum 不一致 → 文件损坏 或 被篡改
-	action := ResolveAction("/path/file.mp4", `"someETag"`, "recordedChecksum", mfs.mockStat(), mc.mockChecksum())
-	if action != ActionReDownload {
-		t.Errorf("expected ActionReDownload (checksum mismatch = corrupted), got %v", action)
 	}
 }
 

@@ -44,6 +44,27 @@ func TestCheckHealthNon200(t *testing.T) {
 	}
 }
 
+func TestCheckBandwidthFailure(t *testing.T) {
+	t.Run("server error 500", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+
+		_, err := download.CheckBandwidth(t.Context(), ts.URL, 512*1024, 5*time.Second)
+		if err == nil {
+			t.Error("expected error for 500 status, got nil")
+		}
+	})
+
+	t.Run("unreachable server", func(t *testing.T) {
+		_, err := download.CheckBandwidth(t.Context(), "http://127.0.0.1:1", 512*1024, time.Second)
+		if err == nil {
+			t.Error("expected error for unreachable server, got nil")
+		}
+	})
+}
+
 func TestCheckBandwidthBasic(t *testing.T) {
 	data := make([]byte, 1024*1024) // 1MB of data
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +77,8 @@ func TestCheckBandwidthBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckBandwidth should not error: %v", err)
 	}
-	if bw <= 0 {
-		t.Errorf("expected positive bandwidth, got %f", bw)
+	if bw < 10*1024*1024 {
+		t.Errorf("expected bandwidth > 10MB/s on loopback, got %f bytes/sec", bw)
 	}
 	t.Logf("Bandwidth: %.2f bytes/sec", bw)
 }

@@ -1,29 +1,31 @@
-build
-local
-bin
-*.log
-*.exe
-*.bak
-*.tmp
-*.out
-config_backups
-config.yaml
-download-manager
-.workbuddy/
-.claude/worktrees/
-.superpowers/
-.claude/diff_phase2.txt
 
 # Playwright test artifacts
-test/playwright/node_modules/
-test/playwright/playwright-report/
-test/playwright/test-results/
-test/playwright/artifacts/
-test/playwright/.cache/
-
 # Playwright test server binary
+# Playwright visual regression snapshots (auto-regenerated)
+*.bak
+*.exe
+*.log
+*.out
+*.tmp
+.claude/diff_phase2.txt
+.claude/worktrees/
+.superpowers/
+.supervisors/
+.workbuddy/
+bin
+build
 cmd/playwright-server/playwright-server
 cmd/playwright-server/playwright-server.exe
-
-# Playwright visual regression snapshots (auto-regenerated)
+config.yaml
+config_backups
+download-manager
+local
+pkg-download-*.md
+test/playwright/.cache/
+test/playwright/artifacts/
+test/playwright/node_modules/
+test/playwright/playwright-report/
 test/playwright/specs/visual-regression.spec.ts-snapshots/
+test/playwright/test-results/
+tmp/
+learnings/

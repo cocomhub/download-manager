@@ -4,6 +4,7 @@
 package extractor_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/pkg/download"
@@ -31,13 +32,15 @@ func TestHLSExtractorMatchM3U8(t *testing.T) {
 }
 
 func TestHLSExtractorNoFFmpeg(t *testing.T) {
-	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("ffmpeg"))
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("ffmpeg"), extractor.WithFFmpegPath("/nonexistent/ffmpeg"))
 	err := ex.Extract(t.Context(), &download.Request{
 		URL:      "http://example.com/stream.m3u8",
 		SavePath: "/tmp/output.mp4",
 	})
 	if err == nil {
-		t.Skip("ffmpeg not available, skipping")
+		t.Fatal("expected error when ffmpeg is not available")
 	}
-	t.Logf("Got expected error: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
 }
