@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786096502743,
+  "lastUpdate": 1786098181892,
   "repoUrl": "https://github.com/cocomhub/download-manager",
   "entries": {
     "Benchmark": [
@@ -79192,6 +79192,870 @@ window.BENCHMARK_DATA = {
             "value": 2,
             "unit": "allocs/op",
             "extra": "37720 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "suixibing@gmail.com",
+            "name": "suixibing",
+            "username": "suixibing"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8dee6eca8308bee4fa5d03a231f65e347c001088",
+          "message": "fix: pkg/download 代码审查修复 - 并发安全/功能性Bug/测试完善 (#54)\n\n* fix(pkg/download): 修复并发安全与阻塞性缺陷\n\n- C1/C2: DomainLimiter.Acquire 支持 context 取消，用 channel+select 替代 sync.Cond\n  URL 解析失败时返回 error 而非静默绕过，调用方（StdlibTransport）检查 error\n- C3: CompositeExtractor.buildDownloader 使用 sync.Once 消除数据竞争\n- C4: HLSExtractor.executeFFmpeg drain stderr goroutine 响应 ctx.Done() 取消\n- C6: retryDownload 的 time.Sleep 改用 select 监听 ctx.Done()\n\n* fix(pkg/download): 修复功能性 Bug\n\n- C5: MetricsMiddleware 从 req.Result.TotalSize 获取实际字节数\n- C7: validateRequest 重命名为 validateAndInitRequest 明确含副作用\n- C8: ruleSetSelector hint=nil 时直接返回 next 匹配结果\n- C9: 重写 TestParseM3U8SingleLevel 为有断言的 processM3U8Line 测试\n- C10: 重写 md5_weak_etag_test.go 为调用 TryGetMd5 的有效测试\n\n* chore: 清理 unused writeFile 和 os import\n\n* fix(pkg/download): 修复 Important 级别问题\n\n- I1: HTTPExtractor.Cancel 改用 Load 而非 LoadAndDelete（避免与 Extract defer 竞争）\n- I4: DefaultSelector 添加 mu 保护 extractors/proxySelector 并发安全\n- I7: downloadFileWithRetry 退避从 i*i 改为 i*i（i=1 时 1s 而非 0s）\n- I14/I15: 静默吞没错误改为 slog.Warn 日志记录\n\n* fix(pkg/download): 修复 Suggestion 级别问题\n\n- S5: proxy_selector.go 魔术数字 999999.0 提取为 defaultMaxBandwidth 常量\n- S5: selectBestProxy 和 getProxyBandwidth 失败时使用 defaultMaxBandwidth\n\n* fix: 修复 DomainLimiter.Acquire TOCTOU 竞争和 DefaultSelector.SelectProxy 字段误用\n\n* chore: 添加 .supervisors/ 到 .gitignore\n\n* fix(pkg/download): 完善 DomainLimiter 测试，补充 context 取消和 MetricsMiddleware 字节数测试\n\n- 修复 TestDomainLimiterInvalidURL：验证 Acquire 返回错误而非忽略\n- 新增 TestDomainLimiterContextCancel：验证 context 取消时 Acquire 返回 context.Canceled\n- 新增 TestDomainLimiterContextCancelMulti：验证多等待者中取消一个不影响其他\n- 修复 TestDomainLimiterSetAndAcquire / TestDomainLimiterSetZero：\n  - 使用 context.WithCancel 确保 goroutine 泄漏时能清理\n  - 检查 Acquire 的 error 返回值\n- 新增 TestMetricsMiddlewareRecordsBytes：验证 MetricsMiddleware 传递 TotalSize\n\n* test(pkg/download): 完善DomainLimiter/Selector/CompositeExtractor/MetricsMiddleware测试覆盖\n\n新增测试文件：\n- selector_test.go：DefaultSelector 并发安全、Hint匹配、Proxy选择器集成\n- http_extractor_retry_cancel_test.go：retry间隔期间 context 取消\n\n修改测试文件：\n- domainlimiter_test.go：并发压力(100 goroutine)、Set唤醒、无等待者Release、\n  取消后重新Acquire、取消后Release\n- composite_test.go：sync.Once 并发调用验证、缓存Downloader验证\n- middleware_test.go：Result为nil时字节数0、TotalSize为0时字节数0、失败时字节数0\n- proxy_selector_test.go：defaultMaxBandwidth常量验证\n\n* fix(test): add assertions to C9, C10, I13, I14 code review findings\n\n- C9: TestHLSExtractorNoFFmpeg validates error contains 'not found'\n- C10: TestSproxyTransportRoundTripNoSproxy/HealthCheck verify err on failure\n- I13: TestDomainLimiterConcurrent adds t.Parallel()\n- I14: TestComposeProgressConcurrent validates concurrent progress callbacks\n\n* fix(pkg/download): 并发安全修复——C5+C6+I1+I2+I10\n\nC5: TunnelProxySelector.WithTunnelInstance 写锁保护\nC6: grab recordFailure nil panic 防护\nI1: RuleSet 添加 sync.RWMutex 并发保护\nI2: selector 快照复制 extractors 列表，锁外调用 Match\nI10: progresslog 使用 defer mu.Unlock()\n\n* fix: resolve pkg/download code review issues C1-C8, C11\n\nC1: WgetExtractor.Match returns false, only via hint.Extractor\nC2: Use resp.Header.Values() for multi-value headers\nC3: M3U8DEngine .bak rename -> tmp file + atomic replace\nC4: CompositeExtractor.Match comment documenting design intent\nC7: Use url.URL.JoinPath for safe proxy URL construction\nC8: DomainLimiter.Release logs warning + raw URL fallback\nC11: Cancel test time.Sleep -> ready channel + minimal delay\n\n* fix(pkg/download): 提取硬编码地址为辅助函数，替换自实现 contains\n\n- S1: sproxy_test.go + tunnel_test.go 提取 getTestSproxyURL()，\n  优先使用 TEST_SPROXY_URL 环境变量，回退到 http://localhost:18083\n- S2: bandwidth.go 导出 DefaultProbeTimeout / DefaultProbeBytes 常量\n- S4: tk_detector_test.go 替换自实现 contains 为 strings.Contains，\n  删除无用辅助函数\n\n* fix(pkg/download): 批量修复 Important 级别问题\n\n- I3: 日志脱敏扩展 — 新增 RedactSensitiveHeaders 开关、IsSensitiveHeader 导出函数\n- I4: Wget 命令行泄露 — 新增 RedactSensitiveHeaders 字段过滤敏感头\n- I5: HLS stderr 丢弃 — 改用 bufio.Scanner 按行读取并用 slog.Debug 记录\n- I6: 代理惊群效应 — selectBestProxy 加 probeMu 互斥锁 + 二次检查缓存\n- I7: M3U8D 扩展名匹配 — strings.Contains 改为 strings.HasSuffix 精确匹配\n- I9: fs.go 静默忽略 — filepath.Abs 失败时添加 slog.Warn\n- I11: Content-MD5 格式 — 添加 24 字符 Base64 格式支持\n- I12: 测试路径拼接 — 改为 filepath.Join\n- I14: 超时取消测试 — 新增 TestHTTPExtractorTimeout\n\n* fix(pkg): 批量修复代码审查发现的问题\n\n- 修复 1: 消除对 config 包的依赖，使用包内常量 defaultBandwidthPath\n- 修复 2: sproxy 测试用 httptest 替代死测试\n- 修复 3: tunnel 测试用 httptest 模拟多实例\n- 修复 4: isWithinRoot Windows 大小写敏感（strings.EqualFold）\n- 修复 5: CheckHealth 添加 io.Copy(io.Discard) drain body\n- 修复 6: 隧道密钥静默降级 Warn→Error，新增 strictTunnel 模式\n- 修复 7: roundTripViaProxy 使用 url.URL 类型操作\n- 修复 8: isSafeTargetURL 使用 net.Resolver{}.LookupHost(ctx, host)\n- 修复 9: getProxyBandwidth 添加 math.IsNaN/IsInf 校验\n- 修复 10: writeCacheDecision 吞错误改为 log 错误\n\n* fix(pkg/download): 修复测试代码审查问题\n\n* fix(pkg/download): 批量修复代码审查发现的问题\n\n- 修复 1: 导出 TransportSetter 和 SelectorSetter 命名接口，替换匿名接口\n- 修复 2: DefaultSelector 移除已废弃的 extractors 字段和 AddExtractor 方法\n- 修复 6: HLSExtractor 实现 Canceller 接口（active sync.Map + Cancel 方法）\n- 修复 7: HLS buildFFmpegArgs 传递所有非敏感头（不再只传 Referer/Cookie）\n- 修复 10: selectWgetProxy 添加 req.Hint 为 nil 时的防御性检查\n- 修复 11: m3u8d 模式添加 TODO 注释明确标注未实现\n- 修复 13: ETag 长度检查放宽，添加 hex 格式验证和 debug 日志\n- 修复 15: TunnelProxySelector 带宽探测失败时不加入 results（而非带宽=0）\n\n* fix(pkg/download): 补充 composite.go 子请求传播字段，清理 selector_test.go 死代码\n\n* fix(pkg/download): 补齐 CompositeExtractor 子请求字段传播和 DefaultSelector 清理\n\n* fix(pkg/download): progresslog 锁竞争、retry timer 泄漏、取消测试 sleep\n\n* fix(pkg/download): batch4 API设计改进 - 文档补充、hint guard、Snapshot RLock\n\n* fix(pkg/download): batch5 测试修复 - 断言增强、注释修正\n\n* fix(pkg/download): batch3 安全加固 - copyMap nil、hls header 过滤\n\n* fix(pkg/download): 修复最终审查发现的回归和Critical问题 - wget.go JoinPath、StdlibTransport超时、DNS超时、ProgressReader atomic\n\n* docs: 添加 pkg/download 第四轮审查经验总结\n\n* fix(pkg/download): 批量修复测试质量问题（batch5）\n\n修复 18 个测试问题：\n\n1. TestDownloaderNoExtractor — 使用 mockNonMatchingExtractor 替代真实 HTTP 请求\n2. TestGetReturnsNoError — 使用 mockSuccessExtractor 避免网络请求\n3. TestComposeProgressConcurrent — 断言 count == 200（100 次调用 × 2 个回调）\n4. TestResolveAction_ChecksumUnavailableWithRecord — 新增：checksum 失败且有记录 → ActionReDownload\n5. TestResolveAction_ETagNoChecksumWithChecksumOK — 新增：ETag 存在、无 checksum 记录 → ActionDownload\n6. TestTryGetMd5ContentMD5Base64 — 新增：24 字符 Base64 Content-MD5 → hex decode\n7. TestSproxyTransportWithTunnelKey — 标记为 t.Skip（需要 mock tunnel server）\n8. TestCheckBandwidthBasic — 断言从 1KB/s 提升到 10MB/s\n9. TestWritesOnMaxInterval — time.After → time.NewTimer + defer Stop\n10. TestResolveAction_IncompleteFile — 保留原名（正确）\n11. TestResolveAction_CompleteETagChecksumReDownload — 删除（与 ChecksumMismatch 重复）\n12. TestTryGetMd5InvalidEtag 拆分为两个测试（WrongLength + InvalidHex）\n13. TestDefaultMaxBandwidthConstant — 删除（死测试）\n14. TestNewMetricRegistry — 删除（死测试）\n15. TestStaticProxySelectorEmptyProxies — 合并到 NoProxies（table-driven）\n16. TestHLSExtractorNoFFmpeg — 使用 /nonexistent/ffmpeg 路径\n17. TestWgetExtractorSetSelector/SetTransport — 删除（无断言）\n18. TestCompositeExtractor 重命名（BuildDownloaderOnce → ExtractConcurrentNoRace,\n    BuildDownloaderCalledOnce → ExtractSequentialError）\n\n文件：download_test.go, progress_test.go, etag_test.go, md5_test.go,\n      md5_weak_etag_test.go, sproxy_test.go, bandwidth_test.go,\n      progresslog_test.go, proxy_selector_test.go, metrics_test.go,\n      hls_test.go, wget_test.go, composite_test.go\n\n* fix(pkg/download): 完成 batch5 修复收尾\n\n- 修复 proxy_selector.go selectBestProxy 注释缩进\n- 新增 http_extractor_concurrent_test.go 并发安全测试\n- 修复 wget_test.go 空行格式\n\n* fix(http_extractor_concurrent_test): 修复格式和新行\n\npre-commit gofmt 修正了并发测试文件中的格式问题\n\n* fix: 修复 pkg/download 中 16 个代码缺陷\n\n修复列表:\n1. download.go: hint.Extractor 被设置但从未被消费 — 在 matchExtractor fallback 前按 hint.Extractor 名称查找\n2. rule.go: matchPattern(\"*\", url) 单星号永不匹配 — 开头特判 pattern == \"*\" 返回 true\n3. rule.go: matchPattern(\"**\", url) 双星号匹配所有 URL — 子串为空时返回 false\n4. rule.go: 删除 MinSize/MaxSize 死字段\n5. http_extractor.go: ProgressReader.Done() 生产代码中从未被调用 — tryDownload 成功路径末尾调用 OnProgress\n6. http_extractor.go: retryDownload 错误消息使用 e.maxRetries 而非钳位值 — 改为 localMaxRetries\n7. progress.go: Done() 使用 pr.total 而非 pr.downloaded.Load() — 修正为使用原子加载值\n8. md5.go: Weak ETag 提取缺少 hex 格式校验 — 在弱 ETag 分支添加 hex.DecodeString 验证\n9. m3u8d/grab.go: recordSuccess 去重 key 使用重定向后 URL — 改为 resp.Request.URL()\n10. m3u8d/engine.go: processResourceLine .key/.bin 文件名引用不一致 — 改为返回哈希名\n11. m3u8d/engine.go: resolveURL 解析失败时静默返回 raw — 改为返回 (string, error)\n12. m3u8d/engine.go: downloadFileWithRetry 指数退避无上限 — 加 min(i*i, 30) 上限\n13. m3u8d/engine.go: ErrNotEnoughFiles 阈值 10 硬编码 — 改为可配置 MinFiles 字段\n14. m3u8d/engine.go: WorkDir base64 碰撞 — 改用 sha256 截断 hex\n15. proxy_selector.go: writeCacheDecision 静默吞没错误 — 加 slog.Warn 日志\n16. transport/sproxy.go: WithSproxyTunnelKey 无效密钥静默降级 — 新增 TunnelActive() bool 方法\n\n* fix(pkg/download): 安全加固 - Proxy URL脱敏、Sec-Fetch-Site修正、符号链接路径穿越、DNS缓存\n\n- redactProxyURL 公用函数，logDownloadStart/logHTTPHeaders 复用\n- Sec-Fetch-Site: same-origin -> cross-site\n- Sec-Ch-Ua 版本统一为 v=145，提取为 chromeVersion 常量\n- isWithinRoot 添加 filepath.EvalSymlinks 解析符号链接\n- isSafeTargetURL 添加 5 分钟 TTL DNS 缓存\n\n* fix(pkg/download): 6 项代码质量修复\n\n1. defaultProgressFormatter 速度单位使用二进制前缀（KiB/s, MiB/s, GiB/s）\n   - pkg/download/progresslog.go: 将 KB/s/MB/s/GB/s 改为 KiB/s/MiB/s/GiB/s\n   (二进制前缀与 1024 进制除法的语义一致)\n\n2. TryGetMd5 中 Content-MD5 使用 strings.EqualFold 统一检查\n   - pkg/download/md5.go: 遍历 headers 用 EqualFold 匹配 Content-MD5\n   (消除 'Content-MD5' vs 'Content-Md5' 硬编码分支的死代码)\n\n3. handleSkipResult 匿名函数提取为 getFileSize 辅助函数\n   - pkg/download/http_extractor.go: 新增 getFileSize() 函数，\n   将立即执行函数简化为普通 os.Stat + if 检查\n\n4. DefaultSelector.SelectProxy 使用 defer mu.Unlock\n   - pkg/download/selector.go: s.mu.Lock() 后 defer s.mu.Unlock()\n   (消除无 defer 的锁操作)\n\n5. Request 注释补充 Result 字段可靠读取范围\n   - pkg/download/request.go: 扩展注释说明 Download 返回后\n   Result 字段仅在调用方持有锁或未并发访问时可靠读取\n\n6. TryGetMd5 ETag 硬编码下标提取为具名常量\n   - pkg/download/md5.go: 新增 etagQuotedLen(34) 和\n   weakETagQuotedLen(36) 常量，替换硬编码的 34/33/36/35\n\n* fix(m3u8d): 退避上限使用 min() 简化代码\n\n* fix(pkg/download): 批量修复 20 个代码质量问题\n\n修复清单：\n\n- Fix 1: validateContentTypeByExtension 移除死代码 fallback 到 lowercase header key\n- Fix 2: DefaultSelector.WithProxySelector 添加注释说明链式调用模式\n- Fix 3: SetDefault(nil) 后 Default() 惰性创建新实例的文档\n- Fix 4: StdlibTransport URL 拼接添加注释说明 url.URL 已处理编码\n- Fix 5: mediaExtensionSet 添加 .avif/.heic/.av1 现代格式\n- Fix 6: Content-Type 为空时跳过校验，仅记录 slog.Warn\n- Fix 7: ResponseCheck 类型定义从 http_extractor.go 移到 extractor.go\n- Fix 8: buildHeaders 中 maps.Copy 改为手动循环过滤空值\n- Fix 9: handleSkipResult 添加 os.Stat 失败时的 slog.Warn\n- Fix 10: Cancel 注释更新说明闭包在提取后仍然有效\n- Fix 11: Metrics.Name 添加创建后只读注释\n- Fix 12: WriteToProgress 日志写入错误添加注释说明不影响下载\n- Fix 13: ComposeProgress 添加并发安全注释\n- Fix 14: TestTransportResponseStruct 使用 defer 关闭 body\n- Fix 15: TestSkipsBelowMinStep 简化行数计算\n- Fix 16: TestWritesOnMaxInterval 使用 time.NewTimer + defer 防止 timer 泄漏\n- Fix 17: TestRuleExactMatch 补充反例断言\n- Fix 18: TestMetricRegistrySnapshot 补充所有 6 个字段断言\n- Fix 19: TestDomainLimiterConcurrent 添加私有字段访问注释\n- Fix 20: TestDomainLimiterSetWakeup 添加竞态窗口注释\n\n* style(progresslog_test): 添加文件末尾换行\n\n* fix(pkg/download): 最终审查修复 - 速度单位标签、DNS缓存类型断言\n\n- http_extractor.go: logDownloadComplete 速度单位 GB/s->GiB/s, MB/s->MiB/s, KB/s->KiB/s\n- transport/sproxy.go: dnsCacheEntry 类型断言添加 ok 检查\n\n* style(sproxy): 规范化换行符\n\n* fix(pkg/download): 批次1 并发安全修复 — cancels顺序、handler t.Error、忽略错误、冲突断言\n\n* fix(pkg/download): 批次2 功能Bug修复 — 协议白名单、nil guard、cleanJoin错误、带宽零值、注释修正\n\n* fix(pkg/download): batch3 dead code - add Deprecated markers\n\n* fix(pkg/download): 独立代码审查最终修复\n\n11组并行审查共修复15个文件(+385/-29行):\n\n安全修复:\n- wget/hls: 补充SavePath和URL的CR/LF注入检查\n- hls: 30s超时路径增加dlCancel()终止ffmpeg进程\n- m3u8d: 路径遍历检测补充\"..\"裸值检查\n- m3u8d: Cleanup增加绝对路径安全校验+根目录拦截\n- m3u8d: defer file.Close()改为显式Close并检查错误\n- m3u8d: os.Rename失败时清理临时文件残留\n\n并发/数据竞争:\n- http_extractor: RedactSensitiveHeaders增加局部拷贝\n- domainlimiter: Acquire增加context预检查和唤醒后取消检查\n- domainlimiter: 抽取passSlot方法，抽取removeWaiter\n\nHTTP/Bug修复:\n- transport_stdlib: 修复Body被忽略，支持Body透传\n- transport_stdlib: 代理URL路径TrimRight防双斜杠\n- md5: Strong ETag和Content-MD5增加hex内容验证\n- progresslog: WithMaxInterval(-1)禁用间隔写入修复\n\nAPI/文档:\n- proxy_selector: 注释\"天数\"->\"秒\"，新增WithBandwidthSuffix\n\n测试改进:\n- domainlimiter_test: 新增5个边界测试(已取消context/多域名/Set(0)/竞态)\n- md5_test/md5_weak_etag_test: 新增5个测试用例\n- middleware_test: 新增2个nil registry测试\n- retry_cancel_test: time.Sleep时序依赖改为信号驱动\n\n* fix(pkg/download): 修复5个必须修复问题\n\nHLS:\n- buildFFmpegArgs: SavePath前添加--分隔符防止参数注入\n- 30s硬编码超时改为可配置(默认5min)，新增WithFFmpegTimeout option\n\nM3U8D:\n- processM3U8Line: path.Clean改为filepath.Clean，统一反斜杠为正斜杠\n  修复Windows上..\\..\\绕过路径遍历检测的问题\n\nOption:\n- WithRuleSet: 增加rs==nil保护，防止nil指针解引用panic\n\nDomainLimiter:\n- Release: URL解析失败时直接return，避免host key不匹配导致slot泄漏\n\n* fix(pkg/download): 修复所有剩余问题(13文件+324/-40行)\n\n代码清理:\n- download.go: 删除废弃ErrNoDefaultDownloader\n- bandwidth.go: 删除废弃DefaultProbeTimeout/DefaultProbeBytes\n\n生产代码修复:\n- http_extractor.go: handleSkipResult日志误导修复; os.Remove静默错误加warn\n- transport_stdlib.go: 代理模式显式设置hreq.Host=targetHost\n- bandwidth.go: CheckBandwidth新增HTTP状态码校验(500不再返回0带宽)\n\n测试新增:\n- http_extractor_cancel_test.go: 取消后重新下载成功验证\n- http_extractor_retry_cancel_test.go: time.Sleep→信号驱动(TestHookRetrySleep)\n- http_extractor_concurrent_test.go: 错误字符串比较→strings.Contains\n- progress_test.go: ProgressReader并发安全测试(10 goroutines)\n- proxy_selector_test.go: 全部代理不可达场景测试\n- rule_test.go: 单星号*通配匹配+并发安全测试\n- fs_test.go: 符号链接路径解析+ResolvePathWithAllowList测试\n- bandwidth_test.go: CheckBandwidth失败路径(500+不可达)\n- download_test.go: 更新注释删除废弃引用\n\n* docs: 更新 pkg/download 审查修复经验总结(第二轮+第三轮)\n\n补充第二轮独立功能可用性审查和全量修复的经验:\n- 9个通用问题模式(含并行agent冲突/测试钩子/废弃代码清理)\n- 5个测试最佳实践(时序依赖消除/断言强度分级)\n- 10个生产Bug修复+12个新增测试+2个防御性修复\n- 3个残留建议改进项\n\n* fix(pkg/download): 修复3个最终问题\n\n- proxy/tunnel.go: 添加TunnelProxySelector编译期接口断言\n- extractor/wget.go: 添加exec.LookPath(\"wget\")预检查\n- http_extractor_cancel_test.go: 修复TestHTTPExtractorCancel不稳定\n  (10s→3s延迟 + 轮询模式替代ready channel)\n\n* fix(pkg/download): forceProxy 忽略直连缓存 + selector 测试覆盖\n\n* fix(downloader): ApplyDomainLimits 非 StdlibTransport 时写 warning 日志\n\n* fix(extractor): wget/composite 填充 req.Result\n\n* fix(pkg/download): DomainLimiter atomic slot 重构消除 ctx 竞态\n\n* fix(download/transport): fix Host header + enable tunnel test\n\n* fix(m3u8d): 递归深度限制 + 空响应 Request 不终止批量\n\n* docs: 第四轮 pkg/download 审查修复经验总结\n\n* fix(extractor): B5 CompositeExtractor移除Deprecated+HTTPExtractor兜底+Canceller+进度权重\n\n* fix(extractor): B6 WgetExtractor编译期检查+Cancel竞态修复\n\n* fix(pkg/download): B8 Transport nil treq guard+CloseIdleConnections\n\n* fix(pkg/download): B3 DomainLimiter slot丢失修复+Remove方法\n\n* fix(pkg/download): B4 文件系统符号链接修复+EnsureDir清理\n\n* fix(pkg/download): B7 测试修复-atomic+ErrAlreadyDownloading+sentinel+清理\n\n* fix(pkg/download): B2 ProxySelector 并发安全+哨兵值+缓存清理\n\n* fix(pkg/download): B1 Content-Length语义分离+Done接入+Skip路径修复\n\n* fix(extractor): F1 totalProcessedSize赋值修复动态权重进度\n\n* fix(manager): F4 DomainLimiter.Remove+CloseIdleConnections添加调用方\n\n* fix(pkg/download): F5 移除缓存清理O(n²)扫描+统一默认值\n\n* fix(pkg/download): 移除未使用的cleanStaleCacheEntries函数\n\n* fix(pkg/download): 修复 IsWithinRoot 对非存在文件路径的符号链接处理\n\nCI 在 macOS 上全部失败，错误为 'path outside root'。\n根因：IsWithinRoot 对 rootDir（如 /tmp → /private/tmp 符号链接）调用\nEvalSymlinks 时，由于下载目标文件尚未创建，EvalSymlinks 失败导致\n路径解析不一致。\n\n修复方案：\n1. 新增 resolveSymlinksSafe 函数，当路径不存在时逐级向上解析父目录\n   的符号链接，正确处理 macOS /tmp → /private/tmp 等系统符号链接\n2. 新增 followSymlinks 参数，控制 ResolvePath/IsWithinRoot 是否解析\n   符号链接，默认 true（安全检查）\n3. 新增 ResolvePathNoFollow 便捷函数\n4. 在 config.DcFilesystem 中添加 FollowSymlinks 配置项（*bool），\n   HTTPExtractor 通过该配置控制符号链接解析行为\n5. 更新所有调用点传递 followSymlinks 参数\n\n* fix(pkg/download): 修复 ResolvePathWithAllowList 符号链接解析不一致\n\nCI 中 TestResolvePathWithAllowList 在 macOS 上失败，因为 resolved\n路径（/var/folders/...）和 allowPaths（/private/var/folders/...）\n经过 EvalSymlinks 后符号链接解析不一致，前缀比较失败。\n\n修复：对 resolved 路径也调用 resolveSymlinksSafe 得到\nresolvedForCheck 用于白名单前缀比较，确保与 allowPaths 的\n符号链接解析结果一致。\n\n新增测试：\n- TestResolveSymlinksSafe: 验证不存在的路径逐级解析父目录\n- TestIsWithinRootNonExistentPath: 验证不存在路径在 rootDir 内外判断\n- TestIsWithinRootNoFollow: 验证 followSymlinks=false 行为\n- TestResolvePathNoFollow: 验证 ResolvePathNoFollow\n- TestResolvePathFollowSymlinks{False,True}: 验证显式参数\n\n* fix(pkg/download): 修复 TestResolveSymlinksSafe 在 macOS 上的断言失败\n\nresolveSymlinksSafe 在 macOS 上会将 /var/folders/... 解析为\n/private/var/folders/...（因为 /var → /private/var 符号链接），\n导致精确相等断言失败。\n\n修复：改用 HasSuffix 检查路径尾部的 'nonexistent/file.txt' 片段，\n并改用 filepath.FromSlash 适配 Windows 路径分隔符。\n\n* fix(pkg/download): CompositeExtractor 并发保护 + ContentLength 语义调整 + 测试清理\n\n- CompositeExtractor: 添加 sync.RWMutex 保护 selector/transport 字段\n- ContentLength: 现在使用实际内容大小（totalSize），非 HTTP 头值\n- 移除 DownloadResult.TotalSize 冗余字段，统一使用 ContentLength\n- m3u8d: 新增 AllowFileProtocol 字段控制 file 协议白名单\n- config: MaxRetries<=0 钳位到 5，保持默认重试行为\n- 测试: 添加 IsSensitiveHeader 表驱动测试，删除 EnsureDir 死测试\n- middleware: 使用 Result.ContentLength 替代 TotalSize",
+          "timestamp": "2026-08-07T18:18:20+08:00",
+          "tree_id": "aeedf1c10a4a4a9a27d884282c08b1bc929485c2",
+          "url": "https://github.com/cocomhub/download-manager/commit/8dee6eca8308bee4fa5d03a231f65e347c001088"
+        },
+        "date": 1786098180837,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 360.5,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3246344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 360.5,
+            "unit": "ns/op",
+            "extra": "3246344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3246344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3246344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 319.6,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3738582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 319.6,
+            "unit": "ns/op",
+            "extra": "3738582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3738582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3738582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 318.6,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3772054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 318.6,
+            "unit": "ns/op",
+            "extra": "3772054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3772054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3772054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 319.4,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3742694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 319.4,
+            "unit": "ns/op",
+            "extra": "3742694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3742694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3742694 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 321.4,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3739273 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 321.4,
+            "unit": "ns/op",
+            "extra": "3739273 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3739273 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3739273 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 907.9,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1315804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 907.9,
+            "unit": "ns/op",
+            "extra": "1315804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1315804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1315804 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 907.4,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1315940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 907.4,
+            "unit": "ns/op",
+            "extra": "1315940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1315940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1315940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 909.8,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1317159 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 909.8,
+            "unit": "ns/op",
+            "extra": "1317159 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1317159 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1317159 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 907.1,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1332072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 907.1,
+            "unit": "ns/op",
+            "extra": "1332072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1332072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1332072 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 903.7,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1323748 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 903.7,
+            "unit": "ns/op",
+            "extra": "1323748 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1323748 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1323748 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15222,
+            "unit": "ns/op\t   93664 B/op\t      67 allocs/op",
+            "extra": "74300 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15222,
+            "unit": "ns/op",
+            "extra": "74300 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93664,
+            "unit": "B/op",
+            "extra": "74300 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "74300 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15233,
+            "unit": "ns/op\t   93664 B/op\t      67 allocs/op",
+            "extra": "78704 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15233,
+            "unit": "ns/op",
+            "extra": "78704 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93664,
+            "unit": "B/op",
+            "extra": "78704 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "78704 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15249,
+            "unit": "ns/op\t   93664 B/op\t      67 allocs/op",
+            "extra": "76196 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15249,
+            "unit": "ns/op",
+            "extra": "76196 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93664,
+            "unit": "B/op",
+            "extra": "76196 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "76196 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 16631,
+            "unit": "ns/op\t   93664 B/op\t      67 allocs/op",
+            "extra": "79578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 16631,
+            "unit": "ns/op",
+            "extra": "79578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93664,
+            "unit": "B/op",
+            "extra": "79578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "79578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15400,
+            "unit": "ns/op\t   93648 B/op\t      67 allocs/op",
+            "extra": "80086 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15400,
+            "unit": "ns/op",
+            "extra": "80086 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93648,
+            "unit": "B/op",
+            "extra": "80086 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "80086 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 39.8,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29694562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 39.8,
+            "unit": "ns/op",
+            "extra": "29694562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29694562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29694562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 39.75,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "30176326 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 39.75,
+            "unit": "ns/op",
+            "extra": "30176326 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "30176326 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "30176326 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 39.66,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "30203089 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 39.66,
+            "unit": "ns/op",
+            "extra": "30203089 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "30203089 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "30203089 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 39.94,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "30246241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 39.94,
+            "unit": "ns/op",
+            "extra": "30246241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "30246241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "30246241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 39.78,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29839140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 39.78,
+            "unit": "ns/op",
+            "extra": "29839140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29839140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29839140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3680,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "325837 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3680,
+            "unit": "ns/op",
+            "extra": "325837 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "325837 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "325837 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3735,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "323584 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3735,
+            "unit": "ns/op",
+            "extra": "323584 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "323584 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "323584 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3839,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "308016 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3839,
+            "unit": "ns/op",
+            "extra": "308016 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "308016 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "308016 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3683,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "330596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3683,
+            "unit": "ns/op",
+            "extra": "330596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "330596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "330596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 4007,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "315390 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 4007,
+            "unit": "ns/op",
+            "extra": "315390 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "315390 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "315390 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4049,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "288614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4049,
+            "unit": "ns/op",
+            "extra": "288614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "288614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "288614 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4155,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "288890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4155,
+            "unit": "ns/op",
+            "extra": "288890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "288890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "288890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4099,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "294805 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4099,
+            "unit": "ns/op",
+            "extra": "294805 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "294805 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "294805 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4089,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "290490 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4089,
+            "unit": "ns/op",
+            "extra": "290490 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "290490 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "290490 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4100,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "293680 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4100,
+            "unit": "ns/op",
+            "extra": "293680 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "293680 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "293680 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 34252,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "34101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 34252,
+            "unit": "ns/op",
+            "extra": "34101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "34101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "34101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 31769,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37777 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 31769,
+            "unit": "ns/op",
+            "extra": "37777 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37777 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37777 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 31920,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 31920,
+            "unit": "ns/op",
+            "extra": "37716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37716 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 31637,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37676 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 31637,
+            "unit": "ns/op",
+            "extra": "37676 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37676 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37676 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 32083,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "38101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 32083,
+            "unit": "ns/op",
+            "extra": "38101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "38101 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "38101 times\n4 procs"
           }
         ]
       }
