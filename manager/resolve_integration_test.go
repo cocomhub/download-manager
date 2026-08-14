@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -92,11 +93,14 @@ func TestEnqueueResolve(t *testing.T) {
 
 func TestEnqueueSmallObjects(t *testing.T) {
 	m := NewManager(&config.Config{Runtime: config.Runtime{Mode: config.RunModeFull}})
+	// 用 t.TempDir 下的路径，避免 /tmp 下恰好存在同名文件时被 file-exists 跳过导致 flake。
+	thumb := filepath.Join(t.TempDir(), "thumb.jpg")
+	preview := filepath.Join(t.TempDir(), "preview.mp4")
 	task := &mockSmallObjectTask{
 		id: "test-so",
 		smallObjects: []core.SmallObjectInfo{
-			{URL: "https://example.com/thumb.jpg", SavePath: "/tmp/thumb.jpg", Rel: "cover"},
-			{URL: "https://example.com/preview.mp4", SavePath: "/tmp/preview.mp4", Rel: "preview"},
+			{URL: "https://example.com/thumb.jpg", SavePath: thumb, Rel: "cover"},
+			{URL: "https://example.com/preview.mp4", SavePath: preview, Rel: "preview"},
 		},
 	}
 	obj := &model.DownloadObject{URL: "https://example.com/video1", Status: model.StatusPending}

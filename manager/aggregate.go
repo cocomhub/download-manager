@@ -128,19 +128,6 @@ func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.Downloa
 	return c
 }
 
-// selectGroupRepresentatives picks one representative per content group and copies it.
-func selectGroupRepresentatives(groups map[string][]contentGroupEntry) []*model.DownloadObject {
-	reps := make([]*model.DownloadObject, 0, len(groups))
-	for _, entries := range groups {
-		rep := pickRepresentative(entries)
-		if rep == nil {
-			continue
-		}
-		reps = append(reps, copyRepresentative(rep, len(entries)))
-	}
-	return reps
-}
-
 // paginateContentResults applies sorting, offset, and limit to the representatives list.
 func paginateContentResults(reps []*model.DownloadObject, page, limit int64, sortBy string) (paged []*model.DownloadObject, total, outPage, outLimit int64) {
 	total = int64(len(reps))
@@ -162,7 +149,48 @@ func paginateContentResults(reps []*model.DownloadObject, page, limit int64, sor
 	return paged, total, page, limit
 }
 
+// collectTaskGroupReps 用「取回全部对象 + 内存分组选代表」的方式收集单个任务的代表对象，
+// 用于 tktube（变体优先级选代表）或不支持 ContentGroupRepresentatives 的存储后端。
+func (m *Manager) collectTaskGroupReps(t core.Task, search, status string) ([]*model.DownloadObject, error) {
+	entries, err := collectContentObjects(m, []core.Task{t}, search, status)
+	if err != nil {
+		return nil, err
+	}
+	groups := groupByContentKey(entries)
+	reps := make([]*model.DownloadObject, 0, len(groups))
+	for _, g := range groups {
+		if rep := pickGroupRepresentative(t, g); rep != nil {
+			reps = append(reps, copyRepresentative(rep, len(g)))
+		}
+	}
+	return reps, nil
+}
+
+// pickGroupRepresentative 按任务的代表策略选组内代表：
+// tktube 用变体优先级（HQ/C）；其余任务与 ContentGroupRepresentatives 快路径语义一致，
+// 取 metadata.date 最大者 —— 保证 mongo 快路径与 file/memory fallback 的代表身份一致。
+func pickGroupRepresentative(t core.Task, entries []contentGroupEntry) *model.DownloadObject {
+	if t != nil && t.Type() == core.TaskTypeTktube {
+		return pickRepresentative(entries)
+	}
+	var rep *model.DownloadObject
+	var maxDate string
+	for _, e := range entries {
+		if e.obj == nil {
+			continue
+		}
+		d := e.obj.GetMetaDate()
+		if rep == nil || d > maxDate {
+			rep = e.obj
+			maxDate = d
+		}
+	}
+	return rep
+}
+
 // AggregateByContent groups objects by scoped content group and returns representatives.
+// 按任务逐一收集代表：tktube 保留变体优先级内存路径；其余任务优先走存储层原生聚合快路径
+// （mongo 一次聚合，避免把任务全部对象取回内存再分组），file/memory 存储走内存 fallback。
 func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status string, types []string) (map[string]any, error) {
 	matchingTasks := collectMatchingTasks(m.currentCfg(), m.getTask, types)
 
@@ -173,13 +201,32 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		limit = 50
 	}
 
-	all, err := collectContentObjects(m, matchingTasks, search, status)
-	if err != nil {
-		return nil, err
+	reps := make([]*model.DownloadObject, 0, 256)
+	for _, tk := range matchingTasks {
+		// tktube 组内代表由变体优先级（HQ/C）决定，语义不同于 max-date，必须保留内存路径。
+		if tk.Type() == core.TaskTypeTktube {
+			rs, err := m.collectTaskGroupReps(tk, search, status)
+			if err != nil {
+				return nil, err
+			}
+			reps = append(reps, rs...)
+			continue
+		}
+		if gsr, ok := tk.Storage().(core.ContentGroupRepresentatives); ok {
+			objs, _, err := gsr.ContentGroupRepresentatives(tk.ID(), search, status, 1, core.NoLimit)
+			if err != nil {
+				return nil, err
+			}
+			reps = append(reps, objs...)
+			continue
+		}
+		rs, err := m.collectTaskGroupReps(tk, search, status)
+		if err != nil {
+			return nil, err
+		}
+		reps = append(reps, rs...)
 	}
 
-	groups := groupByContentKey(all)
-	reps := selectGroupRepresentatives(groups)
 	paged, total, page, limit := paginateContentResults(reps, page, limit, sortBy)
 
 	// Ensure every object has task_type metadata for frontend plugin dispatch

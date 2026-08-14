@@ -110,11 +110,13 @@ type Manager struct {
 	resolveWg     sync.WaitGroup
 
 	// Small-object pool
-	soQueue   chan smallObjectRequest
-	soCtx     context.Context
-	soCancel  context.CancelFunc
-	soWg      sync.WaitGroup
-	soTracker sync.Map // map[objKey]*objectTracker
+	soQueue    chan smallObjectRequest
+	soCtx      context.Context
+	soCancel   context.CancelFunc
+	soWg       sync.WaitGroup
+	soTracker  sync.Map // map[objKey]*objectTracker
+	soInflight sync.Map // key: taskID+"\x00"+SavePath（SavePath 为空则用 URL）-> struct{}；在途小对象去重
+	soPending  sync.Map // key: smallObjectKey -> pendingSO；队列满被丢弃的小对象，待补下载
 
 	initializedCh chan struct{} // closed when Start() initialization completes
 }
@@ -572,6 +574,19 @@ func (m *Manager) GetTaskObjectsMeta(id, contentGroup string) ([]*model.Download
 	return out, nil
 }
 
+// normalizeContentPageLimit 归一化 content 聚合的 page/limit：page 至少为 1；
+// limit<=0（"all"）时归位到第 1 页、limit 取 total。快路径与 fallback 共用，保证响应形状一致。
+func normalizeContentPageLimit(page, limit, total int64) (int64, int64) {
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		page = 1
+		limit = total
+	}
+	return page, limit
+}
+
 // GetTaskContentGroups returns one representative object per content group for
 // a task, grouped by metadata.content_group and sorted by the representative's
 // metadata.date descending (date is the generic recency field; e.g. mxs encodes
@@ -584,6 +599,29 @@ func (m *Manager) GetTaskContentGroups(id string, page, limit int64) (map[string
 	if !ok {
 		return nil, fmt.Errorf("%w", errTaskNotFound)
 	}
+
+	// 快路径：存储层原生 content_group 聚合（mongo 聚合管道），一次往返完成分组/排序/分页。
+	if gsr, ok := t.Storage().(core.ContentGroupRepresentatives); ok {
+		objs, total, err := gsr.ContentGroupRepresentatives(id, "", "", page, limit)
+		if err != nil {
+			return nil, err
+		}
+		// 复刻 fallback 的响应归一化，保证响应形状逐字节一致。
+		page, limit = normalizeContentPageLimit(page, limit, total)
+		for _, o := range objs {
+			o.EnsureTaskType(t.Type())
+		}
+		if objs == nil {
+			objs = []*model.DownloadObject{}
+		}
+		return map[string]any{
+			"objects": objs,
+			"total":   total,
+			"page":    page,
+			"limit":   limit,
+		}, nil
+	}
+
 	objs, err := m.collectTaskObjects(t, &core.StorageQuery{Filter: core.StorageFilter{}, Light: true}, 200)
 	if err != nil {
 		return nil, err
@@ -637,14 +675,9 @@ func (m *Manager) GetTaskContentGroups(id string, page, limit int64) (map[string
 
 	// Paginate.
 	total := int64(len(reps))
-	if page < 1 {
-		page = 1
-	}
+	page, limit = normalizeContentPageLimit(page, limit, total)
 	var offset int64
-	if limit <= 0 {
-		page = 1
-		limit = total
-	} else {
+	if limit > 0 {
 		offset = (page - 1) * limit
 	}
 	start := min(int(offset), len(reps))

@@ -28,6 +28,16 @@ const (
 	opOptions          = "$options"
 )
 
+// mongoSearchCondition 构造搜索文本的正则 $or 条件（url / metadata.title / extra.tags），
+// 与 buildMongoFilter 的 Search 过滤共用，避免两处搜索语义漂移。
+func mongoSearchCondition(pattern string) bson.M {
+	return bson.M{"$or": bson.A{
+		bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
+		bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
+		bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
+	}}
+}
+
 // Global map to hold clients, keyed by source name
 var mongoClients = make(map[string]*mongo.Client)
 var mongoIndexOnce sync.Map
@@ -191,6 +201,108 @@ func (s *MongoStorage) Count(query *core.StorageQuery) (int64, error) {
 	return count, nil
 }
 
+// ContentGroupRepresentatives 按 metadata.content_group 分组，每组返回 metadata.date 最大的
+// 代表对象，并支持分页。复用 task_group（{task_id, metadata.content_group}）与 task_date_desc
+// （{task_id, metadata.date:-1}）索引，用一次聚合完成分组/排序/分页，避免把任务全部对象取回
+// 内存再分组（单任务 GetTaskContentGroups 与跨任务 AggregateByContent 的 content 模式快路径）。
+// search/status 与 buildMongoFilter 同语义；limit <= 0 表示不分页；total 为非空组的去重组数。
+func (s *MongoStorage) ContentGroupRepresentatives(taskID string, search, status string, page, limit int64) ([]*model.DownloadObject, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 排除缺失 / null / 空串的 content_group（与内存版 g == "" 跳过一致）。
+	// BSON 排序下 null/数字 都排在字符串之前，$gt "" 一个谓词即可把非字符串与空串一并排除，
+	// 且是有界的索引范围查询（比 $nin [null,""] 更适合优化器）。
+	match := bson.M{
+		"task_id":                taskID,
+		"metadata.content_group": bson.M{"$gt": ""},
+	}
+	if status != "" && status != "all" {
+		match["status"] = status
+	}
+	if search != "" {
+		match["$and"] = bson.A{mongoSearchCondition(regexp.QuoteMeta(search))}
+	}
+
+	// 去重组数（total）。
+	var total int64
+	{
+		countPipe := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: match}},
+			bson.D{{Key: "$group", Value: bson.D{{Key: "_id", Value: "$metadata.content_group"}}}},
+			bson.D{{Key: "$count", Value: "total"}},
+		}
+		cursor, err := s.collection.Aggregate(ctx, countPipe)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer cursor.Close(ctx)
+		if cursor.Next(ctx) {
+			var row struct {
+				Total int64 `bson:"total"`
+			}
+			if err := cursor.Decode(&row); err != nil {
+				return nil, 0, err
+			}
+			total = row.Total
+		}
+		if err := cursor.Err(); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// 每组代表 = 组内 metadata.date 最大者（$sort date desc 后取 $first），size 为组内对象数。
+	pipe := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: match}},
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "metadata.date", Value: -1}, {Key: "url", Value: 1}}}},
+		bson.D{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$metadata.content_group"},
+			{Key: "doc", Value: bson.D{{Key: "$first", Value: "$$ROOT"}}},
+			{Key: "size", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "doc.metadata.date", Value: -1}, {Key: "_id", Value: -1}}}},
+	}
+	if page < 1 {
+		page = 1
+	}
+	if limit > 0 {
+		if skip := (page - 1) * limit; skip > 0 {
+			pipe = append(pipe, bson.D{{Key: "$skip", Value: skip}})
+		}
+		pipe = append(pipe, bson.D{{Key: "$limit", Value: limit}})
+	}
+	// 投影剔除大数组字段与内部 _id，减小传输/解码开销。
+	pipe = append(pipe, bson.D{{Key: "$project", Value: bson.D{
+		{Key: "doc._id", Value: 0},
+		{Key: "doc.extra.files", Value: 0},
+		{Key: "doc.extra.images", Value: 0},
+		{Key: "doc.extra.links", Value: 0},
+	}}})
+
+	cursor, err := s.collection.Aggregate(ctx, pipe)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	results := make([]*model.DownloadObject, 0)
+	for cursor.Next(ctx) {
+		var row struct {
+			Doc  model.DownloadObject `bson:"doc"`
+			Size int                  `bson:"size"`
+		}
+		if err := cursor.Decode(&row); err != nil {
+			return nil, 0, err
+		}
+		row.Doc.SetGroupSize(row.Size)
+		results = append(results, &row.Doc)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
+}
+
 func (s *MongoStorage) Exists(ids []string) (map[string]bool, error) {
 	result := make(map[string]bool, len(ids))
 	if len(ids) == 0 {
@@ -314,14 +426,7 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 
 	// Search 过滤
 	if query.Filter.Search != "" {
-		pattern := regexp.QuoteMeta(query.Filter.Search)
-		andConditions = append(andConditions, bson.M{
-			"$or": bson.A{
-				bson.M{"url": bson.M{opRegex: pattern, opOptions: "i"}},
-				bson.M{fieldMetadataTitle: bson.M{opRegex: pattern, opOptions: "i"}},
-				bson.M{"extra.tags": bson.M{opRegex: pattern, opOptions: "i"}},
-			},
-		})
+		andConditions = append(andConditions, mongoSearchCondition(regexp.QuoteMeta(query.Filter.Search)))
 	}
 
 	// Tags 过滤

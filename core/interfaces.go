@@ -60,6 +60,17 @@ type Storage interface {
 	Exists(ids []string) (map[string]bool, error)
 }
 
+// ContentGroupRepresentatives 可选存储能力：按 metadata.content_group 分组，
+// 每组返回 metadata.date 最大的代表对象，并支持分页。用于 content 聚合视图
+// （书橱/合集），避免把任务全部对象取回内存再分组。
+// 注意：代表策略固定为 max-date；代表语义不同（如 tktube 用变体优先级 HQ/C）的任务
+// 不应使用此快路径，须走内存路径（见 manager.AggregateByContent 的 tktube 分支）。
+// search/status 与单任务查询同语义（search 匹配 url/title/tags；status 为空或 "all" 不过滤）；
+// limit <= 0 表示不分页（返回全部组）；total 为非空 content_group 的去重组数。
+type ContentGroupRepresentatives interface {
+	ContentGroupRepresentatives(taskID string, search, status string, page, limit int64) ([]*model.DownloadObject, int64, error)
+}
+
 // Task 定义下载任务的行为
 type Task interface {
 	// ID 返回任务唯一标识

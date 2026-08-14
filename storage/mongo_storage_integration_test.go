@@ -269,6 +269,155 @@ func TestMongoStorage_SearchPagination(t *testing.T) {
 	}
 }
 
+func TestMongoStorage_ContentGroupRepresentatives(t *testing.T) {
+	ctx := t.Context()
+
+	mongoContainer, err := mongodb.Run(ctx, "mongo:8")
+	if err != nil {
+		t.Fatalf("failed to start mongo container: %v", err)
+	}
+	defer func() {
+		if err := mongoContainer.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate mongo container: %v", err)
+		}
+	}()
+
+	connStr, err := mongoContainer.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
+	err = InitMongoClients([]struct{ Name, URI string }{
+		{Name: "test", URI: connStr},
+	})
+	if err != nil {
+		t.Fatalf("failed to init mongo clients: %v", err)
+	}
+	defer CloseAllMongoClients()
+
+	st, err := NewMongoStorage(map[string]string{
+		"source":     "test",
+		"database":   "testdb",
+		"collection": "group_rep_test",
+	})
+	if err != nil {
+		t.Fatalf("failed to create mongo storage: %v", err)
+	}
+
+	seed := func(taskID, url, group, date string) {
+		obj := &model.DownloadObject{
+			TaskID:   taskID,
+			URL:      url,
+			SavePath: "/downloads/" + url,
+			Status:   "completed",
+			Metadata: map[string]string{
+				"title":         url,
+				"content_group": group,
+				"date":          date,
+				"task_type":     "mxs",
+			},
+			Extra: map[string]any{
+				"files": []map[string]string{{"url": url + "/1.jpg", "path": "/x/1.jpg"}},
+			},
+		}
+		if err := st.Update(obj); err != nil {
+			t.Fatalf("seed %s: %v", url, err)
+		}
+	}
+
+	// 组 1094：3 章，date 零填充章节号，最新 "0000000003"
+	seed("mxs-demo", "c1", "1094", "0000000001")
+	seed("mxs-demo", "c2", "1094", "0000000002")
+	seed("mxs-demo", "c3", "1094", "0000000003")
+	// 组 1095：2 章
+	seed("mxs-demo", "c4", "1095", "0000000010")
+	seed("mxs-demo", "c5", "1095", "0000000020")
+	// 空 content_group / 缺失 content_group → 不应计入 total
+	seed("mxs-demo", "c6", "", "0000000100")
+	// 其他任务的对象不应计入（按 task_id 过滤）
+	other := &model.DownloadObject{
+		TaskID:   "other-task",
+		URL:      "c7",
+		SavePath: "/downloads/c7",
+		Status:   "pending",
+		Metadata: map[string]string{"title": "c7", "content_group": "1094", "date": "0000000099"},
+	}
+	if err := st.Update(other); err != nil {
+		t.Fatalf("seed c7: %v", err)
+	}
+
+	// 全量（不分页）
+	objs, total, err := st.ContentGroupRepresentatives("mxs-demo", "", "", 1, -1)
+	if err != nil {
+		t.Fatalf("ContentGroupRepresentatives: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("total = %d, want 2 (空组/缺失组/其他任务不计)", total)
+	}
+	if len(objs) != 2 {
+		t.Fatalf("reps len = %d, want 2", len(objs))
+	}
+	// 组间按代表 date 降序：1095(0000000020) 在前，1094(0000000003) 在后
+	if objs[0].Metadata["content_group"] != "1095" || objs[0].Metadata["date"] != "0000000020" {
+		t.Errorf("objs[0] = %v", objs[0].Metadata)
+	}
+	if objs[0].GetGroupSize() != 2 {
+		t.Errorf("objs[0] group_size = %d, want 2", objs[0].GetGroupSize())
+	}
+	if objs[1].Metadata["content_group"] != "1094" || objs[1].Metadata["date"] != "0000000003" {
+		t.Errorf("objs[1] = %v", objs[1].Metadata)
+	}
+	if objs[1].GetGroupSize() != 3 {
+		t.Errorf("objs[1] group_size = %d, want 3", objs[1].GetGroupSize())
+	}
+	// 大数组字段应在投影中被剔除
+	if _, ok := objs[0].Extra["files"]; ok {
+		t.Errorf("extra.files should be projected out, got %v", objs[0].Extra["files"])
+	}
+
+	// 分页：page 1, limit 1 → 只返回 1095，total 仍为 2
+	paged, total2, err := st.ContentGroupRepresentatives("mxs-demo", "", "", 1, 1)
+	if err != nil {
+		t.Fatalf("ContentGroupRepresentatives paged: %v", err)
+	}
+	if total2 != 2 || len(paged) != 1 {
+		t.Errorf("paged: total=%d len=%d, want 2/1", total2, len(paged))
+	}
+	if len(paged) == 1 && paged[0].Metadata["content_group"] != "1095" {
+		t.Errorf("paged[0] = %v", paged[0].Metadata)
+	}
+
+	// search 过滤：匹配 url/title/tags 含 "c3" 的对象（组 1094 内 date 最大者为 c3）。
+	searched, totalS, err := st.ContentGroupRepresentatives("mxs-demo", "c3", "", 1, -1)
+	if err != nil {
+		t.Fatalf("ContentGroupRepresentatives search: %v", err)
+	}
+	if totalS != 1 || len(searched) != 1 {
+		t.Errorf("search: total=%d len=%d, want 1/1", totalS, len(searched))
+	}
+	if len(searched) == 1 && searched[0].Metadata["date"] != "0000000003" {
+		t.Errorf("search rep date = %q, want newest c3 0000000003", searched[0].Metadata["date"])
+	}
+
+	// status 过滤：不存在的状态 → 空结果，total 0。
+	stEmpty, totalSt, err := st.ContentGroupRepresentatives("mxs-demo", "", "nonexistent", 1, -1)
+	if err != nil {
+		t.Fatalf("ContentGroupRepresentatives status: %v", err)
+	}
+	if totalSt != 0 || len(stEmpty) != 0 || stEmpty == nil {
+		t.Errorf("status filter: total=%d len=%d nil=%v, want 0/0/false", totalSt, len(stEmpty), stEmpty == nil)
+	}
+
+	// page 越界 → 空但非 nil
+	empty, total3, err := st.ContentGroupRepresentatives("mxs-demo", "", "", 99, 1)
+	if err != nil {
+		t.Fatalf("ContentGroupRepresentatives out-of-range: %v", err)
+	}
+	if total3 != 2 || len(empty) != 0 || empty == nil {
+		t.Errorf("out-of-range: total=%d len=%d nil=%v, want 2/0/false", total3, len(empty), empty == nil)
+	}
+}
+
 func TestMongoStorage_IndexesCreated(t *testing.T) {
 	ctx := t.Context()
 

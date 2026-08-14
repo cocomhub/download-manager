@@ -122,6 +122,9 @@ func (s *StandardizationService) runMediaBackfill(ctx context.Context) {
 		}
 
 		count := 0
+		// 按小对象 SavePath 去重：同一本书的多个章节共享一个封面，只对首个章节入队下载，
+		// 避免把整本书的章节对象反复入队（否则在队列满时会形成反复 drop 的洪峰）。
+		seen := make(map[string]bool)
 		for _, obj := range objects {
 			select {
 			case <-ctx.Done():
@@ -129,8 +132,10 @@ func (s *StandardizationService) runMediaBackfill(ctx context.Context) {
 				return
 			default:
 			}
+			// 每个对象只解析一次小对象列表（媒体字段回填 与 下载去重 共用）。
+			items := soc.SmallObjects(obj)
 			modified := false
-			for _, info := range soc.SmallObjects(obj) {
+			for _, info := range items {
 				if info.URL == "" {
 					continue
 				}
@@ -146,6 +151,22 @@ func (s *StandardizationService) runMediaBackfill(ctx context.Context) {
 						logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				} else {
 					count++
+				}
+			}
+			// 回填时触发小对象下载（封面等），保证旧任务/历史对象也能下载到封面。
+			// 这里按 smallObjectKey 去重后，同一本书只入队一次；enqueueSmallObjects 内部另有
+			// 文件存在/在途去重，drop 时还会记入待补集合由 drainPendingSO 补下载。
+			if bd, ok := task.(core.SmallObjectBackfillDownloader); ok && bd.BackfillDownloadSmallObjects() {
+				first := false
+				for _, info := range items {
+					k := smallObjectKey(task.ID(), info)
+					if !seen[k] {
+						seen[k] = true
+						first = true
+					}
+				}
+				if first {
+					s.mgr.enqueueSmallObjects(task, obj)
 				}
 			}
 		}

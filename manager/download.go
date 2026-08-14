@@ -66,8 +66,11 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		slog.Debug("Download: re-resolved expired object", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
 	}
 
-	// 发起小对象下载（不阻塞主体下载）
-	m.enqueueSmallObjects(t, obj)
+	// 发起小对象下载（不阻塞主体下载）。tracker 存入 soTracker，
+	// handleDownloadSuccess 会等待它完成后再把对象标记为完成。
+	if tr := m.enqueueSmallObjects(t, obj); tr != nil {
+		m.soTracker.Store(obj.URL, tr)
+	}
 
 	// 检查对象是否已被取消，避免覆盖 CancelObject 设置的 cancelled 状态。
 	// 对象可能在 enqueue 和 worker 取出之间被取消。

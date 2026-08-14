@@ -35,3 +35,11 @@ type SmallObjectProvider interface {
 	// SmallObjects 返回给定主对象关联的小对象列表。
 	SmallObjects(obj *model.DownloadObject) []SmallObjectInfo
 }
+
+// SmallObjectBackfillDownloader 是可选接口：实现它的任务类型在媒体固定字段回填时，
+// 会同步把关联小对象（封面等）入队下载，保证旧任务/历史对象也能触发小对象下载。
+// 用可选接口是为了保持其它任务类型（如 tktube）的既有行为不变。
+type SmallObjectBackfillDownloader interface {
+	// BackfillDownloadSmallObjects 返回 true 表示媒体回填阶段应触发小对象下载。
+	BackfillDownloadSmallObjects() bool
+}
