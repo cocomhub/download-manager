@@ -732,6 +732,15 @@
         }
         return null
       },
+      // cardCoverStyle 按任务类型返回封面区 aspect-ratio 内联样式（默认 16/9）。
+      // 仅改变封面区比例（卡片宽度不变，行内高度取最高者对齐），竖版封面任务类型（如 mxs）用。
+      cardCoverStyle: function (obj) {
+        var type = obj && obj.metadata && obj.metadata.task_type
+        var handler = type && TaskUI.get(type)
+        var a = String((handler && handler.cardCoverAspect) || '16/9')
+        var parts = a.split('/')
+        return { aspectRatio: (parts[0] || 16) + ' / ' + (parts[1] || 9) }
+      },
       closeCustomUI: function () {
         var el = document.getElementById('custom-ui-content')
         if (el) el.innerHTML = ''

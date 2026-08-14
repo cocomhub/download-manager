@@ -21,17 +21,87 @@ func NewStandardizationService(mgr *Manager) *StandardizationService {
 	return &StandardizationService{mgr: mgr}
 }
 
-// Run 执行一次标准化扫描，分两个阶段：
+// Run 执行一次标准化扫描，分三个阶段：
 //  1. 存量 ID 回填：遍历所有任务类型，对实现 Standardizer 的任务，
 //     对 MissingID=true 的对象执行标准化。
-//  2. 媒体固定字段回填：对实现 core.SmallObjectProvider 的任务，
+//  2. 版本升级：对实现 core.ObjectVersioner 的任务，扫描 version < LatestVersion 的对象，
+//     按预设逻辑逐级升级到最新结构（未来数据结构变更的通用通道，不再每次新增回填接口）。
+//  3. 媒体固定字段回填：对实现 core.SmallObjectProvider 的任务，
 //     扫描全部对象，把 cover/thumb/preview 的原始 URL 与本地路径
 //     写入固定字段 {rel}_url / {rel}_path（初始化时自动更新，统一各文档行为）。
 //
 // ctx 用于取消控制，每个对象处理前检查 ctx.Done()。
 func (s *StandardizationService) Run(ctx context.Context) {
 	s.runIDStandardization(ctx)
+	s.runVersionUpgrade(ctx)
 	s.runMediaBackfill(ctx)
+}
+
+// runVersionUpgrade 扫描实现 core.ObjectVersioner 的任务类型中 version < LatestVersion 的对象，
+// 逐级调用 UpgradeStep 升级到最新结构。BeginUpgrade 在扫描开始前清理跨对象缓存；
+// 每个对象至少跑过一个升级步骤（即使无内容改动）也会持久化，确保 version 在存储中收敛。
+func (s *StandardizationService) runVersionUpgrade(ctx context.Context) {
+	for _, taskType := range s.mgr.UniqueTaskTypes() {
+		task := s.mgr.FirstTaskOfType(taskType)
+		if task == nil {
+			continue
+		}
+		ov, ok := task.(core.ObjectVersioner)
+		if !ok {
+			continue
+		}
+		latest := int64(ov.LatestVersion())
+		if latest <= 0 {
+			continue
+		}
+		st := task.Storage()
+		if st == nil {
+			continue
+		}
+		ov.BeginUpgrade()
+
+		objs, err := s.mgr.collectTaskObjects(task, &core.StorageQuery{
+			Filter: core.StorageFilter{VersionLT: latest},
+		}, 200)
+		if err != nil {
+			slog.Error("Version upgrade: search failed", logutil.LogKeyTaskID, task.ID(),
+				"task_type", taskType, logutil.LogKeyError, err)
+			continue
+		}
+		upgraded := 0
+		for _, obj := range objs {
+			select {
+			case <-ctx.Done():
+				slog.Warn("Version upgrade cancelled", "task_type", taskType, "processed", upgraded)
+				return
+			default:
+			}
+			startV := obj.GetVersion()
+			v := startV
+			modified := false
+			for v < latest {
+				m2, err := ov.UpgradeStep(obj, int(v)+1)
+				if err != nil {
+					slog.Warn("Version upgrade step failed", logutil.LogKeyTaskID, task.ID(),
+						logutil.LogKeyURL, obj.URL, "to_version", v+1, logutil.LogKeyError, err)
+					break
+				}
+				v++
+				obj.SetVersion(v)
+				modified = modified || m2
+			}
+			// 只要跑过升级步骤（含无内容改动的幂等步骤）就持久化，让 version 收敛到最新。
+			if modified || v != startV {
+				if err := st.Update(obj); err != nil {
+					slog.Error("Version upgrade: update failed", logutil.LogKeyTaskID, task.ID(),
+						logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+				} else {
+					upgraded++
+				}
+			}
+		}
+		slog.Info("Version upgrade completed", "task_type", taskType, "latest", latest, "upgraded", upgraded)
+	}
 }
 
 // runIDStandardization 对 MissingID 对象执行 Standardizer 回填。

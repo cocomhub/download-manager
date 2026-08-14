@@ -115,6 +115,7 @@ func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.Downloa
 		SavePath: rep.SavePath,
 		Status:   rep.GetStatus(),
 		Progress: rep.GetProgress(),
+		Version:  rep.GetVersion(),
 	}
 	if rep.Metadata != nil {
 		c.Metadata = make(map[string]string, len(rep.Metadata))

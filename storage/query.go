@@ -89,6 +89,11 @@ func matchesFilterFields(obj *model.DownloadObject, filter core.StorageFilter) b
 		}
 	}
 
+	// Version 过滤：只保留 Version < VersionLT 的对象（版本升级扫描用）。
+	if filter.VersionLT > 0 && obj.GetVersion() >= filter.VersionLT {
+		return false
+	}
+
 	return true
 }
 

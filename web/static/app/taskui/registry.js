@@ -39,6 +39,9 @@
       // groupBy: 任务类型希望任务详情按指定字段分组（如 mxs → "book"），
       // 前端据此为 taskDetails 附加 &group_by=...，实现「一书一卡」书橱视图。
       groupBy: handler.groupBy || '',
+      // cardCoverAspect: 卡片封面区宽高比（如 mxs 竖版封面 "5/7"），默认 "16/9"。
+      // 仅改变封面区比例（卡片宽度不变，行内高度取最高者自动对齐），供封面为竖版的任务类型使用。
+      cardCoverAspect: handler.cardCoverAspect || '',
       // collectExtra: 将 formData 映射为 API 请求的 payload 字段
       // 返回 { urls_text, keyword, ... } 或 { extra: { ... } } 等
       collectExtra: typeof handler.collectExtra === 'function' ? handler.collectExtra : defaultCollectExtra,

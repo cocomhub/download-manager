@@ -530,6 +530,7 @@ func lightCopyObject(o *model.DownloadObject, taskType string) *model.DownloadOb
 		SavePath: o.SavePath,
 		Status:   o.Status,
 		Progress: o.Progress,
+		Version:  o.Version,
 		Metadata: maps.Clone(o.Metadata),
 		Extra:    make(map[string]any, len(o.Extra)),
 	}
