@@ -65,7 +65,9 @@ func (d *WgetDownloader) Name() string {
 }
 
 func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	obj.RLock()
 	filesVal, ok := obj.Extra["files"]
+	obj.RUnlock()
 	if !ok || filesVal == nil {
 		return d.downloadFile(obj, true, obj, headers)
 	}

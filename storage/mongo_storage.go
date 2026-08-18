@@ -129,8 +129,13 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	filter := bson.M{"url": obj.URL}
-	update := bson.M{"$set": obj}
+	// 在 RLock 下对 obj 做深拷贝（Metadata/Extra 重新分配），再在无锁状态下交给 BSON
+	// 编码，避免与 soWorker 等其它 goroutine 并发写 obj 的 map 触发
+	// "concurrent map iteration and map write"。快照同样消除了编码期间持锁的 IO 阻塞。
+	snap := obj.Snapshot()
+
+	filter := bson.M{"url": snap.URL}
+	update := bson.M{"$set": snap}
 	opts := options.UpdateOne().SetUpsert(true)
 
 	_, err := s.collection.UpdateOne(ctx, filter, update, opts)

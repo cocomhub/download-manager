@@ -120,15 +120,24 @@ func (t *Task) Close() error {
 func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) error {
 	// Check shared state for resolved files first
 	if so := t.GetSharedObject(obj.URL); so != nil {
-		if files, ok := so.Extra["files"]; ok {
-			t.WithLock(func() {
-				obj.Extra["files"] = files
-			})
+		so.RLock()
+		files, ok := so.Extra["files"]
+		so.RUnlock()
+		if ok {
+			obj.Lock()
+			if obj.Extra == nil {
+				obj.Extra = make(map[string]any)
+			}
+			obj.Extra["files"] = files
+			obj.Unlock()
 			return nil
 		}
 	}
 	// Check if already resolved
-	if _, hasFiles := obj.Extra["files"]; hasFiles {
+	obj.RLock()
+	_, hasFiles := obj.Extra["files"]
+	obj.RUnlock()
+	if hasFiles {
 		return nil
 	}
 	return t.resolveVideoDetails(obj)
@@ -285,12 +294,12 @@ func (t *Task) resolveVideoDetails(obj *model.DownloadObject) error {
 		},
 	}
 
-	t.WithLock(func() {
-		obj.Extra["tags"] = videoInfo.tags
-		if _, ok := obj.Extra["files"]; !ok {
-			obj.Extra["files"] = files
-		}
-	})
+	obj.SetTags(videoInfo.tags)
+	obj.Lock()
+	if _, ok := obj.Extra["files"]; !ok {
+		obj.Extra["files"] = files
+	}
+	obj.Unlock()
 
 	// Update storage and shared registry
 	t.FlushObject(obj)

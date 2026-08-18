@@ -133,7 +133,10 @@ func (d *NativeHTTPDownloader) Name() string {
 }
 
 func (d *NativeHTTPDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	if filesVal, ok := obj.Extra["files"]; ok && filesVal != nil {
+	obj.RLock()
+	filesVal, ok := obj.Extra["files"]
+	obj.RUnlock()
+	if ok && filesVal != nil {
 		return d.compositeDownload(obj, filesVal, headers)
 	}
 	return d.singleFileDownload(obj, headers)

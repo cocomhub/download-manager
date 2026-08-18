@@ -130,10 +130,12 @@ func cancelLowerPriorityObjects(t core.Task, cands []groupCandidate, canonicalUR
 			continue
 		}
 		if cnd.score < bestScore && o.GetStatus() == model.StatusPending {
+			o.Lock()
 			if o.Extra == nil {
 				o.Extra = make(map[string]any)
 			}
 			o.Extra["redirect_url"] = canonicalURL
+			o.Unlock()
 			if err := t.UpdateStatus(o, model.StatusCancelled, nil); err != nil {
 				slog.Warn("Failed to auto-cancel lower-priority duplicate",
 					logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, o.URL, logutil.LogKeyError, err)

@@ -378,7 +378,7 @@ func (m *Manager) GetActiveDownloads() []map[string]any {
 		actives = append(actives, map[string]any{
 			"task_id":  obj.TaskID,
 			"url":      obj.URL,
-			"title":    obj.Metadata[model.MetadataKeyTitle],
+			"title":    obj.GetMetaTitle(),
 			"progress": obj.GetProgress(),
 			"status":   obj.GetStatus(), // Should be 'downloading'
 			"owners":   m.urlRegistry.Owners(obj.URL),
