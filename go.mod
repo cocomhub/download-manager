@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.43.0
-	go.mongodb.org/mongo-driver/v2 v2.8.0
+	go.mongodb.org/mongo-driver/v2 v2.8.2
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
