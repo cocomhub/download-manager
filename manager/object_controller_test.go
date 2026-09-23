@@ -113,12 +113,18 @@ func TestObjectController_RetryAllFailed(t *testing.T) {
 		t.Fatalf("RetryAllFailed: %v", err)
 	}
 
-	objs, _ = task.Storage().Search(nil)
-	for _, o := range objs {
-		if o.GetStatus() != "pending" {
-			t.Errorf("object %s expected pending after retry, got %s", o.URL, o.GetStatus())
+	// RetryAllFailed 重置后 worker 可能已拉取（disabling scan 后 processTask 仍可能
+	// 在途），用轮询等待对象收敛到 pending 或 downloading（不再是 failed）。
+	assert.MustEventually(t, func() bool {
+		objs, _ = task.Storage().Search(nil)
+		for _, o := range objs {
+			st := o.GetStatus()
+			if st == "failed" {
+				return false
+			}
 		}
-	}
+		return true
+	}, 3*time.Second, 50*time.Millisecond, "objects leave failed after retry")
 }
 
 // TestObjectController_BatchCancel 验证批量取消（CancelTasks）。
