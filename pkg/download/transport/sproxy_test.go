@@ -56,8 +56,10 @@ func TestSproxyTransportWithTunnelKey(t *testing.T) {
 			t.Fatalf("ParseKey: %v", err)
 		}
 
-		tunnelHandler := tunnel.NewHandler(keyBytes, slog.Default())
-		tunnelSrv := httptest.NewServer(tunnelHandler)
+		tunnelHandler := tunnel.NewLocalHandler(keyBytes, nil, slog.Default())
+		tunnelSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tunnelHandler.ServeHTTP(w, r.WithContext(tunnel.SetTunnelKey(r.Context(), keyBytes)))
+		}))
 		defer tunnelSrv.Close()
 
 		tr := transport.NewSproxyTunnelTransport(tunnelSrv.URL,
