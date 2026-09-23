@@ -169,6 +169,8 @@ func waitForTask(t *testing.T, mgr *Manager, taskID string) core.Task {
 }
 
 // startManager starts the manager in a goroutine and registers cleanup.
+// 等待 Initialized() 确保 Start 完成全部 worker 注册（Add）后，才允许 Stop 的 Wait 执行，
+// 避免 WaitGroup Add/Wait 并发导致的 data race。
 func startManager(t *testing.T, mgr *Manager) chan struct{} {
 	t.Helper()
 	done := make(chan struct{})
@@ -176,6 +178,11 @@ func startManager(t *testing.T, mgr *Manager) chan struct{} {
 		mgr.Start()
 		close(done)
 	}()
+	select {
+	case <-mgr.Initialized():
+	case <-time.After(5 * time.Second):
+		t.Fatal("manager failed to initialize")
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
