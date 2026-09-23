@@ -423,7 +423,12 @@ func collectImageURLs(extra map[string]any, set map[string]struct{}) {
 }
 
 func (t *Task) sanitizeCachedContentHTML(obj *model.DownloadObject) {
-	if obj == nil || obj.Extra == nil {
+	if obj == nil {
+		return
+	}
+	obj.Lock()
+	defer obj.Unlock()
+	if obj.Extra == nil {
 		return
 	}
 	raw, _ := obj.Extra["content_html"].(string)
