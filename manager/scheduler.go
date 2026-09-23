@@ -12,7 +12,6 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 func (m *Manager) Start() {
@@ -46,7 +45,7 @@ func (m *Manager) Start() {
 	m.mu.Lock()
 	if m.schedulerEnabled.Load() {
 		m.schedulerStop = make(chan struct{})
-		go m.scheduler()
+		go m.schedSvc.runScheduler()
 	}
 	m.mu.Unlock()
 
@@ -83,12 +82,12 @@ func (m *Manager) Start() {
 	}()
 
 	// Immediate scan on start
-	m.scan()
+	m.schedSvc.Scan()
 
 	for {
 		select {
 		case <-ticker.C:
-			m.scan()
+			m.schedSvc.Scan()
 		case <-progressTicker.C:
 			m.broadcastProgress()
 		case <-m.stopChan:
@@ -189,206 +188,46 @@ func (m *Manager) WaitForShutdown(ctx context.Context) {
 	}
 }
 
+// scan 兼容入口：委托 SchedulerService（历史调用方保持可用）。
+// schedSvc 未初始化（&Manager{} 字面量测试）时直接返回。
 func (m *Manager) scan() {
-	// slog.Debug("Scanning tasks")
-	if !m.workersEnabled.Load() {
+	if m.schedSvc == nil {
 		return
 	}
-
-	if m.currentCfg().TaskScan.Disable {
-		return
-	}
-
-	if !m.scanRunning.CompareAndSwap(false, true) {
-		slog.Debug("scan: already running, skipping")
-		return
-	}
-	defer m.scanRunning.Store(false)
-
-	// Phase 1: Scrape — discover new objects from tasks that support it.
-	// Run scrapes in detached goroutines with per-task ctx timeout and per-task
-	// dedup guard (scrapingTask) so a slow Scrape never overlaps itself.
-	// Do NOT wait — Phase 2 runs in parallel; scraped objects are persisted
-	// to storage and picked up by the next scan cycle's Phase 2.
-	m.tasks.Range(func(key, value any) bool {
-		if sc, ok := value.(core.Scraper); ok {
-			taskID := key.(string)
-			t := value.(core.Task)
-			// Check if this task's scrape is disabled
-			taskCfg := m.findTaskConfig(t.ID())
-			if taskCfg != nil && !taskCfg.GetScrapeEnabled(m.currentCfg()) {
-				return true // skip scraping for this task
-			}
-			if _, scraping := m.scrapingTask.LoadOrStore(taskID, true); scraping {
-				slog.Debug("Scrape: previous run still in progress, skipping", logutil.LogKeyTaskID, taskID)
-				return true
-			}
-			go func(taskID string, sc core.Scraper) {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				done := make(chan error, 1)
-				go func() {
-					done <- sc.Scrape(ctx)
-				}()
-				select {
-				case err := <-done:
-					if err != nil {
-						slog.Error("Scrape failed", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
-					}
-				case <-ctx.Done():
-					slog.Error("Scrape timed out", logutil.LogKeyTaskID, taskID)
-					// ctx is canceled; wait for inner goroutine to actually return
-					// before releasing the dedup guard, so the next scan cycle
-					// does not start a second concurrent Scrape for this task.
-					<-done
-				}
-				m.scrapingTask.Delete(taskID)
-			}(taskID, sc)
-		}
-		return true
-	})
-
-	// Phase 2: Download — process tasks for pending objects
-	tasks := make([]core.Task, 0, 64)
-	m.tasks.Range(func(key, value any) bool {
-		tasks = append(tasks, value.(core.Task))
-		return true
-	})
-
-	for _, t := range tasks {
-		// Check if task is already being processed
-		if _, processing := m.processingTask.LoadOrStore(t.ID(), true); processing {
-			continue
-		}
-
-		go m.processTask(t)
-	}
+	m.schedSvc.Scan()
 }
 
+// processTask 兼容入口：委托 SchedulerService。
 func (m *Manager) processTask(t core.Task) {
-	defer m.processingTask.Delete(t.ID())
-
-	// Check if this task's download is disabled
-	taskCfg := m.findTaskConfig(t.ID())
-	if taskCfg != nil && !taskCfg.GetDownloadEnabled(m.currentCfg()) {
+	if m.schedSvc == nil {
 		return
 	}
-
-	// Check per-task concurrency limit (soft limit for scheduling?)
-	// If global limit is used, task limit might be redundant or acts as "fairness" limit.
-	// Let's keep it.
-
-	limit := t.Concurrency()
-
-	m.mu.Lock()
-	active := m.activeDownloads[t.ID()]
-	// If active >= limit, we stop scheduling new downloads for this task.
-	if active >= limit {
-		m.mu.Unlock()
-		// slog.Debug("Task reached concurrency limit", logutil.LogKeyTaskID, t.ID(), "active", active, "limit", limit)
-		return
-	}
-	m.mu.Unlock()
-
-	// Calculate remaining slots
-	slotsAvailable := max(0, limit-active)
-
-	// Only fetch objects if we have capacity
-	objs, err := t.GetDownloadObjects()
-	if err != nil {
-		slog.Error("Error getting objects for task", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyError, err)
-		return
-	}
-
-	if len(objs) == 0 {
-		return
-	}
-	// slog.Debug("Task has objects to download", logutil.LogKeyTaskID, t.ID(), "count", len(objs))
-
-	// Schedule downloads up to available slots
-	count := 0
-
-	for _, obj := range objs {
-		if count >= slotsAvailable {
-			break
-		}
-
-		// 如果已经在下载队列中，跳过
-		if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded {
-			continue
-		}
-
-		// 检查对象状态：需要 resolve 的异步提交
-		if obj.GetStatus() == model.StatusPending && !hasFiles(obj) {
-			obj.SetStatus(model.StatusResolving)
-			_ = t.UpdateStatus(obj, model.StatusResolving, nil)
-			m.enqueueResolve(t.ID(), obj)
-			m.downloadingObj.Delete(obj.URL) // 不占用下载槽位
-			continue
-		}
-
-		// 对象在 resolve 中，跳过本周期
-		if obj.GetStatus() == model.StatusResolving {
-			m.downloadingObj.Delete(obj.URL)
-			continue
-		}
-
-		// Attempt to push to global queue
-		q := m.getTaskQueue(t.ID())
-		select {
-		case q <- &downloadRequest{task: t, obj: obj}:
-			slog.Info("Object enqueued", logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
-
-			m.mu.Lock()
-			m.activeDownloads[t.ID()]++
-			active++
-			m.mu.Unlock()
-			count++
-
-			// 通知调度器：有新的待处理对象
-			select {
-			case m.schedulerSignal <- struct{}{}:
-			default:
-			}
-		default:
-			// Queue full, abort scheduling for now
-			// Remove from downloadingObj map since we didn't schedule it
-			m.downloadingObj.Delete(obj.URL)
-		}
-	}
-	m.BroadcastTaskUpdate(t.ID())
+	m.schedSvc.processTask(t)
 }
 
-// hasFiles 检查对象是否已填充 Extra["files"]（即已 resolve 或无需 resolve）。
-// 通过对象的内部锁保护 Extra map 的并发安全。
-func hasFiles(obj *model.DownloadObject) bool {
-	if obj == nil {
-		return false
+// scheduler 兼容入口：委托 SchedulerService（runScheduler）。
+func (m *Manager) scheduler() {
+	if m.schedSvc == nil {
+		return
 	}
-	obj.RLock()
-	defer obj.RUnlock()
-	if obj.Extra == nil {
-		return false
-	}
-	files, ok := obj.Extra["files"]
-	if !ok {
-		return false
-	}
-	switch f := files.(type) {
-	case []any:
-		return len(f) > 0
-	case []map[string]string:
-		return len(f) > 0
-	default:
-		return false
-	}
+	m.schedSvc.runScheduler()
 }
 
+// getTaskQueue 兼容入口：委托 SchedulerService。
+// schedSvc 未初始化时回退到 Manager 自身的 taskQueues（保持原有容量计算语义，
+// 供测试直接构造 &Manager{} 的场景）。
 func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
+	if m.schedSvc == nil {
+		return m.getTaskQueueSelf(taskID)
+	}
+	return m.schedSvc.getTaskQueue(taskID)
+}
+
+// getTaskQueueSelf 是原始实现（容量计算逻辑），供 schedSvc 未初始化时回退。
+func (m *Manager) getTaskQueueSelf(taskID string) chan *downloadRequest {
 	if v, ok := m.taskQueues.Load(taskID); ok {
 		return v.(chan *downloadRequest)
 	}
-	// 动态容量：根据任务并发度计算，保证充分缓冲
 	cap := 64 // default
 	if t, ok := m.getTask(taskID); ok {
 		concurrency := t.Concurrency()
@@ -402,74 +241,4 @@ func (m *Manager) getTaskQueue(taskID string) chan *downloadRequest {
 		return v.(chan *downloadRequest)
 	}
 	return q
-}
-
-func (m *Manager) scheduler() {
-	fallbackTicker := time.NewTicker(500 * time.Millisecond)
-	defer fallbackTicker.Stop()
-	weights := make(map[string]int)
-	lastUpdate := time.Now()
-
-	// 快照 stop channel：scheduler goroutine 生命周期内固定引用同一 channel，
-	// 避免与 Start()/Stop()/reconcileScheduler 的写形成 data race。
-	m.mu.Lock()
-	stopCh := m.schedulerStop
-	m.mu.Unlock()
-	if stopCh == nil {
-		stopCh = make(chan struct{})
-	}
-
-	drainOnce := func() {
-		ids := make([]string, 0, 64)
-		m.tasks.Range(func(key, value any) bool {
-			ids = append(ids, key.(string))
-			return true
-		})
-		expanded := make([]string, 0, len(ids)*maxSchedulerWeight)
-		for _, id := range ids {
-			w := weights[id]
-			if w <= 0 {
-				w = 1
-			}
-			for i := 0; i < w; i++ {
-				expanded = append(expanded, id)
-			}
-		}
-	outerLoop:
-		for _, id := range expanded {
-			q := m.getTaskQueue(id)
-			select {
-			case req := <-q:
-				select {
-				case m.downloadQueue <- req:
-				default:
-					// global queue full, put back
-					select {
-					case q <- req:
-					default:
-						// task queue also full, drop -- next scan() will re-enqueue
-					}
-					break outerLoop
-				}
-			default:
-			}
-		}
-	}
-
-	for {
-		select {
-		case <-stopCh:
-			return
-		case <-fallbackTicker.C:
-			m.schedulerHeartbeat.Store(time.Now())
-			if time.Since(lastUpdate) > 2*time.Second {
-				weights = m.recalcWeights(weights, maxSchedulerWeight)
-				lastUpdate = time.Now()
-			}
-			drainOnce()
-		case <-m.schedulerSignal:
-			m.schedulerHeartbeat.Store(time.Now())
-			drainOnce()
-		}
-	}
 }

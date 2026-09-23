@@ -366,70 +366,12 @@ func (m *Manager) getOrCreateMetrics(taskID string) *taskMetrics {
 	return mt
 }
 
-// RetryObject resets the status of an object to pending and forces download
+// RetryObject resets the status of an object to pending and forces download（委托 ObjectController）。
 func (m *Manager) RetryObject(taskID, url string) error {
-	t, ok := m.getTask(taskID)
-
-	if !ok {
-		return fmt.Errorf("%w", errTaskNotFound)
-	}
-
-	obj, err := m.getTaskObject(t, url)
-	if err != nil {
-		return err
-	}
-	if obj != nil {
-		if obj.GetStatus() == model.StatusCompleted {
-			return fmt.Errorf("object already completed")
-		}
-		// Reset status
-		t.UpdateStatus(obj, model.StatusPending, nil)
-		obj.SetProgress(0)
-
-		// Resolve details if needed (JIT for forced retry?)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := t.ResolveObject(ctx, obj); err != nil {
-			slog.Error("Failed to resolve object for retry", logutil.LogKeyError, err)
-			return fmt.Errorf("failed to resolve object: %v", err)
-		}
-
-		m.forceDownload(t, obj)
-		m.getOrCreateMetrics(t.ID()).retried.Add(1)
-		return nil
-	}
-	return fmt.Errorf("object not found")
+	return m.objectCtrl.RetryObject(taskID, url)
 }
 
-// RetryAllFailed resets all failed objects in a task
+// RetryAllFailed resets all failed objects in a task（委托 ObjectController）。
 func (m *Manager) RetryAllFailed(taskID string) error {
-	t, ok := m.getTask(taskID)
-
-	if !ok {
-		return fmt.Errorf("%w", errTaskNotFound)
-	}
-
-	objs, err := m.collectTaskObjects(t, &core.StorageQuery{
-		Filter: core.StorageFilter{
-			Statuses: []string{model.StatusFailed, model.StatusFailedPermanent},
-		},
-	}, 200)
-	if err != nil {
-		return err
-	}
-	count := 0
-	for _, obj := range objs {
-		t.UpdateStatus(obj, model.StatusPending, nil)
-		obj.SetProgress(0)
-		m.getOrCreateMetrics(t.ID()).retried.Add(1)
-		count++
-	}
-	if count > 0 {
-		// 通知调度器：不要直接调用 processTask，会绕过 processingTask 守卫
-		select {
-		case m.schedulerSignal <- struct{}{}:
-		default:
-		}
-	}
-	return nil
+	return m.objectCtrl.RetryAllFailed(taskID)
 }

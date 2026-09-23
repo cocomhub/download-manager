@@ -27,9 +27,16 @@ func init() {
 type Task struct {
 	*task.BaseTask
 
-	rules  []MockRule
-	seeded atomic.Bool
-	seedMu sync.Mutex // guards seedObjects against concurrent calls
+	rules          []MockRule
+	seeded         atomic.Bool
+	seedMu         sync.Mutex  // guards seedObjects against concurrent calls
+	scrapeDisabled atomic.Bool // 默认 true：mock 不自动刷新生成新对象
+}
+
+// scrapeEnabled 返回 mock 是否允许 Scrape 生成新批。默认关闭（测试确定性），
+// 需要时由 SetScrapeEnabled 或 Extra["mock_scrape_enabled"] 显式开启。
+func (t *Task) scrapeEnabled() bool {
+	return !t.scrapeDisabled.Load()
 }
 
 // newMockTask is the factory function registered with the task system.
@@ -45,8 +52,9 @@ func newMockTask(cfg *config.Task, opts task.Options) (core.Task, error) {
 	}
 
 	return &Task{
-		BaseTask: bt,
-		rules:    mockRules,
+		BaseTask:       bt,
+		rules:          mockRules,
+		scrapeDisabled: func() (b atomic.Bool) { b.Store(true); return }(),
 	}, nil
 }
 
@@ -97,7 +105,10 @@ func (t *Task) Scrape(ctx context.Context) error {
 	default:
 	}
 
-	if t.RefreshInterval() <= 0 {
+	// mock 默认不生成新批（避免 BaseTask 默认 refresh_interval=3600 导致
+	// scan 每轮 Scrape 追加对象，破坏测试确定性）。需要刷新行为时由调用方
+	// 显式 SetRefreshInterval 或设 Extra["mock_scrape_enabled"]=true。
+	if t.RefreshInterval() <= 0 || !t.scrapeEnabled() {
 		return nil
 	}
 
