@@ -1,0 +1,53 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# release-please 是 CHANGELOG.md 与版本号的单一事实源：
+# 有可发布提交时开「release PR」（更新 CHANGELOG.md + manifest 版本），
+# 合并后创建 tag 与 GitHub Release。制品由 release.yml 的 on.push tags 触发
+# GoReleaser（RELEASE_PLEASE_TOKEN 存在时 tag push 能触发 push 型 workflow）。
+#
+# 注意 1：不要设置 action 的 skip-github-release —— 它同时**不打 tag**，会让制品链断。
+# 注意 2：release PR 若由 GITHUB_TOKEN 创建，**不会触发 CI**（GitHub 防递归限制）。
+#   请在仓库 Secrets 建 RELEASE_PLEASE_TOKEN（fine-grained PAT，需 contents:write +
+#   pull-requests:write）；本 workflow 已按 || github.token 兜底。
+# 注意 3：仓库需开启 Settings → Actions → “Allow GitHub Actions to create and
+#   approve pull requests”，否则开不出 release PR。
+
+name: Release Please
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # 诊断：outputs 的键名可能随 action 版本变化；打印出来，避免「静默不发布」。
+      - name: Dump release-please outputs
+        if: always()
+        env:
+          RP_OUTPUTS: ${{ toJSON(steps.release.outputs) }}
+        run: |
+          echo "release_created=${{ steps.release.outputs.release_created }}"
+          echo "tag_name=${{ steps.release.outputs.tag_name }}"
+          printf '%s\n' "$RP_OUTPUTS"

@@ -29,3 +29,6 @@ test/playwright/specs/visual-regression.spec.ts-snapshots/
 test/playwright/test-results/
 tmp/
 learnings/
+
+# GoReleaser 产物
+/dist/

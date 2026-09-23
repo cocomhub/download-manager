@@ -1,10 +1,18 @@
 # Copyright 2026 The Cocomhub Authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# GoReleaser configuration for download-manager.
-# Triggered by tag push v* via .github/workflows/release.yml.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# v2 配置。制品构建配置，版本/CHANGELOG 由 release-please 维护（单一事实源）。
+
+version: 2
 
 project_name: download-manager
+
+# 嵌套 module tag（cmd/playwright-server/vX.Y.Z）不是根项目版本：忽略它们，
+# 否则 goreleaser 解析版本可能被污染。新增嵌套 module 时须同步补。
+git:
+  ignore_tags:
+    - "cmd/*"
 
 before:
   hooks:
@@ -30,21 +38,52 @@ archives:
   - files:
       - config.yaml
       - README.md
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats: zip
 
 checksum:
   name_template: "checksums.txt"
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
+  # 单源：CHANGELOG.md 与 Release 正文由 release-please 维护，GoReleaser 不再自行生成。
+  disable: true
+  sort: asc
   use: github
   filters:
     exclude:
       - "^docs:"
-      - "^ci:"
       - "^test:"
       - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: cocomhub
+    name: download-manager
+  # 模式 keep-existing：GitHub Release 的标题/正文由 release-please 负责，GoReleaser 只
+  # 上传制品与 checksums（不重写 notes）。
+  mode: keep-existing
+  draft: false
+  prerelease: auto
+  header: |
+    ## download-manager {{ .Version }} ({{ .Date }})
+
+    多源下载管理器：任务扫描、下载编排、聚合浏览、配置治理。
+
+    ### 安装方式
+
+    ```bash
+    # 从 Assets 下载对应平台的预编译二进制（tar.gz / zip），解压后即可使用，
+    # 或使用容器镜像 ghcr.io/cocomhub/download-manager。
+    ```
+
+  footer: |
+    **完整变更日志**: https://github.com/cocomhub/download-manager/compare/{{ .PreviousTag }}...{{ .Tag }}
