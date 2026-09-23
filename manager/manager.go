@@ -590,12 +590,17 @@ func (m *Manager) reconcileScheduler(cfg *config.Config) {
 	schedulerWanted := cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled
 	if schedulerWanted && !m.schedulerEnabled.Load() {
 		m.schedulerEnabled.Store(true)
+		m.mu.Lock()
 		m.schedulerStop = make(chan struct{})
+		m.mu.Unlock()
 		go m.scheduler()
 		slog.Info("Scheduler started via config update")
 	} else if !schedulerWanted && m.schedulerEnabled.Load() {
-		if m.schedulerStop != nil {
-			close(m.schedulerStop)
+		m.mu.Lock()
+		stop := m.schedulerStop
+		m.mu.Unlock()
+		if stop != nil {
+			close(stop)
 		}
 		m.schedulerEnabled.Store(false)
 		slog.Info("Scheduler stopped via config update")

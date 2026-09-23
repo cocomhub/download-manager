@@ -40,10 +40,15 @@ func (m *Manager) Start() {
 		m.StartResolveWorkers(3)
 		m.StartSmallObjectWorkers(2)
 	}
+	// 持锁写入 schedulerStop：Stop() 会 close 它，两者必须互斥（data race 保护）。
+	// 注：resolveWorker/smallObjectWorker 均在 NewManager 构造时建立 ctx，
+	// 与 Stop() 的 resolveCancel() 互斥由 resolveWg.Wait() 保证。
+	m.mu.Lock()
 	if m.schedulerEnabled.Load() {
 		m.schedulerStop = make(chan struct{})
 		go m.scheduler()
 	}
+	m.mu.Unlock()
 
 	interval := time.Duration(m.currentCfg().TaskScan.Interval) * time.Second
 	if interval == 0 {
@@ -88,14 +93,17 @@ func (m *Manager) Start() {
 			m.broadcastProgress()
 		case <-m.stopChan:
 			slog.Info("Manager stopping")
-			if m.schedulerStop != nil {
+			m.mu.Lock()
+			stop := m.schedulerStop
+			if stop != nil {
 				select {
-				case <-m.schedulerStop:
+				case <-stop:
 					// already closed
 				default:
-					close(m.schedulerStop)
+					close(stop)
 				}
 			}
+			m.mu.Unlock()
 			m.closeAllTasks()
 			return
 		}
@@ -109,6 +117,19 @@ func (m *Manager) Stop(ctx context.Context) {
 	close(m.stopChan)
 	m.StopResolveWorkers()
 	m.StopSmallObjectWorkers()
+
+	// 2. 与 Start()/reconcileScheduler 的写入互斥：读 schedulerStop 前先取锁。
+	m.mu.Lock()
+	stop := m.schedulerStop
+	if stop != nil {
+		select {
+		case <-stop:
+			// already closed
+		default:
+			close(stop)
+		}
+	}
+	m.mu.Unlock()
 
 	// 2. Close idle connections on the transport
 	if dl, ok := m.getDownloader().(interface{ CloseIdleConnections() }); ok {
@@ -389,6 +410,15 @@ func (m *Manager) scheduler() {
 	weights := make(map[string]int)
 	lastUpdate := time.Now()
 
+	// 快照 stop channel：scheduler goroutine 生命周期内固定引用同一 channel，
+	// 避免与 Start()/Stop()/reconcileScheduler 的写形成 data race。
+	m.mu.Lock()
+	stopCh := m.schedulerStop
+	m.mu.Unlock()
+	if stopCh == nil {
+		stopCh = make(chan struct{})
+	}
+
 	drainOnce := func() {
 		ids := make([]string, 0, 64)
 		m.tasks.Range(func(key, value any) bool {
@@ -428,7 +458,7 @@ func (m *Manager) scheduler() {
 
 	for {
 		select {
-		case <-m.schedulerStop:
+		case <-stopCh:
 			return
 		case <-fallbackTicker.C:
 			m.schedulerHeartbeat.Store(time.Now())

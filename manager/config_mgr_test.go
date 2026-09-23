@@ -87,13 +87,20 @@ func TestUpdateConfig_EventPublished(t *testing.T) {
 		t.Fatalf("UpdateConfig failed: %v", err)
 	}
 
-	select {
-	case got := <-ch:
-		if got.Type != "task_list_change" {
-			t.Fatalf("expected task_list_change event, got %v", got.Type)
+	// Drain unrelated background events (task_update from scheduler/workers) so
+	// the first observed event after UpdateConfig is the one we assert on.
+	// startManager now waits for Initialized(), which can let background
+	// task_update events race the subscription.
+	for {
+		select {
+		case got := <-ch:
+			if got.Type == "task_list_change" {
+				return
+			}
+			// ignore task_update / object_update / etc.
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for task_list_change event")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for task_list_change event")
 	}
 }
 

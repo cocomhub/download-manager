@@ -63,13 +63,13 @@ func TestComposeProgressAllCalled(t *testing.T) {
 }
 
 func TestComposeProgressNilFiltered(t *testing.T) {
-	var count int32
+	var count atomic.Int32
 	cb := func(float64, int64, int64) {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 	}
 	combined := ComposeProgress(cb, nil, cb)
 	combined(50, 500, 1000)
-	if n := atomic.LoadInt32(&count); n != 2 {
+	if n := count.Load(); n != 2 {
 		t.Errorf("expected 2 calls, got %d", n)
 	}
 }

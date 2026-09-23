@@ -573,10 +573,8 @@ func (t *reorderableTask) SetObjectIndex(url string, newIndex int) error {
 
 func TestReorderObject_Success(t *testing.T) {
 	task := &reorderableTask{
-		mockTask: mockTask{
-			id:  "task-reorder",
-			typ: "mock",
-		},
+		id:  "task-reorder",
+		typ: "mock",
 	}
 	m := NewManager(&config.Config{})
 	m.tasks.Store("task-reorder", task)

@@ -16,8 +16,7 @@ func newWgetForTest(t *testing.T) *extractor.WgetExtractor {
 	t.Helper()
 	ex, err := extractor.NewWgetExtractor()
 	if err != nil {
-		var pathErr *exec.Error
-		if errors.As(err, &pathErr) {
+		if _, ok := errors.AsType[*exec.Error](err); ok {
 			t.Skip("wget not found in PATH, skipping test")
 		}
 		t.Fatalf("NewWgetExtractor failed: %v", err)
@@ -30,8 +29,7 @@ func TestWgetExtractorInitError(t *testing.T) {
 	_, err := extractor.NewWgetExtractor()
 	if err != nil {
 		// 期望的错误：wget 不在 PATH 中
-		var pathErr *exec.Error
-		if errors.As(err, &pathErr) {
+		if _, ok := errors.AsType[*exec.Error](err); ok {
 			return // 正确的错误类型
 		}
 		// 也可能是其他错误，但只要是 error 就通过
