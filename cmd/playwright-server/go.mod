@@ -1,6 +1,6 @@
 module github.com/cocomhub/download-manager/cmd/playwright-server
 
-go 1.26
+go 1.27
 
 require github.com/cocomhub/download-manager v0.0.0
 
