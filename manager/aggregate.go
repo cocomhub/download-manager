@@ -232,7 +232,11 @@ func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
 	if t == nil || obj == nil || t.Type() != core.TaskTypeTktube {
 		return 0
 	}
-	hq, c := titlegroup.TKTVariantFlags(obj.Metadata[model.MetadataKeyTitle])
+	// obj.Metadata 读须持 RLock（写方 resolveApply/applySharedState 持 obj.Lock）
+	obj.RLock()
+	title := obj.Metadata[model.MetadataKeyTitle]
+	obj.RUnlock()
+	hq, c := titlegroup.TKTVariantFlags(title)
 	switch {
 	case hq && c:
 		return 4

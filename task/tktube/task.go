@@ -122,13 +122,18 @@ func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) err
 	if so := t.GetSharedObject(obj.URL); so != nil {
 		if files, ok := so.Extra["files"]; ok {
 			t.WithLock(func() {
+				obj.Lock()
 				obj.Extra["files"] = files
+				obj.Unlock()
 			})
 			return nil
 		}
 	}
-	// Check if already resolved
-	if _, hasFiles := obj.Extra["files"]; hasFiles {
+	// Check if already resolved（RLock 保护，与写方 obj.Lock 互斥）
+	obj.RLock()
+	_, hasFiles := obj.Extra["files"]
+	obj.RUnlock()
+	if hasFiles {
 		return nil
 	}
 	return t.resolveVideoDetails(obj)
@@ -191,7 +196,12 @@ func (t *Task) parseTotalPages(html string) int {
 // SmallObjects implements core.SmallObjectProvider.
 // 返回与主对象关联的小对象（preview 视频 + cover 缩略图）。
 func (t *Task) SmallObjects(obj *model.DownloadObject) []core.SmallObjectInfo {
-	if obj == nil || obj.Extra == nil || obj.Metadata == nil {
+	if obj == nil {
+		return nil
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	if obj.Extra == nil || obj.Metadata == nil {
 		return nil
 	}
 
@@ -286,10 +296,12 @@ func (t *Task) resolveVideoDetails(obj *model.DownloadObject) error {
 	}
 
 	t.WithLock(func() {
+		obj.Lock()
 		obj.Extra["tags"] = videoInfo.tags
 		if _, ok := obj.Extra["files"]; !ok {
 			obj.Extra["files"] = files
 		}
+		obj.Unlock()
 	})
 
 	// Update storage and shared registry

@@ -357,11 +357,15 @@ func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
 // getOrCreateMetrics 返回 taskID 对应的 taskMetrics，不存在时新建。
 func (m *Manager) getOrCreateMetrics(taskID string) *taskMetrics {
 	if v, ok := m.metrics.Load(taskID); ok {
-		return v.(*taskMetrics)
+		if mt, ok := v.(*taskMetrics); ok {
+			return mt
+		}
 	}
 	mt := &taskMetrics{}
 	if v, loaded := m.metrics.LoadOrStore(taskID, mt); loaded {
-		return v.(*taskMetrics)
+		if existing, ok := v.(*taskMetrics); ok {
+			return existing
+		}
 	}
 	return mt
 }

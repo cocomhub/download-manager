@@ -548,7 +548,10 @@ func (t *Task) resolveObject(obj *model.DownloadObject, lock bool) error {
 }
 
 // resolveApply sets resolved metadata and extras onto the download object.
+// 写 obj.Metadata/Extra 必须持 obj.Lock（读方 storage/query、scheduler hasFiles 用 RLock）。
 func (t *Task) resolveApply(obj *model.DownloadObject, info *hanimeDetail, files []map[string]string, videoPath string) {
+	obj.Lock()
+	defer obj.Unlock()
 	obj.Metadata[model.MetadataKeyTitle] = info.title
 	obj.Metadata["date"] = info.date
 	obj.Metadata["task_type"] = t.Type()
@@ -621,6 +624,9 @@ func hanimeItemURLs(items []hanimeItem) []string {
 // Returns parsed items and whether Extra["playlist"] was modified (deduped).
 // Persisted format is []map[string]string with keys "url"/"title"/"thumb" (consistent with resolveApply).
 func getPlaylistFromObject(obj *model.DownloadObject) ([]hanimeItem, bool) {
+	// 调用方（Standardize）可能已持 obj.Lock（Go RWMutex 不可重入），
+	// 这里不做加锁；Standardize 路径由任务锁（b.mu）串行保护，
+	// 且 playlist 写入（resolveApply）也持 obj.Lock。
 	if obj.Extra == nil {
 		return nil, false
 	}

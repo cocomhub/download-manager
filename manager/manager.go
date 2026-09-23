@@ -377,10 +377,13 @@ func (m *Manager) GetActiveDownloads() []map[string]any {
 	actives := make([]map[string]any, 0)
 	m.downloadingObj.Range(func(key, value any) bool {
 		obj := value.(*model.DownloadObject)
+		obj.RLock()
+		title := obj.Metadata[model.MetadataKeyTitle]
+		obj.RUnlock()
 		actives = append(actives, map[string]any{
 			"task_id":  obj.TaskID,
 			"url":      obj.URL,
-			"title":    obj.Metadata[model.MetadataKeyTitle],
+			"title":    title,
 			"progress": obj.GetProgress(),
 			"status":   obj.GetStatus(), // Should be 'downloading'
 			"owners":   m.urlRegistry.Owners(obj.URL),

@@ -71,7 +71,9 @@ func (m *Manager) broadcastProgress() {
 				Status:   obj.GetStatus(),
 			}
 			if obj.Metadata != nil {
+				obj.RLock()
 				item.Title = obj.Metadata[model.MetadataKeyTitle]
+				obj.RUnlock()
 			}
 			batch.Updates = append(batch.Updates, item)
 			m.lastProgress.Store(obj.URL, obj.GetProgress())
