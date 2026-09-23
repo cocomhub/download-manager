@@ -101,11 +101,11 @@ func TestDLContract_Cancel(t *testing.T) {
 		obj := makeTestObject(b.URL()+"/slow.bin", "cancel/old.bin", nil, nil)
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- cmp.oldDL.Download(obj, nil)
+			errCh <- cmp.newDL.Download(obj, nil)
 		}()
 		time.Sleep(200 * time.Millisecond)
 
-		if canceler, ok := cmp.oldDL.(interface{ Cancel(string) error }); ok {
+		if canceler, ok := cmp.newDL.(interface{ Cancel(string) error }); ok {
 			canceler.Cancel(obj.URL)
 		}
 
@@ -148,7 +148,7 @@ func TestDLContract_CancelNotFound(t *testing.T) {
 	cmp := NewComparator(t, b)
 
 	t.Run("cancel_not_found_old", func(t *testing.T) {
-		if canceler, ok := cmp.oldDL.(interface{ Cancel(string) error }); ok {
+		if canceler, ok := cmp.newDL.(interface{ Cancel(string) error }); ok {
 			err := canceler.Cancel("http://nonexistent.url/file.bin")
 			if err == nil {
 				t.Log("old: Cancel returned nil for nonexistent URL (acceptable)")
@@ -190,7 +190,7 @@ func TestDLContract_DomainLimit(t *testing.T) {
 			mu.Unlock()
 
 			obj := makeTestObject(b.URL()+"/d1.bin", fmt.Sprintf("domain/out%d.bin", idx), nil, nil)
-			cmp.oldDL.Download(obj, nil)
+			cmp.newDL.Download(obj, nil)
 
 			mu.Lock()
 			active--
@@ -215,7 +215,7 @@ func TestDLContract_ConcurrentDownload(t *testing.T) {
 		go func(u string, idx int) {
 			defer wg.Done()
 			obj := makeTestObject(b.URL()+u, fmt.Sprintf("concurrent/out%d.txt", idx), nil, nil)
-			if err := cmp.oldDL.Download(obj, nil); err != nil {
+			if err := cmp.newDL.Download(obj, nil); err != nil {
 				t.Errorf("old concurrent download %d: %v", idx, err)
 			}
 		}(url, i)

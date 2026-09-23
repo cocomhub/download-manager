@@ -20,7 +20,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
-	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
+	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 // ================================================================
@@ -279,17 +279,17 @@ func WithInjectBrowserHeaders(v bool) ComparatorOption {
 	return func(o *ComparatorOptions) { o.InjectBrowserHeaders = v }
 }
 
-// Comparator 对比运行器，同时使用旧（dlcore）和新（pkg/download）实现
-// 执行下载并对比行为。
+// Comparator 单实现运行器：使用 pkg/download（native）实现执行下载并断言行为。
+// 历史：曾同时跑 dlcore（oldDL）与新实现做对比；pkg/dlcore 已退役，
+// 现仅保留新实现，old 字段兼容既有 Check 签名（old 与 new 同结果）。
 type Comparator struct {
 	t       *testing.T
 	beacon  *Beacon
-	oldDL   core.Downloader
 	newDL   core.Downloader
 	rootDir string
 }
 
-// NewComparator 创建对比运行器，同时构建旧（dlcore）和新（pkg/download）下载器。
+// NewComparator 创建基于 pkg/download（native）实现的运行器。
 func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comparator {
 	t.Helper()
 	var o ComparatorOptions
@@ -302,10 +302,7 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		rootDir = t.TempDir()
 	}
 
-	// 基础配置
-	// 注意：不设置 LogDir。NativeHTTPDownloader 会将 LogDir 通过 filepath.Join(rootDir, logDir) 拼接，
-	// 当两个都是 Windows 绝对路径时会产生非法路径。
-	// 需要使用日志的测试应跳过或直接构造 NativeHTTPDownloader。
+	// 基础配置（pkg/download 实现）
 	baseCfg := config.Downloader{
 		MaxRetries: 3,
 		Filesystem: config.DcFilesystem{
@@ -322,12 +319,7 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		},
 	}
 
-	// 旧路径：native_old → dlcore
-	cfgOld := baseCfg
-	cfgOld.Type = "native_old"
-	oldDL := NewNativeHTTPDownloader(cfgOld)
-
-	// 新路径：native → pkg/download → DownloaderAdapter
+	// native → pkg/download → DownloaderAdapter
 	cfgNew := baseCfg
 	cfgNew.Type = "native"
 	newDL := New(cfgNew)
@@ -335,7 +327,6 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 	return &Comparator{
 		t:       t,
 		beacon:  beacon,
-		oldDL:   oldDL,
 		newDL:   newDL,
 		rootDir: rootDir,
 	}
@@ -344,68 +335,26 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 // Check 是对比断言函数。
 type Check func(t *testing.T, old, new *DownloadResult)
 
-// Run 用旧实现和新实现分别执行下载，然后运行所有 check 断言。
+// Run 用 pkg/download 实现执行下载，然后运行所有 check 断言。
+// old 与 new 传同一结果（历史对比语义已废弃，old 字段保留以兼容既有 Check 签名）。
 func (c *Comparator) Run(name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
 	c.t.Run(name, func(t *testing.T) {
-		// 为每个实现创建独立的 obj 副本，避免共享状态
-		oldObj := copyObject(obj)
 		newObj := copyObject(obj)
 
-		// 运行旧实现
-		var oldResult DownloadResult
-		oldResult.Obj = oldObj
-		oldResult.Err = c.oldDL.Download(oldObj, headers)
-		collectFileResult(t, c.rootDir, &oldResult)
-
-		// 运行新实现
+		// 运行 pkg/download 实现
 		var newResult DownloadResult
 		newResult.Obj = newObj
 		newResult.Err = c.newDL.Download(newObj, headers)
 		collectFileResult(t, c.rootDir, &newResult)
 
-		// 执行所有断言
+		// 执行所有断言（old 与 new 同结果，兼容 Check(old, new) 签名）
 		for i, check := range checks {
 			if check == nil {
 				continue
 			}
-			check(t, &oldResult, &newResult)
+			check(t, &newResult, &newResult)
 			if t.Failed() {
 				t.Logf("check %d/%d failed for test %q", i+1, len(checks), name)
-				return
-			}
-		}
-	})
-}
-
-// DlcoreOnlyRun 仅运行旧实现（dlcore）的下载，记录新实现的参考行为。
-// name 是测试名，会自动添加 "[dlcore-only]" 后缀。
-// checks 使用既有 Check 类型，在内部将 newResult 作为第二个参数传入。
-func (c *Comparator) DlcoreOnlyRun(t *testing.T, name string, obj *model.DownloadObject, headers map[string]string, checks ...Check) {
-	t.Run(name+"_[dlcore-only]", func(t *testing.T) {
-		// 运行旧实现
-		oldObj := copyObject(obj)
-		var oldResult DownloadResult
-		oldResult.Obj = oldObj
-		oldResult.Err = c.oldDL.Download(oldObj, headers)
-		collectFileResult(t, c.rootDir, &oldResult)
-		t.Logf("dlcore result: err=%v, size=%d, metadata=%v", oldResult.Err, oldResult.FileSize, oldResult.Obj.Metadata)
-
-		// 运行新实现记录参考
-		newObj := copyObject(obj)
-		var newResult DownloadResult
-		newResult.Obj = newObj
-		newResult.Err = c.newDL.Download(newObj, headers)
-		collectFileResult(t, c.rootDir, &newResult)
-		t.Logf("pkg/download reference: err=%v, size=%d, metadata=%v", newResult.Err, newResult.FileSize, newResult.Obj.Metadata)
-
-		// 执行 dlcore-only 断言
-		for i, check := range checks {
-			if check == nil {
-				continue
-			}
-			check(t, &oldResult, &newResult)
-			if t.Failed() {
-				t.Logf("dlcore-only check %d/%d failed", i+1, len(checks))
 				return
 			}
 		}
@@ -459,9 +408,9 @@ func CheckError() Check {
 			return
 		}
 		// 都非 nil — 检查是否都为 ErrNoTry
-		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
-		oldNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
-		newNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
+		// download.ErrNoTry 是唯一 sentinel
+		oldNoTry := errors.Is(old.Err, download.ErrNoTry)
+		newNoTry := errors.Is(new.Err, download.ErrNoTry)
 		if oldNoTry != newNoTry {
 			t.Errorf("ErrNoTry mismatch: old.IsNoTry=%v, new.IsNoTry=%v (old=%v, new=%v)", oldNoTry, newNoTry, old.Err, new.Err)
 		}
@@ -554,9 +503,9 @@ func CheckBothNil() Check {
 func CheckErrNoTry() Check {
 	return func(t *testing.T, old, new *DownloadResult) {
 		t.Helper()
-		// dlcore.ErrNoTry 已复用 pkg/download.ErrNoTry，同一 sentinel
-		oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
-		newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
+		// download.ErrNoTry 是唯一 sentinel
+		oldIsNoTry := errors.Is(old.Err, download.ErrNoTry)
+		newIsNoTry := errors.Is(new.Err, download.ErrNoTry)
 		if !oldIsNoTry {
 			t.Errorf("old: expected ErrNoTry, got %v", old.Err)
 		}

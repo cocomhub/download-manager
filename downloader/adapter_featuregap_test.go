@@ -10,14 +10,16 @@ import (
 	"github.com/cocomhub/download-manager/config"
 )
 
-// TestFeatureGap_ConfigTypeMigration 验证 native_http → native_old 迁移。
+// TestFeatureGap_ConfigTypeMigration 验证 native_http / native_old → native 迁移（dlcore 退役后统一到 pkg/download）。
 func TestFeatureGap_ConfigTypeMigration(t *testing.T) {
-	cfg := &config.Config{
-		Downloader: config.Downloader{Type: "native_http"},
-	}
-	cfg.ValidateAndClamp()
-	if cfg.Downloader.Type != "native_old" {
-		t.Errorf("expected native_old, got %q", cfg.Downloader.Type)
+	for _, oldType := range []string{"native_http", "native_old"} {
+		cfg := &config.Config{
+			Downloader: config.Downloader{Type: oldType},
+		}
+		cfg.ValidateAndClamp()
+		if cfg.Downloader.Type != "native" {
+			t.Errorf("expected native, got %q (from %q)", cfg.Downloader.Type, oldType)
+		}
 	}
 }
 
