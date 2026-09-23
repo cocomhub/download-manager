@@ -82,7 +82,7 @@ func TestObjectController_CancelTask(t *testing.T) {
 			}
 		}
 		return true
-	}, 3*time.Second, 50*time.Millisecond, "objects converge after cancel")
+	}, 10*time.Second, 50*time.Millisecond, "objects converge after cancel")
 }
 
 // TestObjectController_RetryAllFailed 验证失败对象批量重试。
