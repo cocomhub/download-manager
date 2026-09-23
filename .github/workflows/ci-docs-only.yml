@@ -1,0 +1,152 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI (docs-only)
+
+# 文档专用「通过」workflow：让纯文档 PR（只改 paths-ignore 命中的路径）也能满足
+# master ruleset 的必检项，而不必真正跑完整 CI。
+#
+# 触发器限制（2026-09-17 经验）：GitHub Actions 的 paths 是逐文件 OR，无法表达
+# 集合差 ⇒ 纯靠 paths-ignore 无法让「混合 PR」跳过本 workflow。正确做法：job 级
+# `if` + 前置 detect——detect 用 git diff 精确计算变更集，仅当「全部落在忽略清单」
+# 时才启用下方与 ruleset 必检同名的占位检查；否则全部 skip ⇒ 混合 PR 只受真实 CI 门禁。
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - '.release-please-manifest.json'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.notestignore'
+      - '.dockerignore'
+      - 'LICENSE'
+      - '.pi/**'
+  pull_request:
+    branches: [master]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - '.release-please-manifest.json'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.notestignore'
+      - '.dockerignore'
+      - 'LICENSE'
+      - '.pi/**'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 前置：判定本次变更集是否为「纯文档/忽略路径」。
+  detect:
+    name: Detect docs-only
+    runs-on: ubuntu-latest
+    outputs:
+      docsonly: ${{ steps.d.outputs.docsonly }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: d
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE:-HEAD~1}"
+          changed="$(git diff --name-only "$base" HEAD || true)"
+          if [ -z "$changed" ]; then
+            n="$(git hash-object -t tree /dev/null 2>/dev/null || echo "")"
+            [ -n "$n" ] && changed="$(git diff --name-only "$n" HEAD || true)"
+          fi
+          echo "=== changed files (vs $base) ==="
+          printf '%s\n' "$changed" | sed 's/^/  /'
+          non_doc=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if printf '%s' "$f" | grep -qE '(^|/)[^/]*\.md$|^docs/|^CHANGELOG\.md$|^\.release-please-manifest\.json$|^\.gitignore$|^\.editorconfig$|^\.notestignore$|^\.dockerignore$|^LICENSE$|^\.pi/'; then
+              :
+            else
+              echo "  → 非文档文件: $f"
+              non_doc=1
+            fi
+          done <<< "$changed"
+          if [ -z "$non_doc" ]; then
+            echo "docsonly=true"
+            echo "docsonly=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docsonly=false"
+            echo "docsonly=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-ubuntu:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实测试由 ci.yml 负责）"
+
+  test-windows:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Test (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实测试由 ci.yml 负责）"
+
+  test-macos:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Test (macOS-latest)
+    runs-on: macOS-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实测试由 ci.yml 负责）"
+
+  test-no-mongo:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Test (no mongo)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实测试由 ci.yml 负责）"
+
+  lint:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实 lint 由 ci.yml 负责）"
+
+  playwright:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: Playwright UI E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实 e2e 由 ci.yml 负责）"
+
+  sonar:
+    needs: detect
+    if: needs.detect.outputs.docsonly == 'true'
+    name: SonarQube
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docs-only OK
+        run: echo "文档改动：占位（真实 SonarQube 由 ci.yml 负责）"

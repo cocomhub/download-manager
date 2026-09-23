@@ -1,5 +1,5 @@
-// Copyright 2026 The Cocomhub Authors. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 FROM golang:1.27-alpine AS builder
 RUN apk add --no-cache git ca-certificates

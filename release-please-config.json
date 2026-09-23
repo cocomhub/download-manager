@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "include-v-in-tag": true,
+  "separate-pull-requests": false,
+  "pull-request-title-pattern": "chore(release): v${version}",
+  "group-pull-request-title-pattern": "chore(release): v${version}",
+  "bump-minor-pre-major": true,
+  "changelog-sections": [
+    { "type": "feat", "section": "Added" },
+    { "type": "fix", "section": "Fixed" },
+    { "type": "perf", "section": "Changed" },
+    { "type": "refactor", "section": "Changed" },
+    { "type": "deps", "section": "Changed" },
+    { "type": "revert", "section": "Fixed" },
+    { "type": "security", "section": "Security" },
+    { "type": "remove", "section": "Removed" },
+    { "type": "deprecate", "section": "Deprecated" },
+    { "type": "docs", "section": "Changed" },
+    { "type": "chore", "section": "Changed" },
+    { "type": "ci", "section": "Changed" },
+    { "type": "test", "section": "Changed" },
+    { "type": "build", "section": "Changed" },
+    { "type": "style", "section": "Changed" }
+  ],
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": false
+    }
+  }
+}
