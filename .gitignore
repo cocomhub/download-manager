@@ -32,3 +32,6 @@ learnings/
 
 # GoReleaser 产物
 /dist/
+
+# pi agent runtime state
+.pi/
