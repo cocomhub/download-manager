@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790174898953,
+  "lastUpdate": 1790175292128,
   "repoUrl": "https://github.com/cocomhub/download-manager",
   "entries": {
     "Benchmark": [
@@ -89524,6 +89524,870 @@ window.BENCHMARK_DATA = {
             "value": 2,
             "unit": "allocs/op",
             "extra": "55356 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "suixibing@gmail.com",
+            "name": "suixibing",
+            "username": "suixibing"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a15c78c029f53f34b32a7fa48a5ef6278377fbb3",
+          "message": "ci(release): 发布流程对齐 sproxy - release-please + pr-title 门禁 + ruleset 必检 (#65)\n\n## 功能维度\n\n### 版本发布自动化（对齐 sproxy）\n- 新增 release-please（config + manifest + workflow）：CHANGELOG 与版本号单一事实源，可发布提交自动开 release PR\n- 新增 pr-title.yml：PR 标题 Conventional Commits 门禁（type(scope): subject），release-please 豁免\n\n### 制品发布加固（对齐 sproxy 发布事故教训）\n- release.yml 重写：workflow_call/workflow_dispatch 双触发 + GORELEASER_CURRENT_TAG/PREVIOUS_TAG 显式注入（防嵌套 module tag 污染 current/previous）\n- Docker 构建改 multi-arch（linux/amd64 + linux/arm64），push ghcr.io\n\n### goreleaser 配置对齐\n- .goreleaser.yaml：version 2、changelog.disable（release-please 单源）、release.mode keep-existing、git.ignore_tags（cmd/* 嵌套 module）\n- 修复 deprecated 选项（snapshot.name_template → version_template、format_overrides.format → formats）\n\n### CI 门禁与 ruleset\n- ci.yml：5 个 job 加显式 name（Test (os) 不含 go 版本）\n- sonar job 依赖改为 [lint]（lint 成功后直接跑，不等 test）\n- 新增 ci-docs-only.yml：纯文档 PR 提供同名占位检查（job 级 if + git diff 精确判定）\n- ruleset 更新：master 加 required_status_checks（Test×3 / Test no-mongo / Lint / Playwright / SonarQube），与 job 名对齐\n\n### 修复\n- Dockerfile SPDX 注释语法（// → #，Dockerfile 不支持 // 注释，此前构建会失败）\n- .gitignore 忽略 dist/（GoReleaser 产物）",
+          "timestamp": "2026-09-23T22:50:00+08:00",
+          "tree_id": "52bce3a1a389353170d2e44b8417930332f0b581",
+          "url": "https://github.com/cocomhub/download-manager/commit/a15c78c029f53f34b32a7fa48a5ef6278377fbb3"
+        },
+        "date": 1790175290312,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 397.5,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "2782767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 397.5,
+            "unit": "ns/op",
+            "extra": "2782767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "2782767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "2782767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 301,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "4019210 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 301,
+            "unit": "ns/op",
+            "extra": "4019210 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "4019210 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "4019210 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 300.5,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3999420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 300.5,
+            "unit": "ns/op",
+            "extra": "3999420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3999420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3999420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 301.5,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3930825 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 301.5,
+            "unit": "ns/op",
+            "extra": "3930825 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3930825 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3930825 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config)",
+            "value": 299.8,
+            "unit": "ns/op\t       4 B/op\t       4 allocs/op",
+            "extra": "3988248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 299.8,
+            "unit": "ns/op",
+            "extra": "3988248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 4,
+            "unit": "B/op",
+            "extra": "3988248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkValidateAndClamp (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3988248 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 899.5,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1331506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 899.5,
+            "unit": "ns/op",
+            "extra": "1331506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1331506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1331506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 902.4,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1319414 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 902.4,
+            "unit": "ns/op",
+            "extra": "1319414 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1319414 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1319414 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 907.9,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1320740 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 907.9,
+            "unit": "ns/op",
+            "extra": "1320740 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1320740 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1320740 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 923.3,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1339234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 923.3,
+            "unit": "ns/op",
+            "extra": "1339234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1339234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1339234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config)",
+            "value": 913.8,
+            "unit": "ns/op\t    2112 B/op\t       9 allocs/op",
+            "extra": "1306452 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - ns/op",
+            "value": 913.8,
+            "unit": "ns/op",
+            "extra": "1306452 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "1306452 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkClone (github.com/cocomhub/download-manager/config) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "1306452 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15605,
+            "unit": "ns/op\t   93712 B/op\t      67 allocs/op",
+            "extra": "73161 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15605,
+            "unit": "ns/op",
+            "extra": "73161 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93712,
+            "unit": "B/op",
+            "extra": "73161 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "73161 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15128,
+            "unit": "ns/op\t   93728 B/op\t      67 allocs/op",
+            "extra": "79870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15128,
+            "unit": "ns/op",
+            "extra": "79870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93728,
+            "unit": "B/op",
+            "extra": "79870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "79870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15302,
+            "unit": "ns/op\t   93728 B/op\t      67 allocs/op",
+            "extra": "79554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15302,
+            "unit": "ns/op",
+            "extra": "79554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93728,
+            "unit": "B/op",
+            "extra": "79554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "79554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15324,
+            "unit": "ns/op\t   93728 B/op\t      67 allocs/op",
+            "extra": "77840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15324,
+            "unit": "ns/op",
+            "extra": "77840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93728,
+            "unit": "B/op",
+            "extra": "77840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "77840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager)",
+            "value": 15618,
+            "unit": "ns/op\t   93712 B/op\t      67 allocs/op",
+            "extra": "78710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - ns/op",
+            "value": 15618,
+            "unit": "ns/op",
+            "extra": "78710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - B/op",
+            "value": 93712,
+            "unit": "B/op",
+            "extra": "78710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager (github.com/cocomhub/download-manager/manager) - allocs/op",
+            "value": 67,
+            "unit": "allocs/op",
+            "extra": "78710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 40.33,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29461604 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 40.33,
+            "unit": "ns/op",
+            "extra": "29461604 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29461604 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29461604 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 40.54,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "28119566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 40.54,
+            "unit": "ns/op",
+            "extra": "28119566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "28119566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "28119566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 40.45,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29653669 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 40.45,
+            "unit": "ns/op",
+            "extra": "29653669 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29653669 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29653669 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 40.43,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29561286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 40.43,
+            "unit": "ns/op",
+            "extra": "29561286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29561286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29561286 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model)",
+            "value": 40.29,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "29489470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - ns/op",
+            "value": 40.29,
+            "unit": "ns/op",
+            "extra": "29489470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "29489470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStatusTransition (github.com/cocomhub/download-manager/model) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "29489470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 4073,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "334432 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 4073,
+            "unit": "ns/op",
+            "extra": "334432 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "334432 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "334432 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3540,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "334144 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3540,
+            "unit": "ns/op",
+            "extra": "334144 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "334144 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "334144 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3507,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "341277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3507,
+            "unit": "ns/op",
+            "extra": "341277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "341277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "341277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3540,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "339066 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3540,
+            "unit": "ns/op",
+            "extra": "339066 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "339066 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "339066 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup)",
+            "value": 3615,
+            "unit": "ns/op\t      96 B/op\t       5 allocs/op",
+            "extra": "340005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - ns/op",
+            "value": 3615,
+            "unit": "ns/op",
+            "extra": "340005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - B/op",
+            "value": 96,
+            "unit": "B/op",
+            "extra": "340005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkTKTVariantFlags (github.com/cocomhub/download-manager/pkg/titlegroup) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "340005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4123,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "289582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4123,
+            "unit": "ns/op",
+            "extra": "289582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "289582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "289582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4115,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "286290 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4115,
+            "unit": "ns/op",
+            "extra": "286290 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "286290 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "286290 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4147,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "293240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4147,
+            "unit": "ns/op",
+            "extra": "293240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "293240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "293240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4288,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "276822 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4288,
+            "unit": "ns/op",
+            "extra": "276822 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "276822 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "276822 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage)",
+            "value": 4411,
+            "unit": "ns/op\t    1792 B/op\t       2 allocs/op",
+            "extra": "266122 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 4411,
+            "unit": "ns/op",
+            "extra": "266122 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 1792,
+            "unit": "B/op",
+            "extra": "266122 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_Search (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "266122 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 32005,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 32005,
+            "unit": "ns/op",
+            "extra": "37684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 32095,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37516 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 32095,
+            "unit": "ns/op",
+            "extra": "37516 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37516 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37516 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 32419,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "36830 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 32419,
+            "unit": "ns/op",
+            "extra": "36830 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "36830 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "36830 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 32174,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "37328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 32174,
+            "unit": "ns/op",
+            "extra": "37328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "37328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "37328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage)",
+            "value": 35533,
+            "unit": "ns/op\t   16384 B/op\t       2 allocs/op",
+            "extra": "29162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - ns/op",
+            "value": 35533,
+            "unit": "ns/op",
+            "extra": "29162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - B/op",
+            "value": 16384,
+            "unit": "B/op",
+            "extra": "29162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryStorage_FullScan (github.com/cocomhub/download-manager/storage) - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "29162 times\n4 procs"
           }
         ]
       }
