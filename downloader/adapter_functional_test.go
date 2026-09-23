@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	dlcore "github.com/cocomhub/download-manager/pkg/dlcore" //nolint:staticcheck // SA1019: needed for ErrNoTry comparison
+	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 // ================================================================
@@ -116,8 +116,8 @@ func TestFunc_ResumeCompleted(t *testing.T) {
 	obj := makeTestObject(b.URL()+"/done.bin", "done/file.bin", nil, nil)
 
 	// 先成功下载一次（建立基线）
-	if err := cmp.oldDL.Download(copyObject(obj), nil); err != nil {
-		t.Fatalf("initial dlcore download: %v", err)
+	if err := cmp.newDL.Download(copyObject(obj), nil); err != nil {
+		t.Fatalf("initial download: %v", err)
 	}
 
 	// 第二次下载应该跳过（文件已完整）
@@ -392,7 +392,7 @@ func TestFunc_TextContentTypeJPG(t *testing.T) {
 }
 
 // TestFunc_PathTraversal 验证路径穿越被拒绝。
-// 注意：dlcore 的 ResolvePath 对绝对路径不会拒绝（它在 rootDir 内时允许），
+// 注意：pkg/download 的 ResolvePath 对绝对路径不会拒绝（它在 rootDir 内时允许），
 // 而 pkg/download 的 ResolvePath 对 rootDir 为空的绝对路径也会允许。
 // 此测试验证双方至少有一方拒绝。
 func TestFunc_PathTraversal(t *testing.T) {
@@ -528,8 +528,8 @@ func TestFunc_MetadataFailedNotWritten(t *testing.T) {
 	cmp.Run("fail-metadata", obj, nil,
 		func(t *testing.T, old, new *DownloadResult) {
 			t.Helper()
-			oldIsNoTry := errors.Is(old.Err, dlcore.ErrNoTry)
-			newIsNoTry := errors.Is(new.Err, dlcore.ErrNoTry)
+			oldIsNoTry := errors.Is(old.Err, download.ErrNoTry)
+			newIsNoTry := errors.Is(new.Err, download.ErrNoTry)
 			if !oldIsNoTry && !newIsNoTry {
 				t.Error("expected at least one side to return ErrNoTry")
 			}

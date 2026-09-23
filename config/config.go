@@ -361,10 +361,11 @@ func (c *Config) validateTaskScan() {
 }
 
 func (c *Config) migrateDownloaderType() {
-	if c.Downloader.Type == "native_http" {
-		slog.Warn("config: downloader type 'native_http' is deprecated, migrating to 'native_old'. " +
-			"Use type 'native' for the new pkg/download path.")
-		c.Downloader.Type = "native_old"
+	// native_http / native_old 均为旧 pkg/dlcore 时代的类型名，已退役（v0.1.0 后）。
+	// 统一迁移到新实现 native。
+	if c.Downloader.Type == "native_http" || c.Downloader.Type == "native_old" {
+		slog.Warn("config: downloader type is deprecated, migrating to 'native' (pkg/download path).", "type", c.Downloader.Type)
+		c.Downloader.Type = "native"
 	}
 }
 

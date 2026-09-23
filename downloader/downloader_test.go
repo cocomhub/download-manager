@@ -39,7 +39,8 @@ func TestNew_UnknownType(t *testing.T) {
 	}
 }
 
-func TestNew_NativeOld(t *testing.T) {
+// TestNew_TypeFallback 验证 native_old（dlcore 时代类型）回落到 native（pkg/download）。
+func TestNew_TypeFallback(t *testing.T) {
 	cfg := config.Downloader{Type: "native_old"}
 	d := New(cfg)
 	if d == nil {
@@ -66,7 +67,6 @@ func TestNew_NameValues(t *testing.T) {
 		cfg  config.Downloader
 	}{
 		{"native", config.Downloader{Type: "native"}},
-		{"native_old", config.Downloader{Type: "native_old"}},
 		{"wget", config.Downloader{Type: "wget"}},
 		{"empty_default", config.Downloader{Type: ""}},
 	}

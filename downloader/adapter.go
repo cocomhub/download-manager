@@ -87,10 +87,10 @@ func (a *DownloaderAdapter) getMetadataFlusher() func() {
 	return a.metadataFlusher
 }
 
-// Name 返回适配器名称（保持与旧 NativeHTTPDownloader 兼容）。
+// Name 返回适配器名称。
 func (a *DownloaderAdapter) Name() string { return "native_http" }
 
-// SetContext 设置下载上下文（替代旧的 NativeHTTPDownloader.SetContext）。
+// SetContext 设置下载上下文。
 func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
