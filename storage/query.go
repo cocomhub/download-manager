@@ -30,6 +30,21 @@ func ApplyQueryToObjects(objects []*model.DownloadObject, query *core.StorageQue
 	return applyPagination(filtered, query)
 }
 
+// FilterAndPageObjects applies filter/sort/pagination to a map of objects keyed by ID,
+// collecting only the matching objects (avoids copying the full backing map before filtering).
+// Sort ordering is applied over the filtered set; pagination honors query.Offset/Limit.
+func FilterAndPageObjects(objects map[string]*model.DownloadObject, query *core.StorageQuery) []*model.DownloadObject {
+	filtered := make([]*model.DownloadObject, 0, len(objects))
+	for _, obj := range objects {
+		if matchesQuery(obj, query) {
+			filtered = append(filtered, obj)
+		}
+	}
+
+	applySort(filtered, query)
+	return applyPagination(filtered, query)
+}
+
 // CountObjects returns the count of objects that match the query filters.
 func CountObjects(objects []*model.DownloadObject, query *core.StorageQuery) int64 {
 	var count int64

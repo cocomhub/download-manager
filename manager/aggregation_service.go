@@ -140,9 +140,27 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 	return all[offset:end], nil
 }
 
-// simpleCollect gathers all objects from every matching task,
+// simpleCollect gathers objects from every matching task,
 // then sorts and paginates the merged result in a single pass.
+// 单任务场景（无需跨任务合并排序）：直接下推 limit/offset 到后端 Search，
+// 避免全量收集后再内存分页（大数据量下显著降低传输与排序成本）。
 func (svc *AggregationService) simpleCollect(matchingTasks []taskInfo, page, limit int64, search, status, sortBy string, tags string, tagMode string, excludeIDs []int64) ([]*model.DownloadObject, error) {
+	// 单任务 + 有排序/分页需求 → 后端下推（limit/offset/sort 由 storage.Search 执行）
+	if len(matchingTasks) == 1 && limit > 0 {
+		q := buildBaseQuery(search, status, tags, tagMode, excludeIDs)
+		q.Sort = sortRules(sortBy)
+		q.Limit = limit
+		q.Offset = (page - 1) * limit
+		objs, err := svc.search(matchingTasks[0].t, q)
+		if err != nil {
+			return nil, err
+		}
+		if objs == nil {
+			objs = []*model.DownloadObject{}
+		}
+		return objs, nil
+	}
+
 	var all []*model.DownloadObject
 	for _, ti := range matchingTasks {
 		objs, err := svc.collect(ti.t, buildBaseQuery(search, status, tags, tagMode, excludeIDs), 200)
