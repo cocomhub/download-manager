@@ -109,6 +109,10 @@ type MockDownloader struct {
 	timeoutURLs  map[string]bool
 	delayPerByte time.Duration
 
+	// cancelMu 保护 cancelled map（per-URL 取消标记，供 Cancel(url) 使用）。
+	cancelMu  sync.Mutex
+	cancelled map[string]bool
+
 	// firstFailCount tracks the number of Download calls per URL
 	// for ModeFirstFailThenSuccess.
 	firstFailCount map[string]int
@@ -130,12 +134,29 @@ func New(mode Mode, opts ...Option) *MockDownloader {
 		mode:           mode,
 		failErr:        ErrMockDownload,
 		firstFailCount: make(map[string]int),
+		cancelled:      make(map[string]bool),
 		ctx:            context.Background(),
 	}
 	for _, opt := range opts {
 		opt(d)
 	}
 	return d
+}
+
+// Cancel 实现 core.Downloader 的按 URL 取消接口：标记该 URL 已取消，
+// 正在下载（simulateStep）的对象会以 cancelled 终态退出。
+func (d *MockDownloader) Cancel(url string) error {
+	d.cancelMu.Lock()
+	d.cancelled[url] = true
+	d.cancelMu.Unlock()
+	return nil
+}
+
+// isCancelled 返回 URL 是否已被 Cancel 标记。
+func (d *MockDownloader) isCancelled(url string) bool {
+	d.cancelMu.Lock()
+	defer d.cancelMu.Unlock()
+	return d.cancelled[url]
 }
 
 // Name returns "mock".
@@ -301,6 +322,12 @@ func (d *MockDownloader) simulateStep(obj *model.DownloadObject, pct int, groupS
 		}
 		return err
 	default:
+	}
+
+	// per-URL 取消检查（CancelTask 对 downloading 对象调 Cancel(url)）
+	if d.isCancelled(obj.URL) {
+		obj.SetStatus(model.StatusCancelled)
+		return context.Canceled
 	}
 
 	obj.SetProgress(pct)

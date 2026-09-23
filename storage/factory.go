@@ -68,11 +68,9 @@ func (s *MemoryStorage) Search(query *core.StorageQuery) ([]*model.DownloadObjec
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	list := make([]*model.DownloadObject, 0, len(s.objects))
-	for _, obj := range s.objects {
-		list = append(list, obj)
-	}
-	return ApplyQueryToObjects(list, query), nil
+	// 过滤先行：仅收集匹配项，避免对全量对象做一次 copy 再过滤。
+	// 排序与分页（offset/limit）语义由共享查询层下推执行。
+	return FilterAndPageObjects(s.objects, query), nil
 }
 
 func (s *MemoryStorage) Count(query *core.StorageQuery) (int64, error) {

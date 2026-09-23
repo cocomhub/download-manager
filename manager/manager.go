@@ -44,6 +44,8 @@ type Manager struct {
 	cfgVal          atomic.Value
 	configSvc       *ConfigService
 	aggSvc          *AggregationService
+	objectCtrl      *ObjectController
+	schedSvc        *SchedulerService
 	tasks           sync.Map
 	downloader      core.Downloader
 	downloaderMu    sync.Mutex
@@ -185,6 +187,8 @@ func NewManager(cfg *config.Config) *Manager {
 		soQueue:         make(chan smallObjectRequest, 128),
 		initializedCh:   make(chan struct{}),
 	}
+	mgr.objectCtrl = newObjectController(mgr)
+	mgr.schedSvc = newSchedulerService(mgr)
 	mgr.resolveCtx, mgr.resolveCancel = context.WithCancel(context.Background())
 	mgr.soCtx, mgr.soCancel = context.WithCancel(context.Background())
 	mgr.cfgVal.Store(cfg)
