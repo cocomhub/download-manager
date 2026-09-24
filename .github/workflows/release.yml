@@ -18,9 +18,11 @@ on:
       tag:
         description: "要发布的 tag（release-please 的 tag_name）。为空时回落到触发 ref。"
         required: false
+        type: string
       checkout_ref:
         description: "checkout 的 ref（默认 = tag；发布故障处置时可用 master 等含修复的分支）。"
         required: false
+        type: string
   workflow_dispatch:
     inputs:
       tag:
