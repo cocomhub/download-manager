@@ -36,3 +36,7 @@ learnings/
 
 # pi agent runtime state
 .pi/
+# test-generated local configs
+api/config.yaml
+manager/config.yaml
+
