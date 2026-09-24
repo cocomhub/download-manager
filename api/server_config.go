@@ -19,6 +19,16 @@ import (
 func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.mgr.GetConfig()
 	resp := map[string]any{
+		"server": map[string]any{
+			"http_port":         cfg.Server.HTTPPort,
+			"ui_only_port":      cfg.Server.UIOnlyPort,
+			"work_dir":          cfg.Server.WorkDir,
+			"download_root_dir": cfg.Server.DownloadRootDir,
+			"files_dir":         cfg.Server.FilesDir,
+			"scraper_path":      cfg.Server.ScraperPath,
+			"scraper_url":       cfg.Server.ScraperURL,
+			"auth":              authConfigView(cfg.Server.Auth),
+		},
 		"task_scan":  cfg.TaskScan,
 		"downloader": cfg.Downloader,
 		"ui_defaults": map[string]any{
@@ -35,13 +45,41 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// authConfigView returns the auth config with secrets redacted
+// (password/token never sent to the client).
+func authConfigView(auth config.AuthConfig) map[string]any {
+	return map[string]any{
+		"type":         auth.Type,
+		"username":     auth.Username,
+		"has_password": auth.Password != "",
+		"has_token":    auth.Token != "",
+	}
+}
+
+// serverConfigUpdate 是 updateServerConfig 的 server 段请求体。
+// 只暴露可安全由 UI 修改的字段（不含 lock_file / scraper_tunnel_key 等敏感项）。
+type serverConfigUpdate struct {
+	HTTPPort        *int    `json:"http_port"`
+	UIOnlyPort      *int    `json:"ui_only_port"`
+	WorkDir         *string `json:"work_dir"`
+	DownloadRootDir *string `json:"download_root_dir"`
+	FilesDir        *string `json:"files_dir"`
+	Auth            *struct {
+		Type     string `json:"type"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Token    string `json:"token"`
+	} `json:"auth"`
+}
+
 // updateServerConfig updates the server configuration.
 func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TaskScan   config.TaskScan   `json:"task_scan"`
-		Downloader config.Downloader `json:"downloader"`
-		UIDefaults config.UIDefaults `json:"ui_defaults"`
-		LogLevel   string            `json:"log_level"`
+		Server     serverConfigUpdate `json:"server"`
+		TaskScan   config.TaskScan    `json:"task_scan"`
+		Downloader config.Downloader  `json:"downloader"`
+		UIDefaults config.UIDefaults  `json:"ui_defaults"`
+		LogLevel   string             `json:"log_level"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
@@ -71,6 +109,37 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	cc.Downloader.Progress = req.Downloader.Progress
 	cc.Downloader.FFmpeg = req.Downloader.FFmpeg
 	cc.Server.UIDefaults = req.UIDefaults
+	// Update server section (only non-nil fields are applied)
+	if req.Server.HTTPPort != nil {
+		cc.Server.HTTPPort = *req.Server.HTTPPort
+	}
+	if req.Server.UIOnlyPort != nil {
+		cc.Server.UIOnlyPort = *req.Server.UIOnlyPort
+	}
+	if req.Server.WorkDir != nil {
+		cc.Server.WorkDir = *req.Server.WorkDir
+	}
+	if req.Server.DownloadRootDir != nil {
+		cc.Server.DownloadRootDir = *req.Server.DownloadRootDir
+	}
+	if req.Server.FilesDir != nil {
+		cc.Server.FilesDir = *req.Server.FilesDir
+	}
+	if req.Server.Auth != nil {
+		auth := &cc.Server.Auth
+		if req.Server.Auth.Type != "" {
+			auth.Type = req.Server.Auth.Type
+		}
+		if req.Server.Auth.Username != "" {
+			auth.Username = req.Server.Auth.Username
+		}
+		if req.Server.Auth.Password != "" {
+			auth.Password = req.Server.Auth.Password
+		}
+		if req.Server.Auth.Token != "" {
+			auth.Token = req.Server.Auth.Token
+		}
+	}
 	// Update frontend log level
 	if req.LogLevel != "" {
 		cc.Runtime.LogLevel = req.LogLevel
