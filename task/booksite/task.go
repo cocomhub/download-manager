@@ -90,7 +90,7 @@ func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) err
 // Standardize 提取对象 ID 或回填固定字段（可选）。
 func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
 	if obj.GetID() == 0 {
-		_ = fmt.Sprintf("%s", obj.URL) // TODO: 从 URL 提取站点 ID 并 obj.SetID(id)
+		_ = obj.URL // TODO: 从 URL 提取站点 ID 并 obj.SetID(id)
 	}
 	return false, nil
 }

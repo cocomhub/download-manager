@@ -44,6 +44,8 @@ var Levels = map[string]int{
 	"github.com/cocomhub/download-manager/downloader":       2,
 	"github.com/cocomhub/download-manager/task":             2,
 	"github.com/cocomhub/download-manager/task/TEMPLATE/ui": 2,
+	"github.com/cocomhub/download-manager/task/booksite":    2,
+	"github.com/cocomhub/download-manager/task/booksite/ui": 2,
 	"github.com/cocomhub/download-manager/task/hanime":      2,
 	"github.com/cocomhub/download-manager/task/hanime/ui":   2,
 	"github.com/cocomhub/download-manager/task/mock":        2,
