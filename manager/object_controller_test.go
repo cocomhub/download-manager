@@ -54,7 +54,7 @@ func TestObjectController_CancelUndoRetry(t *testing.T) {
 // TestObjectController_CancelTask 验证整任务取消。
 // 对象就绪后禁用 scan（消除调度器竞争），取消后轮询收敛。
 func TestObjectController_CancelTask(t *testing.T) {
-	mgr, _ := newMockManager(t, "oc-cancel-task", 5, mockdl.New(mockdl.ModeSimulateProgress))
+	mgr, _ := newMockManager(t, "oc-cancel-task", 5, mockdl.New(mockdl.ModeSimulateProgress, mockdl.WithDelay(1*time.Nanosecond)))
 	_ = startManager(t, mgr)
 	task := waitForTask(t, mgr, "oc-cancel-task")
 
