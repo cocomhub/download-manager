@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cocomhub/download-manager/cmd/scraper_get/tunnel"
 	"github.com/cocomhub/download-manager/downloader"
+	"github.com/cocomhub/download-manager/pkg/scraper_tunnel"
 )
 
 var (

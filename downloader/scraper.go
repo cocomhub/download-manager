@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cocomhub/download-manager/cmd/scraper_get/tunnel"
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/cocomhub/download-manager/pkg/scraper_tunnel"
 )
 
 func Scrape(url string, cookie string) (body string, err error) {
