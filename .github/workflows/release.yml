@@ -25,18 +25,11 @@ on:
     inputs:
       tag:
         description: "要发布的 tag（如 v0.3.0）"
-        required: false
+        required: true
         type: string
       checkout_ref:
         description: "checkout 的 ref（默认 = tag；发布故障处置时可用 master 等含修复的分支）。"
         required: false
-        type: string
-        type: string
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "要发布的 tag（如 v0.1.0）"
-        required: true
         type: string
 
 permissions:
