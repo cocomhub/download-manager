@@ -54,6 +54,7 @@ ALL_SRC := $(shell find . -name '*.go' \
   -not -path './.claude/*' \
   -not -path './.trae/*' \
   -not -path './.cursor/*' \
+  -not -path './.worktrees/*' \
   -not -path '*/mocks/*' \
   -not -path '*/*-gen/*' \
   -type f | sort)
@@ -171,7 +172,7 @@ gofix:
 
 .PHONY: addlicense
 addlicense:
-	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" .
+	addlicense -c "The Cocomhub Authors. All rights reserved." -s=only -ignore ".claude/**" -ignore ".trae/**" -ignore ".cursor/**" -ignore ".worktrees/**" .
 
 .PHONY: fmt
 fmt: addlicense gofix

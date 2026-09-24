@@ -35,3 +35,7 @@ learnings/
 
 # pi agent runtime state
 .pi/
+
+# git worktrees for parallel subagent tasks
+.worktrees/
+
