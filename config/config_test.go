@@ -648,6 +648,84 @@ func TestTaskTypeDefaults_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestAuthEnabledEnvDrivesDefault(t *testing.T) {
+	t.Setenv("DM_AUTH_ENABLED", "1")
+	t.Setenv("DM_AUTH_PASSWORD", "secret")
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Server.Auth.Type != "basic" {
+		t.Fatalf("Auth.Type = %q, want %q", cfg.Server.Auth.Type, "basic")
+	}
+	if cfg.Server.Auth.Username != "admin" {
+		t.Fatalf("Auth.Username = %q, want %q", cfg.Server.Auth.Username, "admin")
+	}
+	if cfg.Server.Auth.Password != "secret" {
+		t.Fatalf("Auth.Password = %q, want %q", cfg.Server.Auth.Password, "secret")
+	}
+}
+
+func TestAuthEnabledEnvTruthyVariants(t *testing.T) {
+	for _, v := range []string{"1", "true", "TRUE", "True", "yes", "YES", "Yes"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("DM_AUTH_ENABLED", v)
+			t.Setenv("DM_AUTH_PASSWORD", "secret")
+			cfg := &Config{}
+			cfg.ValidateAndClamp()
+			if cfg.Server.Auth.Type != "basic" {
+				t.Fatalf("Auth.Type = %q, want %q for DM_AUTH_ENABLED=%q", cfg.Server.Auth.Type, "basic", v)
+			}
+		})
+	}
+}
+
+func TestAuthDisabledEnvKeepsNone(t *testing.T) {
+	t.Setenv("DM_AUTH_ENABLED", "0")
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Server.Auth.Type != "" {
+		t.Fatalf("Auth.Type = %q, want empty (none) when DM_AUTH_ENABLED is falsy", cfg.Server.Auth.Type)
+	}
+}
+
+func TestAuthEnabledEnvDoesNotOverrideExplicitType(t *testing.T) {
+	t.Setenv("DM_AUTH_ENABLED", "1")
+	cfg := &Config{Server: Server{Auth: AuthConfig{Type: "token", Token: "abc"}}}
+	cfg.ValidateAndClamp()
+	if cfg.Server.Auth.Type != "token" {
+		t.Fatalf("Auth.Type = %q, want %q (explicit type must win)", cfg.Server.Auth.Type, "token")
+	}
+}
+
+func TestAuthEnvOverrides(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "envtoken")
+	t.Setenv("DM_AUTH_TOKEN_EXPIRES", "2030-01-01T00:00:00Z")
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Server.Auth.Token != "envtoken" {
+		t.Fatalf("Auth.Token = %q, want %q", cfg.Server.Auth.Token, "envtoken")
+	}
+	if cfg.Server.Auth.ExpiresAt != "2030-01-01T00:00:00Z" {
+		t.Fatalf("Auth.ExpiresAt = %q, want %q", cfg.Server.Auth.ExpiresAt, "2030-01-01T00:00:00Z")
+	}
+}
+
+func TestDiff_AuthExpiresAtChanges(t *testing.T) {
+	a := Config{Server: Server{Auth: AuthConfig{ExpiresAt: "2020-01-01T00:00:00Z"}}}
+	b := Config{Server: Server{Auth: AuthConfig{ExpiresAt: "2030-01-01T00:00:00Z"}}}
+	changes := a.Diff(b)
+	found := false
+	for _, c := range changes {
+		if c.Path == "server.auth.expires_at" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'server.auth.expires_at' change in diff")
+	}
+}
+
 func TestTaskTypeDefaults_StorageDefaults(t *testing.T) {
 	// 测试类型默认值中 storage 配置被正确保留
 	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}

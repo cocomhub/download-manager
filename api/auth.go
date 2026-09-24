@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/gorilla/mux"
@@ -18,6 +19,11 @@ import (
 func (s *Server) authMiddleware() mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 健康检查端点豁免鉴权：探活不应因凭据缺失而失败（运维/容器 healthcheck 场景）。
+			if r.URL.Path == "/api/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			cfg := s.mgr.GetConfig()
 			if cfg == nil {
 				next.ServeHTTP(w, r)
@@ -66,6 +72,12 @@ func validateTokenAuth(cfg config.AuthConfig, token string) bool {
 	}
 	if expected == "" {
 		return false // token mode requires a non-empty token
+	}
+	if cfg.ExpiresAt != "" {
+		exp, err := time.Parse(time.RFC3339, cfg.ExpiresAt)
+		if err == nil && time.Now().After(exp) {
+			return false // token has expired
+		}
 	}
 	if len(token) > 7 && token[:7] == "Bearer " {
 		token = token[7:]

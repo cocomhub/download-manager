@@ -98,6 +98,9 @@ func diffServerFields(c, b Config) []Change {
 	if c.Server.Auth.Token != b.Server.Auth.Token {
 		changes = append(changes, Change{Path: "server.auth.token", A: redactedLabel, B: redactedLabel})
 	}
+	if c.Server.Auth.ExpiresAt != b.Server.Auth.ExpiresAt {
+		changes = append(changes, Change{Path: "server.auth.expires_at", A: c.Server.Auth.ExpiresAt, B: b.Server.Auth.ExpiresAt})
+	}
 	if c.Server.UIDefaults.DefaultSaveDir != b.Server.UIDefaults.DefaultSaveDir {
 		changes = append(changes, Change{Path: "server.ui_defaults.default_save_dir", A: c.Server.UIDefaults.DefaultSaveDir, B: b.Server.UIDefaults.DefaultSaveDir})
 	}

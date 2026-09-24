@@ -28,6 +28,8 @@ func init() {
 		UIOnlyLockFile: "download-manager-ui.lock",
 		ScraperPath:    "bin/scraper_get",
 	})
+	// Auth defaults: local binaries ship with auth.type=none (no auth) unless
+	// DM_AUTH_ENABLED=1 (Docker / public-facing deployments) — see applyAuthEnv.
 }
 
 func SetConfigFilePath(path string) {

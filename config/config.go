@@ -6,8 +6,10 @@ package config
 import (
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -173,10 +175,11 @@ type Context struct {
 
 // AuthConfig defines HTTP authentication settings.
 type AuthConfig struct {
-	Type     string `yaml:"type" json:"type"`         // "none" | "basic" | "token"
-	Username string `yaml:"username" json:"username"` // basic auth username, default "admin"
-	Password string `yaml:"password" json:"password"` // environment variable DM_AUTH_PASSWORD takes precedence
-	Token    string `yaml:"token" json:"token"`       // environment variable DM_AUTH_TOKEN takes precedence
+	Type      string `yaml:"type" json:"type"`             // "none" | "basic" | "token"
+	Username  string `yaml:"username" json:"username"`     // basic auth username, default "admin"
+	Password  string `yaml:"password" json:"password"`     // environment variable DM_AUTH_PASSWORD takes precedence
+	Token     string `yaml:"token" json:"token"`           // environment variable DM_AUTH_TOKEN takes precedence
+	ExpiresAt string `yaml:"expires_at" json:"expires_at"` // RFC3339; empty = never expires (DM_AUTH_TOKEN_EXPIRES takes precedence)
 }
 
 // TaskTypeDefault defines default configuration for a task type.
@@ -319,6 +322,7 @@ func (c *Config) ValidateAndClamp() {
 	if c == nil {
 		return
 	}
+	c.applyAuthEnv()
 	c.validateRuntimeMode()
 	c.validateTaskScan()
 	c.migrateDownloaderType()
@@ -336,6 +340,47 @@ func (c *Config) ValidateAndClamp() {
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
 	c.resolveTaskStorages()
+}
+
+// isTruthy reports whether s is a truthy boolean-like value:
+// "1", "true", "yes" (case-insensitive).
+func isTruthy(s string) bool {
+	switch strings.ToLower(s) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
+// applyAuthEnv applies DM_AUTH_* environment variable overrides.
+//   - DM_AUTH_ENABLED truthy + auth.type unset/none → default to basic (username "admin",
+//     password from DM_AUTH_PASSWORD or "admin" with a warning). Only Docker/public-facing
+//     deployments set this; local binaries keep auth.type=none.
+//   - DM_AUTH_PASSWORD / DM_AUTH_TOKEN / DM_AUTH_TOKEN_EXPIRES override their fields
+//     when non-empty.
+func (c *Config) applyAuthEnv() {
+	auth := &c.Server.Auth
+	if isTruthy(os.Getenv("DM_AUTH_ENABLED")) && (auth.Type == "" || auth.Type == "none") {
+		auth.Type = "basic"
+		if auth.Username == "" {
+			auth.Username = "admin"
+		}
+		if p := os.Getenv("DM_AUTH_PASSWORD"); p != "" {
+			auth.Password = p
+		} else if auth.Password == "" {
+			auth.Password = "admin"
+			slog.Warn("DM_AUTH_ENABLED=1 but DM_AUTH_PASSWORD not set, using default password 'admin'; set DM_AUTH_PASSWORD for production")
+		}
+	}
+	if p := os.Getenv("DM_AUTH_PASSWORD"); p != "" {
+		auth.Password = p
+	}
+	if t := os.Getenv("DM_AUTH_TOKEN"); t != "" {
+		auth.Token = t
+	}
+	if e := os.Getenv("DM_AUTH_TOKEN_EXPIRES"); e != "" {
+		auth.ExpiresAt = e
+	}
 }
 
 func (c *Config) validateRuntimeMode() {
