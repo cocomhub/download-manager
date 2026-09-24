@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/gorilla/mux"
@@ -66,6 +67,12 @@ func validateTokenAuth(cfg config.AuthConfig, token string) bool {
 	}
 	if expected == "" {
 		return false // token mode requires a non-empty token
+	}
+	if cfg.ExpiresAt != "" {
+		exp, err := time.Parse(time.RFC3339, cfg.ExpiresAt)
+		if err == nil && time.Now().After(exp) {
+			return false // token has expired
+		}
 	}
 	if len(token) > 7 && token[:7] == "Bearer " {
 		token = token[7:]

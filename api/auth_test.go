@@ -19,6 +19,38 @@ func newTestManager(cfg *config.Config) *manager.Manager {
 	return manager.NewManager(cfg)
 }
 
+func TestTokenAuthExpired(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "")
+	cfg := config.AuthConfig{Type: "token", Token: "abc", ExpiresAt: "2020-01-01T00:00:00Z"}
+	if validateTokenAuth(cfg, "Bearer abc") {
+		t.Fatal("expired token should be rejected")
+	}
+}
+
+func TestTokenAuthNotExpired(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "")
+	cfg := config.AuthConfig{Type: "token", Token: "abc", ExpiresAt: "2099-01-01T00:00:00Z"}
+	if !validateTokenAuth(cfg, "Bearer abc") {
+		t.Fatal("non-expired token should be accepted")
+	}
+}
+
+func TestTokenAuthNoExpiry(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "")
+	cfg := config.AuthConfig{Type: "token", Token: "abc"}
+	if !validateTokenAuth(cfg, "Bearer abc") {
+		t.Fatal("token without expiry should be accepted")
+	}
+}
+
+func TestTokenAuthInvalidExpiryFormat(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "")
+	cfg := config.AuthConfig{Type: "token", Token: "abc", ExpiresAt: "not-a-date"}
+	if !validateTokenAuth(cfg, "Bearer abc") {
+		t.Fatal("unparseable expiry should not reject (fail-open on malformed value)")
+	}
+}
+
 func TestAuthMiddleware(t *testing.T) {
 	// Note: no t.Parallel() here — t.Setenv is incompatible with parallel tests.
 	// Subtests inherit the env vars set at parent level.
