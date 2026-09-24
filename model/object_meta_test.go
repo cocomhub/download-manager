@@ -237,3 +237,25 @@ func TestGetSetContentGroup(t *testing.T) {
 		t.Fatalf("empty object GetContentGroup() = %q, want empty", got)
 	}
 }
+
+// TestContentHTML_RoundTrip 验证 content_html 访问器往返。
+func TestContentHTML_RoundTrip(t *testing.T) {
+	obj := &DownloadObject{Extra: make(map[string]any)}
+	obj.SetContentHTML("<div>content</div>")
+	if got := obj.GetContentHTML(); got != "<div>content</div>" {
+		t.Errorf("expected content_html, got %q", got)
+	}
+	obj.SetContentHTML("")
+	if got := obj.GetContentHTML(); got != "" {
+		t.Errorf("expected empty after set, got %q", got)
+	}
+}
+
+// TestContentHTML_NilSafe 验证 nil 对象不 panic。
+func TestContentHTML_NilSafe(t *testing.T) {
+	var obj *DownloadObject
+	if got := obj.GetContentHTML(); got != "" {
+		t.Errorf("expected empty for nil, got %q", got)
+	}
+	obj.SetContentHTML("x") // 不 panic 即可
+}

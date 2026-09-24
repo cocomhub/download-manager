@@ -79,7 +79,12 @@ func (o *DownloadObject) SetTags(tags []string) {
 
 // GetPreviewURL returns preview_url from Extra, or empty string.
 func (o *DownloadObject) GetPreviewURL() string {
-	if o == nil || o.Extra == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
 		return ""
 	}
 	s, _ := o.Extra["preview_url"].(string)
@@ -91,6 +96,8 @@ func (o *DownloadObject) SetPreviewURL(url string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Extra == nil {
 		o.Extra = make(map[string]any)
 	}
@@ -99,7 +106,12 @@ func (o *DownloadObject) SetPreviewURL(url string) {
 
 // GetLocalPreview returns local_preview from Extra, or empty string.
 func (o *DownloadObject) GetLocalPreview() string {
-	if o == nil || o.Extra == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
 		return ""
 	}
 	s, _ := o.Extra["local_preview"].(string)
@@ -111,15 +123,49 @@ func (o *DownloadObject) SetLocalPreview(path string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Extra == nil {
 		o.Extra = make(map[string]any)
 	}
 	o.Extra["local_preview"] = path
 }
 
+// GetContentHTML returns content_html from Extra, or empty string.
+func (o *DownloadObject) GetContentHTML() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
+		return ""
+	}
+	s, _ := o.Extra["content_html"].(string)
+	return s
+}
+
+// SetContentHTML sets content_html in Extra.
+func (o *DownloadObject) SetContentHTML(html string) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Extra == nil {
+		o.Extra = make(map[string]any)
+	}
+	o.Extra["content_html"] = html
+}
+
 // GetGroupSize returns group_size from Extra, or 0.
 func (o *DownloadObject) GetGroupSize() int {
-	if o == nil || o.Extra == nil {
+	if o == nil {
+		return 0
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
 		return 0
 	}
 	switch v := o.Extra["group_size"].(type) {
@@ -136,6 +182,8 @@ func (o *DownloadObject) SetGroupSize(n int) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Extra == nil {
 		o.Extra = make(map[string]any)
 	}
@@ -144,7 +192,12 @@ func (o *DownloadObject) SetGroupSize(n int) {
 
 // GetContentGroup returns content_group from Extra, or empty string.
 func (o *DownloadObject) GetContentGroup() string {
-	if o == nil || o.Extra == nil {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
 		return ""
 	}
 	s, _ := o.Extra["content_group"].(string)
@@ -156,6 +209,8 @@ func (o *DownloadObject) SetContentGroup(group string) {
 	if o == nil {
 		return
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.Extra == nil {
 		o.Extra = make(map[string]any)
 	}
