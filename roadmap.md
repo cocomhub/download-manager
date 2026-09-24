@@ -133,7 +133,8 @@
 - 验收：高频字段全部走结构化访问层，前后端契约稳定
 
 ### 阶段 3：安全与运维 / 产品化（第 9-12 月）
-> ✅ **已完成**（2026-09-24）：鉴权强化、SSE/文件边界、docker-compose+systemd、依赖治理、archcheck 门禁；**v0.3.0 收官发布**
+> ✅ **已完成**（2026-09-24）：鉴权强化、SSE/文件边界、docker-compose+systemd、依赖治理；**v0.3.0 收官发布**
+> ⚠️ **补漏**（2026-09-24 审计发现）：P3-5 archcheck 门禁曾被空合并（PR #86 仅 docs）→ 阶段 4 重做落地（PR #98，8 项门禁 + tunnel 迁移 + build 对齐）
 
 **目标：部署形态就绪、安全边界收敛、工程能力对齐 sproxy。**
 
@@ -198,3 +199,23 @@
 4. **第 5-6 月**：P1-2（聚合下推）→ P1-4（配置接口）→ P1-6（停机边界）
 5. **第 7-9 月**：P2-1 → P2-2 → P2-4 → P2-3（依赖顺序：先任务标准化，再下载能力，协议治理穿插）
 6. **第 10-12 月**：P3-1 → P3-2 → P3-3 → P3-4，P3-5（archcheck 对齐）贯穿第 6-12 月
+
+## 七、阶段 4：收官审计与补漏（2026-09-24）
+
+> 用户要求：检查 roadmap 所有任务是否完整实现，避免遗漏或假实现。
+
+### P4-1 archcheck 门禁落地（P3-5 补漏）
+- 审计发现：PR #86 是空提交（tree 与父相同），archcheck 8 项门禁从未进入 master
+- 重做：`internal/archcheck/` 8 项门禁（layers/notest_gate/makefile_dup/release_policy/build_flags/dead_symbols/docs_rules/duplication）
+- 架构倒置修复：downloader → `cmd/scraper_get/tunnel` 迁移到 `pkg/scraper_tunnel`
+- build 对齐：VERSION `--match 'v[0-9]*'` + `GO_BUILD_FLAGS=-trimpath` + goreleaser `flags: -trimpath` + ci.yml 接入
+- 状态：✅ PR #98
+
+### P4-2 m3u8d 收敛
+- `pkg/m3u8d` 与 `pkg/download/m3u8d` 同源重复 → 收敛：cmd/m3u8d 改用新引擎（M3U8DEngine），删除旧 pkg/m3u8d
+- **保留 cmd/m3u8d**（CLI 入口，用户确认）
+- 状态：✅ PR #97
+
+### P4-3 roadmap 修正
+- 阶段 3 标注补漏说明（P3-5 曾空合并 → 重做）
+- 状态：✅ 本文档
