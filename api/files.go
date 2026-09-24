@@ -20,6 +20,12 @@ import (
 //   - responses always carry X-Content-Type-Options: nosniff
 func (s *Server) filesHandler() http.Handler {
 	root := filepath.Clean(s.mgr.GetDownloadRootDir())
+	// root 自身可能经 symlink（如 macOS /var/folders → /private/var/folders）：
+	// 先解析为真实路径，后续比较统一用 realRoot，避免合法文件被误判为穿越。
+	realRoot := root
+	if rr, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = filepath.Clean(rr)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "read-only files")
@@ -36,10 +42,10 @@ func (s *Server) filesHandler() http.Handler {
 			writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
 			return
 		}
-		// symlink 逃逸防护：解析后真实路径必须仍在 root 内。
+		// symlink 逃逸防护：解析后真实路径必须仍在 realRoot 内。
 		if real, err := filepath.EvalSymlinks(clean); err == nil {
 			real = filepath.Clean(real)
-			if real != root && !strings.HasPrefix(real, root+string(os.PathSeparator)) {
+			if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
 				writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
 				return
 			}
