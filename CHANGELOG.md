@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/cocomhub/download-manager/compare/v0.3.0...v0.4.0) (2026-09-24)
+
+
+### Added
+
+* **archcheck:** P3-5 门禁落地——8 项 archcheck + tunnel 迁移 + build 对齐 ([#98](https://github.com/cocomhub/download-manager/issues/98)) ([b3b5496](https://github.com/cocomhub/download-manager/commit/b3b549604bcd339fa961ac856a583e1074197de8))
+
+
+### Fixed
+
+* **ci:** .gitignore 忽略 api/manager config.yaml（GoReleaser dirty） ([#89](https://github.com/cocomhub/download-manager/issues/89)) ([347ca11](https://github.com/cocomhub/download-manager/commit/347ca1134361eef565877ec3c9451f6c0c261c08))
+* **ci:** release.yml workflow_call inputs 补 type（422 修复） ([#95](https://github.com/cocomhub/download-manager/issues/95)) ([a4aaaa5](https://github.com/cocomhub/download-manager/commit/a4aaaa56676361fcd64ac6a88fc1faa1342ba92d))
+* **ci:** release.yml 修复 workflow_dispatch 段重复 ([#94](https://github.com/cocomhub/download-manager/issues/94)) ([cf0ca97](https://github.com/cocomhub/download-manager/commit/cf0ca97f146d6bbb8bb04ecf0f75a1247832c99b))
+* **ci:** release.yml 加 workflow_dispatch 段（支持手动发布） ([#93](https://github.com/cocomhub/download-manager/issues/93)) ([1d6a7bf](https://github.com/cocomhub/download-manager/commit/1d6a7bfb31810ad1b3e21733f2b05af3b4ae4e18))
+* **ci:** release.yml 支持 checkout_ref（发布故障处置） ([#92](https://github.com/cocomhub/download-manager/issues/92)) ([b8e28d3](https://github.com/cocomhub/download-manager/commit/b8e28d3dde06a05a8423324e250bf2b94d9096e4))
+* **ci:** release.yml 清理未跟踪测试 config.yaml（GoReleaser dirty） ([#91](https://github.com/cocomhub/download-manager/issues/91)) ([8d0abca](https://github.com/cocomhub/download-manager/commit/8d0abcacd3dceccf04b3dccbaaafe9e0144fdb58))
+
+
+### Changed
+
+* **m3u8d:** 收敛重复实现，cmd/m3u8d 改用新引擎 ([#97](https://github.com/cocomhub/download-manager/issues/97)) ([7a21581](https://github.com/cocomhub/download-manager/commit/7a21581be0f663bdb8f14e39f017f5153be915d5))
+* **roadmap:** 阶段 0-3 全部完成标记 + v0.3.0 收官 ([#96](https://github.com/cocomhub/download-manager/issues/96)) ([203a3ef](https://github.com/cocomhub/download-manager/commit/203a3ef4a48033996334e1bc3c40e7b55651f80c))
+* **roadmap:** 阶段 4 收官审计与补漏记录 ([#99](https://github.com/cocomhub/download-manager/issues/99)) ([5aea1d9](https://github.com/cocomhub/download-manager/commit/5aea1d99f67787b9d0fb4eea2d4bcee9fa2b6783))
+
 ## [0.3.0](https://github.com/cocomhub/download-manager/compare/v0.2.0...v0.3.0) (2026-09-24)
 
 
