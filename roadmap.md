@@ -240,6 +240,7 @@
 - 盘点证据：`task/TEMPLATE` + `scripts/new-task-type.sh` 就绪，P2-1 目标「规划落地 1-2 个新站点任务」未达（0 个新站点）
 - 内容：候选站点调研（需用户确认）→ 落地 1-2 个站点任务（仅需 site-specific adapter + ui.js，不动核心）
 - 验收：新任务类型经模板创建、注册、UI 展示、下载全链路验证
+- **方向已确认**（2026-09-24）：漫画/图片站 + 视频站各 1 个
 
 ### P5-4 性能压测 + 基准门禁
 - 盘点证据：`make bench` + `bench-compare`（benchstat）存在；CI benchmark-action `continue-on-error: true`（无失败 gate）
