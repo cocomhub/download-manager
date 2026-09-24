@@ -1,0 +1,39 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# download-manager 生产部署形态：app + mongo 两容器。
+# 安全默认：强制开启 basic 鉴权；DM_AUTH_PASSWORD 未设置时 compose 直接失败（fail-closed）。
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DM_AUTH_ENABLED=1
+      - DM_AUTH_TYPE=basic
+      - DM_AUTH_USERNAME=${DM_AUTH_USERNAME:-admin}
+      - DM_AUTH_PASSWORD=${DM_AUTH_PASSWORD:?must set}
+      - DM_MONGO_URI=mongodb://mongo:27017/download_manager
+    volumes:
+      - dm-data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  dm-data:
+  mongo-data:

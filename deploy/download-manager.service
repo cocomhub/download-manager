@@ -1,0 +1,29 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# download-manager systemd 服务单元。
+# 部署步骤见 docs/deploy.md（systemd 章节）。
+
+[Unit]
+Description=download-manager daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=download-manager
+WorkingDirectory=/var/lib/download-manager
+ExecStart=/usr/local/bin/download-manager --config /etc/download-manager/config.yaml
+EnvironmentFile=/etc/download-manager/env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# ProtectSystem=strict 使除 /dev /proc /sys 外整个文件系统只读；
+# 下载落盘、lock 文件、日志写回均需 /var/lib/download-manager 可写，必须显式放开。
+ReadWritePaths=/var/lib/download-manager
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
