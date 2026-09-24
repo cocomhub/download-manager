@@ -1,0 +1,95 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// Package booksite 是 Book Site 站点适配任务类型。
+// 本文件由 scripts/new-task-type.sh 从 task/TEMPLATE/task.go.tmpl 生成。
+//
+// 接入路径（三件套）：
+//   1. task.go  — 注册工厂 + NewTask + 组装 PagingScanner + SiteAdapter
+//   2. adapter.go — 实现 task.SiteAdapter（分页生命周期 + 对象构建）
+//   3. ui/       — 前端 UI 插件（由脚手架生成）
+package booksite
+
+import (
+	"context"
+
+	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
+	"github.com/cocomhub/download-manager/task"
+)
+
+const TaskType = "booksite"
+
+func init() {
+	task.Register(TaskType, func(cfg *config.Task, opts task.Options) (core.Task, error) {
+		return NewTask(cfg, opts)
+	})
+}
+
+// Task implements core.Task for Book Site.
+type Task struct {
+	*task.BaseTask
+	// 站点特定配置字段（从 cfg.Extra 读取）
+	keyword string
+}
+
+// Ensure Task implements core.Task.
+var _ core.Task = (*Task)(nil)
+
+// NewTask 创建 booksite 任务：解析配置 → 建 BaseTask → 组装 PagingScanner + SiteAdapter。
+func NewTask(cfg *config.Task, opts task.Options) (*Task, error) {
+	extra := cfg.Extra
+	if extra == nil {
+		extra = make(map[string]any)
+	}
+	cfg.Extra = extra
+
+	// 站点特定参数（示例：keyword，按需增删）
+	keyword := configutil.GetString(extra, "keyword", "")
+
+	bt, err := task.NewBaseTask(cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	t := &Task{
+		BaseTask: bt,
+		keyword:  keyword,
+	}
+
+	// 组装统一抓取管线（PagingScanner + SiteAdapter）：
+	// adapter 实现分页生命周期，PagingScanner 驱动 scrape → build → persist。
+	adapter := &booksiteAdapter{t: t}
+	scanner := task.NewPagingScanner(bt, adapter)
+	bt.SetScanner(scanner)
+	bt.SetSelf(t)
+
+	return t, nil
+}
+
+// Type returns the task type identifier.
+func (t *Task) Type() string {
+	return TaskType
+}
+
+// Scrape 委托 BaseTask（内部转给 PagingScanner）。
+// 若站点无需分页列表（如 urllist 直连），可覆盖此方法返回 nil。
+func (t *Task) Scrape(ctx context.Context) error {
+	return t.BaseTask.Scrape(ctx)
+}
+
+// ResolveObject 解析详情页，填充 Extra["files"] 等下载所需字段。
+// 可选实现：无详情解析需求时保留默认（BaseTask 空实现）。
+func (t *Task) ResolveObject(ctx context.Context, obj *model.DownloadObject) error {
+	return t.BaseTask.ResolveObject(ctx, obj)
+}
+
+// Standardize 提取对象 ID 或回填固定字段（可选）。
+func (t *Task) Standardize(obj *model.DownloadObject) (bool, error) {
+	if obj.GetID() == 0 {
+		_ = obj.URL // TODO: 从 URL 提取站点 ID 并 obj.SetID(id)
+	}
+	return false, nil
+}
