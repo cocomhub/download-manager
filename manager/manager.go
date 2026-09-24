@@ -117,6 +117,10 @@ type Manager struct {
 	soCancel  context.CancelFunc
 	soWg      sync.WaitGroup
 	soTracker sync.Map // map[objKey]*objectTracker
+	// soInflight 在途小对象去重（key: taskID + NUL + SavePath，SavePath 为空用 URL）。
+	// soPending 队列满被丢弃的小对象，待补下载（自愈机制，见 small_object.go）。
+	soInflight sync.Map
+	soPending  sync.Map
 
 	initializedCh chan struct{} // closed when Start() initialization completes
 }
