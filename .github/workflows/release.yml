@@ -73,6 +73,11 @@ jobs:
           echo "prev=$PREV"
           echo "previous=$PREV" >> "$GITHUB_OUTPUT"
 
+      # 清理本地测试生成的未跟踪 config.yaml（GoReleaser dirty 检查会拒绝）。
+      - name: Clean untracked test configs
+        run: |
+          rm -f api/config.yaml manager/config.yaml || true
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
