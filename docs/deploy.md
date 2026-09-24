@@ -33,6 +33,7 @@ docker compose up -d --build
 - `--build` 会按根目录 `Dockerfile` 构建 `app` 镜像（golang:1.27-alpine 构建 → alpine:3.21 运行）。
 - 首次启动会拉取 `mongo:7` 镜像并初始化数据卷。
 - 应用端口映射为 `8080:8080`，访问 `http://<主机>:8080`，使用 `DM_AUTH_USERNAME` / `DM_AUTH_PASSWORD` 登录。
+- 容器配置模板 `deploy/docker/config.yaml` 挂载到 `/etc/download-manager/config.yaml`（只读）：`work_dir`/下载落 `/data` 卷（`dm-data` 持久化）、`mongo` 指向 compose 服务名 `mongo:27017`。`DM_MONGO_URI` 环境变量可在 `docker-compose.yml` 中覆盖。
 
 ### 2.3 查看状态与日志
 

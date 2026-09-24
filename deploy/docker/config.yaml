@@ -1,0 +1,35 @@
+# Copyright 2026 The Cocomhub Authors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# 容器部署模板（docker-compose 挂载到 /etc/download-manager/config.yaml）。
+# - work_dir/download 落 /data 卷（dm-data 持久化）
+# - mongo 指向 compose 服务名 mongo（DM_MONGO_URI 环境变量可覆盖）
+# - auth 由 DM_AUTH_* 环境变量驱动（compose 强制开启）
+
+server:
+  http_port: 8080
+  ui_only_port: 8091
+  work_dir: /data
+  lock_file: /data/download-manager.lock
+  ui_defaults:
+    default_save_dir: /data/downloads
+runtime:
+  mode: full
+log:
+  level: info
+  filename: /data/logs/app.log
+  max_size: 10
+  max_backups: 3
+  max_age: 28
+  console: true
+  compress: true
+mongo:
+  - name: mongo
+    uri: mongodb://mongo:27017/download_manager
+downloader:
+  type: native
+  global_concurrent: 2
+  max_retries: 3
+  log_dir: /data/logs/downloader
+  filesystem:
+    root_dir: /data/downloads
