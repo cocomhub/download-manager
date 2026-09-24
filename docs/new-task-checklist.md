@@ -25,15 +25,53 @@ TYPE=mytype LABEL="My Type" HAS_FORM=y HAS_VIEWER=y VIEWER_TYPE=video ./scripts/
 
 ## 手动创建步骤
 
-### 1. 创建 Go 后端
+> 脚手架脚本会从 `task/TEMPLATE/task.go.tmpl` + `adapter.go.tmpl` 自动生成 Go 骨架
+> （`task/<type>/task.go` + `task/<type>/adapter.go`），并在 UI 目录生成插件。
+> 下面的 1-2 步是骨架生成后需要补全的站点逻辑。
 
-在 `task/<type>/` 下创建 Go 包，实现 `core.Task` 接口。
+### 1. 创建 Go 后端（骨架 + 站点逻辑）
+
+脚手架生成 `task/<type>/task.go`（注册工厂 + `NewTask` + 组装 PagingScanner/SiteAdapter）和
+`task/<type>/adapter.go`（SiteAdapter 骨架）。
+
+#### 1.1 task.go — 补全站点配置读取
+
+- 在 `NewTask` 中从 `cfg.Extra` 读取站点特定参数（keyword、user_id 等）
+- 若站点无需分页列表（直连型，参考 `task/urllist/`），可覆盖 `Scrape` 返回 nil
+
+#### 1.2 adapter.go — 实现分页生命周期 + 对象构建
+
+`task.SiteAdapter` 接口（`task/siteadapter.go`）由 `PagingScanner`（`task/scanner.go`）消费，
+驱动「分页抓取 → 条目解析 → 去重 → 对象构建 → 持久化」管线：
+
+| 方法 | 职责 |
+|------|------|
+| `BuildPageURL(page)` | 构造第 page 页 URL（1 起） |
+| `RunScraper(url)` | 抓取页面内容（HTML/JSON）；API 型站点可把 page 编码进 URL 在此解码（参考 vikacg） |
+| `ParseTotalPages(html)` | 提取总页数；未知返回 ≤0（PagingScanner 用空页熔断停止） |
+| `ParsePage(html)` | 解析条目（站点私有切片类型） |
+| `ItemsToURLs(items)` | 提取去重 URL，长度与条目数一致 |
+| `BuildObject(items, index)` | 构建 DownloadObject；**缓存优先**：先查 `BaseTask.GetCachedObject(url)` 复用已存在对象 |
+
+组装（脚手架已生成）：
+
+```go
+adapter := &{{TYPE}}Adapter{t: t}
+scanner := task.NewPagingScanner(bt, adapter)
+bt.SetScanner(scanner)
+bt.SetSelf(t)
+```
+
+#### 1.3 详情解析（可选）
+
+有详情页解析需求时实现 `ResolveObject`：解析详情页填充 `Metadata`（title/date/tags）与
+`Extra`（files/images）。参考 `task/tktube/`（HTML 详情）、`task/vikacg/`（cache + scrapeAndBuild）。
 
 参考现有实现：
-- `task/urllist/` — 简单 URL 列表下载
-- `task/tktube/` — 视频网站下载
-- `task/hanime/` — 动漫网站下载
-- `task/vikacg/` — 图片网站下载
+- `task/urllist/` — 简单 URL 列表下载（无分页/详情）
+- `task/tktube/` — 视频网站（分页 + HTML 详情）
+- `task/hanime/` — 动漫网站（分页 + HTML 详情）
+- `task/vikacg/` — 图片网站（API 分页 + cache 优先详情）
 
 ### 2. 创建 UI 注册
 

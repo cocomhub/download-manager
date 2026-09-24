@@ -1,0 +1,86 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package {{TYPE}}
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/task"
+)
+
+// {{TYPE}}Adapter bridges the {{TYPE}} Task's site-specific methods
+// to the task.SiteAdapter interface consumed by PagingScanner.
+//
+// 实现要点：
+//   - 分页生命周期：BuildPageURL / RunScraper / ParseTotalPages / ParsePage
+//   - 对象构建：ItemsToURLs 提取去重 URL，BuildObject 构建 DownloadObject
+//   - 缓存优先：BuildObject 内先查 BaseTask.GetCachedObject（跨任务去重 + 状态恢复）
+type {{TYPE}}Adapter struct {
+	t *Task
+}
+
+// Ensure adapter implements task.SiteAdapter.
+var _ task.SiteAdapter = (*{{TYPE}}Adapter)(nil)
+
+// BuildPageURL 构造第 page 页的 URL（1 起）。
+func (a *{{TYPE}}Adapter) BuildPageURL(page int) string {
+	return fmt.Sprintf("https://example.com/{{TYPE}}?page=%d", page)
+}
+
+// RunScraper 抓取页面内容（HTML/JSON）。
+// API 型站点可像 vikacg 一样把 page 编码进 URL，在此解码后发起实际请求。
+func (a *{{TYPE}}Adapter) RunScraper(url string) (string, error) {
+	// TODO: 用 downloader.ScraperNative / http.Client 抓取
+	return "", fmt.Errorf("{{TYPE}}: RunScraper not implemented")
+}
+
+// ParseTotalPages 从首页内容提取总页数；未知返回 ≤0（PagingScanner 用空页熔断停止）。
+func (a *{{TYPE}}Adapter) ParseTotalPages(html string) int {
+	return -1
+}
+
+// ParsePage 从页面内容提取结构化条目（站点私有切片类型）。
+func (a *{{TYPE}}Adapter) ParsePage(html string) (any, error) {
+	// TODO: 解析 html 为 []item
+	return nil, fmt.Errorf("{{TYPE}}: ParsePage not implemented")
+}
+
+// ItemsToURLs 从条目提取去重所需 URL，长度与条目数一致。
+func (a *{{TYPE}}Adapter) ItemsToURLs(items any) []string {
+	// list := items.([]item)
+	// return itemURLs(list)
+	return nil
+}
+
+// BuildObject 为第 index 个条目构建 DownloadObject。
+// 缓存优先：先查 BaseTask.GetCachedObject，命中则复用（状态由 CheckAndRestoreStatus 恢复）。
+func (a *{{TYPE}}Adapter) BuildObject(items any, index int) (*model.DownloadObject, error) {
+	// list := items.([]item)
+	// it := list[index]
+	// u := it.URL
+
+	// 缓存优先（跨任务共享 + 重启恢复）
+	// if cached := a.t.GetCachedObject(u); cached != nil {
+	// 	cached.TaskID = a.t.ID()
+	// 	return cached, nil
+	// }
+
+	// 详情抓取 + 构建（参考 vikacg scrapeAndBuild）
+	// obj := &model.DownloadObject{URL: u, TaskID: a.t.ID(), Metadata: map[string]string{}}
+	// obj.SetStatus(model.StatusPending)
+	// return obj, nil
+
+	return nil, fmt.Errorf("{{TYPE}}: BuildObject not implemented")
+}
+
+// --- 站点私有辅助（占位，按需实现） ---
+
+// fetchDetail 抓取详情页并构建对象（BuildObject 内调用）。
+// ctx 用于超时控制与取消。
+func (a *{{TYPE}}Adapter) fetchDetail(ctx context.Context, url string) (*model.DownloadObject, error) {
+	// TODO: 详情页解析 → Metadata（title/date/tags）+ Extra（files/images）
+	return nil, fmt.Errorf("{{TYPE}}: fetchDetail not implemented")
+}

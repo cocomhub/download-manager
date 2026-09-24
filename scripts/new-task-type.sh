@@ -67,7 +67,23 @@ HAS_VIEWER_GO="false"
 if [ "$HAS_FORM" = "y" ] || [ "$HAS_FORM" = "Y" ]; then HAS_FORM_GO="true"; fi
 if [ "$HAS_VIEWER" = "y" ] || [ "$HAS_VIEWER" = "Y" ]; then HAS_VIEWER_GO="true"; fi
 
+# ---- 生成 Go 任务骨架（从 task/TEMPLATE 复制 + 替换占位符）----
+TASK_DIR="$PROJECT_DIR/task/$TYPE"
+if [ -d "$TASK_DIR" ] && [ "$(ls -A "$TASK_DIR" 2>/dev/null)" ]; then
+  echo "错误: task/$TYPE/ 已存在内容！"
+  exit 1
+fi
+mkdir -p "$TASK_DIR"
+
+if [ -f "$PROJECT_DIR/task/TEMPLATE/task.go.tmpl" ]; then
+  sed -e "s/{{TYPE}}/$TYPE/g" -e "s/{{LABEL}}/$LABEL/g"     "$PROJECT_DIR/task/TEMPLATE/task.go.tmpl" > "$TASK_DIR/task.go"
+  sed -e "s/{{TYPE}}/$TYPE/g" -e "s/{{LABEL}}/$LABEL/g"     "$PROJECT_DIR/task/TEMPLATE/adapter.go.tmpl" > "$TASK_DIR/adapter.go"
+  echo "  ✓ 已创建: task/$TYPE/task.go (从 TEMPLATE/task.go.tmpl)"
+  echo "  ✓ 已创建: task/$TYPE/adapter.go (从 TEMPLATE/adapter.go.tmpl)"
+fi
+
 # ---- 创建目录 ----
+
 UI_DIR="$PROJECT_DIR/task/$TYPE/ui"
 ASSETS_DIR="$UI_DIR/assets"
 mkdir -p "$ASSETS_DIR"
@@ -435,8 +451,9 @@ esac
 echo ""
 echo "==== 新任务类型 '$TYPE' 已创建 ===="
 echo "  下一步:"
-echo "    1. 实现 task/$TYPE/ 下的 Go 后端逻辑（task 接口、下载逻辑等）"
-echo "    2. 修改 viewer.js 适配实际数据模型"
-echo "    3. go build ./... 确认编译通过"
-echo "    4. make run 启动后测试"
+echo "    1. 在 task/$TYPE/task.go 中填写站点配置读取与 NewTask 参数"
+echo "    2. 在 task/$TYPE/adapter.go 中实现 RunScraper/ParsePage/BuildObject（含缓存优先）"
+echo "    3. 修改 task/$TYPE/ui/assets/viewer.js 适配实际数据模型"
+echo "    4. go build ./... 确认编译通过"
+echo "    5. 在 config.yaml 添加 $TYPE 任务配置并 make run 测试"
 echo ""
