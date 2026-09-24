@@ -145,8 +145,10 @@ func TestFiles_SiblingDirTraversal(t *testing.T) {
 }
 
 // TestFiles_SymlinkEscape symlink 指向 root 外文件不得被服务。
+// 经 filesTestSetup 的 router（mux StripPrefix 剥离 /files/ 前缀后直达 filesHandler）。
 func TestFiles_SymlinkEscape(t *testing.T) {
-	root := t.TempDir()
+	r, srv, _ := filesTestSetup(t)
+	root := srv.mgr.GetDownloadRootDir()
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
@@ -155,11 +157,9 @@ func TestFiles_SymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skip("symlink not supported on this platform")
 	}
-	cfg := &config.Config{Server: config.Server{WorkDir: t.TempDir(), FilesDir: root}}
-	srv := NewServer(newTestManager(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/files/link.txt", nil)
 	rr := httptest.NewRecorder()
-	srv.filesHandler().ServeHTTP(rr, req)
+	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("symlink escape status = %d, want 403", rr.Code)
 	}
