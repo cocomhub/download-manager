@@ -337,6 +337,8 @@ func (d *MockDownloader) simulateStep(obj *model.DownloadObject, pct int, groupS
 
 	if d.delayPerByte > 0 {
 		time.Sleep(d.delayPerByte * time.Duration(groupSize/totalSteps))
+	} else if d.delay > 0 {
+		time.Sleep(d.delay)
 	} else {
 		time.Sleep(10 * time.Millisecond)
 	}
