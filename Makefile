@@ -98,7 +98,7 @@ test-ci test-cover: prepare
 
 .PHONY: notest
 notest:
-	@scripts/check-test-files.sh $(ALL_PKGS)
+	@bash scripts/check-test-files.sh $(ALL_PKGS)
 
 .PHONY: cover-check
 cover-check: test-cover
