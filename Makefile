@@ -33,9 +33,10 @@ SKIP_VERSION    ?= true
 CONFIG_FILE     ?= $(BUILD_DIR)/config.yaml
 GOTAGS          ?=
 GOBUILD_EXTRA   ?= -v
-VERSION         ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION         ?= $(shell git describe --tags --always --dirty --match 'v[0-9]*' 2>/dev/null || echo dev)
 BUILD_AT        ?= $(shell date +"%Y-%m-%dT%H:%M:%SZ")
 GO_LDFLAGS      := -X main.Version=$(VERSION) -X main.BuildAt=$(BUILD_AT)
+GO_BUILD_FLAGS  ?= -trimpath
 
 # ═══════════════════════════════════════════════
 # OTHER VARIABLES
@@ -80,7 +81,7 @@ prepare:
 
 .PHONY: build
 build: fmt
-	$(GO) build $(GOBUILD_EXTRA) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE) .
+	$(GO) build $(GOBUILD_EXTRA) $(GO_BUILD_FLAGS) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE) .
 
 .PHONY: build-ci
 build-ci: prepare
@@ -200,7 +201,12 @@ build-all:
 	done
 
 .PHONY: check-ci
-check-ci: vet lint check-loopback notest build-ci test-cover cover-check test-all build-all
+archcheck:
+	$(GO) test ./internal/archcheck/...
+
+.PHONY: archcheck
+
+check-ci: vet lint check-loopback notest archcheck build-ci test-cover cover-check test-all build-all
 	@echo "CI pipeline passed"
 
 .PHONY: help

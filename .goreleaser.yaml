@@ -20,6 +20,8 @@ before:
 
 builds:
   - main: .
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}

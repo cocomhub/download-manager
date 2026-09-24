@@ -22,4 +22,4 @@ testutil/assert
 web
 
 # 内部工具子包（scraper tunnel 客户端，随 cmd/scraper_get 使用）
-cmd/scraper_get/tunnel
+pkg/scraper_tunnel

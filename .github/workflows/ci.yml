@@ -79,6 +79,13 @@ jobs:
           make build-ci
           make build-all
 
+      - name: Run notest gate
+        run: make notest
+
+      - name: Run archcheck gates
+        if: matrix.os == 'ubuntu-latest'
+        run: make archcheck
+
       - name: Run tests with coverage
         run: make test-cover
 
