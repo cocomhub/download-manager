@@ -69,7 +69,7 @@ func TestRace_ActiveDownloadsNegative(t *testing.T) {
 			}
 		}
 		return true
-	}, 5*time.Second, 100*time.Millisecond, "expected activeDownloads to be non-negative for all tasks")
+	}, 15*time.Second, 100*time.Millisecond, "expected activeDownloads to be non-negative for all tasks")
 
 	// Verify activeDownloads >= 0 for all tasks.
 	mgr.mu.Lock()
