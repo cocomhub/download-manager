@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -19,8 +20,19 @@ import (
 func (s *Server) authMiddleware() mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 静态资源豁免鉴权：Web UI 的 HTML/JS/CSS 必须可公开加载，
+			// 否则登录页本身都无法渲染（401 拦截 / 及其子资源）。
+			// 仅 /api/ 与 /files/ 受鉴权保护。
+			if !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/files/") {
+				next.ServeHTTP(w, r)
+				return
+			}
 			// 健康检查端点豁免鉴权：探活不应因凭据缺失而失败（运维/容器 healthcheck 场景）。
-			if r.URL.Path == "/api/healthz" {
+			// /api/runtime 豁免：前端需在无凭据时探测 auth 开关状态
+			// （未登录时 UI 必须能读到 auth.enabled 才能决定是否显示登录页）。
+			// /api/auth/verify 也豁免：其 handler 自行校验凭据并返回 401/200，
+			// 前端用它对输入的凭据做预验证（此时可能还没存任何凭据）。
+			if r.URL.Path == "/api/healthz" || r.URL.Path == "/api/runtime" || r.URL.Path == "/api/auth/verify" {
 				next.ServeHTTP(w, r)
 				return
 			}
