@@ -173,3 +173,27 @@ func TestAuthMiddleware(t *testing.T) {
 		})
 	}
 }
+
+// TestAuth_HealthzExempt 验证健康检查端点豁免鉴权（容器 healthcheck 场景）。
+// P3-3 依赖此行为：docker-compose 的 healthcheck 无凭据也能探活。
+func TestAuth_HealthzExempt(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.Server{
+			WorkDir: t.TempDir(),
+			Auth: config.AuthConfig{
+				Type:     "basic",
+				Username: "admin",
+				Password: "secret",
+			},
+		},
+	}
+	srv := NewServer(newTestManager(cfg))
+	router := srv.Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("healthz should be exempt from auth, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+}
