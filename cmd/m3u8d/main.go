@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cocomhub/download-manager/pkg/m3u8d"
+	"github.com/cocomhub/download-manager/pkg/download/m3u8d"
 )
 
 func main() {
@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// 创建下载器
-	downloader, err := m3u8d.NewM3U8Downloader(config)
+	downloader, err := m3u8d.NewM3U8DEngine(config, nil)
 	if err != nil {
 		fmt.Printf("初始化失败: %v\n", err)
 		os.Exit(1)
