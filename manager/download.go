@@ -77,7 +77,17 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		return
 	}
 
-	t.UpdateStatus(obj, model.StatusDownloading, nil)
+	// 用 SetStatusUnlessCancelled 原子更新：避免「isCancelled 检查 → UpdateStatus(Downloading)」
+	// 窗口内 CancelTask/CancelObject 置 cancelled 后被覆盖回 downloading 的竞态。
+	if guard, ok := t.(core.TaskStatusGuarder); ok {
+		if !guard.SetStatusUnlessCancelled(obj, model.StatusDownloading, nil) {
+			slog.Info("Download: object cancelled during status transition, aborting",
+				logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+			return
+		}
+	} else {
+		t.UpdateStatus(obj, model.StatusDownloading, nil)
+	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
