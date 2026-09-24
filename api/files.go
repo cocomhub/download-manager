@@ -31,9 +31,18 @@ func (s *Server) filesHandler() http.Handler {
 			return
 		}
 		clean := filepath.Clean(filepath.Join(root, filepath.FromSlash(upath)))
-		if !strings.HasPrefix(clean, root) {
+		// 前缀边界：clean 必须等于 root 或位于 root/ 之下（防止 root=/data 时 /data2 误放行）。
+		if clean != root && !strings.HasPrefix(clean, root+string(os.PathSeparator)) {
 			writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
 			return
+		}
+		// symlink 逃逸防护：解析后真实路径必须仍在 root 内。
+		if real, err := filepath.EvalSymlinks(clean); err == nil {
+			real = filepath.Clean(real)
+			if real != root && !strings.HasPrefix(real, root+string(os.PathSeparator)) {
+				writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
+				return
+			}
 		}
 		f, err := os.Open(clean)
 		if err != nil {
