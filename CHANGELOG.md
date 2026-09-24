@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0](https://github.com/cocomhub/download-manager/compare/v0.2.0...v0.3.0) (2026-09-24)
+
+
+### Added
+
+* **api:** /files/ 只读 + MIME 白名单 + 防穿越；SSE Origin 同源校验 ([#87](https://github.com/cocomhub/download-manager/issues/87)) ([68e1e90](https://github.com/cocomhub/download-manager/commit/68e1e90c82aa400c21a4de15625287ea154b218f))
+* **archcheck:** 门禁对齐 sproxy（8 项） ([#86](https://github.com/cocomhub/download-manager/issues/86)) ([92d6801](https://github.com/cocomhub/download-manager/commit/92d6801d4db862aace546b323eaab6c8501fac52))
+* **auth:** DM_AUTH_ENABLED 环境变量驱动默认 basic + token 过期校验 ([#84](https://github.com/cocomhub/download-manager/issues/84)) ([f503270](https://github.com/cocomhub/download-manager/commit/f5032705c229236e86dae2b5c7999c36534fb990))
+* **deploy:** docker-compose app+mongo + systemd unit + 部署文档 ([#85](https://github.com/cocomhub/download-manager/issues/85)) ([54f5aba](https://github.com/cocomhub/download-manager/commit/54f5aba21c9a6ce847d22b2edaf07ee092714089))
+* **deploy:** 容器 config 模板 + DM_MONGO_URI 消费方（P3-3 缺口收尾） ([#88](https://github.com/cocomhub/download-manager/issues/88)) ([6829462](https://github.com/cocomhub/download-manager/commit/6829462917e473cccdab2d35b27a9b684ca55e74))
+* **download:** 代理池轮换故障切换 + 跨任务搜索多字段匹配 ([#78](https://github.com/cocomhub/download-manager/issues/78)) ([932fc32](https://github.com/cocomhub/download-manager/commit/932fc32f33188668329cf73ad2fbc1610ce07eb1))
+* **model:** ObjectMeta 访问器补锁 + ContentHTML 访问器 ([#80](https://github.com/cocomhub/download-manager/issues/80)) ([034c60b](https://github.com/cocomhub/download-manager/commit/034c60bce515214b975712154982818485738884))
+* **task:** 任务接入模板沉淀（站点 adapter 标准化） ([#79](https://github.com/cocomhub/download-manager/issues/79)) ([1f85458](https://github.com/cocomhub/download-manager/commit/1f854588d2a155745763dc1c0ce08621bd7ebb1c))
+
+
+### Fixed
+
+* **ci:** check-test-files.sh 忽略逻辑反向 + 空参 fail-closed ([#81](https://github.com/cocomhub/download-manager/issues/81)) ([5d9f3c9](https://github.com/cocomhub/download-manager/commit/5d9f3c9dcd03e9965e01e9c38b45e41c9133a32c))
+* **manager:** download() 状态转换用 SetStatusUnlessCancelled 消除取消竞态 ([#77](https://github.com/cocomhub/download-manager/issues/77)) ([f1ed924](https://github.com/cocomhub/download-manager/commit/f1ed9245ca2df7aba58bae58a920928192ce7eba))
+* **manager:** 数据竞争清扫 - Metadata/Extra 加锁 + sync.Map 断言加固 ([#74](https://github.com/cocomhub/download-manager/issues/74)) ([54c60f0](https://github.com/cocomhub/download-manager/commit/54c60f0e7c7d1e8f2b4f62a8f521ae41c3f36cdf))
+
+
+### Changed
+
+* **deps:** 依赖治理文档（固定版本 + replace 策略 + 私有 module 访问） ([#83](https://github.com/cocomhub/download-manager/issues/83)) ([4a25239](https://github.com/cocomhub/download-manager/commit/4a2523936c6158d1d0a2d431382b5927b1537a2f))
+* **manager:** 停机边界测试强化 ([#76](https://github.com/cocomhub/download-manager/issues/76)) ([3381b37](https://github.com/cocomhub/download-manager/commit/3381b37794cdb8c12839640c2845c1177b54d7f1))
+* **manager:** 拆分 ObjectController/SchedulerService + 聚合查询下推 ([#72](https://github.com/cocomhub/download-manager/issues/72)) ([cb73811](https://github.com/cocomhub/download-manager/commit/cb73811076198644e60abf88158dc7db9f1bf30d))
+
 ## [0.2.0](https://github.com/cocomhub/download-manager/compare/v0.1.0...v0.2.0) (2026-09-23)
 
 
