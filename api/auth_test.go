@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -195,5 +196,86 @@ func TestAuth_HealthzExempt(t *testing.T) {
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("healthz should be exempt from auth, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAuthVerify_Disabled(t *testing.T) {
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	cfg := &config.Config{}
+	cfg.ValidateAndClamp()
+	mgr := newTestManager(cfg)
+	srv := NewServer(mgr)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/verify", nil)
+	srv.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("auth disabled: verify should return 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthVerify_Basic_Valid(t *testing.T) {
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	cfg := &config.Config{}
+	cfg.Server.Auth = config.AuthConfig{Type: "basic", Username: "admin", Password: "secret"}
+	cfg.ValidateAndClamp()
+	mgr := newTestManager(cfg)
+	srv := NewServer(mgr)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/verify", nil)
+	req.SetBasicAuth("admin", "secret")
+	srv.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("valid basic creds: verify should return 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthVerify_Basic_Invalid(t *testing.T) {
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	cfg := &config.Config{}
+	cfg.Server.Auth = config.AuthConfig{Type: "basic", Username: "admin", Password: "secret"}
+	cfg.ValidateAndClamp()
+	mgr := newTestManager(cfg)
+	srv := NewServer(mgr)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/verify", nil)
+	req.SetBasicAuth("admin", "wrong")
+	srv.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid basic creds: verify should return 401, got %d", rr.Code)
+	}
+}
+
+func TestAuthVerify_Token_Valid(t *testing.T) {
+	t.Setenv("DM_AUTH_TOKEN", "")
+	cfg := &config.Config{}
+	cfg.Server.Auth = config.AuthConfig{Type: "token", Token: "abc123"}
+	cfg.ValidateAndClamp()
+	mgr := newTestManager(cfg)
+	srv := NewServer(mgr)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/verify", nil)
+	req.Header.Set("Authorization", "Bearer abc123")
+	srv.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("valid token: verify should return 200, got %d", rr.Code)
+	}
+}
+
+func TestRuntime_AuthEnabled(t *testing.T) {
+	t.Setenv("DM_AUTH_PASSWORD", "")
+	cfg := &config.Config{}
+	cfg.Server.Auth = config.AuthConfig{Type: "basic", Username: "admin", Password: "secret"}
+	cfg.ValidateAndClamp()
+	mgr := newTestManager(cfg)
+	srv := NewServer(mgr)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/runtime", nil)
+	req.SetBasicAuth("admin", "secret")
+	srv.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("runtime with auth should return 200, got %d", rr.Code)
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"enabled":true`)) {
+		t.Fatalf("runtime should report auth enabled, body: %s", rr.Body.String())
 	}
 }

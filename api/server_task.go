@@ -20,6 +20,10 @@ import (
 func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(hdrContentType, "application/json")
 	cfg := s.mgr.GetConfig()
+	authEnabled := false
+	if cfg != nil {
+		authEnabled = cfg.Server.Auth.Type != "" && cfg.Server.Auth.Type != "none"
+	}
 	if cfg == nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"mode": "full",
@@ -40,6 +44,9 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 		},
 		"download_root": s.mgr.GetDownloadRootDir(),
 		"log_level":     cfg.Runtime.LogLevel,
+		"auth": map[string]bool{
+			"enabled": authEnabled,
+		},
 	})
 }
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {

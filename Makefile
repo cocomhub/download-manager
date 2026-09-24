@@ -201,6 +201,10 @@ build-all:
 	done
 
 .PHONY: check-ci
+web-test:
+	@node --test web/static/app/*.test.js
+
+.PHONY: web-test
 archcheck:
 	$(GO) test ./internal/archcheck/...
 

@@ -81,6 +81,7 @@ func (s *Server) Router() *mux.Router {
 	// API Routes
 	r.HandleFunc("/api/runtime", s.getRuntime).Methods("GET")
 	r.HandleFunc("/api/healthz", s.healthHandler).Methods("GET")
+	r.HandleFunc("/api/auth/verify", s.authVerifyHandler).Methods("GET")
 	r.HandleFunc("/api/tasks", s.listTasks).Methods("GET")
 	r.HandleFunc("/api/tasks", s.createTaskPersistent).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}", s.getTask).Methods("GET")

@@ -8,6 +8,34 @@
 ;(function () {
   'use strict'
 
+  // ---- Auth-aware fetch wrapper ----
+  // All requests automatically attach the stored Authorization header.
+  // A 401 response triggers the registered unauthorized callback (set by the
+  // login view) so the UI can show the login screen.
+
+  var unauthorizedCallback = null
+
+  // setUnauthorizedHandler registers a callback fired on any 401 response.
+  function setUnauthorizedHandler(cb) {
+    unauthorizedCallback = cb
+  }
+
+  // authFetch wraps window.fetch with Authorization header + 401 interception.
+  function authFetch(url, opts) {
+    opts = opts || {}
+    var header = window.AuthHelper && window.AuthHelper.authHeader()
+    if (header) {
+      opts.headers = opts.headers || {}
+      opts.headers.Authorization = header
+    }
+    return fetch(url, opts).then(function (r) {
+      if (r.status === 401 && unauthorizedCallback) {
+        unauthorizedCallback(r)
+      }
+      return r
+    })
+  }
+
   // ---- Standalone utility functions (no Vue dependency) ----
 
   // pathToUrl 将本地路径转换为可访问的 URL 路径
@@ -82,11 +110,11 @@
 
   var api = {
     runtime: function () {
-      return fetch('/api/runtime').then(function (r) { return r.json() })
+      return authFetch('/api/runtime').then(function (r) { return r.json() })
     },
 
     tasks: function () {
-      return fetch('/api/tasks').then(function (r) { return r.json() })
+      return authFetch('/api/tasks').then(function (r) { return r.json() })
     },
 
     taskDetails: function (id, page, limit, search, sortBy, signal) {
@@ -96,14 +124,14 @@
       if (sortBy && sortBy !== 'default') { url += '&sort=' + sortBy }
       var opts = { method: 'GET' }
       if (signal) opts.signal = signal
-      return fetch(url, opts).then(function (r) {
+      return authFetch(url, opts).then(function (r) {
         if (!r.ok) throw new Error('Failed to fetch task details')
         return r.json()
       })
     },
 
     activeDownloads: function () {
-      return fetch('/api/downloads').then(function (r) { return r.json() })
+      return authFetch('/api/downloads').then(function (r) { return r.json() })
     },
 
     getObject: function (type, id) {
@@ -126,7 +154,7 @@
       if (params.tags) { q.set('tags', params.tags) }
       if (params.tagMode) { q.set('tag_mode', params.tagMode) }
       if (params.excludeIds) { q.set('exclude_ids', params.excludeIds) }
-      return fetch('/api/aggregate?' + q.toString()).then(function (r) {
+      return authFetch('/api/aggregate?' + q.toString()).then(function (r) {
         if (!r.ok) throw new Error('Aggregate request failed')
         return r.json()
       })
@@ -137,29 +165,40 @@
       if (taskId) params.set('task_id', taskId)
       if (taskType) params.set('task_type', taskType)
       var query = params.toString()
-      return fetch('/api/groups/' + encodeURIComponent(groupId) + '/objects' + (query ? '?' + query : '')).then(function (r) {
+      return authFetch('/api/aggregate?' + q.toString()).then(function (r) {
+        if (!r.ok) throw new Error('Aggregate request failed')
+        return r.json()
+      })
+    },
+
+    groupObjects: function (groupId, taskId, taskType) {
+      var params = new URLSearchParams()
+      if (taskId) params.set('task_id', taskId)
+      if (taskType) params.set('task_type', taskType)
+      var query = params.toString()
+      return authFetch('/api/groups/' + encodeURIComponent(groupId) + '/objects' + (query ? '?' + query : '')).then(function (r) {
         if (!r.ok) throw new Error('Failed to load group')
         return r.json()
       })
     },
 
     serverConfig: function () {
-      return fetch('/api/config/server').then(function (r) { return r.json() })
+      return authFetch('/api/config/server').then(function (r) { return r.json() })
     },
 
     logConfig: function () {
-      return fetch('/api/config/log').then(function (r) { return r.json() })
+      return authFetch('/api/config/log').then(function (r) { return r.json() })
     },
 
     healthz: function () {
-      return fetch('/api/healthz').then(function (r) {
+      return authFetch('/api/healthz').then(function (r) {
         if (!r.ok) throw new Error('Health check failed')
         return r.json()
       })
     },
 
     metrics: function () {
-      return fetch('/api/metrics').then(function (r) {
+      return authFetch('/api/metrics').then(function (r) {
         if (!r.ok) throw new Error('Metrics fetch failed')
         return r.json()
       })
@@ -169,21 +208,21 @@
       var q = new URLSearchParams()
       if (params && params.limit) q.set('limit', params.limit)
       if (params && params.task_id) q.set('task_id', params.task_id)
-      return fetch('/api/metrics/failures?' + q.toString()).then(function (r) {
+      return authFetch('/api/metrics/failures?' + q.toString()).then(function (r) {
         if (!r.ok) throw new Error('Failures fetch failed')
         return r.json()
       })
     },
 
     get: function (url) {
-      return fetch(url, { method: 'GET' }).then(function (r) {
+      return authFetch(url, { method: 'GET' }).then(function (r) {
         if (!r.ok) throw new Error('GET request failed: ' + url)
         return r.json()
       })
     },
 
     post: function (url, body) {
-      return fetch(url, {
+      return authFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -191,7 +230,7 @@
     },
 
     put: function (url, body) {
-      return fetch(url, {
+      return authFetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -199,7 +238,7 @@
     },
 
     patch: function (url, body) {
-      return fetch(url, {
+      return authFetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -207,7 +246,7 @@
     },
 
     del: function (url) {
-      return fetch(url, { method: 'DELETE' })
+      return authFetch(url, { method: 'DELETE' })
     },
 
     updateObjectTags: function (type, id, tags) {
@@ -215,10 +254,10 @@
     },
 
     getTaskTypeDefaults: function () {
-      return fetch('/api/config/task-type-defaults').then(function (r) { return r.json() })
+      return authFetch('/api/config/task-type-defaults').then(function (r) { return r.json() })
     },
     setTaskTypeDefaults: function (data) {
-      return fetch('/api/config/task-type-defaults', {
+      return authFetch('/api/config/task-type-defaults', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -226,5 +265,6 @@
     }
   }
 
+  api.setUnauthorizedHandler = setUnauthorizedHandler
   window.AppAPI = api
 })()

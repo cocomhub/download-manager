@@ -12,16 +12,40 @@ const SERVER_BINARY = process.env.SERVER_BINARY ||
 
 let serverProcess: ChildProcess | null = null;
 let uiOnlyServerProcess: ChildProcess | null = null;
+let authServerProcess: ChildProcess | null = null;
 
 const UI_ONLY_PORT = TEST_PORT + 1;
+const AUTH_PORT = TEST_PORT + 2;
 
-export async function startServer(fixture: string): Promise<void> {
+export interface StartServerOptions {
+  fixture?: string;
+  auth?: 'basic' | 'token';
+  authUser?: string;
+  authPass?: string;
+  authToken?: string;
+}
+
+export async function startServer(fixture: string, opts: StartServerOptions = {}): Promise<void> {
   const serverPath = SERVER_BINARY;
 
-  serverProcess = spawn(serverPath, [
+  const args = [
     '--port', String(TEST_PORT),
     '--fixture', fixture,
-  ], {
+  ];
+  if (opts.auth) {
+    args.push('--auth', opts.auth);
+  }
+  if (opts.authUser) {
+    args.push('--auth-user', opts.authUser);
+  }
+  if (opts.authPass) {
+    args.push('--auth-pass', opts.authPass);
+  }
+  if (opts.authToken) {
+    args.push('--auth-token', opts.authToken);
+  }
+
+  serverProcess = spawn(serverPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -67,6 +91,40 @@ export async function startUIOnlyServer(): Promise<void> {
   await waitForHealthz(UI_ONLY_PORT, 15000);
 }
 
+export async function startAuthServer(auth: 'basic' | 'token', opts: { authUser?: string; authPass?: string; authToken?: string } = {}): Promise<void> {
+  const serverPath = SERVER_BINARY;
+  const args = [
+    '--port', String(AUTH_PORT),
+    '--fixture', 'full',
+    '--auth', auth,
+  ];
+  if (opts.authUser) args.push('--auth-user', opts.authUser);
+  if (opts.authPass) args.push('--auth-pass', opts.authPass);
+  if (opts.authToken) args.push('--auth-token', opts.authToken);
+
+  authServerProcess = spawn(serverPath, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  authServerProcess.stdout?.on('data', (data: Buffer) => {
+    console.log(`[auth-server] ${data.toString().trim()}`);
+  });
+  authServerProcess.stderr?.on('data', (data: Buffer) => {
+    console.error(`[auth-server:err] ${data.toString().trim()}`);
+  });
+  authServerProcess.on('exit', (code) => {
+    console.log(`[auth-server] exited with code ${code}`);
+    authServerProcess = null;
+  });
+  await waitForHealthz(AUTH_PORT, 15000);
+}
+
+export async function stopAuthServer(): Promise<void> {
+  if (authServerProcess) {
+    await killProcess(authServerProcess);
+    authServerProcess = null;
+  }
+}
+
 export async function stopServer(): Promise<void> {
   if (serverProcess) {
     await killProcess(serverProcess);
@@ -76,9 +134,10 @@ export async function stopServer(): Promise<void> {
     await killProcess(uiOnlyServerProcess);
     uiOnlyServerProcess = null;
   }
+  await stopAuthServer();
 }
 
-export { TEST_PORT, UI_ONLY_PORT };
+export { TEST_PORT, UI_ONLY_PORT, AUTH_PORT };
 
 function killProcess(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {

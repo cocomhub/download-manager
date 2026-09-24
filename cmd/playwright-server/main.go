@@ -37,6 +37,10 @@ func main() {
 	port := flag.Int("port", 19199, "HTTP server port")
 	fixtureName := flag.String("fixture", "", "Test fixture name to load (e.g. 'full')")
 	uiOnly := flag.Bool("ui-only", false, "Start in UI-only mode (read-only)")
+	authType := flag.String("auth", "", "Auth type: none|basic|token (empty = none)")
+	authUser := flag.String("auth-user", "admin", "Basic auth username")
+	authPass := flag.String("auth-pass", "", "Basic auth password")
+	authToken := flag.String("auth-token", "", "Token auth token")
 	flag.Parse()
 
 	runMode := config.RunModeFull
@@ -55,6 +59,12 @@ func main() {
 			HTTPPort:        *port,
 			WorkDir:         workDir,
 			DownloadRootDir: downloadDir,
+			Auth: config.AuthConfig{
+				Type:     *authType,
+				Username: *authUser,
+				Password: *authPass,
+				Token:    *authToken,
+			},
 		},
 		Runtime: config.Runtime{
 			Mode: runMode,

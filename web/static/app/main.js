@@ -12,6 +12,12 @@
   var app = Vue.createApp({
     data: function () {
       return {
+        // Auth state
+        authEnabled: false,
+        authed: false,
+        loginError: '',
+        loginForm: { username: '', password: '' },
+        authInitDone: false,
         runtime: { mode: 'full', features: { download: true, scheduler: true } },
         tasks: [],
         taskTypes: (typeof getAvailableTaskTypes === 'function' ? getAvailableTaskTypes() : [{ id: 'all', label: '全部' }]),
@@ -282,6 +288,7 @@
     },
 
     mounted: function () {
+      this.initAuth()
       this.initTypeFromURL()
       this.initRuntime()
       this.fetchTasks()
@@ -300,6 +307,60 @@
     },
 
     methods: {
+      // ---- Auth ----
+      initAuth: function () {
+        var self = this
+        // Register the 401 handler first so any subsequent request failure shows login.
+        AppAPI.setUnauthorizedHandler(function () {
+          if (self.authEnabled) {
+            self.authed = false
+            self.loginError = ''
+          }
+        })
+        // Probe /api/runtime to detect whether the server has auth enabled.
+        AppAPI.runtime().then(function (r) {
+          self.authEnabled = !!(r && r.auth && r.auth.enabled)
+          self.authed = self.authEnabled ? AuthHelper.isAuthed() : true
+          self.authInitDone = true
+          if (self.authEnabled && !self.authed) {
+            // Force an immediate 401 to refresh state if stored credential is stale.
+            AppAPI.get('/api/auth/verify').then(function () {
+              self.authed = true
+            }).catch(function () {
+              // stays unauthenticated
+            })
+          }
+        }).catch(function () {
+          self.authEnabled = false
+          self.authed = true
+          self.authInitDone = true
+        })
+      },
+      doLogin: function () {
+        var self = this
+        var cred = {
+          mode: 'basic',
+          username: this.loginForm.username,
+          password: this.loginForm.password
+        }
+        AuthHelper.verifyCredential(cred).then(function (ok) {
+          if (ok) {
+            AuthHelper.setAuth(cred)
+            self.authed = true
+            self.loginError = ''
+            self.fetchTasks()
+          } else {
+            self.loginError = '用户名或密码错误'
+          }
+        }).catch(function () {
+          self.loginError = '无法连接服务器'
+        })
+      },
+      logout: function () {
+        AuthHelper.clearAuth()
+        this.authed = false
+        this.loginError = ''
+      },
       // ---- TaskUI integration ----
       // ---- Delegates to UiHelpers/UiTaskList/UiVideoPlayer/UiDashboard ----
       openConfig: function() { UiHelpers.openConfig(this) },
