@@ -126,7 +126,7 @@ func (s *Server) Router() *mux.Router {
 	// File Preview Route
 	// Assuming files are in build/test/downloads based on recent config changes
 	// In a real app, this path should be configurable or dynamic per task
-	r.PathPrefix("/files/").Handler(http.StripPrefix("/files/", http.FileServer(http.Dir(s.mgr.GetDownloadRootDir()))))
+	r.PathPrefix("/files/").Handler(http.StripPrefix("/files/", s.filesHandler()))
 
 	// Static UI
 	subFS, err := fs.Sub(web.StaticFS, "static")
