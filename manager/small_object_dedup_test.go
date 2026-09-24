@@ -145,16 +145,3 @@ func TestDrainPendingSO_SkipsAlreadyDownloaded(t *testing.T) {
 		t.Errorf("queue len = %d, want 0 (no re-enqueue for existing file)", len(m.soQueue))
 	}
 }
-
-// sharedCoverTask 模拟 mxs：多个章节对象共享同一本书的封面 SavePath。
-type sharedCoverTask struct {
-	*mockTask
-	store     core.Storage
-	coverPath string
-}
-
-func (s *sharedCoverTask) Storage() core.Storage { return s.store }
-func (s *sharedCoverTask) SmallObjects(*model.DownloadObject) []core.SmallObjectInfo {
-	return []core.SmallObjectInfo{{URL: "https://example.com/cover.jpg", SavePath: s.coverPath, Rel: model.MediaRelCover}}
-}
-func (s *sharedCoverTask) BackfillDownloadSmallObjects() bool { return true }
