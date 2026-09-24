@@ -3,6 +3,29 @@
 
 package model
 
+// 每个媒体类型在 Extra 中有两个固定字段：{rel}_url（原始源 URL）与 {rel}_path（本地保存路径）。
+const (
+	MediaRelCover   = "cover"
+	MediaRelThumb   = "thumb"
+	MediaRelPreview = "preview"
+
+	MediaKeyCoverURL    = "cover_url"
+	MediaKeyCoverPath   = "cover_path"
+	MediaKeyThumbURL    = "thumb_url"
+	MediaKeyThumbPath   = "thumb_path"
+	MediaKeyPreviewURL  = "preview_url"
+	MediaKeyPreviewPath = "preview_path"
+)
+
+// validMediaRel 校验 rel 是否为受支持的媒体类型。
+func validMediaRel(rel string) bool {
+	switch rel {
+	case MediaRelCover, MediaRelThumb, MediaRelPreview:
+		return true
+	}
+	return false
+}
+
 // ObjectMeta represents structured fields stored in Extra map[string]any.
 // These accessors provide type-safe get/set while maintaining backward
 // compatibility with code that reads/writes Extra directly.
@@ -118,6 +141,33 @@ func (o *DownloadObject) GetLocalPreview() string {
 	return s
 }
 
+// GetLocalCover returns local_cover from Extra, or empty string.
+func (o *DownloadObject) GetLocalCover() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
+		return ""
+	}
+	s, _ := o.Extra["local_cover"].(string)
+	return s
+}
+
+// SetLocalCover sets local_cover in Extra.
+func (o *DownloadObject) SetLocalCover(path string) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Extra == nil {
+		o.Extra = make(map[string]any)
+	}
+	setOrDeleteExtra(o.Extra, "local_cover", path)
+}
+
 // SetLocalPreview sets local_preview in Extra.
 func (o *DownloadObject) SetLocalPreview(path string) {
 	if o == nil {
@@ -129,6 +179,93 @@ func (o *DownloadObject) SetLocalPreview(path string) {
 		o.Extra = make(map[string]any)
 	}
 	o.Extra["local_preview"] = path
+}
+
+// SetMedia 设置某媒体类型的固定字段（{rel}_url / {rel}_path）。
+// rel 必须是受支持的媒体类型（cover/thumb/preview）。
+func (o *DownloadObject) SetMedia(rel, url, path string) {
+	if o == nil || !validMediaRel(rel) {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Extra == nil {
+		o.Extra = make(map[string]any)
+	}
+	setOrDeleteExtra(o.Extra, rel+"_url", url)
+	setOrDeleteExtra(o.Extra, rel+"_path", path)
+}
+
+// GetMedia 返回某媒体类型的原始 URL 与本地路径。
+func (o *DownloadObject) GetMedia(rel string) (url, path string) {
+	if o == nil || !validMediaRel(rel) {
+		return "", ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
+		return "", ""
+	}
+	url, _ = o.Extra[rel+"_url"].(string)
+	path, _ = o.Extra[rel+"_path"].(string)
+	return url, path
+}
+
+// GetMediaURL 返回某媒体类型的原始源 URL。
+func (o *DownloadObject) GetMediaURL(rel string) string {
+	url, _ := o.GetMedia(rel)
+	return url
+}
+
+// GetMediaPath 返回某媒体类型的本地保存路径。
+func (o *DownloadObject) GetMediaPath(rel string) string {
+	_, path := o.GetMedia(rel)
+	return path
+}
+
+// GetCoverURL 返回封面源 URL。
+func (o *DownloadObject) GetCoverURL() string { return o.GetMediaURL(MediaRelCover) }
+
+// SetCoverURL 设置封面源 URL（保留已有路径）。
+func (o *DownloadObject) SetCoverURL(url string) {
+	_, p := o.GetMedia(MediaRelCover)
+	o.SetMedia(MediaRelCover, url, p)
+}
+
+// GetCoverPath 返回封面本地路径。
+func (o *DownloadObject) GetCoverPath() string { return o.GetMediaPath(MediaRelCover) }
+
+// SetCoverPath 设置封面本地路径（保留已有 URL）。
+func (o *DownloadObject) SetCoverPath(path string) {
+	u, _ := o.GetMedia(MediaRelCover)
+	o.SetMedia(MediaRelCover, u, path)
+}
+
+// GetThumbURL 返回缩略图源 URL。
+func (o *DownloadObject) GetThumbURL() string { return o.GetMediaURL(MediaRelThumb) }
+
+// GetThumbPath 返回缩略图本地路径。
+func (o *DownloadObject) GetThumbPath() string { return o.GetMediaPath(MediaRelThumb) }
+
+// SetThumb 设置缩略图的源 URL 与本地路径。
+func (o *DownloadObject) SetThumb(url, path string) { o.SetMedia(MediaRelThumb, url, path) }
+
+// GetPreviewURL 返回预览源 URL。
+func (o *DownloadObject) GetPreviewURLMedia() string { return o.GetMediaURL(MediaRelPreview) }
+
+// GetPreviewPath 返回预览本地路径。
+func (o *DownloadObject) GetPreviewPath() string { return o.GetMediaPath(MediaRelPreview) }
+
+// SetPreview 设置预览的源 URL 与本地路径。
+func (o *DownloadObject) SetPreview(url, path string) { o.SetMedia(MediaRelPreview, url, path) }
+
+// setOrDeleteExtra 空值删除键，非空写入（保持 Extra 简洁）。
+func setOrDeleteExtra(m map[string]any, key, value string) {
+	if value == "" {
+		delete(m, key)
+		return
+	}
+	m[key] = value
 }
 
 // GetContentHTML returns content_html from Extra, or empty string.
