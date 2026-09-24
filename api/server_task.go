@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -461,6 +462,17 @@ func (s *Server) getGroupObjects(w http.ResponseWriter, r *http.Request) {
 
 // handleEvents provides SSE streaming for manager events.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	// Same-origin check: reject cross-origin requests before any SSE headers
+	// are written, unless no Origin header is present (curl/CLI clients).
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		oh, err := url.Parse(origin)
+		if err != nil || oh.Host != r.Host {
+			writeJSONError(w, http.StatusForbidden, "forbidden", "cross-origin denied")
+			return
+		}
+	}
+
 	// Set headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set(hdrCacheControl, hdrNoCache)
