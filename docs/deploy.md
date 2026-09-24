@@ -73,7 +73,7 @@ sudo chown -R download-manager:download-manager /var/lib/download-manager
 
 - `/etc/download-manager/config.yaml`：应用配置，注意：
   - `server.work_dir` 与下载根目录需落在 `/var/lib/download-manager` 下（数据持久化目录，属主 `download-manager`）。
-  - `server.lock_file` 使用 `/var/lib/download-manager/download-manager.lock`（`ProtectSystem=strict` 下进程仅可写该目录）。
+  - `server.lock_file` 使用 `/var/lib/download-manager/download-manager.lock`（`ProtectSystem=strict` 下该目录由 `ReadWritePaths=/var/lib/download-manager` 显式放开为可写）。
   - `server.scraper_path` 指向二进制实际路径（如 `/usr/local/bin/scraper_get`），不使用则留空。
 - `/etc/download-manager/env`：环境变量注入文件（`EnvironmentFile=`），见 §4.2。文件权限建议 `0600`（含密码）。
 
