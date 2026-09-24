@@ -12,7 +12,6 @@ package booksite
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
