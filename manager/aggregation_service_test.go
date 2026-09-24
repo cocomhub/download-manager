@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/model"
 )
 
 // =============================================================================
@@ -221,5 +222,37 @@ func TestBuildBaseQuery(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestMatchedFields verifies matchedFieldsByObjects returns per-object matched fields.
+func TestMatchedFields(t *testing.T) {
+	obj := &model.DownloadObject{
+		URL:      "http://a.com/1",
+		Metadata: map[string]string{"title": "Neon Genesis", "content_group": "eva"},
+	}
+	fields := matchedFieldsByObjects([]*model.DownloadObject{obj}, "genesis")
+	if len(fields) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(fields))
+	}
+	got := fields["http://a.com/1"]
+	if len(got) == 0 {
+		t.Fatal("expected matched fields")
+	}
+	if got[0] != "title" {
+		t.Errorf("expected title field, got %v", got)
+	}
+
+	// content_group match
+	obj2 := &model.DownloadObject{URL: "http://a.com/2", Metadata: map[string]string{"content_group": "eva-shelf"}}
+	fields2 := matchedFieldsByObjects([]*model.DownloadObject{obj2}, "shelf")
+	got2 := fields2["http://a.com/2"]
+	if len(got2) == 0 || got2[0] != "content_group" {
+		t.Errorf("expected content_group field, got %v", got2)
+	}
+
+	// no match → empty map
+	if m := matchedFieldsByObjects([]*model.DownloadObject{obj}, "zzz-no"); len(m) != 0 {
+		t.Errorf("expected no matched fields, got %v", m)
 	}
 }

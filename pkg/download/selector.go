@@ -23,6 +23,14 @@ type ProxySelector interface {
 	Select(ctx context.Context, targetURL string, hint *DownloadHint) (proxyURL string, err error)
 }
 
+// ProxyFailureReporter 是可选接口：代理选择器可实现它，
+// 以便在下载经某代理失败（连接错误 / 超时 / 非 2xx）时上报故障，
+// 驱动代理池的轮换与故障切换（冷却后恢复）。
+type ProxyFailureReporter interface {
+	// ReportProxyFailure 标记指定代理的一次失败。
+	ReportProxyFailure(proxyURL string)
+}
+
 // DefaultSelector 是默认的 Selector 实现。
 // 不再持有 extractors 列表，由 Downloader.matchExtractor 的 fallback 循环匹配。
 // MatchExtractor 始终返回 nil，让调用方回退到自身的 extractors 列表。

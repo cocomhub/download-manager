@@ -391,3 +391,84 @@ func TestMongoSortField_RandomAndTagMatchDesc(t *testing.T) {
 	// 该测试在 mongo_storage_test.go 中也有完整覆盖
 	t.Skip("mongoSortField 测试在 mongo_storage_test.go 中覆盖")
 }
+
+// TestMatchesQuery_SearchMultiField verifies the search filter matches across
+// URL / title / content_group / task_type / date / Extra string fields / tags.
+func TestMatchesQuery_SearchMultiField(t *testing.T) {
+	tests := []struct {
+		name   string
+		obj    *model.DownloadObject
+		search string
+		want   bool
+	}{
+		{
+			name:   "matches URL",
+			obj:    &model.DownloadObject{URL: "http://example.com/evangelion-1.mp4", Metadata: map[string]string{}},
+			search: "evangelion",
+			want:   true,
+		},
+		{
+			name:   "matches title",
+			obj:    &model.DownloadObject{URL: "http://a.com/1", Metadata: map[string]string{"title": "Neon Genesis"}},
+			search: "genesis",
+			want:   true,
+		},
+		{
+			name:   "matches content_group",
+			obj:    &model.DownloadObject{URL: "http://a.com/2", Metadata: map[string]string{"content_group": "eva-shelf"}},
+			search: "shelf",
+			want:   true,
+		},
+		{
+			name:   "matches task_type metadata",
+			obj:    &model.DownloadObject{URL: "http://a.com/3", Metadata: map[string]string{"type": "tktube"}},
+			search: "tktube",
+			want:   true,
+		},
+		{
+			name:   "matches date",
+			obj:    &model.DownloadObject{URL: "http://a.com/4", Metadata: map[string]string{"date": "2024-06-01"}},
+			search: "2024",
+			want:   true,
+		},
+		{
+			name:   "matches extra content_text",
+			obj:    &model.DownloadObject{URL: "http://a.com/5", Metadata: map[string]string{}, Extra: map[string]any{"content_text": "hidden evangelion text"}},
+			search: "evangelion",
+			want:   true,
+		},
+		{
+			name:   "matches extra page_url",
+			obj:    &model.DownloadObject{URL: "http://a.com/6", Metadata: map[string]string{}, Extra: map[string]any{"page_url": "http://example.com/eva-3"}},
+			search: "eva-3",
+			want:   true,
+		},
+		{
+			name:   "matches tags string",
+			obj:    &model.DownloadObject{URL: "http://a.com/7", Metadata: map[string]string{}, Extra: map[string]any{"tags": []string{"romance"}}},
+			search: "romance",
+			want:   true,
+		},
+		{
+			name:   "no match",
+			obj:    &model.DownloadObject{URL: "http://a.com/8", Metadata: map[string]string{"title": "other"}},
+			search: "zzz-no-match",
+			want:   false,
+		},
+		{
+			name:   "case insensitive",
+			obj:    &model.DownloadObject{URL: "http://a.com/9", Metadata: map[string]string{"title": "Neon GENESIS"}},
+			search: "genesis",
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q := &core.StorageQuery{Filter: core.StorageFilter{Search: tt.search}}
+			if got := matchesQuery(tt.obj, q); got != tt.want {
+				t.Errorf("matchesQuery(search=%q) = %v, want %v", tt.search, got, tt.want)
+			}
+		})
+	}
+}

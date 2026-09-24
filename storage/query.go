@@ -138,8 +138,20 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if strings.Contains(strings.ToLower(obj.URL), search) {
 		return true
 	}
-	if obj.Metadata != nil && strings.Contains(strings.ToLower(obj.Metadata[model.MetadataKeyTitle]), search) {
-		return true
+	// 多字段匹配：title / content_group / task_type / date（Metadata）+ 页面/预览字段（Extra）
+	if obj.Metadata != nil {
+		if strings.Contains(strings.ToLower(obj.Metadata[model.MetadataKeyTitle]), search) ||
+			strings.Contains(strings.ToLower(obj.Metadata[model.MetadataKeyContentGroup]), search) ||
+			strings.Contains(strings.ToLower(obj.Metadata[model.MetadataKeyType]), search) ||
+			strings.Contains(strings.ToLower(obj.Metadata["date"]), search) {
+			return true
+		}
+	}
+	// Extra 字符串字段（page_url/preview_url/local_preview/content_text/content_html）
+	for _, key := range []string{"page_url", "preview_url", "local_preview", "content_text", "content_html"} {
+		if s, ok := obj.Extra[key].(string); ok && strings.Contains(strings.ToLower(s), search) {
+			return true
+		}
 	}
 	return extraTagsContain(obj.Extra, search)
 }
