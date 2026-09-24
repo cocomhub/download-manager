@@ -5,6 +5,7 @@ package model
 
 import (
 	"encoding/json"
+	"maps"
 	"sync"
 )
 
@@ -92,3 +93,75 @@ func (o *DownloadObject) Lock()    { o.mu.Lock() }
 func (o *DownloadObject) Unlock()  { o.mu.Unlock() }
 func (o *DownloadObject) RLock()   { o.mu.RLock() }
 func (o *DownloadObject) RUnlock() { o.mu.RUnlock() }
+
+// Snapshot 返回 DownloadObject 在 RLock 下的深拷贝（Metadata/Extra 均重新分配），
+// 供存储层在无锁状态下编码，避免与 soWorker 等其它 goroutine 并发读写 map 触发
+// "concurrent map iteration and map write"。返回的副本带独立零值锁，可安全读写。
+func (o *DownloadObject) Snapshot() *DownloadObject {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	snap := &DownloadObject{
+		TaskID:   o.TaskID,
+		URL:      o.URL,
+		ID:       o.ID,
+		SavePath: o.SavePath,
+		Status:   o.Status,
+		Progress: o.Progress,
+	}
+	if o.Metadata != nil {
+		snap.Metadata = maps.Clone(o.Metadata)
+	}
+	if o.Extra != nil {
+		snap.Extra = deepCopyExtra(o.Extra)
+	}
+	return snap
+}
+
+// deepCopyExtra 深拷贝 Extra 中的可变值（slice / map），标量直接引用。
+// 覆盖 Extra 常见的 value 类型：[]string（tags/images）、[]map[string]string、
+// []any / []map[string]any（files/links）、map[string]string 等。
+//
+// 契约：快照必须隔离全部可变引用，否则 marshal 仍会并发读共享的 slice/map。
+// 向 Extra 新增可变 value 类型（slice-of-slice、slice-of-struct 等）时，
+// 必须在此（及 cloneExtraValue）补对应的深拷贝分支。
+func deepCopyExtra(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = cloneExtraValue(v)
+	}
+	return dst
+}
+
+func cloneExtraValue(v any) any {
+	switch t := v.(type) {
+	case []string:
+		return append([]string(nil), t...)
+	case []map[string]string:
+		out := make([]map[string]string, len(t))
+		for i, m := range t {
+			out[i] = maps.Clone(m)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(t))
+		for i, m := range t {
+			out[i] = deepCopyExtra(m)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = cloneExtraValue(e)
+		}
+		return out
+	case map[string]string:
+		return maps.Clone(t)
+	case map[string]any:
+		return deepCopyExtra(t)
+	default:
+		return v
+	}
+}
