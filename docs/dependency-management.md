@@ -21,7 +21,7 @@
 
 ### CI 配置
 
-所有需要拉取依赖的 job 都包含 `Configure private module access` 步骤：
+CI 的 `test`/`test-no-mongo`/`lint`/`playwright`/`sonar` 五个 job 均包含 `Configure private module access` 步骤（release.yml 的 GoReleaser job 依赖公开 registry，不拉私有 module）：
 
 ```yaml
 - name: Configure private module access
