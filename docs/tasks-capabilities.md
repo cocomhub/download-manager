@@ -8,6 +8,12 @@
   - GetCachedObject：缓存优先（跨任务共享 + 重启恢复）
 
 - 任务能力对比
+  - booksite（模板验证站点：xkcd 漫画站）
+    - 分页：PagingScanner + SiteAdapter（按漫画 ID 递增，合成 URL 模式）
+    - 刷新：PagingScanner 增量抓取
+    - 缓存：JSON（Load/SaveCache）
+    - 路径策略：无（图片按对象 SavePath 组织）
+    - 自定义头：User-Agent
   - tktube
     - 分页：PagingScanner + SiteAdapter
     - 刷新：PagingScanner 增量抓取

@@ -4,7 +4,7 @@
 
 ## 功能总览
 
-- **多任务类型**：urllist（通用 URL 列表）、tktube / hanime（视频站）、vikacg（图片/漫画站），任务接入标准化（SiteAdapter + TaskUI 插件）
+- **多任务类型**：urllist（通用 URL 列表）、tktube / hanime（视频站）、vikacg / booksite（图片/漫画站，booksite 为 xkcd 模板验证），任务接入标准化（SiteAdapter + TaskUI 插件）
 - **多存储后端**：memory / file / mongo（v2 + testcontainers 集成测试）
 - **多下载器**：native（HTTP，域名限流 + 代理池 + 重试 + 断点续传）、wget、scraper、composite / multi
 - **HLS 链路**：m3u8 下载 + ffmpeg 合并（`cmd/m3u8d` 独立 CLI）
