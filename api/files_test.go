@@ -126,3 +126,41 @@ func TestFiles_NoSniffHeader(t *testing.T) {
 		t.Error("Content-Length header missing on file response")
 	}
 }
+
+// TestFiles_SiblingDirTraversal 兄弟目录（root+2）不得被服务。
+func TestFiles_SiblingDirTraversal(t *testing.T) {
+	root := t.TempDir()
+	root2 := root + "2"
+	if err := os.MkdirAll(filepath.Join(root2, "evil.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Server: config.Server{WorkDir: t.TempDir(), FilesDir: root}}
+	srv := NewServer(newTestManager(cfg))
+	req := httptest.NewRequest(http.MethodGet, "/files/x/../"+filepath.Base(root2)+"/evil.txt", nil)
+	rr := httptest.NewRecorder()
+	srv.filesHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("sibling traversal status = %d, want 403", rr.Code)
+	}
+}
+
+// TestFiles_SymlinkEscape symlink 指向 root 外文件不得被服务。
+func TestFiles_SymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skip("symlink not supported on this platform")
+	}
+	cfg := &config.Config{Server: config.Server{WorkDir: t.TempDir(), FilesDir: root}}
+	srv := NewServer(newTestManager(cfg))
+	req := httptest.NewRequest(http.MethodGet, "/files/link.txt", nil)
+	rr := httptest.NewRecorder()
+	srv.filesHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("symlink escape status = %d, want 403", rr.Code)
+	}
+}
