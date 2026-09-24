@@ -16,6 +16,8 @@ services:
       - DM_MONGO_URI=mongodb://mongo:27017/download_manager
     volumes:
       - dm-data:/data
+      # 容器配置模板（work_dir=/data + mongo 指向 mongo 服务）
+      - ./deploy/docker/config.yaml:/etc/download-manager/config.yaml:ro
     depends_on:
       mongo:
         condition: service_healthy

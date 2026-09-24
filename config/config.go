@@ -323,6 +323,7 @@ func (c *Config) ValidateAndClamp() {
 		return
 	}
 	c.applyAuthEnv()
+	c.applyMongoEnv()
 	c.validateRuntimeMode()
 	c.validateTaskScan()
 	c.migrateDownloaderType()
@@ -380,6 +381,22 @@ func (c *Config) applyAuthEnv() {
 	}
 	if e := os.Getenv("DM_AUTH_TOKEN_EXPIRES"); e != "" {
 		auth.ExpiresAt = e
+	}
+}
+
+// applyMongoEnv applies DM_MONGO_URI environment variable override.
+// 容器部署（docker-compose）通过该变量指向 mongo 服务（如 mongodb://mongo:27017/...）。
+func (c *Config) applyMongoEnv() {
+	if uri := os.Getenv("DM_MONGO_URI"); uri != "" {
+		// 覆盖第一个 MongoSource（若存在）或创建默认源。
+		if len(c.Mongo) > 0 {
+			c.Mongo[0].URI = uri
+		} else {
+			c.Mongo = []MongoSource{{
+				Name: "default",
+				URI:  uri,
+			}}
+		}
 	}
 }
 

@@ -9,6 +9,7 @@
 *.tmp
 .claude/diff_phase2.txt
 .claude/worktrees/
+.worktrees/
 .superpowers/
 .supervisors/
 .workbuddy/
@@ -16,7 +17,7 @@ bin
 build
 cmd/playwright-server/playwright-server
 cmd/playwright-server/playwright-server.exe
-config.yaml
+/config.yaml
 config_backups
 download-manager
 local

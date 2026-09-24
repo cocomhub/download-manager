@@ -747,3 +747,28 @@ func TestTaskTypeDefaults_StorageDefaults(t *testing.T) {
 		t.Errorf("Storage.Config[path] = %q, want %q", def.Storage.Config["path"], "/data")
 	}
 }
+
+// TestApplyMongoEnv 验证 DM_MONGO_URI 环境变量覆盖 mongo 源。
+func TestApplyMongoEnv(t *testing.T) {
+	t.Setenv("DM_MONGO_URI", "mongodb://mongo:27017/download_manager")
+	cfg := &Config{
+		Server: Server{WorkDir: t.TempDir()},
+		Mongo:  []MongoSource{{Name: "local", URI: "mongodb://localhost:27017/x"}},
+	}
+	cfg.ValidateAndClamp()
+	if len(cfg.Mongo) == 0 || cfg.Mongo[0].URI != "mongodb://mongo:27017/download_manager" {
+		t.Errorf("DM_MONGO_URI not applied: %+v", cfg.Mongo)
+	}
+}
+
+// TestApplyMongoEnvEmptyCreatesDefault 验证无 mongo 源时 DM_MONGO_URI 创建默认源。
+func TestApplyMongoEnvEmptyCreatesDefault(t *testing.T) {
+	t.Setenv("DM_MONGO_URI", "mongodb://mongo:27017/download_manager")
+	cfg := &Config{
+		Server: Server{WorkDir: t.TempDir()},
+	}
+	cfg.ValidateAndClamp()
+	if len(cfg.Mongo) != 1 || cfg.Mongo[0].Name != "default" {
+		t.Errorf("expected default mongo source, got %+v", cfg.Mongo)
+	}
+}
