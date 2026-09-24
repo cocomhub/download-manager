@@ -18,6 +18,9 @@ on:
       tag:
         description: "要发布的 tag（release-please 的 tag_name）。为空时回落到触发 ref。"
         required: false
+      checkout_ref:
+        description: "checkout 的 ref（默认 = tag；发布故障处置时可用 master 等含修复的分支）。"
+        required: false
         type: string
   workflow_dispatch:
     inputs:
@@ -41,7 +44,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.checkout_ref || inputs.tag || github.ref }}
 
       # workflow_call / workflow_dispatch 必须显式给 tag。
       - name: Validate tag input
