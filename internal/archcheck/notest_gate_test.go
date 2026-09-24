@@ -31,7 +31,7 @@ func TestNotestGate_WiredAndFailsClosed(t *testing.T) {
 
 	// 1) 调用方必须把包列表传进去（否则脚本空转）
 	recipe := makefileTargetRecipe(t, "notest")
-	if !strings.Contains(recipe, "check-test-files.sh") {
+	if !strings.Contains(recipe, "bash scripts/check-test-files.sh") {
 		t.Fatalf("notest 应以 scripts/check-test-files.sh 调用:\n%s", recipe)
 	}
 	if !strings.Contains(recipe, "$(ALL_PKGS)") && !strings.Contains(recipe, "go list") {
