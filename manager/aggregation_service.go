@@ -76,12 +76,104 @@ func (svc *AggregationService) AggregateObjects(page, limit int64, search, sortB
 			}
 		}
 	}
-	return map[string]any{
+	resp := map[string]any{
 		"objects": all,
 		"total":   total,
 		"page":    page,
 		"limit":   limit,
-	}, nil
+	}
+	// 搜索匹配信息：search 非空时计算每个对象的匹配字段，供前端展示高亮。
+	if search != "" {
+		if matched := matchedFieldsByObjects(all, search); len(matched) > 0 {
+			resp["matched_fields"] = matched
+		}
+	}
+	return resp, nil
+}
+
+// matchedFieldsByObjects 返回 URL → 匹配字段列表 的映射。
+// 仅读取（不写存储），供响应附带展示用。
+func matchedFieldsByObjects(objs []*model.DownloadObject, search string) map[string][]string {
+	search = strings.ToLower(strings.TrimSpace(search))
+	if search == "" {
+		return nil
+	}
+	result := make(map[string][]string)
+	for _, o := range objs {
+		if o == nil {
+			continue
+		}
+		if fields := matchedFields(o, search); len(fields) > 0 {
+			result[o.URL] = fields
+		}
+	}
+	return result
+}
+
+// matchedFields 返回对象与搜索词匹配的字段列表。
+// 与 storage.matchesQuery 的搜索语义保持一致（多字段 + tags）。
+func matchedFields(o *model.DownloadObject, search string) []string {
+	if o == nil {
+		return nil
+	}
+	o.RLock()
+	defer o.RUnlock()
+
+	var fields []string
+	if strings.Contains(strings.ToLower(o.URL), search) {
+		fields = append(fields, "url")
+	}
+	if o.Metadata != nil {
+		if strings.Contains(strings.ToLower(o.Metadata[model.MetadataKeyTitle]), search) {
+			fields = append(fields, "title")
+		}
+		if strings.Contains(strings.ToLower(o.Metadata[model.MetadataKeyContentGroup]), search) {
+			fields = append(fields, "content_group")
+		}
+		if strings.Contains(strings.ToLower(o.Metadata[model.MetadataKeyType]), search) {
+			fields = append(fields, "task_type")
+		}
+		if strings.Contains(strings.ToLower(o.Metadata["date"]), search) {
+			fields = append(fields, "date")
+		}
+	}
+	for _, key := range []string{"page_url", "preview_url", "local_preview", "content_text", "content_html"} {
+		if s, ok := o.Extra[key].(string); ok && strings.Contains(strings.ToLower(s), search) {
+			fields = append(fields, key)
+		}
+	}
+	if len(fields) == 0 {
+		// 兜底：与 storage 搜索一致的 tags 匹配
+		if tagsMatchSearch(o.Extra, search) {
+			fields = append(fields, "tags")
+		}
+	}
+	return fields
+}
+
+// tagsMatchSearch 检查 Extra.tags 是否包含搜索词（与 storage.extraTagsContain 一致）。
+func tagsMatchSearch(extra map[string]any, search string) bool {
+	raw, ok := extra["tags"]
+	if !ok {
+		return false
+	}
+	switch tags := raw.(type) {
+	case []string:
+		for _, tag := range tags {
+			if strings.Contains(strings.ToLower(tag), search) {
+				return true
+			}
+		}
+	case []any:
+		for _, tag := range tags {
+			if tagStr, ok := tag.(string); ok && strings.Contains(strings.ToLower(tagStr), search) {
+				return true
+			}
+		}
+	case string:
+		return strings.Contains(strings.ToLower(tags), search)
+	}
+	return false
 }
 
 // collectMatchingTasks filters tasks by type and counts their matching objects.

@@ -435,3 +435,102 @@ func TestAPI_Aggregate_TagModeAnyVsAll(t *testing.T) {
 
 	_ = done
 }
+
+// TestAPI_AggregateSearch_MultiField verifies the /api/aggregate endpoint search
+// matches across multiple fields (URL/title/content_group/task_type/date/Extra strings)
+// and returns matched_fields for the frontend.
+func TestAPI_AggregateSearch_MultiField(t *testing.T) {
+	srv, _ := newAPIServerWithMockWithTags(t, "mock-search", 4)
+	r := srv.Router()
+
+	_ = startAPIManager(t, srv) // cleanup 自动 Stop
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-search")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for task to seed objects")
+
+	// Seed objects then enrich Metadata/Extra with distinct fields.
+	assignIDsAndSeedTags(t, srv, "mock", map[string][]string{
+		"http://mock-download/tag-0.bin": {"romance"},
+	})
+	mgr := srv.mgr
+	task := mgr.FirstTaskOfType("mock")
+	st := task.Storage()
+	objs, err := st.Search(&core.StorageQuery{Limit: 0})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	// tag-0: title match; tag-1: content_group match; tag-2: content_text match; tag-3: page_url match
+	for _, o := range objs {
+		o.Lock()
+		switch o.URL {
+		case "http://mock-download/tag-0.bin":
+			o.Metadata["title"] = "Neon Genesis"
+		case "http://mock-download/tag-1.bin":
+			o.Metadata["content_group"] = "evangelion-shelf"
+		case "http://mock-download/tag-2.bin":
+			o.Extra["content_text"] = "hidden evangelion text"
+		case "http://mock-download/tag-3.bin":
+			o.Extra["page_url"] = "http://example.com/evangelion-3"
+		}
+		o.Unlock()
+		if err := st.Update(o); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+	}
+
+	t.Run("search matches title", func(t *testing.T) {
+		rr := doJSONGet(t, r, "/api/aggregate?search=neon")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("search returned %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		objects, _ := result["objects"].([]any)
+		if len(objects) != 1 {
+			t.Fatalf("expected 1 object matching title, got %d", len(objects))
+		}
+		mf, _ := result["matched_fields"].(map[string]any)
+		fields, ok := mf["http://mock-download/tag-0.bin"].([]any)
+		if !ok || len(fields) == 0 {
+			t.Errorf("expected matched_fields for tag-0, got %v", mf)
+		}
+	})
+
+	t.Run("search matches content_group", func(t *testing.T) {
+		rr := doJSONGet(t, r, "/api/aggregate?search=evangelion")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("search returned %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		objects, _ := result["objects"].([]any)
+		// matches tag-1 (content_group), tag-2 (content_text), tag-3 (URL)
+		if len(objects) != 3 {
+			t.Errorf("expected 3 objects matching evangelion, got %d", len(objects))
+		}
+		mf, _ := result["matched_fields"].(map[string]any)
+		if len(mf) != 3 {
+			t.Errorf("expected 3 matched entries, got %d", len(mf))
+		}
+	})
+
+	t.Run("search empty returns all", func(t *testing.T) {
+		rr := doJSONGet(t, r, "/api/aggregate")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("aggregate returned %d, want 200", rr.Code)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		// no matched_fields when search empty
+		if _, has := result["matched_fields"]; has {
+			t.Error("matched_fields should be absent when search is empty")
+		}
+	})
+}
