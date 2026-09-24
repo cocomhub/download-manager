@@ -26,7 +26,19 @@ import (
 const (
 	// defaultMaxBandwidth 是代理探测失败时的默认带宽值（数值越大表示越差）。
 	defaultMaxBandwidth = math.MaxFloat64
+
+	// proxyFailThreshold 是代理连续失败达到该次数后进入冷却的阈值。
+	proxyFailThreshold = 2
+
+	// proxyCooldown 是代理故障后的冷却时长。
+	proxyCooldown = 30 * time.Second
 )
+
+// proxyHealth 记录单个代理的健康状态。
+type proxyHealth struct {
+	failures int64        // 连续失败计数
+	cooldown atomic.Int64 // 冷却截止 unix 纳秒（0 = 不在冷却）
+}
 
 // StaticProxySelector 是静态代理列表的选择器实现。
 // 它使用文件缓存 + 直连探测 + 带宽评分来选择最佳代理。
@@ -38,6 +50,10 @@ type StaticProxySelector struct {
 	probeTimeout     atomic.Int64 // seconds
 	bandwidthSuffix  atomic.Value // string
 	probeMu          sync.Mutex   // 保护带宽探测，防止惊群效应
+
+	healthMu   sync.Mutex
+	health     map[string]*proxyHealth // proxyURL -> 健康状态
+	nextRotate atomic.Uint64           // 轮换游标（下次从哪个代理开始尝试）
 }
 
 // NewStaticProxySelector 创建基于静态代理列表的选择器。
@@ -48,6 +64,7 @@ type StaticProxySelector struct {
 func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 	s := &StaticProxySelector{
 		proxies: proxies,
+		health:  make(map[string]*proxyHealth, len(proxies)),
 	}
 	s.decisionCacheTTL.Store(1)
 	s.probeTimeout.Store(3)
@@ -169,6 +186,7 @@ skipCache:
 }
 
 // selectBestProxy 执行带宽扫描，选出最佳代理并写入缓存。
+// 跳过处于冷却期的代理（故障切换），从轮换游标处开始尝试实现轮换。
 func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath string, probeTimeout int) (string, error) {
 	s.probeMu.Lock()
 	defer s.probeMu.Unlock()
@@ -182,22 +200,101 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 		// 所以即使缓存命中 "proxy" 也需要带宽扫描来选出最佳代理。
 	}
 
+	available := s.proxyAvailable()
+	if len(available) == 0 {
+		// 全部代理在冷却（或为空）——为保持「降级直连」语义，
+		// forceProxy 时返回错误，否则返回空字符串让调用方直连。
+		if s.forceProxy.Load() {
+			return "", fmt.Errorf("no suitable proxy found (all proxies in cooldown)")
+		}
+		slog.Warn("All proxies in cooldown, falling back to direct", "proxies", len(s.proxies))
+		return "", nil
+	}
+
+	// 轮换：从上次游标处旋转，让后续请求优先尝试下一个可用代理。
+	rot := int(s.nextRotate.Load() % uint64(len(available)))
+	rotated := append(append([]string(nil), available[rot:]...), available[:rot]...)
+	s.nextRotate.Store(uint64(rot+1) % uint64(len(available)))
+
 	bandwidthSuffix, _ := s.bandwidthSuffix.Load().(string)
 
+	// 轮换选择：从游标起点开始，选第一个带宽探测成功（< MaxFloat64）的代理。
+	// 这样游标决定「轮到谁」（负载分散/故障切换），带宽失败则跳过（故障隔离）。
 	bestProxy := ""
-	minBandwidth := defaultMaxBandwidth
-	for _, p := range s.proxies {
+	for _, p := range rotated {
 		bw := getProxyBandwidth(ctx, p, bandwidthSuffix, probeTimeout)
-		if bw < minBandwidth {
-			minBandwidth = bw
+		if bw < defaultMaxBandwidth {
 			bestProxy = p
+			break
 		}
 	}
 	if bestProxy != "" {
 		s.writeCacheDecision(cachePath, "proxy")
 		return bestProxy, nil
 	}
-	return "", fmt.Errorf("no suitable proxy found")
+	if s.forceProxy.Load() {
+		return "", fmt.Errorf("no suitable proxy found")
+	}
+	slog.Warn("No proxy responded to bandwidth probe, falling back to direct", "proxies", len(available))
+	return "", nil
+}
+
+// ReportProxyFailure 实现 ProxyFailureReporter：标记代理一次失败。
+// 连续失败达到阈值后进入冷却（冷却期内 Select 会跳过该代理，实现故障切换）。
+func (s *StaticProxySelector) ReportProxyFailure(proxyURL string) {
+	if proxyURL == "" {
+		return
+	}
+	s.healthMu.Lock()
+	h := s.healthForLocked(proxyURL)
+	h.failures++
+	if h.failures >= proxyFailThreshold {
+		h.cooldown.Store(time.Now().Add(proxyCooldown).UnixNano())
+		slog.Warn("Proxy marked unhealthy, entering cooldown", "proxy", redactProxyURL(proxyURL), "failures", h.failures, "cooldown", proxyCooldown.String())
+	}
+	s.healthMu.Unlock()
+}
+
+// healthForLocked 返回代理的健康状态（调用方须持 healthMu）。
+func (s *StaticProxySelector) healthForLocked(proxyURL string) *proxyHealth {
+	h, ok := s.health[proxyURL]
+	if !ok {
+		h = &proxyHealth{}
+		s.health[proxyURL] = h
+	}
+	return h
+}
+
+// proxyHealthy 判断代理是否可用（不在冷却期）。
+func (s *StaticProxySelector) proxyHealthy(proxyURL string) bool {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	h, ok := s.health[proxyURL]
+	if !ok {
+		return true // 从未失败，健康
+	}
+	cooldown := h.cooldown.Load()
+	if cooldown == 0 {
+		return true
+	}
+	if time.Now().UnixNano() >= cooldown {
+		// 冷却结束，重置失败计数
+		h.failures = 0
+		h.cooldown.Store(0)
+		return true
+	}
+	return false
+}
+
+// proxyAvailable 返回可用（未冷却）的代理列表（保持配置顺序）。
+func (s *StaticProxySelector) proxyAvailable() []string {
+	available := make([]string, 0, len(s.proxies))
+	for _, p := range s.proxies {
+		if s.proxyHealthy(p) {
+			available = append(available, p)
+		}
+	}
+	return available
 }
 
 // checkDirect 检测是否可直接访问目标 URL。返回 true 表示可直连。
