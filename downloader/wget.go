@@ -65,10 +65,14 @@ func (d *WgetDownloader) Name() string {
 }
 
 func (d *WgetDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	// Extra 读须持 RLock（写方 soWorker finalizeSmallObject / metadata flusher 持 obj.Lock）
+	obj.RLock()
 	filesVal, ok := obj.Extra["files"]
 	if !ok || filesVal == nil {
+		obj.RUnlock()
 		return d.downloadFile(obj, true, obj, headers)
 	}
+	obj.RUnlock()
 
 	fileList, err := parseCompositeFileList(filesVal)
 	if err != nil {

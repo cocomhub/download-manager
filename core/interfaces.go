@@ -39,6 +39,9 @@ type StorageQuery struct {
 	Sort   []StorageSort
 	Offset int64
 	Limit  int64
+	// Light 请求投影排除大数组字段（extra.files/images/links），用于列表/分组等
+	// 只依赖 metadata/status 的轻量查询，避免传输整份图片路径列表。
+	Light bool
 }
 
 // Storage 定义下载状态存储的行为
