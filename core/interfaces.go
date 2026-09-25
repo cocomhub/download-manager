@@ -175,3 +175,17 @@ type EventBus interface {
 	Subscribe() <-chan Event
 	Unsubscribe(ch <-chan Event)
 }
+
+// ContentGroupRepresentatives 可选存储能力：按 metadata.content_group 分组，
+// 每组返回 metadata.date 最大的代表对象，并支持分页。用于 content 聚合视图
+// （书橱/合集）的快路径，避免把任务全部对象取回内存再分组。
+//
+// 代表策略固定为 max-date（框架默认语义）。任务有自定义代表语义
+// （如 ContentGroupProvider.VariantScore 变体优先级）时，manager 检测到
+// 并走内存路径，不使用此快路径。
+//
+// search/status 与 StorageQuery 同语义（search 匹配 url/title/tags；status 为空或 "all" 不过滤）；
+// limit <= 0 表示不分页（返回全部组）；total 为非空 content_group 的去重组数。
+type ContentGroupRepresentatives interface {
+	ContentGroupRepresentatives(taskID string, search, status string, page, limit int64) ([]*model.DownloadObject, int64, error)
+}
