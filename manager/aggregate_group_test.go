@@ -4,11 +4,42 @@
 package manager
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
 )
+
+// tktubeLikeTask 模拟 tktube 任务：实现 ContentGroupProvider，变体分数按标题标记
+// （【高画质】= 4，C 后缀 = 2，普通 = 1），与 sdserver tktube 真实 VariantScore 语义一致。
+type tktubeLikeTask struct {
+	mockTask
+}
+
+func (t *tktubeLikeTask) ContentGroupKey(obj *model.DownloadObject) string {
+	if obj == nil || obj.Metadata == nil {
+		return ""
+	}
+	return obj.Metadata[model.MetadataKeyContentGroup]
+}
+
+func (t *tktubeLikeTask) VariantScore(obj *model.DownloadObject) int {
+	if obj == nil || obj.Metadata == nil {
+		return 0
+	}
+	title := obj.Metadata["title"]
+	switch {
+	case strings.Contains(title, "高画质"):
+		return 4
+	case strings.HasSuffix(title, "C") || strings.Contains(title, "中字"):
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (t *tktubeLikeTask) BackfillContentGroups() bool { return false }
 
 func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	cfg := &config.Config{
@@ -36,10 +67,12 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 		Metadata: map[string]string{"title": "ABP-456", "content_group": "ABP-456", "date": "2024-02-01"},
 		Extra:    map[string]any{},
 	}
-	t1 := &mockTask{
-		id:   "t1",
-		typ:  "tktube",
-		objs: []*model.DownloadObject{o1, o2, o3},
+	t1 := &tktubeLikeTask{
+		mockTask: mockTask{
+			id:   "t1",
+			typ:  "tktube",
+			objs: []*model.DownloadObject{o1, o2, o3},
+		},
 	}
 	m.tasks.Store("t1", t1)
 

@@ -267,6 +267,11 @@ func (s *MongoStorage) ensureIndexes() error {
 			Keys:    bson.D{{Key: "metadata.collection_id", Value: 1}, {Key: "metadata.collection_title", Value: 1}},
 			Options: options.Index().SetName("collection_order"),
 		},
+		{
+			// 版本升级扫描：按任务 + version 过滤旧数据（runVersionUpgrade 的 VersionLT 下推）。
+			Keys:    bson.D{{Key: "task_id", Value: 1}, {Key: "version", Value: 1}},
+			Options: options.Index().SetName("task_version"),
+		},
 	}
 	if _, err := s.collection.Indexes().CreateMany(ctx, models); err != nil {
 		mongoIndexOnce.Delete(key)
@@ -294,6 +299,9 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	}
 	for key, value := range query.Filter.Metadata {
 		filter["metadata."+key] = value
+	}
+	if query.Filter.VersionLT > 0 {
+		filter["version"] = bson.M{"$lt": query.Filter.VersionLT}
 	}
 
 	var andConditions bson.A
