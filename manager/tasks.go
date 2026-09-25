@@ -11,6 +11,28 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
+// SeedTaskObjects 向已装载任务注入预构建对象（测试/fixture 用）。
+// 框架测试能力：供外部（如 sdserver e2e fixture）构造模拟数据，不触发任务抓取。
+func (m *Manager) SeedTaskObjects(id string, objs []*model.DownloadObject) error {
+	t, ok := m.getTask(id)
+	if !ok {
+		return fmt.Errorf("%w: %s", errTaskNotFound, id)
+	}
+	st := t.Storage()
+	if st == nil {
+		return fmt.Errorf("task %s has no storage", id)
+	}
+	typ := t.Type()
+	for _, o := range objs {
+		o.TaskID = id
+		o.EnsureTaskType(typ)
+		if err := st.Update(o); err != nil {
+			return fmt.Errorf("seed %s: %w", o.URL, err)
+		}
+	}
+	return nil
+}
+
 func (m *Manager) getTask(id string) (core.Task, bool) {
 	if v, ok := m.tasks.Load(id); ok {
 		return v.(core.Task), true
