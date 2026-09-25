@@ -188,9 +188,19 @@
     return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0')
   }
 
+  // changeSpeed 按步进调整播放倍速（范围 0.25-2.0），返回新倍速。
+  function changeSpeed (state, delta) {
+    var video = getVideo()
+    if (!video) return
+    var next = Math.round((state.playbackRate + delta) * 4) / 4
+    next = Math.min(2.0, Math.max(0.25, next))
+    setSpeed(state, next)
+    return next
+  }
+
   function handleKeydown (state, e) {
     if (!state.currentVideo) return
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyF', 'KeyK', 'KeyJ', 'KeyL', 'KeyM'].indexOf(e.code) >= 0) {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyF', 'KeyK', 'KeyJ', 'KeyL', 'KeyM', 'BracketLeft', 'BracketRight'].indexOf(e.code) >= 0) {
       e.preventDefault()
     }
     var key = e.key.toLowerCase()
@@ -200,6 +210,8 @@
     else if (code === 'ArrowLeft' || key === 'j') { skip(state, -state.videoSettings.skipInterval) }
     else if (code === 'ArrowUp') { state.volume = Math.min(1, state.volume + 0.1); updateVolume(state) }
     else if (code === 'ArrowDown') { state.volume = Math.max(0, state.volume - 0.1); updateVolume(state) }
+    else if (code === 'BracketRight') { changeSpeed(state, 0.25) }
+    else if (code === 'BracketLeft') { changeSpeed(state, -0.25) }
     else if (key === 'f') { toggleFullscreen() }
     else if (key === 'm') { toggleMute(state) }
     else if (code === 'Escape') { closeVideo(state) }
@@ -343,6 +355,7 @@
     handleHoverProgress: handleHoverProgress,
     skip: skip,
     setSpeed: setSpeed,
+    changeSpeed: changeSpeed,
     toggleMute: toggleMute,
     updateVolume: updateVolume,
     toggleFullscreen: toggleFullscreen,

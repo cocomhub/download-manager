@@ -1086,7 +1086,7 @@
 
                             <!-- Speed -->
                             <div class="relative group/speed pb-2">
-                                <button class="text-sm font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition min-w-[3rem]">{{ playbackRate }}x</button>
+                                <button class="text-sm font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded transition min-w-[3rem]" title="倍速 ([/])">{{ playbackRate }}x</button>
                                 <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 pb-3 bg-transparent hidden group-hover/speed:block">
                                     <div class="bg-gray-900/95 border border-gray-700 rounded-lg shadow-xl flex flex-col overflow-hidden backdrop-blur">
                                         <button v-for="rate in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]" :key="rate" @click="setSpeed(rate)" class="px-4 py-2 text-sm hover:bg-blue-600 hover:text-white transition text-center whitespace-nowrap" :class="playbackRate === rate ? 'text-blue-400 font-bold' : 'text-gray-300'">
