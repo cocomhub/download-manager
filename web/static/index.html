@@ -765,12 +765,12 @@
                     </div>
                     <!-- Grid View -->
                     <div id="custom-task-container" class="h-full" style="display:none"></div>
-                    <div v-if="viewMode === 'grid'" class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                        <div v-for="obj in filteredObjects" :key="obj.url" :data-testid="'object-' + obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" :draggable="sortBy==='default' && !isTouchDevice()" @dragstart="dragStart($event, obj)"
+                    <div v-if="viewMode === 'grid'" :key="'grid-' + bookShelfVersion" class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
+                        <div v-for="obj in filteredObjects()" :key="obj.url" :data-testid="'object-' + obj.url" class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden group flex flex-col h-full border border-gray-100 relative" :draggable="sortBy==='default' && !isTouchDevice()" @dragstart="dragStart($event, obj)"
                             @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
 
                             <!-- Cover Image Area -->
-                            <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()">
+                            <div class="relative aspect-[16/9] bg-gray-200 overflow-hidden cursor-pointer" @click="handleCardClick(obj)" @mouseenter="setHoverObj(obj)" @mouseleave="clearHoverObj()" :style="cardCoverStyle(obj)">
                                 <label class="absolute top-2 left-2 z-30 bg-white/90 rounded px-1.5 py-1 shadow">
                                     <input type="checkbox" :value="obj.url" v-model="selectedObjectUrls" class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded">
                                 </label>
@@ -869,7 +869,7 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="obj in filteredObjects" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
+                        <tr v-for="obj in filteredObjects()" :key="obj.url" class="hover:bg-gray-50" draggable="true" @dragstart="dragStart($event, obj)" @drop="drop($event, obj)" @dragover.prevent @dragenter.prevent>
                             <td class="px-6 py-4">
                                 <div class="flex items-center">
                                     <input type="checkbox" :value="obj.url" v-model="selectedObjectUrls" class="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded mr-3">
