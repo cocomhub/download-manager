@@ -341,6 +341,7 @@ func (c *Config) ValidateAndClamp() {
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
 	c.resolveTaskStorages()
+	c.resolveTaskExtras()
 }
 
 // isTruthy reports whether s is a truthy boolean-like value:
@@ -726,6 +727,32 @@ func (c *Config) resolveTaskStorages() {
 			continue
 		}
 		t.Storage = *def.Storage
+	}
+}
+
+// resolveTaskExtras merges type-level default extra fields into each task's
+// Extra (task-level keys take precedence). This lets site-specific settings
+// (site_url / proxy_url / download_proxy etc.) be declared once at the type
+// level in task_type_defaults and shared by all tasks of that type.
+func (c *Config) resolveTaskExtras() {
+	if c.TaskTypeDefaults == nil {
+		return
+	}
+	for i := range c.Tasks {
+		t := &c.Tasks[i]
+		def, ok := c.TaskTypeDefaults[t.Type]
+		if !ok || len(def.Extra) == 0 {
+			continue
+		}
+		if t.Extra == nil {
+			t.Extra = make(map[string]any, len(def.Extra))
+		}
+		for k, v := range def.Extra {
+			if _, exists := t.Extra[k]; exists {
+				continue // task-level wins
+			}
+			t.Extra[k] = v
+		}
 	}
 }
 

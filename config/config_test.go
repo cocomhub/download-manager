@@ -571,6 +571,52 @@ func TestTaskTypeDefaults_GetEffectiveSaveDir(t *testing.T) {
 	})
 }
 
+func TestTaskTypeDefaults_ResolveTaskExtras(t *testing.T) {
+	// 验证 task_type_defaults.extra 合并到任务 extra
+	// （site_url/proxy_url 等类型级默认配置应生效，task 级同名 key 覆盖）。
+	t.Run("extra merge from type default", func(t *testing.T) {
+		cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+		cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+			"njavtv": {
+				Extra: map[string]any{
+					"site_url":       "https://njavtv.com",
+					"proxy_url":      "http://127.0.0.1:1080",
+					"download_proxy": false,
+				},
+			},
+		}
+		cfg.Tasks = []Task{
+			{ID: "t1", Type: "njavtv", Extra: map[string]any{"target": ""}},
+		}
+		cfg.ValidateAndClamp()
+		t1 := cfg.Tasks[0]
+		if t1.Extra["site_url"] != "https://njavtv.com" {
+			t.Fatalf("site_url not merged from type default: %v", t1.Extra["site_url"])
+		}
+		if t1.Extra["proxy_url"] != "http://127.0.0.1:1080" {
+			t.Fatalf("proxy_url not merged from type default: %v", t1.Extra["proxy_url"])
+		}
+		if t1.Extra["target"] != "" {
+			t.Fatalf("task-level target lost: %v", t1.Extra["target"])
+		}
+	})
+
+	// 任务级同名 key 覆盖类型默认
+	t.Run("task-level extra overrides type default", func(t *testing.T) {
+		cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+		cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+			"njavtv": {Extra: map[string]any{"site_url": "https://default.example"}},
+		}
+		cfg.Tasks = []Task{
+			{ID: "t2", Type: "njavtv", Extra: map[string]any{"site_url": "https://override.example"}},
+		}
+		cfg.ValidateAndClamp()
+		if got := cfg.Tasks[0].Extra["site_url"]; got != "https://override.example" {
+			t.Fatalf("task-level should override: got %v", got)
+		}
+	})
+}
+
 func TestTaskTypeDefaults_SanitizeForSave(t *testing.T) {
 	// 与默认值匹配的字段应被移除
 	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
@@ -578,6 +624,7 @@ func TestTaskTypeDefaults_SanitizeForSave(t *testing.T) {
 	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
 		"hanime": {ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal},
 	}
+
 	cfg.Tasks = []Task{
 		{ID: "t1", Type: "hanime", ScrapeEnabled: &trueVal, DownloadEnabled: &trueVal}, // 全匹配默认 → 应移除
 		{ID: "t2", Type: "hanime", ScrapeEnabled: new(false)},                          // 不匹配 → 保留
