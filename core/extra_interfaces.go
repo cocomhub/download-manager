@@ -49,3 +49,16 @@ type ObjectVersioner interface {
 	// 返回 modified 表示对象被修改需持久化；实现必须幂等。
 	UpgradeStep(obj *model.DownloadObject, toVersion int) (modified bool, err error)
 }
+
+// ContentGroupProvider 是可选接口：任务声明其内容分组与变体优先级逻辑，
+// 供 Manager 的分组聚合/自动淘汰使用（框架通用，替代按任务类型的硬编码特判）。
+// 未实现此接口的任务不参与分组淘汰（默认行为不变）。
+type ContentGroupProvider interface {
+	// ContentGroupKey 返回对象的内容分组键（如番号）。返回空串 = 对象不分组。
+	ContentGroupKey(obj *model.DownloadObject) string
+	// VariantScore 返回对象在其内容组内的变体优先级分数（越大越优先保留）。
+	// 用于同组多对象（分辨率/字幕等变体）自动淘汰低优先级 pending 对象。
+	VariantScore(obj *model.DownloadObject) int
+	// BackfillContentGroups 返回是否启用内容分组元数据回填（启动扫描重算）。
+	BackfillContentGroups() bool
+}
