@@ -25,6 +25,8 @@
         activeDownloads: [],
         selectedTaskId: null,
         selectedTask: null,
+        // 书橱视图响应式标志：插件加载（groupBy 声明就绪）后递增，强制详情卡片重建
+        bookShelfVersion: 0,
         selectedTaskIds: [],
         selectedObjectUrls: [],
         selectAllScope: 'page',
@@ -166,12 +168,6 @@
         var type = this.selectedType
         return (this.tasks || []).filter(function (t) { return t && String(t.type || '').toLowerCase() === String(type).toLowerCase() })
       },
-      filteredObjects: function () {
-        if (!this.selectedTask || !this.selectedTask.objects) return []
-        var list = this.selectedTask.objects
-        if (this.statusFilter === 'all') return list
-        return list.filter(function (o) { return o.status === this.statusFilter }.bind(this))
-      },
       aggFilteredObjects: function () { return this.aggObjects || [] },
       aggPagedObjects: function () { return this.aggFilteredObjects || [] },
       groupModalSafety: function () {
@@ -307,6 +303,46 @@
     },
 
     methods: {
+      filteredObjects: function () {
+        if (!this.selectedTask || !this.selectedTask.objects) return []
+        // 书橱视图（插件声明 groupBy=content）：按内容分组选代表（每书一张卡）
+        var list = this.selectedTask.objects
+        if (this.taskGroupBy() === 'content') {
+          var groups = {}
+          var reps = []
+          list.forEach(function (o) {
+            var g = o.metadata && o.metadata.content_group
+            if (!g) { reps.push(o); return }
+            if (o.extra && o.extra.group_size) {
+              if (!groups[g]) { groups[g] = true; reps.push(o) }
+              return
+            }
+            if (!groups[g]) { groups[g] = o; return }
+            var cur = groups[g]
+            var curDate = (cur.metadata && cur.metadata.date) || ''
+            var newDate = (o.metadata && o.metadata.date) || ''
+            if (newDate > curDate) groups[g] = o
+          })
+          Object.keys(groups).forEach(function (g) {
+            if (groups[g] === true) return
+            var rep = groups[g]
+            // 补 group_size（组内对象数，供 renderCardExtra「共 N 话」显示）
+            var size = 0
+            list.forEach(function (o) {
+              if (o.metadata && o.metadata.content_group === g) size++
+            })
+            if (rep.extra) {
+              if (!rep.extra.group_size) rep.extra.group_size = size
+            } else {
+              rep.extra = { group_size: size }
+            }
+            reps.push(rep)
+          })
+          list = reps
+        }
+        if (this.statusFilter === 'all') return list
+        return list.filter(function (o) { return o.status === this.statusFilter }.bind(this))
+      },
       // ---- Auth ----
       initAuth: function () {
         var self = this
@@ -590,6 +626,24 @@
       getVideoUrl: function(obj) { return UiVideoPlayer.getVideoUrl(obj) },
       getThumbImage: function(obj) { return UiVideoPlayer.getThumbImage(obj) },
       getCoverImage: function(obj) { return UiVideoPlayer.getCoverImage(obj) },
+      // 书橱视图：任务详情按内容分组时，取当前任务类型的 groupBy/cardCoverAspect 声明
+      taskGroupBy: function() {
+        if (!this.selectedTask || !this.selectedTask.type) return ''
+        var h = TaskUI.get(this.selectedTask.type)
+        return (h && h.groupBy) || ''
+      },
+      taskCardCoverAspect: function() {
+        if (!this.selectedTask || !this.selectedTask.type) return ''
+        var h = TaskUI.get(this.selectedTask.type)
+        return (h && h.cardCoverAspect) || ''
+      },
+      cardCoverStyle: function(obj) {
+        var aspect = this.taskCardCoverAspect()
+        if (!aspect || !obj) return {}
+        // 对象有 group_size（书橱代表卡）才用竖版比例；普通对象保持默认
+        if (!obj.extra || !obj.extra.group_size) return {}
+        return { 'aspect-ratio': aspect, 'object-fit': 'cover' }
+      },
       onCoverError: function(e) { UiVideoPlayer.onCoverError(e) },
       getPreviewUrl: function(obj) { return UiVideoPlayer.getPreviewUrl(obj) },
       // ---- Missing template methods (delegates and stubs) ----

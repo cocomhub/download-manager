@@ -36,6 +36,9 @@
       onClick: typeof handler.onClick === 'function' ? handler.onClick : null,
       shouldShowViewer: typeof handler.shouldShowViewer === 'function' ? handler.shouldShowViewer : defaultShouldShowViewer,
       viewerLabel: handler.viewerLabel || '查看',
+      // 书橱视图声明（框架消费）：groupBy=content 任务详情按内容分组；cardCoverAspect 封面比例
+      groupBy: handler.groupBy || '',
+      cardCoverAspect: handler.cardCoverAspect || '',
       // collectExtra: 将 formData 映射为 API 请求的 payload 字段
       // 返回 { urls_text, keyword, ... } 或 { extra: { ... } } 等
       collectExtra: typeof handler.collectExtra === 'function' ? handler.collectExtra : defaultCollectExtra,
