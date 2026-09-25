@@ -171,13 +171,40 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		limit = 50
 	}
 
+	// 快路径：单任务且存储实现 ContentGroupRepresentatives 且任务无自定义代表语义
+	// （未实现 ContentGroupProvider）→ mongo 聚合下推，避免全量拉取内存分组。
+	// 否则走内存兜底（collectContentObjects + selectGroupRepresentatives）。
+	var reps []*model.DownloadObject
+	if len(matchingTasks) == 1 {
+		tk := matchingTasks[0]
+		_, hasCustom := tk.(core.ContentGroupProvider)
+		if st, ok := tk.Storage().(core.ContentGroupRepresentatives); ok && !hasCustom {
+			objs, total, err := st.ContentGroupRepresentatives(tk.ID(), search, status, page, limit)
+			if err == nil {
+				// 快路径已分页，直接组装结果
+				for _, o := range objs {
+					if o.GetMetaTaskType() == "" {
+						o.EnsureTaskType(tk.Type())
+					}
+				}
+				return map[string]any{
+					"objects": objs,
+					"total":   total,
+					"page":    page,
+					"limit":   limit,
+				}, nil
+			}
+			// 快路径失败 → 回退内存
+		}
+	}
+
 	all, err := collectContentObjects(m, matchingTasks, search, status)
 	if err != nil {
 		return nil, err
 	}
 
 	groups := groupByContentKey(all)
-	reps := selectGroupRepresentatives(groups)
+	reps = selectGroupRepresentatives(groups)
 	paged, total, page, limit := paginateContentResults(reps, page, limit, sortBy)
 
 	// Ensure every object has task_type metadata for frontend plugin dispatch
