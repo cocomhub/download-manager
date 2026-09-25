@@ -51,9 +51,10 @@ test.describe('Object Viewer', () => {
     const videoEl = modal.locator('video');
     await expect(videoEl).toHaveCount(1, { timeout: 3000 });
 
-    // Poster image should be visible (cover image or placeholder)
-    const posterImg = modal.locator('img').first();
-    await expect(posterImg).toBeVisible({ timeout: 3000 });
+    // 视频播放器直接显示 video（无 poster 占位图）
+    // 验证播放器控制条存在（关闭按钮）
+    const closeBtn = modal.locator('button:has(.fa-times)').first();
+    await expect(closeBtn).toBeVisible({ timeout: 3000 });
 
     // Close the modal
     await closeModal(modal);
@@ -277,10 +278,8 @@ test.describe('Object Viewer', () => {
 
     const modal = await waitForModal(page);
 
-    // Click the backdrop (the overlay, not the panel)
-    // The overlay is the .fixed.inset-0 element, clicking it directly
-    // triggers the e.target === overlay check
-    await modal.click({ position: { x: 10, y: 10 } });
+    // 视频播放器支持 Escape 关闭（点击视频区域为播放/暂停）
+    await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
 
     // Modal should be closed
@@ -346,16 +345,12 @@ test.describe('Object Viewer', () => {
 
     const modal = await waitForModal(page);
 
-    // Footer should have buttons: 打开文件, 打开原页面, 复制标题, 复制链接, 关闭
-    const footer = modal.locator('[style*="border-top"]').last();
-
-    // 复制标题 button should exist
-    const copyTitleBtn = footer.locator('button:has-text("复制标题")');
-    await expect(copyTitleBtn).toBeVisible({ timeout: 3000 });
-
-    // 关闭 button should exist
-    const closeBtn = footer.locator('button:has-text("关闭")');
+    // 视频播放器 header 有关闭按钮（fa-times）
+    const closeBtn = modal.locator('button:has(.fa-times)').first();
     await expect(closeBtn).toBeVisible({ timeout: 3000 });
+
+    // 标题元素存在（header 自动隐藏是播放器特性，用 toBeAttached 验证）
+    await expect(modal.locator('h3')).toBeAttached({ timeout: 3000 });
 
     // Close the modal
     await closeBtn.click();

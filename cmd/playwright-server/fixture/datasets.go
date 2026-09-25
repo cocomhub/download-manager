@@ -40,7 +40,7 @@ func loadFull(mgr *manager.Manager) error {
 						"status":       "completed",
 						"metadata": map[string]any{
 							"content_group": "group-a",
-							"task_type":     "tktube",
+							"task_type":     "mock",
 							"resolution":    "1080p",
 							"label":         "tktube-video",
 						},
