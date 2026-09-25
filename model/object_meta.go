@@ -356,6 +356,36 @@ func (o *DownloadObject) SetContentGroup(group string) {
 
 // --- Metadata accessors ---
 
+// GetSpecialReview 返回人工复核标记（metadata.special_review=true）。
+func (o *DownloadObject) GetSpecialReview() bool {
+	if o == nil {
+		return false
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Metadata == nil {
+		return false
+	}
+	return o.Metadata["special_review"] == "true"
+}
+
+// SetSpecialReview 设置人工复核标记。
+func (o *DownloadObject) SetSpecialReview(v bool) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.Metadata == nil {
+		o.Metadata = make(map[string]string)
+	}
+	if v {
+		o.Metadata["special_review"] = "true"
+	} else {
+		delete(o.Metadata, "special_review")
+	}
+}
+
 // GetMetaTitle returns title from Metadata.
 func (o *DownloadObject) GetMetaTitle() string {
 	if o == nil {
