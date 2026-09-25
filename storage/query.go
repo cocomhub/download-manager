@@ -114,6 +114,12 @@ func matchesQuery(obj *model.DownloadObject, query *core.StorageQuery) bool {
 	if query == nil {
 		return true
 	}
+
+	// VersionLT：只返回 Version < VersionLT 的对象（版本升级扫描用；0 = 不过滤）。
+	if query.Filter.VersionLT > 0 && obj.GetVersion() >= query.Filter.VersionLT {
+		return false
+	}
+
 	if !matchesFilterFields(obj, query.Filter) {
 		return false
 	}

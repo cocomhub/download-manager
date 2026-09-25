@@ -26,6 +26,7 @@ type StorageFilter struct {
 	Tags       []string // 推荐用标签（阶段三）
 	TagMode    string   // "any" 或 "all"（阶段三）
 	ExcludeIDs []int64  // 排除的对象 ID（阶段三）
+	VersionLT  int64    // 只返回 Version < VersionLT 的对象（0 表示不过滤；版本升级扫描用）
 }
 
 type StorageSort struct {

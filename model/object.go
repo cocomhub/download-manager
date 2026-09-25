@@ -19,6 +19,9 @@ type DownloadObject struct {
 	Extra    map[string]any    `json:"extra" bson:"extra"`
 	Status   string            `json:"status" bson:"status"`
 	Progress int               `json:"progress" bson:"progress"`
+	// Version 对象数据结构版本（ObjectVersioner 升级机制用）：version < 任务 LatestVersion
+	// 的对象在启动标准化时被自动逐级升级到最新结构。缺省 0 视为旧数据。
+	Version int64 `json:"version,omitempty" bson:"version,omitempty"`
 
 	mu sync.RWMutex `json:"-" bson:"-"`
 }
@@ -77,6 +80,26 @@ func (o *DownloadObject) SetStatus(s string) {
 	o.Status = s
 }
 
+// GetVersion 返回对象数据结构版本。
+func (o *DownloadObject) GetVersion() int64 {
+	if o == nil {
+		return 0
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.Version
+}
+
+// SetVersion 设置对象数据结构版本。
+func (o *DownloadObject) SetVersion(v int64) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.Version = v
+}
+
 // MarshalJSON preserves backward-compatible JSON output.
 func (o *DownloadObject) MarshalJSON() ([]byte, error) {
 	if o == nil {
@@ -110,6 +133,7 @@ func (o *DownloadObject) Snapshot() *DownloadObject {
 		SavePath: o.SavePath,
 		Status:   o.Status,
 		Progress: o.Progress,
+		Version:  o.Version,
 	}
 	if o.Metadata != nil {
 		snap.Metadata = maps.Clone(o.Metadata)
