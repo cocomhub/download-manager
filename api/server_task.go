@@ -96,6 +96,34 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(details)
 }
 
+// taskObjectsMetaHandler 轻量查询任务对象（Light 投影排除大数组字段）。
+// 查询参数：content_group（精确分组过滤）、search、status、limit（0=全部）。
+// 用于书库/列表等只依赖 metadata/status 的轻量场景。
+func (s *Server) taskObjectsMetaHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	q := r.URL.Query()
+	contentGroup := q.Get("content_group")
+	search := q.Get("search")
+	status := q.Get("status")
+	var limit int64
+	if lStr := q.Get("limit"); lStr != "" {
+		if l, err := strconv.ParseInt(lStr, 10, 64); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	objs, err := s.mgr.GetTaskObjectsMeta(id, contentGroup, search, status, limit)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "task_not_found", fmt.Sprintf("Task %s not found: %v", id, err))
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"objects": objs,
+		"total":   len(objs),
+	})
+}
+
 type RetryRequest struct {
 	URL string `json:"url"` // Optional, if empty retry all failed
 }

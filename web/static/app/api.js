@@ -253,6 +253,20 @@
       return this.post('/api/objects/' + type + '/' + id + '/tags', { tags: tags })
     },
 
+    taskObjectsMeta: function (id, params) {
+      var q = new URLSearchParams()
+      if (params) {
+        if (params.content_group) q.set('content_group', params.content_group)
+        if (params.search) q.set('search', params.search)
+        if (params.status && params.status !== 'all') q.set('status', params.status)
+        if (params.limit) q.set('limit', params.limit)
+      }
+      return authFetch('/api/tasks/' + encodeURIComponent(id) + '/objects/meta' + (q.toString() ? '?' + q.toString() : '')).then(function (r) {
+        if (!r.ok) throw new Error('Objects meta request failed')
+        return r.json()
+      })
+    },
+
     getTaskTypeDefaults: function () {
       return authFetch('/api/config/task-type-defaults').then(function (r) { return r.json() })
     },

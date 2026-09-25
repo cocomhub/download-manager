@@ -527,6 +527,48 @@ func (m *Manager) GetTaskDetails(id string, page, limit int64, search, sortBy st
 	return result, nil
 }
 
+// GetTaskObjectsMeta 轻量查询任务对象（Light 投影排除大数组字段）。
+// 用于书库/列表等只依赖 metadata/status 的查询场景，避免传输 extra.files/images/links。
+// contentGroup 非空时按 metadata.content_group 精确过滤；search/status 与 GetTaskDetails 同语义。
+func (m *Manager) GetTaskObjectsMeta(id, contentGroup, search, status string, limit int64) ([]*model.DownloadObject, error) {
+	t, ok := m.getTask(id)
+	if !ok {
+		return nil, fmt.Errorf("%w", errTaskNotFound)
+	}
+	st := t.Storage()
+	if st == nil {
+		return nil, fmt.Errorf("task %s has no storage", id)
+	}
+	filter := core.StorageFilter{
+		Search: search,
+	}
+	if contentGroup != "" {
+		filter.Metadata = map[string]string{model.MetadataKeyContentGroup: contentGroup}
+	}
+	if status != "" && status != "all" {
+		filter.Statuses = []string{status}
+	}
+	query := &core.StorageQuery{
+		Filter: filter,
+		Light:  true,
+	}
+	if limit > 0 {
+		query.Limit = limit
+	}
+	objs, err := st.Search(query)
+	if err != nil {
+		return nil, err
+	}
+	if objs == nil {
+		objs = make([]*model.DownloadObject, 0)
+	}
+	taskType := t.Type()
+	for _, o := range objs {
+		o.EnsureTaskType(taskType)
+	}
+	return objs, nil
+}
+
 // --- Config Management ---
 
 func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {

@@ -120,7 +120,11 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 	defer cancel()
 
 	filter := bson.M{"url": obj.URL}
-	update := bson.M{"$set": obj}
+	// 用 Snapshot 深拷贝编码：BSON 反射在无 obj.mu 保护下迭代 Metadata/Extra map，
+	// 与 soWorker/metadata flusher 等并发写方共享同一对象时可能触发
+	// "concurrent map iteration and map write"。Snapshot 在 RLock 下深拷贝，
+	// 编码线程安全（见 model/object.go Snapshot）。
+	update := bson.M{"$set": obj.Snapshot()}
 	opts := options.UpdateOne().SetUpsert(true)
 
 	_, err := s.collection.UpdateOne(ctx, filter, update, opts)
@@ -150,6 +154,14 @@ func (s *MongoStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject
 	}
 	if sortDoc := buildMongoSort(query.Sort); len(sortDoc) > 0 {
 		opts.SetSort(sortDoc)
+	}
+	// Light 投影：排除大数组字段（extra.files/images/links），减小传输/解码开销。
+	if query.Light {
+		opts.SetProjection(bson.M{
+			"extra.files":  0,
+			"extra.images": 0,
+			"extra.links":  0,
+		})
 	}
 
 	cursor, err := s.collection.Find(ctx, filter, opts)
