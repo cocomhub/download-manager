@@ -10,6 +10,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
 )
 
@@ -79,6 +80,36 @@ func (f *fakeTktTask) Type() string {
 	}
 	return core.TaskTypeTktube
 }
+
+// ContentGroupProvider 实现（测试用 tktube 逻辑）。
+func (f *fakeTktTask) ContentGroupKey(obj *model.DownloadObject) string {
+	if obj == nil {
+		return ""
+	}
+	return titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
+}
+
+func (f *fakeTktTask) VariantScore(obj *model.DownloadObject) int {
+	if obj == nil {
+		return 0
+	}
+	obj.RLock()
+	title := obj.Metadata[model.MetadataKeyTitle]
+	obj.RUnlock()
+	hq, c := titlegroup.TKTVariantFlags(title)
+	switch {
+	case hq && c:
+		return 4
+	case hq:
+		return 3
+	case c:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (f *fakeTktTask) BackfillContentGroups() bool { return true }
 func (f *fakeTktTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
 	return nil
 }

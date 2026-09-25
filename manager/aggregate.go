@@ -12,7 +12,6 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/logutil"
-	"github.com/cocomhub/download-manager/pkg/titlegroup"
 	"github.com/cocomhub/download-manager/storage"
 )
 
@@ -228,25 +227,17 @@ func scopedContentGroupKey(taskID, taskType, group string) string {
 	return strings.TrimSpace(taskID) + "\x00" + strings.TrimSpace(taskType) + "\x00" + strings.TrimSpace(group)
 }
 
+// variantPriorityScore 返回对象在内容组内的变体优先级。
+// 任务实现 core.ContentGroupProvider 时按接口逻辑评分（如 tktube 高画质/中字）；
+// 未实现的任务返回 0（默认不参与变体淘汰）。
 func variantPriorityScore(t core.Task, obj *model.DownloadObject) int {
-	if t == nil || obj == nil || t.Type() != core.TaskTypeTktube {
+	if t == nil || obj == nil {
 		return 0
 	}
-	// obj.Metadata 读须持 RLock（写方 resolveApply/applySharedState 持 obj.Lock）
-	obj.RLock()
-	title := obj.Metadata[model.MetadataKeyTitle]
-	obj.RUnlock()
-	hq, c := titlegroup.TKTVariantFlags(title)
-	switch {
-	case hq && c:
-		return 4
-	case hq:
-		return 3
-	case c:
-		return 2
-	default:
-		return 1
+	if cgp, ok := t.(core.ContentGroupProvider); ok {
+		return cgp.VariantScore(obj)
 	}
+	return 0
 }
 
 // BackfillContentGroups scans storages and recomputes content_group/task_type metadata for tktube tasks.
@@ -258,9 +249,14 @@ func (m *Manager) BackfillContentGroups() {
 }
 
 // processOneBackfillTask processes a single value from the tasks map during backfill.
+// 仅处理实现 core.ContentGroupProvider 且 BackfillContentGroups()=true 的任务。
 func (m *Manager) processOneBackfillTask(value any) bool {
 	t, _ := value.(core.Task)
-	if t == nil || t.Type() != core.TaskTypeTktube {
+	if t == nil {
+		return true
+	}
+	cgp, ok := t.(core.ContentGroupProvider)
+	if !ok || !cgp.BackfillContentGroups() {
 		return true
 	}
 	st := t.Storage()
@@ -283,7 +279,7 @@ func (m *Manager) processOneBackfillTask(value any) bool {
 			continue
 		}
 		total++
-		if applyBackfillMetadata(obj, taskType, t.ID(), st) {
+		if applyBackfillMetadata(cgp, obj, taskType, t.ID(), st) {
 			changed++
 		}
 	}
@@ -291,14 +287,14 @@ func (m *Manager) processOneBackfillTask(value any) bool {
 	return true
 }
 
-// applyBackfillMetadata computes content_group and task_type metadata for a tktube object
-// and persists it if changed. Returns true if a change was made.
-func applyBackfillMetadata(obj *model.DownloadObject, taskType, taskID string, st core.Storage) bool {
+// applyBackfillMetadata computes content_group and task_type metadata via the task's
+// ContentGroupProvider and persists it if changed. Returns true if a change was made.
+func applyBackfillMetadata(cgp core.ContentGroupProvider, obj *model.DownloadObject, taskType, taskID string, st core.Storage) bool {
 	obj.Lock()
 	if obj.Metadata == nil {
 		obj.Metadata = make(map[string]string)
 	}
-	newGroup := titlegroup.TKTContentGroupKey(obj.Metadata[model.MetadataKeyTitle], obj.URL)
+	newGroup := cgp.ContentGroupKey(obj)
 	groupChanged := obj.Metadata[model.MetadataKeyContentGroup] != newGroup
 	typeChanged := obj.Metadata["task_type"] != taskType
 	if groupChanged {
