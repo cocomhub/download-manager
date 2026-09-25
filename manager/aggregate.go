@@ -59,6 +59,7 @@ func collectMatchingTasks(cfg *config.Config, getTask func(string) (core.Task, b
 func buildContentQuery(search, status string) *core.StorageQuery {
 	q := &core.StorageQuery{
 		Filter: core.StorageFilter{Search: search},
+		Light:  true, // 剔除 extra.files/images/links 大数组，减小传输/解码开销
 	}
 	if status != "" && status != "all" {
 		q.Filter.Statuses = []string{status}
@@ -66,19 +67,18 @@ func buildContentQuery(search, status string) *core.StorageQuery {
 	return q
 }
 
-// collectContentObjects gathers all matching objects from the given tasks.
-func collectContentObjects(m *Manager, tasks []core.Task, search, status string) ([]contentGroupEntry, error) {
-	all := make([]contentGroupEntry, 0, 1024)
-	for _, tk := range tasks {
-		objs, err := m.collectTaskObjects(tk, buildContentQuery(search, status), 200)
-		if err != nil {
-			return nil, err
-		}
-		for _, o := range objs {
-			all = append(all, contentGroupEntry{task: tk, obj: o})
-		}
+// collectTaskGroupEntries 单任务内存分组（快路径失败/自定义语义任务用）：
+// 返回该任务的 content_group 分组结果，供 selectGroupRepresentatives 选代表。
+func collectTaskGroupEntries(m *Manager, tk core.Task, search, status string) map[string][]contentGroupEntry {
+	objs, err := m.collectTaskObjects(tk, buildContentQuery(search, status), 200)
+	if err != nil {
+		return nil
 	}
-	return all, nil
+	entries := make([]contentGroupEntry, 0, len(objs))
+	for _, o := range objs {
+		entries = append(entries, contentGroupEntry{task: tk, obj: o})
+	}
+	return groupByContentKey(entries)
 }
 
 // groupByContentKey partitions entries by scoped content group key (task_id + task_type + content_group).
@@ -95,14 +95,38 @@ func groupByContentKey(entries []contentGroupEntry) map[string][]contentGroupEnt
 func pickRepresentative(entries []contentGroupEntry) *model.DownloadObject {
 	var rep *model.DownloadObject
 	bestScore := -1
+	bestDate := ""
 	for idx, e := range entries {
-		score := variantPriorityScore(e.task, e.obj)
-		if idx == 0 || score > bestScore {
+		// 有自定义代表语义（ContentGroupProvider.VariantScore）→ 用分数选代表；
+		// 否则（idx==0 兜底 + 无分数）选 metadata.date 最大者，与书橱视图/存储层快路径一致。
+		if cgp, ok := e.task.(core.ContentGroupProvider); ok && cgp.VariantScore(e.obj) > 0 {
+			score := cgp.VariantScore(e.obj)
+			if idx == 0 || score > bestScore {
+				rep = e.obj
+				bestScore = score
+			}
+			continue
+		}
+		date := metadataDate(e.obj)
+		if idx == 0 || date > bestDate {
 			rep = e.obj
-			bestScore = score
+			bestDate = date
 		}
 	}
 	return rep
+}
+
+// metadataDate 返回对象的 metadata.date（RLock 保护）。
+func metadataDate(obj *model.DownloadObject) string {
+	if obj == nil {
+		return ""
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	if obj.Metadata == nil {
+		return ""
+	}
+	return obj.Metadata["date"]
 }
 
 // copyRepresentative creates a shallow copy of rep and attaches the group_size extra field.
@@ -113,6 +137,7 @@ func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.Downloa
 		SavePath: rep.SavePath,
 		Status:   rep.GetStatus(),
 		Progress: rep.GetProgress(),
+		Version:  rep.GetVersion(),
 	}
 	if rep.Metadata != nil {
 		c.Metadata = make(map[string]string, len(rep.Metadata))
@@ -171,43 +196,60 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 		limit = 50
 	}
 
-	// 快路径：单任务且存储实现 ContentGroupRepresentatives 且任务无自定义代表语义
+	// 快路径：每个匹配任务若存储实现 ContentGroupRepresentatives 且任务无自定义代表语义
 	// （未实现 ContentGroupProvider）→ mongo 聚合下推，避免全量拉取内存分组。
-	// 否则走内存兜底（collectContentObjects + selectGroupRepresentatives）。
+	// 多任务时逐任务独立决策：能下推的先下推（每任务只取代表，不分页），
+	// 自定义/不支持的走内存（collectTaskGroupReps），最后合并统一分页。
 	var reps []*model.DownloadObject
-	if len(matchingTasks) == 1 {
-		tk := matchingTasks[0]
+	var repGroups []map[string][]contentGroupEntry
+	for _, tk := range matchingTasks {
 		_, hasCustom := tk.(core.ContentGroupProvider)
 		if st, ok := tk.Storage().(core.ContentGroupRepresentatives); ok && !hasCustom {
-			objs, total, err := st.ContentGroupRepresentatives(tk.ID(), search, status, page, limit)
-			if err == nil {
-				// 快路径已分页，直接组装结果
-				for _, o := range objs {
-					if o.GetMetaTaskType() == "" {
-						o.EnsureTaskType(tk.Type())
-					}
-				}
-				return map[string]any{
-					"objects": objs,
-					"total":   total,
-					"page":    page,
-					"limit":   limit,
-				}, nil
+			objs, _, err := st.ContentGroupRepresentatives(tk.ID(), search, status, 1, core.NoLimit)
+			if err != nil {
+				// 快路径失败 → 该任务回退内存
+				repGroups = append(repGroups, collectTaskGroupEntries(m, tk, search, status))
+				continue
 			}
-			// 快路径失败 → 回退内存
+			for _, o := range objs {
+				if o.GetMetaTaskType() == "" {
+					o.EnsureTaskType(tk.Type())
+				}
+			}
+			reps = append(reps, objs...)
+			continue
 		}
+		// 自定义代表语义或存储不支持 → 内存分组（保留该任务的组内代表语义）
+		repGroups = append(repGroups, collectTaskGroupEntries(m, tk, search, status))
+	}
+	if len(repGroups) > 0 {
+		// 有任务走内存：合并内存组（含快路径已取代表），统一选代表/分页
+		for _, g := range repGroups {
+			reps = append(reps, selectGroupRepresentatives(g)...)
+		}
+		// 合并后的代表统一分页
+		paged, total, outPage, outLimit := paginateContentResults(reps, page, limit, sortBy)
+		ensurePagedTaskTypes(paged, matchingTasks)
+		return map[string]any{
+			"objects": paged,
+			"total":   total,
+			"page":    outPage,
+			"limit":   outLimit,
+		}, nil
 	}
 
-	all, err := collectContentObjects(m, matchingTasks, search, status)
-	if err != nil {
-		return nil, err
-	}
+	// 全部任务走快路径 → 已取每任务代表，内存统一分页
+	paged, total, outPage, outLimit := paginateContentResults(reps, page, limit, sortBy)
+	return map[string]any{
+		"objects": paged,
+		"total":   total,
+		"page":    outPage,
+		"limit":   outLimit,
+	}, nil
+}
 
-	groups := groupByContentKey(all)
-	reps = selectGroupRepresentatives(groups)
-	paged, total, page, limit := paginateContentResults(reps, page, limit, sortBy)
-
-	// Ensure every object has task_type metadata for frontend plugin dispatch
+// ensurePagedTaskTypes 确保分页结果每个对象带 task_type 元数据（前端插件分发用）。
+func ensurePagedTaskTypes(paged []*model.DownloadObject, matchingTasks []core.Task) {
 	for _, o := range paged {
 		if o.GetMetaTaskType() == "" {
 			for _, tk := range matchingTasks {
@@ -218,12 +260,6 @@ func (m *Manager) AggregateByContent(page, limit int64, search, sortBy, status s
 			}
 		}
 	}
-	return map[string]any{
-		"objects": paged,
-		"total":   total,
-		"page":    page,
-		"limit":   limit,
-	}, nil
 }
 
 func metadataContentGroup(obj *model.DownloadObject) string {

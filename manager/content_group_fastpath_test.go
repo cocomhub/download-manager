@@ -25,8 +25,10 @@ func (s *fastPathStore) Delete(id string) error                       { return n
 func (s *fastPathStore) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
 	return s.objs, nil
 }
-func (s *fastPathStore) Count(query *core.StorageQuery) (int64, error) { return int64(len(s.objs)), nil }
-func (s *fastPathStore) Exists(ids []string) (map[string]bool, error)  { return nil, nil }
+func (s *fastPathStore) Count(query *core.StorageQuery) (int64, error) {
+	return int64(len(s.objs)), nil
+}
+func (s *fastPathStore) Exists(ids []string) (map[string]bool, error) { return nil, nil }
 
 // ContentGroupRepresentatives 快路径实现：记录调用 + 返回 max-date 代表。
 func (s *fastPathStore) ContentGroupRepresentatives(taskID, search, status string, page, limit int64) ([]*model.DownloadObject, int64, error) {
@@ -53,22 +55,24 @@ type fastPathTask struct {
 	st core.Storage
 }
 
-func (f *fastPathTask) ID() string                          { return f.id }
-func (f *fastPathTask) Type() string                        { return "fastpath" }
-func (f *fastPathTask) Logger() *slog.Logger                { return slog.Default() }
-func (f *fastPathTask) Storage() core.Storage               { return f.st }
-func (f *fastPathTask) SetDownloader(dl core.Downloader)    {}
-func (f *fastPathTask) GetDownloadHeaders() map[string]string { return map[string]string{} }
+func (f *fastPathTask) ID() string                                           { return f.id }
+func (f *fastPathTask) Type() string                                         { return "fastpath" }
+func (f *fastPathTask) Logger() *slog.Logger                                 { return slog.Default() }
+func (f *fastPathTask) Storage() core.Storage                                { return f.st }
+func (f *fastPathTask) SetDownloader(dl core.Downloader)                     {}
+func (f *fastPathTask) GetDownloadHeaders() map[string]string                { return map[string]string{} }
 func (f *fastPathTask) GetDownloadObjects() ([]*model.DownloadObject, error) { return nil, nil }
-func (f *fastPathTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error { return nil }
+func (f *fastPathTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
+	return nil
+}
 func (f *fastPathTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
-func (f *fastPathTask) Close() error                                    { return nil }
-func (f *fastPathTask) GetAllObjects(lock bool) []*model.DownloadObject { return nil }
-func (f *fastPathTask) Start() error                                    { return nil }
-func (f *fastPathTask) Concurrency() int                                { return 1 }
-func (f *fastPathTask) SetConcurrency(c int) error                      { return nil }
-func (f *fastPathTask) RefreshInterval() int                            { return 0 }
-func (f *fastPathTask) SetRefreshInterval(i int) error                  { return nil }
+func (f *fastPathTask) Close() error                                                   { return nil }
+func (f *fastPathTask) GetAllObjects(lock bool) []*model.DownloadObject                { return nil }
+func (f *fastPathTask) Start() error                                                   { return nil }
+func (f *fastPathTask) Concurrency() int                                               { return 1 }
+func (f *fastPathTask) SetConcurrency(c int) error                                     { return nil }
+func (f *fastPathTask) RefreshInterval() int                                           { return 0 }
+func (f *fastPathTask) SetRefreshInterval(i int) error                                 { return nil }
 
 // TestAggregateByContent_FastPath 验证单任务 + 快路径存储时走 mongo 聚合下推。
 func TestAggregateByContent_FastPath(t *testing.T) {
@@ -93,6 +97,79 @@ func TestAggregateByContent_FastPath(t *testing.T) {
 	objects := res["objects"].([]*model.DownloadObject)
 	if len(objects) != 2 {
 		t.Fatalf("got %d reps, want 2 (one per group)", len(objects))
+	}
+}
+
+// TestAggregateByContent_FastPathMultiTask 验证多任务时逐任务下推：
+// 每个任务都走 ContentGroupRepresentatives（避免多任务全量收集内存分组）。
+func TestAggregateByContent_FastPathMultiTask(t *testing.T) {
+	cfg := &config.Config{Tasks: []config.Task{
+		{ID: "t1", Type: "fastpath"},
+		{ID: "t2", Type: "fastpath"},
+	}}
+	m := NewManager(cfg)
+	m.cfgVal.Store(cfg)
+
+	store1 := &fastPathStore{objs: []*model.DownloadObject{
+		{TaskID: "t1", URL: "t1-a", Metadata: map[string]string{"content_group": "g1", "date": "2026-01-01", "task_type": "fastpath"}, Status: model.StatusCompleted},
+		{TaskID: "t1", URL: "t1-b", Metadata: map[string]string{"content_group": "g2", "date": "2026-01-02", "task_type": "fastpath"}, Status: model.StatusCompleted},
+	}}
+	store2 := &fastPathStore{objs: []*model.DownloadObject{
+		{TaskID: "t2", URL: "t2-a", Metadata: map[string]string{"content_group": "g3", "date": "2026-01-03", "task_type": "fastpath"}, Status: model.StatusCompleted},
+	}}
+	m.tasks.Store("t1", &fastPathTask{id: "t1", st: store1})
+	m.tasks.Store("t2", &fastPathTask{id: "t2", st: store2})
+
+	res, err := m.AggregateByContent(1, 50, "", "", "", []string{"fastpath"})
+	if err != nil {
+		t.Fatalf("AggregateByContent: %v", err)
+	}
+	if store1.callCount != 1 {
+		t.Fatalf("task1 fast path not used: callCount = %d, want 1", store1.callCount)
+	}
+	if store2.callCount != 1 {
+		t.Fatalf("task2 fast path not used: callCount = %d, want 1", store2.callCount)
+	}
+	objects := res["objects"].([]*model.DownloadObject)
+	if len(objects) != 3 {
+		t.Fatalf("got %d reps, want 3 (one per group across tasks)", len(objects))
+	}
+}
+
+// TestAggregateByContent_FastPathMultiTaskOneCustom 混合场景：多任务中有一个
+// 实现 ContentGroupProvider（自定义代表语义）→ 逐任务决策：
+// t1（快路径存储）下推、t2（自定义）走内存，两者代表合并统一分页。
+func TestAggregateByContent_FastPathMultiTaskOneCustom(t *testing.T) {
+	cfg := &config.Config{Tasks: []config.Task{
+		{ID: "t1", Type: "fastpath"},
+		{ID: "t2", Type: "custom"},
+	}}
+	m := NewManager(cfg)
+	m.cfgVal.Store(cfg)
+
+	store1 := &fastPathStore{objs: []*model.DownloadObject{
+		{TaskID: "t1", URL: "t1-a", Metadata: map[string]string{"content_group": "g1", "date": "2026-01-01", "task_type": "fastpath"}, Status: model.StatusCompleted},
+	}}
+	store2 := &fastPathStore{objs: []*model.DownloadObject{
+		{TaskID: "t2", URL: "t2-a", Metadata: map[string]string{"content_group": "g2", "date": "2026-01-02", "task_type": "custom"}, Status: model.StatusCompleted},
+	}}
+	m.tasks.Store("t1", &fastPathTask{id: "t1", st: store1})
+	m.tasks.Store("t2", &customPickerTask{fastPathTask: fastPathTask{id: "t2", st: store2}})
+
+	res, err := m.AggregateByContent(1, 50, "", "", "", []string{"fastpath", "custom"})
+	if err != nil {
+		t.Fatalf("AggregateByContent: %v", err)
+	}
+	// 逐任务决策：t1（无自定义）走快路径，t2（自定义）走内存
+	if store1.callCount != 1 {
+		t.Fatalf("task1 (no custom picker) should use fast path: callCount = %d", store1.callCount)
+	}
+	if store2.callCount != 0 {
+		t.Fatalf("task2 (custom picker) should use in-memory path: callCount = %d", store2.callCount)
+	}
+	objects := res["objects"].([]*model.DownloadObject)
+	if len(objects) != 2 {
+		t.Fatalf("got %d reps, want 2 (one per task group)", len(objects))
 	}
 }
 
@@ -129,4 +206,4 @@ func (c *customPickerTask) ContentGroupKey(obj *model.DownloadObject) string {
 	return obj.Metadata["content_group"]
 }
 func (c *customPickerTask) VariantScore(obj *model.DownloadObject) int { return 1 }
-func (c *customPickerTask) BackfillContentGroups() bool               { return false }
+func (c *customPickerTask) BackfillContentGroups() bool                { return false }

@@ -321,7 +321,7 @@ func TestMongoStorage_IndexesCreated(t *testing.T) {
 	}
 
 	// Check expected indexes
-	expectedIndexes := []string{"_id_", "url_unique", "id_unique", "task_status", "task_group", "task_date_desc", "title_lookup", "collection_order"}
+	expectedIndexes := []string{"_id_", "url_unique", "id_unique", "task_status", "task_group", "task_date_desc", "title_lookup", "collection_order", "task_version"}
 	for _, expected := range expectedIndexes {
 		found := false
 		for _, name := range indexNames {

@@ -433,6 +433,25 @@ func TestBuildMongoFilter_URLs(t *testing.T) {
 	}
 }
 
+func TestBuildMongoFilter_VersionLT(t *testing.T) {
+	filter := buildMongoFilter(&core.StorageQuery{
+		Filter: core.StorageFilter{VersionLT: 2},
+	})
+	lt, ok := filter["version"].(bson.M)
+	if !ok {
+		t.Fatalf("expected version filter, got %T %+v", filter["version"], filter["version"])
+	}
+	if lt["$lt"] != int64(2) {
+		t.Errorf("version $lt = %v, want 2", lt["$lt"])
+	}
+
+	// VersionLT==0 → 不过滤
+	filter0 := buildMongoFilter(&core.StorageQuery{Filter: core.StorageFilter{VersionLT: 0}})
+	if _, ok := filter0["version"]; ok {
+		t.Errorf("unexpected version filter when VersionLT==0: %+v", filter0["version"])
+	}
+}
+
 func TestBuildMongoFilter_IDs(t *testing.T) {
 	filter := buildMongoFilter(&core.StorageQuery{
 		Filter: core.StorageFilter{
