@@ -883,14 +883,56 @@
         hTitle.style.cssText = 'font-size:18px;font-weight:700;color:#1f2937;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
         hTitle.textContent = title || '对象信息'
         header.appendChild(hTitle)
+        var hRight = document.createElement('div')
+        hRight.style.cssText = 'display:flex;align-items:center;gap:8px'
+        // 图片全屏按钮：当对象含图片媒体时启用，点击将图片元素 requestFullscreen
+        var hFull = document.createElement('button')
+        hFull.innerHTML = '<i class="fas fa-expand"></i>'
+        hFull.title = '图片全屏'
+        hFull.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:16px'
+        hFull.onclick = function (e) {
+          e.stopPropagation()
+          var img = body.querySelector('img[data-fullscreen]')
+          if (img) {
+            if (!document.fullscreenElement) {
+              if (img.requestFullscreen) img.requestFullscreen()
+            } else {
+              document.exitFullscreen()
+            }
+          }
+        }
+        hRight.appendChild(hFull)
         var hClose = document.createElement('button')
         hClose.innerHTML = '<i class="fas fa-times"></i>'
         hClose.style.cssText = 'color:#6b7280;cursor:pointer;background:none;border:none;font-size:18px'
         hClose.onclick = function (e) { e.stopPropagation(); onClose() }
-        header.appendChild(hClose)
+        hRight.appendChild(hClose)
+        header.appendChild(hRight)
         panel.appendChild(header)
         var body = document.createElement('div')
         body.style.cssText = 'flex:1;overflow-y:auto;padding:16px'
+        // 图片预览：当对象是图片类时内嵌大图（支持全屏按钮）
+        var imgUrl = UiHelpers.getImageUrl ? UiHelpers.getImageUrl(obj) : ''
+        if (!imgUrl) imgUrl = UiHelpers.getCoverImage(obj) || ''
+        if (imgUrl && !UiVideoPlayer.isVideo(obj)) {
+          var imgWrap = document.createElement('div')
+          imgWrap.style.cssText = 'text-align:center;margin-bottom:12px'
+          var pimg = document.createElement('img')
+          pimg.src = imgUrl
+          pimg.alt = title
+          pimg.style.cssText = 'max-width:100%;max-height:50vh;border-radius:8px;cursor:zoom-in;display:inline-block'
+          pimg.setAttribute('data-fullscreen', '1')
+          pimg.onclick = function (e) {
+            e.stopPropagation()
+            if (!document.fullscreenElement) {
+              if (pimg.requestFullscreen) pimg.requestFullscreen()
+            } else {
+              document.exitFullscreen()
+            }
+          }
+          imgWrap.appendChild(pimg)
+          body.appendChild(imgWrap)
+        }
         function addRow(l, v) {
           if (!v) return
           var r = document.createElement('div'); r.style.cssText = 'font-size:12px'
