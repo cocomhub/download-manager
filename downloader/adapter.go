@@ -308,6 +308,13 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		}
 
 		if err := a.dl.Download(ctx, subReq); err != nil {
+			// image 类子文件失败容错：封面/缩略图缺失不阻塞主视频下载（只记录）。
+			// （如 fourhoi cover-t.jpg 的 ETag 与内容动态不一致导致 MD5 mismatch 重试耗尽）
+			if fType == "image" {
+				slog.Warn("adapter: image sub-download failed, skipping (video continues)",
+					"url", subURL, logutil.LogKeyError, err, logutil.LogKeyTaskID, obj.TaskID)
+				continue
+			}
 			return fmt.Errorf("adapter: sub-download failed (%s): %w", subURL, err)
 		}
 	}
