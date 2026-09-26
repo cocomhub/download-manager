@@ -4,8 +4,11 @@
 package extractor_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -139,5 +142,90 @@ seg_bbb.ts
 	got, _ := os.ReadFile(out)
 	if string(got) != "AAABBB" {
 		t.Fatalf("concat = %q, want AAABBB (highest quality sublist)", string(got))
+	}
+}
+
+// TestDownloadWithM3U8D_NoFFmpegFallbackConcat 验证：m3u8d 模式无 ffmpeg 时
+// 回退纯 TS 拼接（输出内容 = 分片顺序拼接）。
+func TestDownloadWithM3U8D_NoFFmpegFallbackConcat(t *testing.T) {
+	// httptest 提供 m3u8 + 分片
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream.m3u8", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXT-X-ENDLIST\n"))
+	})
+	mux.HandleFunc("/seg0.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG0-DATA"))
+	})
+	mux.HandleFunc("/seg1.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG1-DATA"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	// 注入不存在的 ffmpeg 路径 → 触发回退拼接
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("m3u8d"), extractor.WithFFmpegPath(filepath.Join(dir, "no-ffmpeg")))
+	err := ex.Extract(t.Context(), &download.Request{
+		URL:      srv.URL + "/stream.m3u8",
+		SavePath: out,
+	})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	got, _ := os.ReadFile(out)
+	if string(got) != "SEG0-DATASEG1-DATA" {
+		t.Fatalf("concat output = %q, want SEG0-DATASEG1-DATA", string(got))
+	}
+}
+
+// TestDownloadWithM3U8D_FFmpegConvert 验证：有 ffmpeg 时走转封装（mock ffmpeg 被调用）。
+// mock ffmpeg 直接把输入 m3u8 复制为输出（模拟转封装成功）。
+func TestDownloadWithM3U8D_FFmpegConvert(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock ffmpeg 脚本依赖 sh（linux/mac）")
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream.m3u8", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nseg0.ts\n#EXT-X-ENDLIST\n"))
+	})
+	mux.HandleFunc("/seg0.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG0-DATA"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	marker := filepath.Join(dir, "ffmpeg-called.marker")
+	// mock ffmpeg：验证被调用（写 marker）+ 产出输出文件（模拟 ConvertToMP4 成功）
+	mockFF := filepath.Join(dir, "ffmpeg")
+	script := "#!/bin/sh\n" +
+		"touch \"$MARKER\"\n" +
+		"# find -i input and -- output\n" +
+		"out=\"\"\n" +
+		"for a in \"$@\"; do\n" +
+		"  [ \"$a\" = \"--\" ] && { shift; out=\"$1\"; break; }\n" +
+		"  shift\n" +
+		"done\n" +
+		"echo mock > \"$out\"\n"
+	if err := os.WriteFile(mockFF, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("m3u8d"), extractor.WithFFmpegPath(mockFF))
+	err := ex.Extract(t.Context(), &download.Request{
+		URL:      srv.URL + "/stream.m3u8",
+		SavePath: out,
+	})
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("ffmpeg was NOT called (marker missing): %v", err)
+	}
+	got, _ := os.ReadFile(out)
+	if string(got) != "mock\n" {
+		t.Fatalf("output = %q, want mock ffmpeg output", string(got))
 	}
 }
