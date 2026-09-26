@@ -29,6 +29,7 @@ type Options struct {
 	MaxEmptyPages  int // only for Incremental; stop after N empty pages, default 3
 	MaxRetries     int // retries per page scrape/parse, default 3
 	MaxTailRefresh int // only for Full; max times to refresh totalPages when page reaches end, default 5
+	MaxPages       int // hard cap on pages scanned (0 = unlimited); prevents runaway on sites without total-pages
 }
 
 // Result holds the outcome of a scraping run.
@@ -37,6 +38,8 @@ type Result struct {
 	AllSucceeded   bool
 	LastFailedPage int // >0 indicates failure at this page
 	DetectedPages  int // final detected page count after dynamic refresh
+	PagesScanned   int // pages successfully scraped+parsed
+	ItemsBuilt     int // new objects built/persisted
 }
 
 // Pager iterates pages using hooks and options.

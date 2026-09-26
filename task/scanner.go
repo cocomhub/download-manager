@@ -6,8 +6,10 @@ package task
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/scrape"
 )
@@ -52,10 +54,14 @@ func (s *PagingScanner) Run(ctx context.Context) error {
 		return nil
 	}
 	hooks := s.buildHooks()
+	// max_pages 页数硬上限（extra 配置，0=无限）：防止无 total-pages 的站点（如
+	// ParseTotalPages=-1）首次扫描无限翻页卡死。
+	maxPages := int(configutil.GetInt64(s.base.Extra, "max_pages", 0))
 	opts := scrape.Options{
 		MaxRetries:     3,
 		MaxEmptyPages:  3,
 		MaxTailRefresh: 5,
+		MaxPages:       maxPages,
 	}
 	result := s.driver.Scrape(ctx, s.base.ID(), hooks, opts)
 	if !result.AllSucceeded && result.LastFailedPage > 0 {
@@ -102,16 +108,19 @@ func (s *PagingScanner) processItems(items any) ([]any, bool) {
 		if u == "" || !unknownSet[u] {
 			continue
 		}
+		start := time.Now()
 		obj, err := s.adapter.BuildObject(items, i)
 		if err != nil {
-			s.logger.Warn("BuildObject failed", logutil.LogKeyURL, u, logutil.LogKeyError, err)
+			s.logger.Warn("BuildObject failed", logutil.LogKeyURL, u, logutil.LogKeyError, err, "dur_ms", time.Since(start).Milliseconds())
 			continue
 		}
 		if obj == nil {
+			s.logger.Debug("BuildObject skipped", logutil.LogKeyURL, u, "dur_ms", time.Since(start).Milliseconds())
 			continue
 		}
 		s.base.CheckAndRestoreStatus(obj)
 		s.base.PersistTaskObject(obj)
+		s.logger.Debug("BuildObject built", logutil.LogKeyURL, u, "task_type", obj.Metadata["task_type"], "dur_ms", time.Since(start).Milliseconds())
 		newObjects = append(newObjects, obj)
 	}
 	return newObjects, allKnown
