@@ -200,13 +200,15 @@ func TestDownloadWithM3U8D_FFmpegConvert(t *testing.T) {
 	marker := filepath.Join(dir, "ffmpeg-called.marker")
 	// mock ffmpeg：验证被调用（写 marker）+ 产出输出文件（模拟 ConvertToMP4 成功）
 	mockFF := filepath.Join(dir, "ffmpeg")
+	// mock ffmpeg：验证被调用（touch marker）+ 产出输出文件（模拟 ConvertToMP4 成功）
+	// marker 路径硬编码（不依赖环境变量）；输出解析 -- 后参数
 	script := "#!/bin/sh\n" +
-		"touch \"$MARKER\"\n" +
-		"# find -i input and -- output\n" +
+		"touch '" + marker + "'\n" +
 		"out=\"\"\n" +
+		"skip=0\n" +
 		"for a in \"$@\"; do\n" +
-		"  [ \"$a\" = \"--\" ] && { shift; out=\"$1\"; break; }\n" +
-		"  shift\n" +
+		"  if [ \"$skip\" = \"1\" ]; then out=\"$a\"; break; fi\n" +
+		"  [ \"$a\" = \"--\" ] && skip=1\n" +
 		"done\n" +
 		"echo mock > \"$out\"\n"
 	if err := os.WriteFile(mockFF, []byte(script), 0o755); err != nil {
