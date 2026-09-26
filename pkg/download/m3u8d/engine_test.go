@@ -4,8 +4,11 @@
 package m3u8d
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,6 +111,8 @@ func TestParseM3U8SingleLevel(t *testing.T) {
 		{"directive line", "#EXTINF:10,", 0, ""},
 		{"ts segment", "seg001.ts", 1, "ts"},
 		{"ts segment with path", "sub/seg002.ts", 1, "ts"},
+		{"jpeg disguised segment", "video0.jpeg", 1, "ts"},
+		{"jpg disguised segment", "video1.jpg", 1, "ts"},
 		{"key file", "key.bin", 1, "key"},
 		{"empty line", "", 0, ""},
 	}
@@ -131,5 +136,57 @@ func TestParseM3U8SingleLevel(t *testing.T) {
 	_, _, err = d.processM3U8Line(t.Context(), base, "../escape.ts", 0)
 	if err == nil {
 		t.Error("expected error for path traversal, got nil")
+	}
+}
+
+func TestParseM3U8_MasterOnlyHighestQuality(t *testing.T) {
+	dir := t.TempDir()
+	// mock m3u8 下载（httptest server 返回主列表 + 子列表）
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "master.m3u8"):
+			w.Write([]byte(`#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+sub640.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480
+sub842.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+sub1280.m3u8
+`))
+		case strings.HasSuffix(r.URL.Path, "sub640.m3u8"):
+			w.Write([]byte("#EXTM3U\n#EXTINF:4.0,\nlow0.ts\n#EXTINF:4.0,\nlow1.ts\n"))
+		case strings.HasSuffix(r.URL.Path, "sub842.m3u8"):
+			w.Write([]byte("#EXTM3U\n#EXTINF:4.0,\nmid0.ts\n"))
+		case strings.HasSuffix(r.URL.Path, "sub1280.m3u8"):
+			w.Write([]byte("#EXTM3U\n#EXTINF:4.0,\nhigh0.ts\n#EXTINF:4.0,\nhigh1.ts\n#EXTINF:4.0,\nhigh2.ts\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := &DownloadConfig{
+		InputURL:   srv.URL + "/master.m3u8",
+		OutputFile: filepath.Join(dir, "out.mp4"),
+		WorkDir:    dir,
+		MinFiles:   1,
+	}
+	d, err := NewM3U8DEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewM3U8DEngine: %v", err)
+	}
+	tasks, err := d.parseM3U8(t.Context(), cfg.InputURL, filepath.Join(dir, "master.m3u8"), 0)
+	if err != nil {
+		t.Fatalf("parseM3U8: %v", err)
+	}
+	// 只应下载最高档（1280x720 = 3 分片）
+	if len(tasks) != 3 {
+		t.Fatalf("tasks = %d, want 3 (highest quality only, no 640/842)", len(tasks))
+	}
+	// 任务 URL 应都对应最高档分片（high 名，来自 sub1280 子列表）
+	for _, tk := range tasks {
+		if !strings.Contains(tk.URL, "high") {
+			t.Fatalf("task URL %s not from highest quality sublist", tk.URL)
+		}
 	}
 }

@@ -72,6 +72,15 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 		extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
 		extractor.WithHLSUserAgent(userAgent),
 	)
+	// HLS 下载模式：ffmpeg（默认，需系统 ffmpeg）/ m3u8d（纯 Go 分片下载+拼接，无需 ffmpeg）
+	if cfg.HLSMode != "" {
+		hlsEx = extractor.NewHLSExtractor(
+			extractor.WithHLSMode(cfg.HLSMode),
+			extractor.WithFFmpegPath(cfg.FFmpeg.Path),
+			extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
+			extractor.WithHLSUserAgent(userAgent),
+		)
+	}
 
 	// 创建下载器
 	reg := download.NewMetricRegistry()

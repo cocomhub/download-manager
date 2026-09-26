@@ -285,10 +285,20 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		}
 		obj.RUnlock()
 
+		// 子文件级头（fileMap["referer"] 等）合并到全局头——CDN 常校验来源（如 surrit 需详情页 Referer）
+		subHeaders := headers
+		if ref := fileMap["referer"]; ref != "" {
+			subHeaders = make(map[string]string, len(headers)+1)
+			for k, v := range headers {
+				subHeaders[k] = v
+			}
+			subHeaders["Referer"] = ref
+		}
+
 		subReq := &download.Request{
 			URL:           subURL,
 			SavePath:      subPath,
-			Headers:       headers,
+			Headers:       subHeaders,
 			Metadata:      subMeta,
 			TrackProgress: trackProgress,
 			OnProgress: func(progress float64, downloaded, total int64) {

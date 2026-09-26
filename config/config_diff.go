@@ -270,6 +270,9 @@ func diffFFmpegFields(c, b Config) []Change {
 	if c.Downloader.FFmpeg.HLSAutoMarkAsFail != b.Downloader.FFmpeg.HLSAutoMarkAsFail {
 		changes = append(changes, Change{Path: "downloader.ffmpeg.hls_auto_mark_as_fail", A: c.Downloader.FFmpeg.HLSAutoMarkAsFail, B: b.Downloader.FFmpeg.HLSAutoMarkAsFail})
 	}
+	if c.Downloader.HLSMode != b.Downloader.HLSMode {
+		changes = append(changes, Change{Path: "downloader.hls_mode", A: c.Downloader.HLSMode, B: b.Downloader.HLSMode})
+	}
 	return changes
 }
 

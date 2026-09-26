@@ -293,8 +293,31 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	var tasks []DownloadTask
 	var modifiedLines []string
 
+	// 主列表检测：含 STREAM-INF 档位 → 只递归最后一个（最高清晰度）子列表，
+	// 避免下载所有档位浪费带宽（如 njavtv/surrit 3 档共 5301 分片）。
+	hasStreamInf := strings.Contains(string(content), "#EXT-X-STREAM-INF")
+	var lastSubList string
+	if hasStreamInf {
+		for _, l := range lines {
+			l = strings.TrimSpace(l)
+			if l == "" || strings.HasPrefix(l, "#") {
+				continue
+			}
+			if strings.Contains(strings.ToLower(l), ".m3u8") {
+				lastSubList = l
+			}
+		}
+	}
+
 	for _, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
+
+		// 主列表：跳过非最高档子列表行（保留行内容，不解析）
+		if hasStreamInf && lastSubList != "" && line != "" && !strings.HasPrefix(line, "#") &&
+			strings.Contains(strings.ToLower(line), ".m3u8") && line != lastSubList {
+			modifiedLines = append(modifiedLines, line)
+			continue
+		}
 
 		modifiedLine, lineTasks, err := d.processM3U8Line(ctx, base, line, level)
 		if err != nil {
@@ -384,7 +407,8 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve resource URL: %w", err)
 	}
-	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(line)))[:20]
+	// 用绝对 URL 哈希命名本地文件——不同子列表同名相对分片（如 video0.jpeg）URL 不同，避免互踩
+	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(absURL)))[:20]
 	cleanLine := cleanResourceLine(line)
 
 	switch {
@@ -396,7 +420,10 @@ func (d *M3U8DEngine) processResourceLine(ctx context.Context, base *url.URL, li
 		}
 		return filepath.Base(subM3U8Path), subTasks, nil
 
-	case strings.HasSuffix(strings.ToLower(cleanLine), ".ts"):
+	case strings.HasSuffix(strings.ToLower(cleanLine), ".ts") ||
+		strings.HasSuffix(strings.ToLower(cleanLine), ".jpeg") ||
+		strings.HasSuffix(strings.ToLower(cleanLine), ".jpg"):
+		// .jpeg/.jpg 伪装分片（如 njavtv/surrit CDN 的 video0.jpeg 实际是 TS 流）
 		tsLocalPath := filepath.Join(d.Config.WorkDir, fileHash+".ts")
 		return filepath.Base(tsLocalPath), []DownloadTask{{
 			URL:       absURL,
