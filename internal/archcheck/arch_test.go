@@ -12,6 +12,7 @@ package archcheck
 //   - 防空转：scopeAnchor 必须出现在图里（挡「图收缩成只剩本包的小子图」）。
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
@@ -28,10 +29,14 @@ func importGraph(t *testing.T) map[string][]string {
 	t.Helper()
 	cmd := exec.Command("go", "list", "-f", "{{.ImportPath}}|{{join .Imports \" \"}}", "./...")
 	cmd.Dir = moduleRoot(t)
-	out, err := cmd.CombinedOutput()
+	// 用 Output() 只取 stdout：stderr 的 `go: downloading ...` 进度消息在冷缓存时
+	// 会混入 CombinedOutput，被误当作包名导致「未登记 Levels」误报。
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("go list 失败（cwd=%s，需要 go 在 PATH 中）: %v\n--- go list 输出（stdout+stderr）---\n%s",
-			cmd.Dir, err, out)
+		t.Fatalf("go list 失败（cwd=%s，需要 go 在 PATH 中）: %v\n--- go list stderr ---\n%s",
+			cmd.Dir, err, stderrBuf.String())
 	}
 	graph := map[string][]string{}
 	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {

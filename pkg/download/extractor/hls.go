@@ -328,7 +328,11 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 	if err != nil {
 		return fmt.Errorf("hls: m3u8d engine init: %w", err)
 	}
-	defer engine.Cleanup()
+	defer func() {
+		if cerr := engine.Cleanup(); cerr != nil {
+			slog.Warn("hls: m3u8d cleanup failed", logutil.LogKeyError, cerr)
+		}
+	}()
 
 	// 下载 m3u8 + 全部分片
 	mainM3U8Path, err := engine.DownloadAll(ctx)
