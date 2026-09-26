@@ -133,6 +133,15 @@ type Downloader struct {
 	Proxy             DcProxy        `yaml:"proxy" json:"proxy"`
 	Progress          DcProgress     `yaml:"progress" json:"progress"`
 	FFmpeg            DcFFmpeg       `yaml:"ffmpeg" json:"ffmpeg"`
+	Retry             RetryConfig    `yaml:"retry" json:"retry"`
+}
+
+// RetryConfig 配置 failed_permanent 对象的限流自动重试。
+// 每小时选「失败次数最少」的一批重试（限流避免再次触发源站拦截），批大小可配置。
+type RetryConfig struct {
+	Enabled       bool `yaml:"enabled" json:"enabled"`
+	IntervalHours int  `yaml:"interval_hours" json:"interval_hours"` // 重试周期（小时），默认 1
+	BatchSize     int  `yaml:"batch_size" json:"batch_size"`         // 每批重试数量，默认 10
 }
 
 type TaskScan struct {
@@ -338,6 +347,7 @@ func (c *Config) ValidateAndClamp() {
 	c.setProxyDefaults()
 	c.setProgressDefaults()
 	c.setFFmpegDefaults()
+	c.setRetryDefaults()
 	c.resolveTaskContexts()
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
@@ -589,6 +599,15 @@ func (c *Config) setProgressDefaults() {
 func (c *Config) setFFmpegDefaults() {
 	if c.Downloader.FFmpeg.Path == "" {
 		c.Downloader.FFmpeg.Path = "ffmpeg"
+	}
+}
+
+func (c *Config) setRetryDefaults() {
+	if c.Downloader.Retry.IntervalHours <= 0 {
+		c.Downloader.Retry.IntervalHours = 1
+	}
+	if c.Downloader.Retry.BatchSize <= 0 {
+		c.Downloader.Retry.BatchSize = 10
 	}
 }
 

@@ -273,6 +273,11 @@ func diffFFmpegFields(c, b Config) []Change {
 	if c.Downloader.HLSMode != b.Downloader.HLSMode {
 		changes = append(changes, Change{Path: "downloader.hls_mode", A: c.Downloader.HLSMode, B: b.Downloader.HLSMode})
 	}
+	if c.Downloader.Retry.Enabled != b.Downloader.Retry.Enabled ||
+		c.Downloader.Retry.IntervalHours != b.Downloader.Retry.IntervalHours ||
+		c.Downloader.Retry.BatchSize != b.Downloader.Retry.BatchSize {
+		changes = append(changes, Change{Path: "downloader.retry", A: c.Downloader.Retry, B: b.Downloader.Retry})
+	}
 	return changes
 }
 
