@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/logutil"
@@ -72,6 +73,41 @@ func (s *PagingScanner) Run(ctx context.Context) error {
 	for _, item := range result.Items {
 		if obj, ok := item.(*model.DownloadObject); ok {
 			s.base.RememberRuntimeObject(obj, true)
+		}
+	}
+	// 抓取后立即补详情：对刚 built 的对象执行 ObjectVersioner 升级
+	// （version=0 → LatestVersion），不依赖下次重启的 runVersionUpgrade。
+	// 每个对象只补一次（setVersion 后不再补）；失败不阻塞（下次启动再补）。
+	if ov, ok := s.adapter.(core.ObjectVersioner); ok {
+		latest := int64(ov.LatestVersion())
+		if latest > 0 {
+			ov.BeginUpgrade()
+			updated := 0
+			for _, item := range result.Items {
+				obj, ok := item.(*model.DownloadObject)
+				if !ok || obj == nil {
+					continue
+				}
+				cur := obj.GetVersion()
+				if cur >= latest {
+					continue
+				}
+				for v := cur + 1; v <= latest; v++ {
+					if _, err := ov.UpgradeStep(obj, int(v)); err != nil {
+						s.logger.Warn("Immediate upgrade failed", logutil.LogKeyURL, obj.URL, "to_version", v, logutil.LogKeyError, err)
+						break
+					}
+				}
+				obj.SetVersion(latest)
+				if err := s.base.UpdateStatus(obj, obj.Status, nil); err != nil {
+					s.logger.Warn("Immediate upgrade persist failed", logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
+					continue
+				}
+				updated++
+			}
+			if updated > 0 {
+				s.logger.Info("Scrape: immediate detail upgrade", "updated", updated, "total", len(result.Items))
+			}
 		}
 	}
 	return nil
