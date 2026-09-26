@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/cocomhub/download-manager/pkg/download"
+	"github.com/cocomhub/download-manager/pkg/download/m3u8d"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -298,6 +300,118 @@ func reportHLSDownloadResult(rPath string, req *download.Request) {
 	}
 }
 
-func (e *HLSExtractor) downloadWithM3U8D(_ context.Context, _ *download.Request) error {
-	return fmt.Errorf("hls: m3u8d mode not yet implemented in HLSExtractor")
+// downloadWithM3U8D 使用纯 Go 的 M3U8DEngine 下载 HLS（无需 ffmpeg）。
+// 流程：M3U8DEngine 解析主/子 m3u8 → 并发下载分片（grab）→ 按 m3u8 顺序拼接 .ts → 输出。
+func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Request) error {
+	if err := validateHLSParams(req); err != nil {
+		return err
+	}
+	rPath := req.SavePath
+	if err := os.MkdirAll(filepath.Dir(rPath), 0o755); err != nil {
+		return fmt.Errorf("hls: failed to create directory: %w", err)
+	}
+
+	// 工作目录：输出文件旁 .hls-parts
+	workDir := rPath + ".hls-parts"
+	cfg := &m3u8d.DownloadConfig{
+		InputURL:    req.URL,
+		OutputFile:  rPath,
+		UserAgent:   e.userAgent,
+		Headers:     req.Headers,
+		Concurrency: 8,
+		MaxRetries:  3,
+		WorkDir:     workDir,
+		MinFiles:    1, // 兼容单分片/极小列表
+		Timeout:     30 * time.Second,
+	}
+	engine, err := m3u8d.NewM3U8DEngine(cfg, nil)
+	if err != nil {
+		return fmt.Errorf("hls: m3u8d engine init: %w", err)
+	}
+	defer func() {
+		if cerr := engine.Cleanup(); cerr != nil {
+			slog.Warn("hls: m3u8d cleanup failed", logutil.LogKeyError, cerr)
+		}
+	}()
+
+	// 下载 m3u8 + 全部分片
+	mainM3U8Path, err := engine.DownloadAll(ctx)
+	if err != nil {
+		return fmt.Errorf("hls: m3u8d download: %w", err)
+	}
+
+	// 按 m3u8 顺序拼接分片
+	if err := ConcatM3U8Segments(mainM3U8Path, workDir, rPath); err != nil {
+		return fmt.Errorf("hls: m3u8d concat: %w", err)
+	}
+
+	reportHLSDownloadResult(rPath, req)
+	return nil
+}
+
+// ConcatM3U8Segments 按 m3u8 中出现顺序拼接分片文件（.ts/.jpeg 伪装分片均已由
+// M3U8DEngine 改写为 workdir 下的本地文件）。导出供测试与复用。
+func ConcatM3U8Segments(localM3U8Path, workDir, outPath string) error {
+	// 递归处理：主列表（含 STREAM-INF 档位）→ 选最后一个（最高清）子列表拼接；
+	// 单层列表直接按顺序拼分片。
+	var subList string
+	for _, line := range readM3U8Lines(localM3U8Path) {
+		if strings.Contains(strings.ToLower(line), ".m3u8") {
+			subList = line // 记录最后的子列表（档位递增）
+		}
+	}
+	if subList != "" {
+		// 主列表：递归到最高档子列表
+		subPath := filepath.Join(workDir, filepath.Base(subList))
+		if _, err := os.Stat(subPath); err != nil {
+			return fmt.Errorf("sub playlist %s: %w", subPath, err)
+		}
+		return ConcatM3U8Segments(subPath, workDir, outPath)
+	}
+
+	out, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	var count int
+	for _, line := range readM3U8Lines(localM3U8Path) {
+		if line == "" || strings.HasPrefix(line, "#") || strings.Contains(line, ".m3u8") {
+			continue
+		}
+		// 分片本地路径（M3U8DEngine 改写为 workdir 下 hash.ts）
+		segPath := filepath.Join(workDir, filepath.Base(line))
+		f, err := os.Open(segPath)
+		if err != nil {
+			return fmt.Errorf("segment %s: %w", segPath, err)
+		}
+		if _, err := io.Copy(out, f); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+		count++
+	}
+	if count == 0 {
+		return fmt.Errorf("no segments found in m3u8")
+	}
+	slog.Info("HLS m3u8d concat done", "segments", count, logutil.LogKeyURL, outPath)
+	return nil
+}
+
+// readM3U8Lines 读取 m3u8 文件并返回非空行（trimmed）。
+func readM3U8Lines(path string) []string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(string(content), "\n") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }

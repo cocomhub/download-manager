@@ -127,6 +127,7 @@ type Downloader struct {
 	DomainLimits      map[string]int `yaml:"domain_limits" json:"domain_limits"`
 	FfmpegPath        string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
 	HlsAutoMarkAsFail bool           `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
+	HLSMode           string         `yaml:"hls_mode" json:"hls_mode"` // ffmpeg（默认）/ m3u8d（纯 Go 无需 ffmpeg）
 	Filesystem        DcFilesystem   `yaml:"filesystem" json:"filesystem"`
 	HTTP              DcHTTP         `yaml:"http" json:"http"`
 	Proxy             DcProxy        `yaml:"proxy" json:"proxy"`
