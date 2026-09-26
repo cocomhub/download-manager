@@ -620,7 +620,13 @@ func (c *Config) resolveTaskContexts() {
 func (c *Config) resolveTaskSaveDirs() {
 	for i := range c.Tasks {
 		t := &c.Tasks[i]
+		// 显式 save_dir 与类型级 save_root_dir 同时配置 → 真冲突警告（save_dir 优先）。
+		// 注意：此处 SaveDir 尚未被派生填充，非空 = 用户显式配置。
 		if t.SaveDir != "" {
+			if def := t.GetTypeDefault(c); def != nil && def.SaveRootDir != "" {
+				slog.Warn("both save_dir and save_root_dir configured, save_dir takes precedence",
+					"task_id", t.ID, "save_dir", t.SaveDir, "save_root_dir", def.SaveRootDir)
+			}
 			continue
 		}
 		effective := t.GetEffectiveSaveDir(c)
@@ -644,14 +650,8 @@ func (t *Task) GetTypeDefault(cfg *Config) *TaskTypeDefault {
 
 // GetEffectiveSaveDir returns the effective save directory for the task.
 // Priority: save_dir > save_root_dir + save_sub_dir > save_root_dir.
-// When both save_dir and save_root_dir+save_sub_dir are configured, a warning is logged.
 func (t *Task) GetEffectiveSaveDir(cfg *Config) string {
 	if t.SaveDir != "" {
-		def := t.GetTypeDefault(cfg)
-		if def != nil && def.SaveRootDir != "" {
-			slog.Warn("both save_dir and save_root_dir configured, save_dir takes precedence",
-				"task_id", t.ID, "save_dir", t.SaveDir, "save_root_dir", def.SaveRootDir)
-		}
 		return t.SaveDir
 	}
 	def := t.GetTypeDefault(cfg)
