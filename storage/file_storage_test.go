@@ -262,3 +262,33 @@ func TestFileStorage_LoadFromExistingFile(t *testing.T) {
 		t.Fatalf("TaskID = %q, want %q", obj.TaskID, "preload")
 	}
 }
+
+
+// TestFileStorage_LazyLoadReadsAfterConstruction 验证惰性加载：
+// 构造时文件不存在（启动零加载），写文件后首次访问能读到（旧实现构造时空加载 → Get 空）。
+func TestFileStorage_LazyLoadReadsAfterConstruction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lazy2.json")
+
+	// 文件尚不存在时构造（启动场景：无文件也要能启动）
+	fs, err := NewFileStorage(map[string]string{"path": path})
+	if err != nil {
+		t.Fatalf("NewFileStorage failed: %v", err)
+	}
+
+	// 构造后写文件（模拟外部已有数据）
+	content := `[{"url":"http://lazy2.com/1","task_id":"lazy2","status":"pending"}]`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// 惰性实现：首次访问才读 → 能读到刚写入的对象
+	// 旧实现：构造时已加载（空）→ Get 返回 nil（红）
+	obj, _ := fs.Get("http://lazy2.com/1")
+	if obj == nil {
+		t.Fatal("lazy: first access should read file written after construction")
+	}
+	if obj.TaskID != "lazy2" {
+		t.Fatalf("TaskID = %q, want %q", obj.TaskID, "lazy2")
+	}
+}

@@ -232,6 +232,7 @@ func TestFileStorage_FlushAndRecover(t *testing.T) {
 }
 
 // TestFileStorage_CorruptedFile verifies behavior with corrupted JSON file.
+// 惰性加载：构造不读文件 → 损坏文件在首次访问时报错（而非构造时）。
 func TestFileStorage_CorruptedFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "corrupt.json")
@@ -240,9 +241,15 @@ func TestFileStorage_CorruptedFile(t *testing.T) {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	_, err := NewFileStorage(map[string]string{"path": path})
+	fs, err := NewFileStorage(map[string]string{"path": path})
+	if err != nil {
+		t.Fatalf("NewFileStorage should not read file at construction (lazy), got error: %v", err)
+	}
+
+	// 首次访问触发加载 → 损坏文件应报错
+	_, err = fs.Get("http://x")
 	if err == nil {
-		t.Fatal("expected error for corrupted JSON file, got nil")
+		t.Fatal("expected error for corrupted JSON file on first access, got nil")
 	}
 }
 

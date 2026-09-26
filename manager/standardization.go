@@ -5,9 +5,11 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/core"
+	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -53,28 +55,16 @@ func (s *StandardizationService) runIDStandardization(ctx context.Context) {
 		}
 
 		missingID := true
-		objects, err := st.Search(&core.StorageQuery{
+		count := 0
+		// 流式批处理（200/批）：不一次性载入全量 MissingID 对象，降低启动内存峰值
+		err := s.mgr.forEachObjectBatch(task, &core.StorageQuery{
 			Filter: core.StorageFilter{
 				MissingID: &missingID,
 			},
-			Limit: core.NoLimit, // 不限量
-		})
-		if err != nil {
-			slog.Error("Standardization: search failed", logutil.LogKeyTaskID, task.ID(),
-				"task_type", taskType, logutil.LogKeyError, err)
-			continue
-		}
-
-		if len(objects) == 0 {
-			continue
-		}
-
-		count := 0
-		for _, obj := range objects {
+		}, 200, func(obj *model.DownloadObject) error {
 			select {
 			case <-ctx.Done():
-				slog.Warn("Standardization cancelled", "task_type", taskType, "processed", count)
-				return
+				return ctx.Err()
 			default:
 			}
 			if modified, err := std.Standardize(obj); err != nil {
@@ -88,6 +78,16 @@ func (s *StandardizationService) runIDStandardization(ctx context.Context) {
 					count++
 				}
 			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("Standardization: search failed", logutil.LogKeyTaskID, task.ID(),
+				"task_type", taskType, logutil.LogKeyError, err)
+			continue
+		}
+		if errors.Is(err, context.Canceled) {
+			slog.Warn("Standardization cancelled", "task_type", taskType, "processed", count)
+			return
 		}
 
 		slog.Info("Standardization completed", "task_type", taskType, "processed", count)
@@ -117,25 +117,14 @@ func (s *StandardizationService) runVersionUpgrade(ctx context.Context) {
 		}
 		ov.BeginUpgrade()
 
-		objs, err := s.mgr.collectTaskObjects(task, &core.StorageQuery{
-			Filter: core.StorageFilter{VersionLT: latest},
-			Limit:  core.NoLimit,
-		}, core.NoLimit)
-		if err != nil {
-			slog.Error("VersionUpgrade: search failed", logutil.LogKeyTaskID, task.ID(),
-				"task_type", taskType, logutil.LogKeyError, err)
-			continue
-		}
-		if len(objs) == 0 {
-			continue
-		}
-
 		count := 0
-		for _, obj := range objs {
+		// 流式批处理（200/批）：不一次性载入全量 version<latest 对象，降低启动内存峰值
+		err := s.mgr.forEachObjectBatch(task, &core.StorageQuery{
+			Filter: core.StorageFilter{VersionLT: latest},
+		}, 200, func(obj *model.DownloadObject) error {
 			select {
 			case <-ctx.Done():
-				slog.Warn("VersionUpgrade cancelled", "task_type", taskType, "processed", count)
-				return
+				return ctx.Err()
 			default:
 			}
 			cur := obj.GetVersion()
@@ -153,9 +142,19 @@ func (s *StandardizationService) runVersionUpgrade(ctx context.Context) {
 			if err := st.Update(obj); err != nil {
 				slog.Error("VersionUpgrade: update failed", logutil.LogKeyTaskID, task.ID(),
 					logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
-				continue
+				return nil
 			}
 			count++
+			return nil
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("VersionUpgrade: search failed", logutil.LogKeyTaskID, task.ID(),
+				"task_type", taskType, logutil.LogKeyError, err)
+			continue
+		}
+		if errors.Is(err, context.Canceled) {
+			slog.Warn("VersionUpgrade cancelled", "task_type", taskType, "processed", count)
+			return
 		}
 
 		slog.Info("VersionUpgrade completed", "task_type", taskType, "processed", count)

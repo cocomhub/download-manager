@@ -25,6 +25,7 @@ type FileStorage struct {
 	dirty        bool
 	saveInterval time.Duration
 	saveTimer    *time.Timer
+	loaded       bool // 是否已从文件加载（惰性加载标记）
 }
 
 func NewFileStorage(config map[string]string) (*FileStorage, error) {
@@ -53,17 +54,34 @@ func NewFileStorage(config map[string]string) (*FileStorage, error) {
 		saveInterval: interval,
 	}
 
-	// Initial Load
-	if err := fs.loadFromFile(); err != nil {
-		return nil, err
-	}
+	// 惰性加载：不在构造时读全量文件（启动内存峰值优化）。
+	// 首次任何读/写访问（ensureLoaded）才从文件加载。
+	// 注意：不再调用 loadFromFile()。
 
 	return fs, nil
 }
 
-func (s *FileStorage) loadFromFile() error {
+// ensureLoaded 首次访问时从文件加载对象（双重检查锁）。
+// 所有读/写入口（Get/Update/Delete/Search/Count/Exists）先调用。
+func (s *FileStorage) ensureLoaded() error {
+	s.mu.RLock()
+	if s.loaded {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.loaded {
+		return nil
+	}
+	s.loaded = true
+	return s.loadFromFile()
+}
+
+func (s *FileStorage) loadFromFile() error {
+	// 调用方必须已持锁（ensureLoaded 或构造后首次加载）。
 
 	if _, err := os.Stat(s.filePath); os.IsNotExist(err) {
 		return nil // Return empty list if file doesn't exist
@@ -86,6 +104,9 @@ func (s *FileStorage) loadFromFile() error {
 }
 
 func (s *FileStorage) Get(id string) (*model.DownloadObject, error) {
+	if err := s.ensureLoaded(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if obj, ok := s.objects[id]; ok {
@@ -95,6 +116,9 @@ func (s *FileStorage) Get(id string) (*model.DownloadObject, error) {
 }
 
 func (s *FileStorage) Update(obj *model.DownloadObject) error {
+	if err := s.ensureLoaded(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -110,6 +134,9 @@ func (s *FileStorage) Update(obj *model.DownloadObject) error {
 }
 
 func (s *FileStorage) Delete(id string) error {
+	if err := s.ensureLoaded(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.objects, id)
@@ -123,6 +150,9 @@ func (s *FileStorage) Delete(id string) error {
 }
 
 func (s *FileStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject, error) {
+	if err := s.ensureLoaded(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -132,6 +162,9 @@ func (s *FileStorage) Search(query *core.StorageQuery) ([]*model.DownloadObject,
 }
 
 func (s *FileStorage) Count(query *core.StorageQuery) (int64, error) {
+	if err := s.ensureLoaded(); err != nil {
+		return 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -143,6 +176,9 @@ func (s *FileStorage) Count(query *core.StorageQuery) (int64, error) {
 }
 
 func (s *FileStorage) Exists(ids []string) (map[string]bool, error) {
+	if err := s.ensureLoaded(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -195,6 +231,9 @@ func (s *FileStorage) saveLocked() error {
 
 // ForceFlush allows manual saving (e.g. on shutdown)
 func (s *FileStorage) ForceFlush() error {
+	if err := s.ensureLoaded(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
