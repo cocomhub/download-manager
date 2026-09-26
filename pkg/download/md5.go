@@ -101,3 +101,25 @@ func TryGetMd5(headers map[string]string) string {
 	}
 	return ""
 }
+
+// md5HexEqual 比较 MD5 hex 字符串（大小写不敏感）。
+// ETag（OSS/S3）常为大写 hex，ComputeFileMD5 返回小写——直接比较会误判 mismatch。
+func md5HexEqual(a, b string) bool {
+	if len(a) != len(b) || len(a) != 32 {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca := a[i]
+		cb := b[i]
+		if ca >= 'A' && ca <= 'F' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'F' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
