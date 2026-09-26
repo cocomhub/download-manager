@@ -16,6 +16,7 @@ type DownloadConfig struct {
 	WorkDir     string
 	KeepFiles   bool
 	FFmpegArgs  []string
+	FFmpegPath  string // ffmpeg 可执行路径（空=PATH 查找 "ffmpeg"）
 	Timeout     time.Duration
 	Verbose     bool
 	MinFiles    int // 最低资源文件数，低于此值视为无效 m3u8（默认 10）
