@@ -65,6 +65,12 @@ func CloseAllMongoClients() {
 	}
 }
 
+// MongoClientFor 返回指定 source 的已初始化 mongo client（供 sdserver 等外部包复用连接）。
+// 未配置/未初始化时返回 nil。
+func MongoClientFor(source string) *mongo.Client {
+	return mongoClients[source]
+}
+
 type MongoStorage struct {
 	client     *mongo.Client
 	dbName     string
