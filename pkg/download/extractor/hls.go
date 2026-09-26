@@ -301,7 +301,9 @@ func reportHLSDownloadResult(rPath string, req *download.Request) {
 }
 
 // downloadWithM3U8D 使用纯 Go 的 M3U8DEngine 下载 HLS（无需 ffmpeg）。
-// 流程：M3U8DEngine 解析主/子 m3u8 → 并发下载分片（grab）→ 按 m3u8 顺序拼接 .ts → 输出。
+// 流程：M3U8DEngine 解析主/子 m3u8 → 并发下载分片（grab）。
+// 产出：有 ffmpeg 时转封装为标准 mp4（-c copy -bsf:a aac_adtstoasc -movflags +faststart）；
+// 无 ffmpeg 时回退按 m3u8 顺序拼接 .ts（兼容降级）。
 func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Request) error {
 	if err := validateHLSParams(req); err != nil {
 		return err
@@ -323,6 +325,9 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 		WorkDir:     workDir,
 		MinFiles:    1, // 兼容单分片/极小列表
 		Timeout:     30 * time.Second,
+		FFmpegPath:  e.ffmpegPath, // 转封装用注入的 ffmpeg 路径（测试 mock / 配置）
+		// 本地 m3u8 + 分片已下载到 workdir；ffmpeg 转封装需允许 file 协议读取本地文件
+		AllowFileProtocol: true,
 	}
 	engine, err := m3u8d.NewM3U8DEngine(cfg, nil)
 	if err != nil {
@@ -340,9 +345,17 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 		return fmt.Errorf("hls: m3u8d download: %w", err)
 	}
 
-	// 按 m3u8 顺序拼接分片
-	if err := ConcatM3U8Segments(mainM3U8Path, workDir, rPath); err != nil {
-		return fmt.Errorf("hls: m3u8d concat: %w", err)
+	// 有 ffmpeg → 转封装标准 mp4；无 → 回退纯拼接（兼容降级）
+	if ffmpeg, ferr := exec.LookPath(e.ffmpegPath); ferr == nil {
+		slog.Info("HLS m3u8d: converting to mp4 with ffmpeg", "ffmpeg", ffmpeg, logutil.LogKeyURL, req.URL)
+		if cerr := engine.ConvertToMP4(ctx, mainM3U8Path); cerr != nil {
+			return fmt.Errorf("hls: m3u8d ffmpeg convert: %w", cerr)
+		}
+	} else {
+		slog.Warn("HLS m3u8d: ffmpeg not found, falling back to raw ts concat", "ffmpeg", e.ffmpegPath, logutil.LogKeyError, ferr)
+		if err := ConcatM3U8Segments(mainM3U8Path, workDir, rPath); err != nil {
+			return fmt.Errorf("hls: m3u8d concat: %w", err)
+		}
 	}
 
 	reportHLSDownloadResult(rPath, req)
