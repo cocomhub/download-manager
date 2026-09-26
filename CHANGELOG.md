@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.5.0](https://github.com/cocomhub/download-manager/compare/v0.4.0...v0.5.0) (2026-09-26)
+
+
+### Added
+
+* **auth:** UI 登录态——401 拦截 + 登录页 + token 持久化 ([#103](https://github.com/cocomhub/download-manager/issues/103)) ([f8ec61d](https://github.com/cocomhub/download-manager/commit/f8ec61d1322d002f4ecced87f885b06323de7dea))
+* **bench:** 大样本基准（5K/10K）+ bench-gate 阈值门禁（P5-4）([#106](https://github.com/cocomhub/download-manager/issues/106)) ([06f0b10](https://github.com/cocomhub/download-manager/commit/06f0b10b0d0d678bc0015e6664aea5e87f1727b2))
+* **config:** task_type_defaults.extra 合并到任务——类型级站点配置共享([#121](https://github.com/cocomhub/download-manager/issues/121)) ([c4d8cc3](https://github.com/cocomhub/download-manager/commit/c4d8cc3d7f31de77222324f7f14b1c0215a8fd16))
+* **core:** ContentGroupProvider 接口通用化（替代 tktube 特判）([#114](https://github.com/cocomhub/download-manager/issues/114)) ([5157968](https://github.com/cocomhub/download-manager/commit/5157968e9b804dffc1f45863108758b41471075d))
+* **core:** ObjectVersioner 对象版本升级机制 + SpecialReview 标记（P5-2 剩余）([#113](https://github.com/cocomhub/download-manager/issues/113)) ([c9d5701](https://github.com/cocomhub/download-manager/commit/c9d5701af8ab66b47f182c26324a8dd4373aebf0))
+* **download:** HLS m3u8d 纯 Go 下载模式——无需 ffmpeg + 主列表最高档优化([#126](https://github.com/cocomhub/download-manager/issues/126)) ([fe0b7f1](https://github.com/cocomhub/download-manager/commit/fe0b7f1d0301d6cac18aef0ee88a519da47f2fc8))
+* **hls:** m3u8d 下载后 ffmpeg 转封装标准 mp4——无 ffmpeg 回退纯拼接([#129](https://github.com/cocomhub/download-manager/issues/129)) ([741c545](https://github.com/cocomhub/download-manager/commit/741c545611855ddf8505e3298499506abdc381f6))
+* **manager:** failed_permanent 限流自动重试——每小时选失败最少的一批([#128](https://github.com/cocomhub/download-manager/issues/128)) ([cab56b6](https://github.com/cocomhub/download-manager/commit/cab56b66dedc1a0bf8288965e665731ce95a0837))
+* **manager:** SeedTaskObjects 测试注入能力（fixture 框架测试支持）([#118](https://github.com/cocomhub/download-manager/issues/118)) ([69e559e](https://github.com/cocomhub/download-manager/commit/69e559e8c0d315e7b2daf2d7f66d704ebc3969d1))
+* **manager:** 小对象自愈下载 + 在途去重 + 媒体字段回写（P5-2b）([#105](https://github.com/cocomhub/download-manager/issues/105)) ([571feab](https://github.com/cocomhub/download-manager/commit/571feab50487c2f80d8f4031653ac2d941f8fa23))
+* **model:** Snapshot 深拷贝 + 媒体固定字段访问器（P5-2a）([#104](https://github.com/cocomhub/download-manager/issues/104)) ([d9e0f3f](https://github.com/cocomhub/download-manager/commit/d9e0f3fe1dc380571ac27f91a5fd36f1fd9f5b7d))
+* **scrape:** 抓取后立即补详情——新对象不依赖重启的 ObjectVersioner 升级([#124](https://github.com/cocomhub/download-manager/issues/124)) ([5c4148c](https://github.com/cocomhub/download-manager/commit/5c4148c91e3e0e386f110e6f6c7dbae5e0e4a6af))
+* **storage+manager:** 启动内存优化——FileStorage 惰性加载 + 标准化流式批处理([#131](https://github.com/cocomhub/download-manager/issues/131)) ([a07e7de](https://github.com/cocomhub/download-manager/commit/a07e7dee76ab8c70939f9b12e42943947a5940a9))
+* **storage:** ContentGroupRepresentatives 分组聚合下推存储层（P6-5）([#116](https://github.com/cocomhub/download-manager/issues/116)) ([9fafe59](https://github.com/cocomhub/download-manager/commit/9fafe5969fac5b65d27ee9b0ef5e639a722c8cde))
+* **storage:** 导出 MongoClientFor(source)——外部包复用已初始化 mongo 连接([#130](https://github.com/cocomhub/download-manager/issues/130)) ([e4e723a](https://github.com/cocomhub/download-manager/commit/e4e723a029ce0954e07f841ae6c6e14bfd6d5108))
+* **task:** booksite 模板验证任务（xkcd 漫画站，P5-3）([#108](https://github.com/cocomhub/download-manager/issues/108)) ([9a4d0b3](https://github.com/cocomhub/download-manager/commit/9a4d0b3c34138925091fe2f31db0eaafe8c594a7))
+* **ui:** 书橱视图框架能力——任务详情按内容分组选代表（groupBy/cardCoverAspect）([#119](https://github.com/cocomhub/download-manager/issues/119)) ([6b10db4](https://github.com/cocomhub/download-manager/commit/6b10db4c822e5bbb094e4c75b0be96e320d561fd))
+* **ui:** 视频倍速快捷键（[/]）+ 图片全屏观看（P6-1）([#110](https://github.com/cocomhub/download-manager/issues/110)) ([d031f65](https://github.com/cocomhub/download-manager/commit/d031f6532c842492337f0f6663dfb265dcc523bf))
+
+
+### Fixed
+
+* **audit:** 审查修复——Update 快照编码 + 轻量对象查询端点 + 并发写锁 ([#117](https://github.com/cocomhub/download-manager/issues/117)) ([401b618](https://github.com/cocomhub/download-manager/commit/401b6182349a05803003364bead7b9b06a72684a))
+* **config:** 修复 save_dir/save_root_dir WARN 误报——仅显式冲突时告警([#122](https://github.com/cocomhub/download-manager/issues/122)) ([fbf91b6](https://github.com/cocomhub/download-manager/commit/fbf91b66158d3e7e10768c37b01eb65dc575c916))
+* **download:** composite image 子文件失败容错——封面缺失不阻塞视频([#127](https://github.com/cocomhub/download-manager/issues/127)) ([27200e7](https://github.com/cocomhub/download-manager/commit/27200e70e8689954a192759cc2e2ff2055e71258))
+* **download:** MD5 hex 比较大小写不敏感——OSS ETag 大写误判 mismatch([#125](https://github.com/cocomhub/download-manager/issues/125)) ([006da9e](https://github.com/cocomhub/download-manager/commit/006da9ee354de3ee9c0150d68a747c642d068ccf))
+* **scrape:** 分页页数上限 + 每页/对象日志 + 抓取超时可配([#123](https://github.com/cocomhub/download-manager/issues/123)) ([c6ae2a7](https://github.com/cocomhub/download-manager/commit/c6ae2a7ce5f986e64862b2ca3deb05d23bc7f260))
+
+
+### Changed
+
+* **aggregate:** mongo VersionLT 下推 + 多任务聚合逐任务下推 + max-date 代表([#120](https://github.com/cocomhub/download-manager/issues/120)) ([7fcd577](https://github.com/cocomhub/download-manager/commit/7fcd5778755093fdc950660bbf14e97461138878))
+* **readme:** README 重写 + docs/config.md 配置参考（P5-5）([#107](https://github.com/cocomhub/download-manager/issues/107)) ([1d1f7a7](https://github.com/cocomhub/download-manager/commit/1d1f7a714a8db02554b64599dbc72bea85a29945))
+* **roadmap:** 阶段 5 产品收尾与生态扩展规划（P5-1~P5-5）([#100](https://github.com/cocomhub/download-manager/issues/100)) ([abbbf03](https://github.com/cocomhub/download-manager/commit/abbbf03a28aea6d36395cc910065fc28cd608b63))
+* **roadmap:** 阶段 5 记录 P5-3 方向决策 ([#102](https://github.com/cocomhub/download-manager/issues/102)) ([d84c885](https://github.com/cocomhub/download-manager/commit/d84c885659736572e1d3ddb557d862a773639004))
+* **roadmap:** 阶段 6 规划 + 两份设计（P6-1 视频快捷键 / P6-2 代理抓取）([#109](https://github.com/cocomhub/download-manager/issues/109)) ([9f99cde](https://github.com/cocomhub/download-manager/commit/9f99cde19676c5ae46351f6fa0385f0bae46dadb))
+* **tktube:** tktube 迁移至 sdserver（框架层移除站点任务）([#115](https://github.com/cocomhub/download-manager/issues/115)) ([d17a2da](https://github.com/cocomhub/download-manager/commit/d17a2da9f41c06036fd33f1ffa357bef744b23f6))
+
 ## [0.4.0](https://github.com/cocomhub/download-manager/compare/v0.3.0...v0.4.0) (2026-09-24)
 
 
