@@ -319,6 +319,36 @@ func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*m
 	return []*model.DownloadObject{}, nil
 }
 
+// forEachObjectBatch 以固定批大小（默认 200）流式遍历任务对象，逐批执行 fn，
+// 不一次性收集全量（避免大任务启动/查询内存峰值）。
+func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batchSize int64, fn func(*model.DownloadObject) error) error {
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	var offset int64
+	for {
+		pageQuery := cloneStorageQuery(query)
+		pageQuery.Offset = offset
+		pageQuery.Limit = batchSize
+		chunk, err := m.searchTaskObjects(t, pageQuery)
+		if err != nil {
+			return err
+		}
+		if len(chunk) == 0 {
+			return nil
+		}
+		for _, o := range chunk {
+			if err := fn(o); err != nil {
+				return err
+			}
+		}
+		if int64(len(chunk)) < batchSize {
+			return nil
+		}
+		offset += int64(len(chunk))
+	}
+}
+
 func (m *Manager) countTaskObjects(t core.Task, query *core.StorageQuery) (int64, error) {
 	taskQuery := queryForTask(t.ID(), query)
 	if st := t.Storage(); st != nil {
