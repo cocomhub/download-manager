@@ -84,6 +84,11 @@ func (m *Manager) Start() {
 	// Immediate scan on start
 	m.schedSvc.Scan()
 
+	// failed_permanent 限流自动重试（每 interval 小时选失败最少的一批）
+	retryStop := make(chan struct{})
+	go m.runRetryTicker(retryStop)
+	defer close(retryStop)
+
 	for {
 		select {
 		case <-ticker.C:

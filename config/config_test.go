@@ -858,3 +858,50 @@ func TestApplyMongoEnvEmptyCreatesDefault(t *testing.T) {
 		t.Errorf("expected default mongo source, got %+v", cfg.Mongo)
 	}
 }
+
+// TestRetryConfig_Defaults 验证 retry 段默认值（interval=1h，batch=10）。
+func TestRetryConfig_Defaults(t *testing.T) {
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.ValidateAndClamp()
+	if cfg.Downloader.Retry.IntervalHours != 1 {
+		t.Fatalf("Retry.IntervalHours = %d, want 1", cfg.Downloader.Retry.IntervalHours)
+	}
+	if cfg.Downloader.Retry.BatchSize != 10 {
+		t.Fatalf("Retry.BatchSize = %d, want 10", cfg.Downloader.Retry.BatchSize)
+	}
+}
+
+// TestRetryConfig_Explicit 验证显式配置不被默认覆盖。
+func TestRetryConfig_Explicit(t *testing.T) {
+	cfg := &Config{
+		Server: Server{WorkDir: t.TempDir()},
+		Downloader: Downloader{
+			Retry: RetryConfig{Enabled: true, IntervalHours: 4, BatchSize: 25},
+		},
+	}
+	cfg.ValidateAndClamp()
+	if !cfg.Downloader.Retry.Enabled || cfg.Downloader.Retry.IntervalHours != 4 || cfg.Downloader.Retry.BatchSize != 25 {
+		t.Fatalf("Retry explicit config lost: %+v", cfg.Downloader.Retry)
+	}
+}
+
+// TestRetryConfig_Diff 验证 retry 变化被 Diff 检测。
+func TestRetryConfig_Diff(t *testing.T) {
+	a := Config{
+		Downloader: Downloader{Retry: RetryConfig{Enabled: true, IntervalHours: 1, BatchSize: 10}},
+	}
+	b := Config{
+		Downloader: Downloader{Retry: RetryConfig{Enabled: true, IntervalHours: 2, BatchSize: 10}},
+	}
+	changes := a.Diff(b)
+	found := false
+	for _, ch := range changes {
+		if ch.Path == "downloader.retry" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Diff 未检测到 downloader.retry 变化: %v", changes)
+	}
+}
