@@ -641,6 +641,45 @@ func TestTaskTypeDefaults_SanitizeForSave(t *testing.T) {
 	}
 }
 
+// TestResolveTaskSaveDirs_NoSpuriousWarning 验证 save_root_dir+save_sub_dir 派生场景
+// 不触发「both save_dir and save_root_dir」误报（WARN 只在显式 save_dir 与
+// save_root_dir 同时配置时产生；派生填充的 SaveDir 不应再触发）。
+func TestResolveTaskSaveDirs_NoSpuriousWarning(t *testing.T) {
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"njavtv": {SaveRootDir: "/opt/downloads/njavtv"},
+	}
+	cfg.Tasks = []Task{
+		{ID: "njavtv_task", Type: "njavtv", SaveSubDir: "latest"},
+	}
+	cfg.ValidateAndClamp()
+	got := cfg.Tasks[0].SaveDir
+	want := filepath.Join("/opt/downloads/njavtv", "latest")
+	if got != want {
+		t.Fatalf("SaveDir = %q, want %q (derived from save_root_dir+save_sub_dir)", got, want)
+	}
+	// 幂等：再次调用不应改变（且不误报——派生后 GetEffectiveSaveDir 直接返回 SaveDir）
+	if again := cfg.Tasks[0].GetEffectiveSaveDir(cfg); again != got {
+		t.Fatalf("GetEffectiveSaveDir idempotency broken: %q != %q", again, got)
+	}
+}
+
+// TestResolveTaskSaveDirs_ExplicitConflictKeepsExplicit 显式 save_dir + save_root_dir
+// 同时配置 → save_dir 优先（保留显式值，仅警告不覆盖）。
+func TestResolveTaskSaveDirs_ExplicitConflictKeepsExplicit(t *testing.T) {
+	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
+	cfg.TaskTypeDefaults = map[string]TaskTypeDefault{
+		"njavtv": {SaveRootDir: "/opt/default-root"},
+	}
+	cfg.Tasks = []Task{
+		{ID: "t1", Type: "njavtv", SaveDir: "/custom/dir", SaveSubDir: "latest"},
+	}
+	cfg.ValidateAndClamp()
+	if got := cfg.Tasks[0].SaveDir; got != "/custom/dir" {
+		t.Fatalf("explicit save_dir should win: got %q", got)
+	}
+}
+
 func TestTaskTypeDefaults_Clone(t *testing.T) {
 	// 验证 TaskTypeDefaults 深拷贝
 	trueVal := true
