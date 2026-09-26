@@ -92,3 +92,27 @@ func TestComposite_MetadataPrefix(t *testing.T) {
 	cmp := NewComparator(t, b)
 	cmp.Run("metadata-prefix", obj, nil)
 }
+
+// TestComposite_ImageFailTolerated 验证 image 类子文件失败不阻塞 video（容错继续）。
+func TestComposite_ImageFailTolerated(t *testing.T) {
+	b := NewBeacon(t)
+	b.HandleError("GET", "/cover.jpg", 403)
+	b.HandleFile("GET", "/video.mp4", "video-content", "video/mp4")
+
+	extra := map[string]any{
+		"files": []map[string]string{
+			{"url": b.URL() + "/cover.jpg", "path": "tol/cover.jpg", "type": "image"},
+			{"url": b.URL() + "/video.mp4", "path": "tol/video.mp4", "type": "video"},
+		},
+	}
+
+	obj := makeTestObject(b.URL()+"/video.mp4", "tol/video.mp4", nil, extra)
+	cmp := NewComparator(t, b)
+	// image 失败被容错 → 整体下载成功（显式断言无错误）
+	cmp.Run("image-fail-tolerated", obj, nil, func(t *testing.T, old, new *DownloadResult) {
+		t.Helper()
+		if new.Err != nil {
+			t.Errorf("image failure should be tolerated, got error: %v", new.Err)
+		}
+	})
+}
