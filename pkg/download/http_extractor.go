@@ -557,7 +557,9 @@ func checkFileMD5(tresp *TransportResponse, rPath string, req *Request, w io.Wri
 		return false, fmt.Errorf("failed to compute MD5: %w", md5Err)
 	}
 
-	if base64MD5 != wantMd5 && hexMD5 != wantMd5 {
+	// wantMd5 可能来自 ETag（大写 hex）或 X-Amz-Meta-Md5chksum（base64）——
+	// hex 比较大小写不敏感（ETag 常大写，ComputeFileMD5 返回小写），base64 精确比较。
+	if !md5HexEqual(hexMD5, wantMd5) && base64MD5 != wantMd5 {
 		slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
 		writeLog(w, "MD5 check failed: want %s, got %s (hex: %s)\n", wantMd5, base64MD5, hexMD5)
 		return true, nil

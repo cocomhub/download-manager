@@ -6,6 +6,7 @@ package download
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -157,5 +158,30 @@ func TestTryGetMd5InvalidLengthEtag(t *testing.T) {
 	result := TryGetMd5(headers)
 	if result != "" {
 		t.Errorf("expected empty for short etag, got %q", result)
+	}
+}
+
+// TestCheckFileMD5_CaseInsensitiveHex 验证 ETag（大写 hex）与本地 hexMD5（小写）
+// 比较时大小写不敏感——OSS/四字节 ETag 常大写，ComputeFileMD5 返回小写。
+func TestCheckFileMD5_CaseInsensitiveHex(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.bin")
+	content := []byte("hello")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, hexMD5, err := ComputeFileMD5(path)
+	if err != nil {
+		t.Fatalf("ComputeFileMD5: %v", err)
+	}
+	// 模拟 ETag：大写 hex
+	wantUpper := strings.ToUpper(hexMD5)
+	// 直接调用比较逻辑（提取为可测函数或内联断言）
+	if !md5HexEqual(hexMD5, wantUpper) {
+		t.Fatalf("md5HexEqual(%q, %q) = false, want true (case-insensitive)", hexMD5, wantUpper)
+	}
+	// 不同值应不等
+	if md5HexEqual(hexMD5, strings.Repeat("0", 32)) {
+		t.Fatal("md5HexEqual should be false for different values")
 	}
 }
