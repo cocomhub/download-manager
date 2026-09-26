@@ -10,6 +10,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/configutil"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -61,8 +62,16 @@ func (s *SchedulerService) Scan() {
 				slog.Debug("Scrape: previous run still in progress, skipping", logutil.LogKeyTaskID, taskID)
 				return true
 			}
-			go func(taskID string, sc core.Scraper) {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			// 抓取超时：任务 extra.scrape_timeout 秒（默认 30s）。在 goroutine 外读取
+			// 配置（热更新期间 findTaskConfig/Extra map 有竞争），传值进 goroutine。
+			scrapeTimeout := 30 * time.Second
+			if taskCfg != nil {
+				if v := configutil.GetInt64(taskCfg.Extra, "scrape_timeout", 0); v > 0 {
+					scrapeTimeout = time.Duration(v) * time.Second
+				}
+			}
+			go func(taskID string, sc core.Scraper, scrapeTimeout time.Duration) {
+				ctx, cancel := context.WithTimeout(context.Background(), scrapeTimeout)
 				defer cancel()
 				done := make(chan error, 1)
 				go func() {
@@ -74,14 +83,15 @@ func (s *SchedulerService) Scan() {
 						slog.Error("Scrape failed", logutil.LogKeyTaskID, taskID, logutil.LogKeyError, err)
 					}
 				case <-ctx.Done():
-					slog.Error("Scrape timed out", logutil.LogKeyTaskID, taskID)
+					slog.Error("Scrape timed out", logutil.LogKeyTaskID, taskID,
+						"timeout_seconds", int(scrapeTimeout.Seconds()))
 					// ctx is canceled; wait for inner goroutine to actually return
 					// before releasing the dedup guard, so the next scan cycle
 					// does not start a second concurrent Scrape for this task.
 					<-done
 				}
 				m.scrapingTask.Delete(taskID)
-			}(taskID, sc)
+			}(taskID, sc, scrapeTimeout)
 		}
 		return true
 	})

@@ -22,6 +22,8 @@ func NewDefaultPager() *DefaultPager {
 // pageState holds all mutable state for a pagination run.
 type pageState struct {
 	page            int
+	pagesScanned    int
+	itemsBuilt      int
 	detectedPages   int
 	firstFailedPage int
 	emptyPages      int
@@ -29,6 +31,7 @@ type pageState struct {
 	maxRetries      int
 	maxEmpty        int
 	maxRefresh      int
+	maxPages        int
 	mode            Mode
 	canceled        bool
 }
@@ -44,6 +47,7 @@ func newPageState(opts Options) *pageState {
 		maxRetries:    defaultPositive(opts.MaxRetries, 3),
 		maxEmpty:      defaultPositive(opts.MaxEmptyPages, 3),
 		maxRefresh:    defaultPositive(opts.MaxTailRefresh, 5),
+		maxPages:      opts.MaxPages,
 		mode:          opts.Mode,
 	}
 }
@@ -70,6 +74,8 @@ func (st *pageState) result(all []any) Result {
 		AllSucceeded:   !st.canceled && st.firstFailedPage == 0,
 		LastFailedPage: st.firstFailedPage,
 		DetectedPages:  st.detectedPages,
+		PagesScanned:   st.pagesScanned,
+		ItemsBuilt:     st.itemsBuilt,
 	}
 }
 
@@ -84,8 +90,8 @@ func (st *pageState) detectPages(hooks PageHooks, html string) {
 		return
 	}
 	st.detectedPages = hooks.ParseTotalPages(html)
-	if st.detectedPages <= 0 {
-		st.detectedPages = 1
+	if st.detectedPages < 0 {
+		st.detectedPages = -1 // 未知总数：保留 -1，由 MaxPages/空页/失败边界停止
 	}
 }
 
@@ -93,6 +99,10 @@ func (st *pageState) detectPages(hooks PageHooks, html string) {
 // the loop should continue, or false when pagination is exhausted.
 func (st *pageState) advance(hooks PageHooks) bool {
 	st.page++
+	if st.maxPages > 0 && st.page > st.maxPages {
+		slog.Info("Pager: reached max pages cap", "page", st.page-1, "max_pages", st.maxPages)
+		return false
+	}
 	if st.detectedPages > 0 && st.page > st.detectedPages {
 		if st.mode == ModeFull && st.refreshCount < st.maxRefresh {
 			newDetected := hooks.ParseTotalPages(hooks.BuildPageURL(1))
@@ -115,6 +125,7 @@ func (st *pageState) processItems(hooks PageHooks, items any, all *[]any) proces
 	if len(pageNew) > 0 {
 		*all = append(*all, pageNew...)
 		st.emptyPages = 0
+		st.itemsBuilt += len(pageNew)
 	} else {
 		st.emptyPages++
 	}
@@ -194,6 +205,11 @@ func (p *DefaultPager) processPage(ctx context.Context, hooks PageHooks, st *pag
 	if action != actionContinue {
 		return action
 	}
+	st.pagesScanned++
+	slog.Info("Pager: page processed",
+		"page", st.page,
+		logutil.LogKeyURL, url,
+		"new_items", st.itemsBuilt)
 
 	if st.advance(hooks) {
 		return actionContinue

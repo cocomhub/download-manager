@@ -122,6 +122,32 @@ func TestDefaultPager_IncrementalMode_MaxEmpty(t *testing.T) {
 	}
 }
 
+// TestDefaultPager_MaxPagesCap 验证 MaxPages 硬上限：ParseTotalPages=-1（无总数）时
+// 不会无限翻页，超过 maxPages 即停。
+func TestDefaultPager_MaxPagesCap(t *testing.T) {
+	pageIndex := 0
+	hooks := PageHooks{
+		BuildPageURL:    func(page int) string { return "http://mock/page/" + itoa(page) },
+		RunScraper:      func(url string) (string, error) { return "<html></html>", nil },
+		ParseTotalPages: func(html string) int { return -1 }, // 无总数 → 无限
+		ParsePage:       func(html string) (any, error) { pageIndex++; return []any{"x"}, nil },
+		ProcessItems:    func(items any) ([]any, bool) { return []any{"x"}, false }, // 每页有新对象 → 持续分页
+	}
+	ctx := t.Context()
+	p := NewDefaultPager()
+	result := p.Run(ctx, hooks, Options{Mode: ModeFull, StartPage: 1, MaxPages: 5})
+
+	if !result.AllSucceeded {
+		t.Fatalf("Expected AllSucceeded=true (clean stop at cap), got LastFailedPage=%d", result.LastFailedPage)
+	}
+	if pageIndex > 5 {
+		t.Fatalf("Expected stop at max 5 pages, got pageIndex=%d", pageIndex)
+	}
+	if pageIndex != 5 {
+		t.Fatalf("Expected exactly 5 pages processed, got %d", pageIndex)
+	}
+}
+
 func TestDefaultPager_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // immediately cancelled
