@@ -121,8 +121,8 @@ seg_bbb.ts
 `
 	// 模拟分片
 	for name, content := range map[string]string{
-		"seg_aaa.ts": "AAA",
-		"seg_bbb.ts": "BBB",
+		"seg_aaa.ts":   "AAA",
+		"seg_bbb.ts":   "BBB",
 		"sub_640.m3u8": "#EXTM3U\n#EXTINF:4.0,\nlow.ts\n",
 		"sub_842.m3u8": sub,
 	} {
@@ -181,6 +181,80 @@ func TestDownloadWithM3U8D_NoFFmpegFallbackConcat(t *testing.T) {
 
 // TestDownloadWithM3U8D_FFmpegConvert 验证：有 ffmpeg 时走转封装（mock ffmpeg 被调用）。
 // mock ffmpeg 直接把输入 m3u8 复制为输出（模拟转封装成功）。
+// TestDownloadWithM3U8D_FailureKeepsWorkDir 验证：下载失败时 .hls-parts 工作目录被保留
+// （已下载分片供下次重试断点续传），而不是被 Cleanup 整个删除。
+func TestDownloadWithM3U8D_FailureKeepsWorkDir(t *testing.T) {
+	// 一个分片永久 500 → DownloadAll 重试耗尽返回错误
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream.m3u8", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXT-X-ENDLIST\n"))
+	})
+	mux.HandleFunc("/seg0.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG0-DATA"))
+	})
+	mux.HandleFunc("/seg1.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("m3u8d"), extractor.WithFFmpegPath(filepath.Join(dir, "no-ffmpeg")))
+	err := ex.Extract(t.Context(), &download.Request{
+		URL:      srv.URL + "/stream.m3u8",
+		SavePath: out,
+	})
+	if err == nil {
+		t.Fatal("expected download error")
+	}
+	// 失败后工作目录必须保留（断点续传前提：已下载分片不丢）
+	workDir := out + ".hls-parts"
+	if _, statErr := os.Stat(workDir); statErr != nil {
+		t.Fatalf("workdir %s should be kept after failure for resume, got: %v", workDir, statErr)
+	}
+	// 已成功下载的 seg0 分片应仍在工作目录（哈希命名，无法直接断言文件名，断言目录非空）
+	entries, readErr := os.ReadDir(workDir)
+	if readErr != nil {
+		t.Fatalf("read workdir: %v", readErr)
+	}
+	if len(entries) == 0 {
+		t.Fatal("workdir should contain downloaded segments for resume")
+	}
+}
+
+// TestDownloadWithM3U8D_SuccessCleansWorkDir 验证：下载成功时 .hls-parts 工作目录被清理
+// （避免已下载分片残留堆积）。
+func TestDownloadWithM3U8D_SuccessCleansWorkDir(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream.m3u8", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nseg0.ts\n#EXTINF:4.0,\nseg1.ts\n#EXT-X-ENDLIST\n"))
+	})
+	mux.HandleFunc("/seg0.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG0-DATA"))
+	})
+	mux.HandleFunc("/seg1.ts", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SEG1-DATA"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	ex := extractor.NewHLSExtractor(extractor.WithHLSMode("m3u8d"), extractor.WithFFmpegPath(filepath.Join(dir, "no-ffmpeg")))
+	if err := ex.Extract(t.Context(), &download.Request{
+		URL:      srv.URL + "/stream.m3u8",
+		SavePath: out,
+	}); err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// 成功后工作目录应被清理
+	workDir := out + ".hls-parts"
+	if _, statErr := os.Stat(workDir); !os.IsNotExist(statErr) {
+		t.Fatalf("workdir %s should be cleaned after success, stat err: %v", workDir, statErr)
+	}
+}
+
 func TestDownloadWithM3U8D_FFmpegConvert(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("mock ffmpeg 脚本依赖 sh（linux/mac）")

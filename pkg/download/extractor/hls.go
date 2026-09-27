@@ -53,6 +53,7 @@ type HLSExtractor struct {
 // 用 -movflags frag_keyframe+empty_moov+default_base_moof 替代 +faststart：
 //   - faststart：moov 缓存在内存直到结尾（1.4GB 视频可吃 ~800MB），且 moov 需二次写
 //   - fMP4：moov 头部（空）+ moof/mdat 分段流式写 → 内存恒定 ~150MB，网页即时播放（Chrome/Safari 原生）
+//
 // -max_muxing_queue_size 限制 muxer 队列深度，防包排队内存膨胀。
 var defaultFFmpegArgs = []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-max_muxing_queue_size", "2048", "-f", "mp4"}
 
@@ -340,7 +341,16 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 	if err != nil {
 		return fmt.Errorf("hls: m3u8d engine init: %w", err)
 	}
+	// 失败保留工作目录（已下载分片供下次重试断点续传），成功才清理。
+	// 根因：之前无条件 Cleanup（KeepFiles=false）→ 分片重试耗尽失败时
+	// 整个 <out>.hls-parts 被删，已下载的 ~1700+ 分片全部丢失，续传失效。
+	var dlErr error
 	defer func() {
+		if dlErr != nil {
+			slog.Info("hls: m3u8d download failed, keeping workdir for resume",
+				logutil.LogKeyURL, req.URL, "workdir", cfg.WorkDir, logutil.LogKeyError, dlErr)
+			return
+		}
 		if cerr := engine.Cleanup(); cerr != nil {
 			slog.Warn("hls: m3u8d cleanup failed", logutil.LogKeyError, cerr)
 		}
@@ -349,6 +359,7 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 	// 下载 m3u8 + 全部分片
 	mainM3U8Path, err := engine.DownloadAll(ctx)
 	if err != nil {
+		dlErr = err
 		return fmt.Errorf("hls: m3u8d download: %w", err)
 	}
 
@@ -427,7 +438,7 @@ func readM3U8Lines(path string) []string {
 		return nil
 	}
 	var out []string
-	for _, l := range strings.Split(string(content), "\n") {
+	for l := range strings.SplitSeq(string(content), "\n") {
 		l = strings.TrimSpace(l)
 		if l != "" {
 			out = append(out, l)
