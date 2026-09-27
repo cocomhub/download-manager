@@ -16,11 +16,11 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/pkg/logutil"
-	"github.com/cocomhub/download-manager/pkg/scraper_tunnel"
 )
 
 func Scrape(url string, cookie string) (body string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 30s 与 scraper_get 默认超时对齐（旧 5s 对 301+大页面/慢链路过短）。
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, config.GetServerConfig().ScraperPath, url)
 	if cookie != "" {
@@ -77,32 +77,8 @@ func doScraperNative(url string, cookie string) (body string, err error) {
 		req.Header.Set("cookie", cookie)
 	}
 
-	sc := config.GetServerConfig()
-	if len(url) > 0 && !strings.Contains(url, "hanime1.me") {
-		header := make(map[string]string)
-		for k := range req.Header {
-			header[k] = req.Header.Get(k)
-		}
-		scraperURL := sc.ScraperURL
-		if scraperURL == "" {
-			scraperURL = "http://localhost:18082"
-		}
-		tunnelKey := sc.ScraperTunnelKey
-		if tunnelKey == "" {
-			slog.Warn("ScraperTunnelKey not configured, tunnel may fail")
-		}
-		return tunnel.TunnelRequest(&tunnel.SclientConfig{
-			ServerURL:        scraperURL,
-			UploadEndpoint:   "/upload",
-			DownloadEndpoint: "/download",
-			DeleteEndpoint:   "/delete",
-			CheckMD5:         false,
-			Timeout:          30,
-			TunnelKey:        tunnelKey,
-			TunnelEndpoint:   "/tunnel",
-		}, "GET", url, header, "", false, false)
-	}
-
+	// 直连目标（sproxy 隧道协议已废弃——需要加密出口时由外层 sclient http-proxy
+	// 承担，scraper 本身不再依赖 sproxy）。
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

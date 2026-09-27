@@ -36,8 +36,6 @@ var Levels = map[string]int{
 	"github.com/cocomhub/download-manager/pkg/download/extractor": 1,
 	"github.com/cocomhub/download-manager/pkg/download/m3u8d":     1,
 	"github.com/cocomhub/download-manager/pkg/download/proxy":     1,
-	"github.com/cocomhub/download-manager/pkg/download/transport": 1,
-	"github.com/cocomhub/download-manager/pkg/scraper_tunnel":     1,
 	"github.com/cocomhub/download-manager/storage":                1,
 
 	// ---- L2 能力层（任务/下载器，依赖 L0/L1）----

@@ -5,7 +5,6 @@ go 1.27
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/cavaliergopher/grab/v3 v3.0.1
-	github.com/cocomhub/sproxy v0.18.0
 	github.com/gofrs/flock v0.13.1
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
@@ -74,5 +73,3 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
-
-// replace github.com/cocomhub/sproxy => ../sproxy
