@@ -88,6 +88,10 @@ build-ci: prepare
 	@echo "Build (skip fmt, for CI)"
 	$(GO) build $(GOBUILD_EXTRA) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/$(PROJECT_NAME)$(EXE) .
 
+.PHONY: build-ui
+build-ui: fmt
+	$(GO) build $(GOBUILD_EXTRA) $(GO_BUILD_FLAGS) -ldflags "$(GO_LDFLAGS)" -o $(BIN_DIR)/download-manager-ui$(EXE) ./cmd/ui
+
 .PHONY: test
 test: prepare
 	$(GO) test $(GORACE) $(GOTEST_COUNT) $(GOTEST_TIMEOUT) $(GOTAGS) ./...

@@ -128,6 +128,55 @@ func TestSSE_NoOriginPasses(t *testing.T) {
 	}
 }
 
+// TestSSE_ForwardedHostMatchesOrigin 反代场景：Origin.Host 与 X-Forwarded-Host 匹配 → 放行。
+func TestSSE_ForwardedHostMatchesOrigin(t *testing.T) {
+	ts := sseTestSetup(t, "none", "")
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Origin", "http://localhost:9000")
+	req.Header.Set("X-Forwarded-Host", "localhost:9000") // 反代设置的标准头
+	// 让后端 r.Host 与 Origin 不同：直接改请求 Host 头模拟反代后的 r.Host
+	req.Host = ts.URL // 后端的 r.Host 将是 ts.URL 的 host:port
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200 (X-Forwarded-Host 与 Origin 匹配)", resp.StatusCode)
+	}
+}
+
+// TestSSE_ForwardedHostMismatchRejected 反代场景：X-Forwarded-Host 与 Origin 不匹配 → 403。
+func TestSSE_ForwardedHostMismatchRejected(t *testing.T) {
+	ts := sseTestSetup(t, "none", "")
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Origin", "http://localhost:9000")
+	req.Header.Set("X-Forwarded-Host", "evil.example:9000")
+	req.Host = ts.URL
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 (X-Forwarded-Host 与 Origin 不匹配)", resp.StatusCode)
+	}
+}
+
 func TestSSE_ContextCancelUnblocks(t *testing.T) {
 	ts := sseTestSetup(t, "none", "")
 
