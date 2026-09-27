@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"reflect"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
+
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -26,24 +28,43 @@ func convertMapAnyToStrMap(m map[string]any) map[string]string {
 	return result
 }
 
-// extractStrMapSlice 通过反射从 primitive.A 中提取 []map[string]string。
+// extractStrMapSlice 通过反射从 BSON 数组（bson.A / primitive.A / 任意 slice）中
+// 提取 []map[string]string。v2 的 bson.A 是独立类型（type A []any），v1 的
+// primitive.A 是其旧名——两者 %T 不同，统一按 slice 反射处理，不锁死类型名。
 func extractStrMapSlice(v any) []map[string]string {
 	val := reflect.ValueOf(v)
 	if val.Kind() != reflect.Slice {
-		return nil
-	}
-	if fmt.Sprintf("%T", v) != "primitive.A" {
 		return nil
 	}
 
 	result := make([]map[string]string, 0, val.Len())
 	for i := 0; i < val.Len(); i++ {
 		elem := val.Index(i).Interface()
-		if fm, ok := elem.(map[string]any); ok {
+		switch fm := elem.(type) {
+		case map[string]any:
 			result = append(result, convertMapAnyToStrMap(fm))
+		case bson.M:
+			// bson.M = type M map[string]any（命名类型，断言 map[string]any 失败）。
+			result = append(result, convertMapAnyToStrMap(map[string]any(fm)))
+		case bson.D:
+			// mongo driver v2 对 map[string]any 的 Extra 解码时，嵌套数组元素默认是
+			// bson.D（ordered doc）而非 bson.M——必须支持，否则 composite 下载报
+			// unknown 'files' metadata type。
+			result = append(result, convertBSONDToStrMap(fm))
 		}
 	}
 	return result
+}
+
+// convertBSONDToStrMap 把 bson.D（ordered doc）转为 map[string]string（仅 string 值）。
+func convertBSONDToStrMap(d bson.D) map[string]string {
+	m := make(map[string]string, len(d))
+	for _, kv := range d {
+		if s, ok := kv.Value.(string); ok {
+			m[kv.Key] = s
+		}
+	}
+	return m
 }
 
 // parseCompositeFiles 从 obj.Extra["files"] 解析文件列表。
@@ -70,8 +91,13 @@ func parseCompositeFiles(filesVal any) ([]map[string]string, error) {
 	if files, ok := filesVal.([]any); ok {
 		fileList := make([]map[string]string, 0, len(files))
 		for _, f := range files {
-			if fm, ok := f.(map[string]any); ok {
+			switch fm := f.(type) {
+			case map[string]any:
 				fileList = append(fileList, convertMapAnyToStrMap(fm))
+			case bson.M:
+				fileList = append(fileList, convertMapAnyToStrMap(map[string]any(fm)))
+			case bson.D:
+				fileList = append(fileList, convertBSONDToStrMap(fm))
 			}
 		}
 		if len(fileList) == 0 {
