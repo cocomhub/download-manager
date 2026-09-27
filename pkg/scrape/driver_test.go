@@ -205,3 +205,55 @@ func TestDriver_ResumeFromProgress(t *testing.T) {
 		t.Fatal("Expected progress to be cleared after full success")
 	}
 }
+
+// TestDriver_MaxPagesCapResume 验证 max_pages 截断后下次从 max_pages+1 续传：
+// 1. 第一次跑 MaxPages=5 → 截断 → tracker 记录 LastFailedPage=6
+// 2. 第二次跑（模拟重启）→ applyScrapeMode 从 6 续传
+func TestDriver_MaxPagesCapResume(t *testing.T) {
+	tracker := newMemoryTracker()
+	var startPages []int
+	var pageIndex int
+
+	hooks := PageHooks{
+		BuildPageURL:    func(page int) string { return "http://mock/page/" + itoa(page) },
+		RunScraper:      func(url string) (string, error) { return "<html></html>", nil },
+		ParseTotalPages: func(html string) int { return -1 }, // 无总数 → max_pages 截断
+		ParsePage:       func(html string) (any, error) { pageIndex++; return []any{"x"}, nil },
+		ProcessItems:    func(items any) ([]any, bool) { return []any{"x"}, false }, // 每页新对象 → 持续分页
+	}
+
+	// 第一次：MaxPages=5 截断
+	pager := NewDefaultPager()
+	driver := NewDriver(tracker, pager)
+	driver.Scrape(t.Context(), "test-id", hooks, Options{MaxPages: 5})
+	if tracker.IsFullSucceeded("test-id") {
+		t.Fatal("max_pages cap stop should NOT mark full success")
+	}
+	info, ok := tracker.LoadProgress("test-id")
+	if !ok || info.LastFailedPage != 6 {
+		t.Fatalf("expected progress LastFailedPage=6, got %+v ok=%v", info, ok)
+	}
+
+	// 第二次：模拟重启 → 从 6 续传
+	tracker2 := newMemoryTracker()
+	_ = tracker2.SaveProgress("test-id", info)
+	pager2 := NewDefaultPager()
+	driver2 := NewDriver(tracker2, pager2)
+	driver2.Scrape(t.Context(), "test-id", hooks, Options{MaxPages: 10})
+	if len(startPages) > 0 {
+		_ = startPages // keep compile
+	}
+	// 第二次应从 page 6 开始扫（applyScrapeMode 用 LastFailedPage）
+	// 用 pageIndex 从 0 开始累计两次 —— 第一次扫 5 页，第二次从 6 起扫到 10
+	if pageIndex != 10 {
+		t.Fatalf("expected total 10 pages (5 + 5 resumed), got %d", pageIndex)
+	}
+	// 第二次 MaxPages=10 从 6 起扫到 10（5 页）→ 又截断 → 记录 LastFailedPage=11
+	if tracker2.IsFullSucceeded("test-id") {
+		t.Fatal("second run with MaxPages=10 starting at 6 should also cap (6-10), not full success")
+	}
+	info2, ok2 := tracker2.LoadProgress("test-id")
+	if !ok2 || info2.LastFailedPage != 11 {
+		t.Fatalf("expected progress LastFailedPage=11 after resume cap, got %+v ok=%v", info2, ok2)
+	}
+}
