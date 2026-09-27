@@ -252,3 +252,20 @@ func TestIsWithinRootNoFollow(t *testing.T) {
 		t.Errorf("IsWithinRoot(%q, %q, false) = true, want false", dir, outside)
 	}
 }
+
+// TestResolvePathRelativeWithRootPrefix 回归：相对路径已以 rootDir 开头时
+// 不再重复拼接（否则 build/test/downloads + build/test/downloads/njavtv/...
+// → build/test/downloads/build/test/downloads/... 路径重复）。
+func TestResolvePathRelativeWithRootPrefix(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("build", "test", "downloads")
+	p := filepath.Join("build", "test", "downloads", "njavtv", "a.mp4")
+	got, err := ResolvePath(root, p)
+	if err != nil {
+		t.Fatalf("ResolvePath err: %v", err)
+	}
+	want := filepath.Join("build", "test", "downloads", "njavtv", "a.mp4")
+	if got != want {
+		t.Errorf("got %q, want %q（不应重复拼接 rootDir）", got, want)
+	}
+}

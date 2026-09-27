@@ -35,6 +35,16 @@ func resolvePath(rootDir, p string, followSymlinks bool) (string, error) {
 		}
 		return "", fmt.Errorf("path outside root: %s", p)
 	}
+	// 相对路径已以 rootDir 开头（如 SavePath 已是完整相对路径 build/test/downloads/...
+	// 而 rootDir=build/test/downloads）→ 直接 clean，不再重复拼接 rootDir。
+	// 修复小对象下载 SavePath 前缀重复（build/test/downloads/build/test/downloads/...）。
+	if p == rootDir || strings.HasPrefix(p, rootDir+string(filepath.Separator)) {
+		rp := filepath.Clean(p)
+		if !isWithinRoot(rootDir, rp, followSymlinks) {
+			return "", fmt.Errorf("path outside root: %s", p)
+		}
+		return rp, nil
+	}
 	rp := cleanJoin(rootDir, p)
 	if !isWithinRoot(rootDir, rp, followSymlinks) {
 		return "", fmt.Errorf("path outside root: %s", p)
