@@ -137,8 +137,11 @@ func TestDefaultPager_MaxPagesCap(t *testing.T) {
 	p := NewDefaultPager()
 	result := p.Run(ctx, hooks, Options{Mode: ModeFull, StartPage: 1, MaxPages: 5})
 
-	if !result.AllSucceeded {
-		t.Fatalf("Expected AllSucceeded=true (clean stop at cap), got LastFailedPage=%d", result.LastFailedPage)
+	if result.AllSucceeded {
+		t.Fatalf("Expected AllSucceeded=false (cap stop = incomplete, resume from next page), got LastFailedPage=%d", result.LastFailedPage)
+	}
+	if result.LastFailedPage != 6 {
+		t.Fatalf("Expected LastFailedPage=6 (max_pages+1, resume point), got %d", result.LastFailedPage)
 	}
 	if pageIndex > 5 {
 		t.Fatalf("Expected stop at max 5 pages, got pageIndex=%d", pageIndex)

@@ -100,7 +100,11 @@ func (st *pageState) detectPages(hooks PageHooks, html string) {
 func (st *pageState) advance(hooks PageHooks) bool {
 	st.page++
 	if st.maxPages > 0 && st.page > st.maxPages {
-		slog.Info("Pager: reached max pages cap", "page", st.page-1, "max_pages", st.maxPages)
+		slog.Info("Pager: reached max pages cap (incomplete, will resume from next page)", "page", st.page-1, "max_pages", st.maxPages)
+		// max_pages 截断 ≠ 干净完成：记录续传点（下一页），下次启动从该页继续全量扫描。
+		// 若此处不记录，scrape 会判定 AllSucceeded=true → tracker MarkFullSucceeded →
+		// 下次启动进入增量模式从 page=1 扫 → 已登记页全已知立即停止 → 新增页永远扫不到。
+		st.firstFailedPage = st.maxPages + 1
 		return false
 	}
 	if st.detectedPages > 0 && st.page > st.detectedPages {
