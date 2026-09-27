@@ -20,7 +20,8 @@ import (
 )
 
 func Scrape(url string, cookie string) (body string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 30s 与 scraper_get 默认超时对齐（旧 5s 对 301+大页面/慢链路过短）。
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, config.GetServerConfig().ScraperPath, url)
 	if cookie != "" {
