@@ -330,12 +330,18 @@ func redactProxyURL(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-	parsed, err := url.Parse(rawURL)
+	// 兼容类型前缀（如 "gateway:http://..."）：先剥离前缀再脱敏，脱敏后回加。
+	kind, real := ParseProxyKind(rawURL)
+	parsed, err := url.Parse(real)
 	if err != nil {
 		return rawURL
 	}
 	parsed.User = nil
-	return parsed.String()
+	out := parsed.String()
+	if kind == ProxyKindGateway {
+		out = gatewayPrefix + out
+	}
+	return out
 }
 
 // logDownloadStart 在进度日志开头写入保存路径、代理、URL 信息。
