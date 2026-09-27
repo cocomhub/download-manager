@@ -499,10 +499,13 @@ func (s *Server) getGroupObjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Same-origin check: reject cross-origin requests before any SSE headers
 	// are written, unless no Origin header is present (curl/CLI clients).
+	// 兼容反向代理：允许 Origin.Host 与 r.Host 或标准反代头 X-Forwarded-Host 匹配
+	// （独立 UI cmd / nginx 均设置该头；无反代时为空，逻辑与原来一致）。
 	origin := r.Header.Get("Origin")
 	if origin != "" {
+		fwdHost := r.Header.Get("X-Forwarded-Host")
 		oh, err := url.Parse(origin)
-		if err != nil || oh.Host != r.Host {
+		if err != nil || (oh.Host != r.Host && oh.Host != fwdHost) {
 			writeJSONError(w, http.StatusForbidden, "forbidden", "cross-origin denied")
 			return
 		}
