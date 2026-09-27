@@ -17,18 +17,29 @@ import (
 
 	"github.com/cocomhub/download-manager/downloader"
 	"github.com/cocomhub/download-manager/pkg/download"
-	"github.com/cocomhub/download-manager/pkg/scraper_tunnel"
 )
 
 var (
-	downloadURL  = flag.String("url", "", "URL to download")
-	tunnelURL    = flag.String("tunnel", "", "Tunnel URL（默认空，需运行时传入）")
-	proxyURL     = flag.String("proxy", "", "Proxy URL（默认空；无前缀=标准代理，gateway:=旧网关式）")
-	tunnelSecret = flag.String("tunnel_key", "", "Tunnel key（默认空，需运行时传入）")
-	cookie       = flag.String("cookie", "", "Cookie string")
-	timeoutSecs  = flag.Int("timeout", 30, "HTTP timeout in seconds")
-	verbose      = flag.Bool("v", false, "verbose diagnostics to stderr")
+	downloadURL = flag.String("url", "", "URL to download")
+	proxyURL    = flag.String("x", "", "Proxy URL（curl 风格；无前缀=标准代理，gateway:=旧网关式）")
+	cookie      = flag.String("cookie", "", "Cookie string")
+	timeoutSecs = flag.Int("timeout", 30, "HTTP timeout in seconds")
+	verbose     = flag.Bool("v", false, "verbose diagnostics to stderr")
 )
+
+func init() {
+	// --proxy 长名别名（对齐 curl -x/--proxy）。
+	flag.Var(proxyValue{proxyURL}, "proxy", "Proxy URL（-x 别名）")
+}
+
+// proxyValue 把 flag.Value 绑定到同一个 proxyURL 指针（-x 与 --proxy 共用）。
+type proxyValue struct{ target *string }
+
+func (v proxyValue) String() string { return *v.target }
+func (v proxyValue) Set(s string) error {
+	*v.target = s
+	return nil
+}
 
 // browserHeaders 是抓取请求的浏览器化头（对齐 Chrome 145，Cloudflare 风控放行）。
 func browserHeaders(cookie string) map[string]string {
@@ -54,11 +65,9 @@ func browserHeaders(cookie string) map[string]string {
 
 // scraperConfig 是抓取配置（测试可注入）。
 type scraperConfig struct {
-	proxyURL  string // 代理 URL（可带 gateway: 前缀）
-	tunnelURL string
-	tunnelKey string
-	timeout   int // 秒
-	verbose   bool
+	proxyURL string // 代理 URL（可带 gateway: 前缀；对应 sclient http-proxy）
+	timeout  int    // 秒
+	verbose  bool
 }
 
 // scraper 是一次抓取的执行器。
@@ -94,7 +103,7 @@ func newScraper(cfg scraperConfig) *scraper {
 	}
 }
 
-// fetch 抓取 URL：直连优先，失败后走代理（标准或网关式），tunnel 配置时走隧道。
+// fetch 抓取 URL：直连优先，失败后走代理（标准或网关式；代理对应 sclient http-proxy）。
 func (s *scraper) fetch(rawURL string) (string, error) {
 	kind, rawProxy := download.ParseProxyKind(s.cfg.proxyURL)
 
@@ -131,28 +140,6 @@ func (s *scraper) fetch(rawURL string) (string, error) {
 			// 标准代理已在 client 上；直连失败即代理失败（同一 client）。
 			return "", err
 		}
-	}
-
-	// 3. tunnel 模式（sproxy 加密隧道）。
-	if s.cfg.tunnelURL != "" && !strings.Contains(rawURL, "hanime1") {
-		header := make(map[string]string)
-		for k, v := range s.headers {
-			header[k] = v
-		}
-		body, terr := tunnel.TunnelRequest(&tunnel.SclientConfig{
-			ServerURL:        s.cfg.tunnelURL,
-			UploadEndpoint:   "/upload",
-			DownloadEndpoint: "/download",
-			DeleteEndpoint:   "/delete",
-			CheckMD5:         false,
-			Timeout:          s.cfg.timeout,
-			TunnelKey:        s.cfg.tunnelKey,
-			TunnelEndpoint:   "/tunnel",
-		}, "GET", rawURL, header, "", false, false)
-		if terr == nil {
-			return body, nil
-		}
-		return "", terr
 	}
 
 	return "", err
@@ -197,11 +184,9 @@ func main() {
 	}
 
 	cfg := scraperConfig{
-		proxyURL:  *proxyURL,
-		tunnelURL: *tunnelURL,
-		tunnelKey: *tunnelSecret,
-		timeout:   *timeoutSecs,
-		verbose:   *verbose,
+		proxyURL: *proxyURL,
+		timeout:  *timeoutSecs,
+		verbose:  *verbose,
 	}
 	s := newScraper(cfg)
 	s.headers = browserHeaders(*cookie)
