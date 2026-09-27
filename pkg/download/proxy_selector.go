@@ -334,7 +334,9 @@ func getProxyBandwidth(ctx context.Context, proxyURL, suffix string, timeoutSecs
 	if !strings.HasPrefix(suffix, "/") {
 		suffix = "/" + suffix
 	}
-	target := fmt.Sprintf("%s%s", strings.TrimRight(proxyURL, "/"), suffix)
+	// 兼容类型前缀（如 "gateway:http://..."）：剥前缀后探测真实 URL。
+	_, real := ParseProxyKind(proxyURL)
+	target := fmt.Sprintf("%s%s", strings.TrimRight(real, "/"), suffix)
 	if timeoutSecs <= 0 {
 		timeoutSecs = 3
 	}

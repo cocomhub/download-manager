@@ -235,11 +235,23 @@ func buildWgetArgs(url, savePath, proxyURL string, headers map[string]string) []
 	}
 
 	effectiveURL := url
-	if proxyURL != "" {
-		effectiveURL = strings.TrimPrefix(url, "http://")
-		effectiveURL = strings.TrimPrefix(effectiveURL, "https://")
-		effectiveURL = proxyURL + "/" + effectiveURL
-		slog.Info("Using proxy", logutil.LogKeyURL, effectiveURL, "proxy", proxyURL)
+	kind, rawProxy := download.ParseProxyKind(proxyURL)
+	if rawProxy != "" {
+		switch kind {
+		case download.ProxyKindGateway:
+			// 网关式（旧行为）：把目标域名拼进代理 URL 路径。
+			effectiveURL = strings.TrimPrefix(url, "http://")
+			effectiveURL = strings.TrimPrefix(effectiveURL, "https://")
+			effectiveURL = rawProxy + "/" + effectiveURL
+		default:
+			// 标准代理（默认）：wget -e use_proxy=yes -e http_proxy=<proxy>，URL 原样。
+			args = append(args,
+				"-e", "use_proxy=yes",
+				"-e", "http_proxy="+rawProxy,
+				"-e", "https_proxy="+rawProxy,
+			)
+		}
+		slog.Info("Using proxy", "kind", kind.String(), logutil.LogKeyURL, effectiveURL, "proxy", rawProxy)
 	} else {
 		slog.Debug("Using direct connection", logutil.LogKeyURL, url)
 	}

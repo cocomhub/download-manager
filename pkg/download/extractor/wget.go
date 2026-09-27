@@ -228,25 +228,37 @@ func (e *WgetExtractor) buildWgetArgs(req *download.Request, proxyURL string) []
 	}
 
 	targetURL := req.URL
-	if proxyURL != "" {
-		// 使用 url.URL 安全拼接代理 URL，避免字符串操作风险
-		u, err := url.Parse(req.URL)
-		if err != nil {
-			slog.Warn("Failed to parse URL for proxy, fallback to raw", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
-			targetURL = proxyURL + "/" + req.URL
-		} else {
-			proxy, err := url.Parse(proxyURL)
+	kind, rawProxy := download.ParseProxyKind(proxyURL)
+	if rawProxy != "" {
+		switch kind {
+		case download.ProxyKindGateway:
+			// 网关式（旧行为）：把目标域名拼进代理 URL 路径。
+			u, err := url.Parse(req.URL)
 			if err != nil {
-				slog.Warn("Failed to parse proxy URL, fallback to raw", "proxy", proxyURL, logutil.LogKeyError, err)
-				targetURL = proxyURL + "/" + req.URL
+				slog.Warn("Failed to parse URL for proxy, fallback to raw", logutil.LogKeyURL, req.URL, logutil.LogKeyError, err)
+				targetURL = rawProxy + "/" + req.URL
 			} else {
-				p := *proxy
-				p.Path = proxy.Path + "/" + u.Host + u.Path
-				p.RawQuery = u.RawQuery
-				targetURL = p.String()
+				proxy, err := url.Parse(rawProxy)
+				if err != nil {
+					slog.Warn("Failed to parse proxy URL, fallback to raw", "proxy", rawProxy, logutil.LogKeyError, err)
+					targetURL = rawProxy + "/" + req.URL
+				} else {
+					p := *proxy
+					p.Path = proxy.Path + "/" + u.Host + u.Path
+					p.RawQuery = u.RawQuery
+					targetURL = p.String()
+				}
 			}
+		default:
+			// 标准代理（默认）：wget -e use_proxy=yes -e http_proxy=<proxy>，URL 原样。
+			// wget 自动对 http 目标发绝对 URI、对 https 目标走 CONNECT（TLS 端到端）。
+			args = append(args,
+				"-e", "use_proxy=yes",
+				"-e", "http_proxy="+rawProxy,
+				"-e", "https_proxy="+rawProxy,
+			)
 		}
-		slog.Info("Using proxy", logutil.LogKeyURL, targetURL, "proxy", proxyURL)
+		slog.Info("Using proxy", "kind", kind.String(), logutil.LogKeyURL, targetURL, "proxy", rawProxy)
 	}
 
 	args = append(args, "-O", req.SavePath, targetURL)
