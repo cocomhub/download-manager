@@ -140,6 +140,11 @@ func (e *CompositeExtractor) processFile(ctx context.Context, dl *download.Downl
 		Hint:          req.Hint,
 		Result:        &download.DownloadResult{},
 	}
+	// 防盗链：files 条目的 referer（详情页 URL）加入子请求头。
+	// 实测 surrit.com m3u8 无 Referer → 403；带 Referer → 200。
+	if ref := fileMap["referer"]; ref != "" {
+		subReq.Headers["Referer"] = ref
+	}
 
 	if err := dl.Download(ctx, subReq); err != nil {
 		return fmt.Errorf("composite: sub-download failed (%s): %w", subURL, err)
