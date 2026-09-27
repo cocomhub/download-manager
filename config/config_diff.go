@@ -216,6 +216,9 @@ func diffHTTPFields(c, b Config) []Change {
 	if c.Downloader.HTTP.DefaultUserAgent != b.Downloader.HTTP.DefaultUserAgent {
 		changes = append(changes, Change{Path: "downloader.http.default_user_agent", A: c.Downloader.HTTP.DefaultUserAgent, B: b.Downloader.HTTP.DefaultUserAgent})
 	}
+	if !reflect.DeepEqual(c.Downloader.HTTP.Md5SkipPatterns, b.Downloader.HTTP.Md5SkipPatterns) {
+		changes = append(changes, Change{Path: "downloader.http.md5_skip_patterns", A: c.Downloader.HTTP.Md5SkipPatterns, B: b.Downloader.HTTP.Md5SkipPatterns})
+	}
 	if c.Downloader.HTTP.DisableInjectBrowserLikeHeaders != b.Downloader.HTTP.DisableInjectBrowserLikeHeaders {
 		changes = append(changes, Change{Path: "downloader.http.disable_inject_browser_like_headers", A: c.Downloader.HTTP.DisableInjectBrowserLikeHeaders, B: b.Downloader.HTTP.DisableInjectBrowserLikeHeaders})
 	}

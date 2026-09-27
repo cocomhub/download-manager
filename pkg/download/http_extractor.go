@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +60,9 @@ type HTTPExtractor struct {
 	responseChecks []ResponseCheck
 	// RedactSensitiveHeaders 控制是否在日志中对敏感头脱敏。默认 true。
 	redactSensitiveHeaders bool
+	// md5SkipPatterns 是跳过 MD5 校验的 URL 正则白名单。
+	// 用于源站返回错误 Content-MD5/ETag（与内容不符，如 fourhoi）时避免无限重试。
+	md5SkipPatterns []*regexp.Regexp
 	// followSymlinks 控制是否解析符号链接。默认 true（安全检查）。
 	// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
 	// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
@@ -82,6 +86,21 @@ func (e *HTTPExtractor) SetBrowserHeaders(v bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.browserHdrs = v
+}
+
+// SetMd5SkipPatterns 设置跳过 MD5 校验的 URL 正则白名单。
+// 任一 pattern 匹配请求 URL 时，checkFileMD5 直接跳过（接受文件，不重试）。
+// 用于源站 Content-MD5/ETag 错误（如 CDN 图床 multipart 上传 ETag ≠ 文件 MD5）。
+func (e *HTTPExtractor) SetMd5SkipPatterns(patterns []string) {
+	var compiled []*regexp.Regexp
+	for _, p := range patterns {
+		if re, err := regexp.Compile(p); err == nil {
+			compiled = append(compiled, re)
+		}
+	}
+	e.mu.Lock()
+	e.md5SkipPatterns = compiled
+	e.mu.Unlock()
 }
 
 // AddResponseCheck 注册一个响应校验函数，在每次下载拿到响应后执行。
@@ -277,10 +296,13 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 	req.Result.StatusCode = tresp.StatusCode
 	req.Result.ContentLength = totalSize
 
-	if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
-		return false, err
-	} else if restart {
-		return false, nil
+	// MD5 白名单：URL 匹配任一 pattern → 跳过校验（上游 Content-MD5 错误时避免无限重试）。
+	if !e.matchMd5Skip(req.URL) {
+		if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
+			return false, err
+		} else if restart {
+			return false, nil
+		}
 	}
 
 	saveETagAndModTime(tresp, req, rPath)
@@ -549,6 +571,19 @@ func buildProgressReader(body io.Reader, startOffset, totalSize int64, req *Requ
 		)
 	}
 	return NewProgressReader(body, startOffset, totalSize, onProgress)
+}
+
+// matchMd5Skip 判断请求 URL 是否命中 MD5 校验白名单。
+func (e *HTTPExtractor) matchMd5Skip(rawURL string) bool {
+	if len(e.md5SkipPatterns) == 0 {
+		return false
+	}
+	for _, re := range e.md5SkipPatterns {
+		if re.MatchString(rawURL) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkFileMD5 验证下载文件的 MD5 校验和。返回 restart=true 表示需要重新下载。

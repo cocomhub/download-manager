@@ -64,6 +64,9 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	if len(cfg.Filesystem.AllowPaths) > 0 {
 		httpEx.SetAllowPaths(cfg.Filesystem.AllowPaths)
 	}
+	if len(cfg.HTTP.Md5SkipPatterns) > 0 {
+		httpEx.SetMd5SkipPatterns(cfg.HTTP.Md5SkipPatterns)
+	}
 	if cfg.Filesystem.FollowSymlinks != nil {
 		httpEx.SetFollowSymlinks(*cfg.Filesystem.FollowSymlinks)
 	}
