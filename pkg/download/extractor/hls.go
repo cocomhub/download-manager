@@ -49,11 +49,12 @@ type HLSExtractor struct {
 	active        sync.Map // map[string]context.CancelFunc
 }
 
-// defaultFFmpegArgs 转封装默认参数：单 pass 流式 mux（低内存）。
-// 不用 -movflags +faststart：faststart 需把 moov 缓存在内存直到结尾，1.4GB 视频可吃 ~800MB。
-// 去掉后 ffmpeg 边读分片边写 mp4，内存恒定 ~150MB（moov 在文件尾部，本地播放器无碍）。
+// defaultFFmpegArgs 转封装默认参数：fragmented MP4（fMP4）流式 mux（低内存 + 网页即时播放）。
+// 用 -movflags frag_keyframe+empty_moov+default_base_moof 替代 +faststart：
+//   - faststart：moov 缓存在内存直到结尾（1.4GB 视频可吃 ~800MB），且 moov 需二次写
+//   - fMP4：moov 头部（空）+ moof/mdat 分段流式写 → 内存恒定 ~150MB，网页即时播放（Chrome/Safari 原生）
 // -max_muxing_queue_size 限制 muxer 队列深度，防包排队内存膨胀。
-var defaultFFmpegArgs = []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-max_muxing_queue_size", "2048", "-f", "mp4"}
+var defaultFFmpegArgs = []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-max_muxing_queue_size", "2048", "-f", "mp4"}
 
 // NewHLSExtractor 创建 HLSExtractor。
 func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
