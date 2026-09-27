@@ -78,12 +78,13 @@ type DcFilesystem struct {
 }
 
 type DcHTTP struct {
-	TimeoutSeconds                  int    `yaml:"timeout_seconds" json:"timeout_seconds"`
-	IdleConnTimeoutSeconds          int    `yaml:"idle_conn_timeout_seconds" json:"idle_conn_timeout_seconds"`
-	MaxIdleConns                    int    `yaml:"max_idle_conns" json:"max_idle_conns"`
-	MaxIdleConnsPerHost             int    `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
-	DefaultUserAgent                string `yaml:"default_user_agent" json:"default_user_agent"`
-	DisableInjectBrowserLikeHeaders bool   `yaml:"disable_inject_browser_like_headers" json:"disable_inject_browser_like_headers"`
+	TimeoutSeconds                  int      `yaml:"timeout_seconds" json:"timeout_seconds"`
+	IdleConnTimeoutSeconds          int      `yaml:"idle_conn_timeout_seconds" json:"idle_conn_timeout_seconds"`
+	MaxIdleConns                    int      `yaml:"max_idle_conns" json:"max_idle_conns"`
+	MaxIdleConnsPerHost             int      `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
+	DefaultUserAgent                string   `yaml:"default_user_agent" json:"default_user_agent"`
+	DisableInjectBrowserLikeHeaders bool     `yaml:"disable_inject_browser_like_headers" json:"disable_inject_browser_like_headers"`
+	Md5SkipPatterns                 []string `yaml:"md5_skip_patterns" json:"md5_skip_patterns"` // 跳过 MD5 校验的 URL 正则白名单（源站 Content-MD5 错误时）
 }
 
 type DcProxy struct {
@@ -315,7 +316,8 @@ func isFSConfigured(fs DcFilesystem) bool {
 func isHTTPConfigured(h DcHTTP) bool {
 	return h.TimeoutSeconds != 0 || h.IdleConnTimeoutSeconds != 0 ||
 		h.MaxIdleConns != 0 || h.MaxIdleConnsPerHost != 0 ||
-		h.DefaultUserAgent != "" || h.DisableInjectBrowserLikeHeaders
+		h.DefaultUserAgent != "" || h.DisableInjectBrowserLikeHeaders ||
+		len(h.Md5SkipPatterns) > 0
 }
 
 func isProxyConfigured(p DcProxy) bool {
