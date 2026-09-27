@@ -49,12 +49,18 @@ type HLSExtractor struct {
 	active        sync.Map // map[string]context.CancelFunc
 }
 
+// defaultFFmpegArgs 转封装默认参数：单 pass 流式 mux（低内存）。
+// 不用 -movflags +faststart：faststart 需把 moov 缓存在内存直到结尾，1.4GB 视频可吃 ~800MB。
+// 去掉后 ffmpeg 边读分片边写 mp4，内存恒定 ~150MB（moov 在文件尾部，本地播放器无碍）。
+// -max_muxing_queue_size 限制 muxer 队列深度，防包排队内存膨胀。
+var defaultFFmpegArgs = []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-max_muxing_queue_size", "2048", "-f", "mp4"}
+
 // NewHLSExtractor 创建 HLSExtractor。
 func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
 	e := &HLSExtractor{
 		mode:          HLSModeFFmpeg,
 		ffmpegPath:    "ffmpeg",
-		ffmpegArgs:    []string{"-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-f", "mp4"},
+		ffmpegArgs:    append([]string(nil), defaultFFmpegArgs...),
 		ffmpegTimeout: 5 * time.Minute,
 		userAgent:     DefaultWgetUserAgent,
 	}
@@ -302,7 +308,7 @@ func reportHLSDownloadResult(rPath string, req *download.Request) {
 
 // downloadWithM3U8D 使用纯 Go 的 M3U8DEngine 下载 HLS（无需 ffmpeg）。
 // 流程：M3U8DEngine 解析主/子 m3u8 → 并发下载分片（grab）。
-// 产出：有 ffmpeg 时转封装为标准 mp4（-c copy -bsf:a aac_adtstoasc -movflags +faststart）；
+// 产出：有 ffmpeg 时转封装为标准 mp4（单 pass 流式，见 defaultFFmpegArgs）；
 // 无 ffmpeg 时回退按 m3u8 顺序拼接 .ts（兼容降级）。
 func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Request) error {
 	if err := validateHLSParams(req); err != nil {
