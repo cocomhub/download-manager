@@ -297,7 +297,14 @@ func (s *StaticProxySelector) proxyAvailable() []string {
 	return available
 }
 
+// DefaultUserAgent 是直连/代理探测使用的浏览器 UA（Cloudflare 风控放行标准）。
+// 与 config.defaultUserAgent 保持一致；探测请求必须带它，否则 CF 返回 403。
+var DefaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+
 // checkDirect 检测是否可直接访问目标 URL。返回 true 表示可直连。
+// 请求必须带浏览器 UA：Cloudflare 等风控站点对无 UA / Go-http-client UA 的请求
+// 返回 403 challenge，会导致直连误判失败 → 走代理 → 代理出口 IP 又被 challenge
+// → 请求悬挂/失败（用户实测 njavtv：HEAD 无 UA 403，GET 带浏览器 UA 200）。
 func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	if timeoutSecs <= 0 {
 		timeoutSecs = 3
@@ -307,6 +314,7 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 	if err != nil {
 		return false
 	}
+	req.Header.Set("User-Agent", DefaultUserAgent)
 	resp, err := client.Do(req)
 	if err == nil {
 		resp.Body.Close()
@@ -318,6 +326,7 @@ func checkDirect(ctx context.Context, targetURL string, timeoutSecs int) bool {
 		return false
 	}
 	getReq.Header.Set("Range", "bytes=0-0")
+	getReq.Header.Set("User-Agent", DefaultUserAgent)
 	resp, err = client.Do(getReq)
 	if err != nil {
 		return false

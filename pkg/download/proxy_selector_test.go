@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -164,5 +166,30 @@ func TestStaticProxySelectorFailover(t *testing.T) {
 	p, err = s.Select(t.Context(), "http://example.com/file", nil)
 	if err != nil || p != proxyB.URL {
 		t.Fatalf("expected B selected after A cooldown, got %q err=%v", p, err)
+	}
+}
+
+// TestCheckDirect_UsesBrowserUA 验证直连探测带浏览器 UA（CF 等站点对无 UA 请求返回 403，
+// 会导致直连误判失败 → 走代理 → 代理 IP 又被 CF challenge → 悬挂）。
+func TestCheckDirect_UsesBrowserUA(t *testing.T) {
+	t.Parallel()
+	var gotUA atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA.Store(r.Header.Get("User-Agent"))
+		// 模拟 CF：无 UA 或默认 Go UA 返回 403，浏览器 UA 返回 200。
+		ua := r.Header.Get("User-Agent")
+		if ua == "" || strings.HasPrefix(ua, "Go-http-client") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if !checkDirect(t.Context(), srv.URL, 2) {
+		t.Fatal("checkDirect 应返回 true（带浏览器 UA 的请求被放行）")
+	}
+	if ua, _ := gotUA.Load().(string); ua == "" || strings.HasPrefix(ua, "Go-http-client") {
+		t.Fatalf("checkDirect 未带浏览器 UA: %q", ua)
 	}
 }
