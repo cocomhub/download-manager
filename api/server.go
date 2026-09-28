@@ -19,7 +19,14 @@ import (
 // Server wraps a manager.Manager and exposes HTTP API routes.
 type Server struct {
 	mgr *manager.Manager
+	// filesAllowSymlink 允许 /files/ 服务解析符号链接逃逸 root（macOS 系统
+	// symlink 如 /tmp→/private/tmp 场景）。默认 false = 保持逃逸防护。
+	filesAllowSymlink bool
 }
+
+// SetFilesAllowSymlink 设置 /files/ 服务是否放行符号链接逃逸。
+// 默认 false（防护开启）；mac 等系统 symlink 导致合法文件 403 时置 true。
+func (s *Server) SetFilesAllowSymlink(v bool) { s.filesAllowSymlink = v }
 
 // NewServer creates a new API server wrapping the given manager.
 func NewServer(mgr *manager.Manager) *Server {
