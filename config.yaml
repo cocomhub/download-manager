@@ -6,7 +6,6 @@ server:
   ui_only_port: 8091
   work_dir: ./build/test
   lock_file: ./build/test/download-manager.lock
-  scraper_path: ./build/bin/scraper_get
   ui_defaults:
     default_save_dir: ./downloads
     window_width: 1200
@@ -95,29 +94,13 @@ tasks:
     extra:
       urls:
         - https://www.bing.com/robots.txt
-  - id: task-vikacg-001
-    type: vikacg
-    save_dir: ./build/test/downloads/vikacg
+  - id: task-booksite-001
+    type: booksite
+    save_dir: ./build/test/downloads/booksite
     storage:
       type: file
       config:
-        path: ./build/test/downloads/vikacg/status.json
+        path: ./build/test/downloads/booksite/status.json
         save_interval: "2"
     extra:
-      max_concurrent: 2
-      urls:
-        - https://www.vikacg.com/p/511657
-  - id: task-hanime-001
-    type: hanime
-    save_dir: ./build/test/downloads/hanime
-    storage:
-      type: file
-      config:
-        path: ./build/test/downloads/hanime/status.json
-        save_interval: "2"
-    extra:
-      keyword: 裏番
       max_concurrent: 1
-      refresh_interval: 3600
-      path_strategy: first_fixed
-      save_dir_add_keyword: false

@@ -21,12 +21,8 @@ import (
 	"github.com/cocomhub/download-manager/manager"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/storage"
-	_ "github.com/cocomhub/download-manager/task/hanime"
-	_ "github.com/cocomhub/download-manager/task/hanime/ui"
 	_ "github.com/cocomhub/download-manager/task/urllist"
 	_ "github.com/cocomhub/download-manager/task/urllist/ui"
-	_ "github.com/cocomhub/download-manager/task/vikacg"
-	_ "github.com/cocomhub/download-manager/task/vikacg/ui"
 	"github.com/gofrs/flock"
 )
 

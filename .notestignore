@@ -6,10 +6,7 @@
 
 # go:embed 静态资源包（TaskUI 插件资产，无 Go 逻辑）
 task/TEMPLATE/ui
-task/hanime/ui
-task/tktube/ui
 task/urllist/ui
-task/vikacg/ui
 
 # 独立 go.mod 子模块（Playwright 测试服务端，走 node 侧测试体系）
 cmd/playwright-server

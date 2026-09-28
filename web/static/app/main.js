@@ -967,7 +967,7 @@
         body.style.cssText = 'flex:1;overflow-y:auto;padding:16px'
         // 图片预览：当对象是图片类时内嵌大图（支持全屏按钮）
         var imgUrl = UiHelpers.getImageUrl ? UiHelpers.getImageUrl(obj) : ''
-        if (!imgUrl) imgUrl = UiHelpers.getCoverImage(obj) || ''
+        if (!imgUrl) imgUrl = this.getCoverImage(obj) || ''
         if (imgUrl && !UiVideoPlayer.isVideo(obj)) {
           var imgWrap = document.createElement('div')
           imgWrap.style.cssText = 'text-align:center;margin-bottom:12px'

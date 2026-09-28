@@ -12,9 +12,9 @@
   - ui：仅提供管理界面与只读浏览场景
 - 任务类型
   - url_list：通用 URL 列表下载
-  - tktube：分页抓取、详情解析、内容分组、优先级淘汰
-  - hanime：分页抓取、Cookie 请求头、HLS 下载链路
-  - vikacg：页面/用户帖子抓取、图片资源组织、增量刷新
+  - booksite：模板验证站点（xkcd 漫画站，PagingScanner + SiteAdapter 参考实现）
+  - mock：测试用模拟任务（fixture/Playwright e2e）
+  - 其余站点任务（tktube/hanime/vikacg/njavtv/mxs）已外迁至 **sdserver**（`github.com/cocomhub/sdserver`）
 - 下载执行
   - 支持原生 HTTP 下载与 wget 下载器切换
   - 支持域名限流、进度回调、取消、重试、复合文件下载

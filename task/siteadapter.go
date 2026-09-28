@@ -8,7 +8,7 @@ import "github.com/cocomhub/download-manager/model"
 // SiteAdapter defines the site-specific pagination scraping and object building
 // behaviors needed by PagingScanner.
 //
-// Each task type (tktube/hanime/vikacg) provides its own implementation,
+// Each task type (e.g. sdserver tktube/hanime/vikacg) provides its own implementation,
 // bridging existing internal methods to this interface without requiring
 // those methods to be exported or restructured.
 type SiteAdapter interface {
@@ -18,7 +18,7 @@ type SiteAdapter interface {
 	BuildPageURL(page int) string
 
 	// RunScraper fetches page content (HTML or JSON) from the given URL.
-	// For API-based tasks (e.g. vikacg POST), this method encodes the
+	// For API-based tasks (e.g. sdserver vikacg POST), this method encodes the
 	// page number into the URL string and decodes it here.
 	RunScraper(url string) (string, error)
 

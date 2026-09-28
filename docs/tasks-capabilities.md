@@ -14,25 +14,14 @@
     - 缓存：JSON（Load/SaveCache）
     - 路径策略：无（图片按对象 SavePath 组织）
     - 自定义头：User-Agent
-  - tktube
-    - 分页：PagingScanner + SiteAdapter
-    - 刷新：PagingScanner 增量抓取
-    - 缓存：JSON（Load/SaveCache）
-    - 路径策略：支持（字段 pathStrategy），工厂可注入
-    - 内容分组：根据标题提取内容组名，写入对象 Metadata.content_group（示例：CLUB-100、CLUB-100C、【高画质】CLUB-100* 均归为 CLUB-100）
+  - url_list
+    - 无分页/爬取（URL 固定，直接下载）
+    - 无详情解析（ResolveObject 空实现）
     - 自定义头：无
-  - vikacg
-    - 分页：用户帖子 API 分页（内部实现）
-    - 刷新：PagingScanner 增量抓取（按 user_id>0 启用）
-    - 缓存：JSON（Load/SaveCache）
-    - 路径策略：无（图片按对象 SavePath 组织）
-    - 自定义头：Cookie/User-Agent
-  - hanime
-    - 分页：PagingScanner + SiteAdapter
-    - 刷新：PagingScanner 增量抓取
-    - 缓存：JSON（Load/SaveCache）
-    - 路径策略：支持（字段 pathStrategy），工厂可注入
-    - 自定义头：Cookie
+  - mock
+    - 测试用：按 mock_rules 生成对象（fixture/Playwright e2e）
+    - 自定义头：无
+  - 站点任务（tktube / hanime / vikacg / njavtv / mxs）已外迁 **sdserver**，见 `github.com/cocomhub/sdserver/docs/deployment-guide.md`
 
 - 聚合与事件
   - 聚合：manager.AggregateObjects（分页、筛选、排序、搜索）

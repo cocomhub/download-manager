@@ -71,20 +71,11 @@ func diffServerFields(c, b Config) []Change {
 	if c.Server.LockFile != b.Server.LockFile {
 		changes = append(changes, Change{Path: "server.lock_file", A: c.Server.LockFile, B: b.Server.LockFile})
 	}
-	if c.Server.ScraperPath != b.Server.ScraperPath {
-		changes = append(changes, Change{Path: "server.scraper_path", A: c.Server.ScraperPath, B: b.Server.ScraperPath})
-	}
 	if c.Server.DownloadRootDir != b.Server.DownloadRootDir {
 		changes = append(changes, Change{Path: "server.download_root_dir", A: c.Server.DownloadRootDir, B: b.Server.DownloadRootDir})
 	}
 	if c.Server.FilesDir != b.Server.FilesDir {
 		changes = append(changes, Change{Path: "server.files_dir", A: c.Server.FilesDir, B: b.Server.FilesDir})
-	}
-	if c.Server.ScraperURL != b.Server.ScraperURL {
-		changes = append(changes, Change{Path: "server.scraper_url", A: c.Server.ScraperURL, B: b.Server.ScraperURL})
-	}
-	if c.Server.ScraperTunnelKey != b.Server.ScraperTunnelKey {
-		changes = append(changes, Change{Path: "server.scraper_tunnel_key", A: c.Server.ScraperTunnelKey, B: b.Server.ScraperTunnelKey})
 	}
 	if c.Server.Auth.Type != b.Server.Auth.Type {
 		changes = append(changes, Change{Path: "server.auth.type", A: c.Server.Auth.Type, B: b.Server.Auth.Type})
