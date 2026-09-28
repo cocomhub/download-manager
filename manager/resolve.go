@@ -39,6 +39,10 @@ func (m *Manager) StopResolveWorkers() {
 
 // enqueueResolve 将需要 resolve 的对象放入队列。
 func (m *Manager) enqueueResolve(taskID string, obj *model.DownloadObject) {
+	// 排空模式：不再发起新的 resolve（在途下载的 re-resolve 由 download() 内直接执行）。
+	if m.drainMode.Load() {
+		return
+	}
 	select {
 	case m.resolveQueue <- resolveRequest{taskID: taskID, obj: obj}:
 	default:

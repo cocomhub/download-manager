@@ -38,6 +38,15 @@ func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
 
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	start := time.Now()
+	// 登记为「真正在途」：排空退出只等待这些对象，不等待排队项。
+	m.inflight.Store(obj.URL, struct{}{})
+	defer func() {
+		m.inflight.Delete(obj.URL)
+		// 若已触发排空退出且这是最后一个在途对象，关闭 drainDone 通知 main 可退出。
+		if m.drainMode.Load() && !m.hasInflight() {
+			m.notifyDrainDone()
+		}
+	}()
 	defer m.cleanupAfterDownload(t, obj)
 
 	// Check if manager is stopping — avoids overwriting status set by Stop()
@@ -348,6 +357,10 @@ func (m *Manager) soTrackerForObj(url string) *objectTracker {
 
 // forceDownload bypasses the queue and runs immediately
 func (m *Manager) forceDownload(t core.Task, obj *model.DownloadObject) {
+	// 排空模式：不再发起新的强制下载。
+	if m.drainMode.Load() {
+		return
+	}
 	if _, loaded := m.downloadingObj.LoadOrStore(obj.URL, obj); loaded {
 		return // Already downloading
 	}
@@ -388,4 +401,24 @@ func (m *Manager) RetryObject(taskID, url string) error {
 // RetryAllFailed resets all failed objects in a task（委托 ObjectController）。
 func (m *Manager) RetryAllFailed(taskID string) error {
 	return m.objectCtrl.RetryAllFailed(taskID)
+}
+
+// hasInflight 报告是否有仍在执行的 download 对象。
+func (m *Manager) hasInflight() bool {
+	empty := true
+	m.inflight.Range(func(_, _ any) bool {
+		empty = false
+		return false
+	})
+	return !empty
+}
+
+// countInflight 返回当前在途下载数。
+func (m *Manager) countInflight() int {
+	n := 0
+	m.inflight.Range(func(_, _ any) bool {
+		n++
+		return true
+	})
+	return n
 }

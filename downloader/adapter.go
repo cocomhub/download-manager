@@ -289,9 +289,7 @@ func (a *DownloaderAdapter) downloadComposite(ctx context.Context, obj *model.Do
 		subHeaders := headers
 		if ref := fileMap["referer"]; ref != "" {
 			subHeaders = make(map[string]string, len(headers)+1)
-			for k, v := range headers {
-				subHeaders[k] = v
-			}
+			maps.Copy(subHeaders, headers)
 			subHeaders["Referer"] = ref
 		}
 

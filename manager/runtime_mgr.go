@@ -19,6 +19,10 @@ func (m *Manager) worker() {
 	hbTicker := time.NewTicker(3 * time.Second)
 	defer hbTicker.Stop()
 	for {
+		// 排空模式：不再取新请求（当前正在 Download 的照常跑完）。
+		if m.drainMode.Load() {
+			return
+		}
 		select {
 		case req, ok := <-m.downloadQueue:
 			if !ok {

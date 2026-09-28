@@ -34,6 +34,10 @@ func (s *SchedulerService) Scan() {
 		return
 	}
 
+	if m.drainMode.Load() {
+		return
+	}
+
 	if m.currentCfg().TaskScan.Disable {
 		return
 	}
@@ -117,6 +121,11 @@ func (s *SchedulerService) Scan() {
 func (s *SchedulerService) processTask(t core.Task) {
 	m := s.m
 	defer m.processingTask.Delete(t.ID())
+
+	// 排空模式：不再入队新对象（正在下载的由 worker 自然跑完）。
+	if m.drainMode.Load() {
+		return
+	}
 
 	// Check if this task's download is disabled
 	taskCfg := m.findTaskConfig(t.ID())
@@ -324,6 +333,10 @@ func (s *SchedulerService) runScheduler() {
 			drainOnce()
 		case <-m.schedulerSignal:
 			m.schedulerHeartbeat.Store(time.Now())
+			// 排空模式：不再把任务队列项搬入全局下载队列。
+			if m.drainMode.Load() {
+				return
+			}
 			drainOnce()
 		}
 	}

@@ -68,11 +68,9 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 		Extra:    map[string]any{},
 	}
 	t1 := &tktubeLikeTask{
-		mockTask: mockTask{
-			id:   "t1",
-			typ:  "tktube",
-			objs: []*model.DownloadObject{o1, o2, o3},
-		},
+		id:   "t1",
+		typ:  "tktube",
+		objs: []*model.DownloadObject{o1, o2, o3},
 	}
 	m.tasks.Store("t1", t1)
 
