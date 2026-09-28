@@ -20,12 +20,13 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.mgr.GetConfig()
 	resp := map[string]any{
 		"server": map[string]any{
-			"http_port":         cfg.Server.HTTPPort,
-			"ui_only_port":      cfg.Server.UIOnlyPort,
-			"work_dir":          cfg.Server.WorkDir,
-			"download_root_dir": cfg.Server.DownloadRootDir,
-			"files_dir":         cfg.Server.FilesDir,
-			"auth":              authConfigView(cfg.Server.Auth),
+			"http_port":           cfg.Server.HTTPPort,
+			"ui_only_port":        cfg.Server.UIOnlyPort,
+			"work_dir":            cfg.Server.WorkDir,
+			"download_root_dir":   cfg.Server.DownloadRootDir,
+			"files_dir":           cfg.Server.FilesDir,
+			"files_allow_symlink": cfg.Server.FilesAllowSymlink,
+			"auth":                authConfigView(cfg.Server.Auth),
 		},
 		"task_scan":  cfg.TaskScan,
 		"downloader": cfg.Downloader,
@@ -57,12 +58,13 @@ func authConfigView(auth config.AuthConfig) map[string]any {
 // serverConfigUpdate 是 updateServerConfig 的 server 段请求体。
 // 只暴露可安全由 UI 修改的字段（不含 lock_file / scraper_tunnel_key 等敏感项）。
 type serverConfigUpdate struct {
-	HTTPPort        *int    `json:"http_port"`
-	UIOnlyPort      *int    `json:"ui_only_port"`
-	WorkDir         *string `json:"work_dir"`
-	DownloadRootDir *string `json:"download_root_dir"`
-	FilesDir        *string `json:"files_dir"`
-	Auth            *struct {
+	HTTPPort          *int    `json:"http_port"`
+	UIOnlyPort        *int    `json:"ui_only_port"`
+	WorkDir           *string `json:"work_dir"`
+	DownloadRootDir   *string `json:"download_root_dir"`
+	FilesDir          *string `json:"files_dir"`
+	FilesAllowSymlink *bool   `json:"files_allow_symlink"`
+	Auth              *struct {
 		Type     string `json:"type"`
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -123,6 +125,10 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	if req.Server.FilesDir != nil {
 		cc.Server.FilesDir = *req.Server.FilesDir
 	}
+	if req.Server.FilesAllowSymlink != nil {
+		cc.Server.FilesAllowSymlink = *req.Server.FilesAllowSymlink
+	}
+	s.SetFilesAllowSymlink(cc.Server.FilesAllowSymlink)
 	if req.Server.Auth != nil {
 		auth := &cc.Server.Auth
 		if req.Server.Auth.Type != "" {
