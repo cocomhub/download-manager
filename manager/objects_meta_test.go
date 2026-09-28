@@ -48,22 +48,24 @@ type metaTask struct {
 	st core.Storage
 }
 
-func (t *metaTask) ID() string                           { return t.id }
-func (t *metaTask) Type() string                         { return "meta" }
-func (t *metaTask) Logger() *slog.Logger                 { return slog.Default() }
-func (t *metaTask) Storage() core.Storage                { return t.st }
-func (t *metaTask) SetDownloader(dl core.Downloader)     {}
-func (t *metaTask) GetDownloadHeaders() map[string]string { return map[string]string{} }
+func (t *metaTask) ID() string                                           { return t.id }
+func (t *metaTask) Type() string                                         { return "meta" }
+func (t *metaTask) Logger() *slog.Logger                                 { return slog.Default() }
+func (t *metaTask) Storage() core.Storage                                { return t.st }
+func (t *metaTask) SetDownloader(dl core.Downloader)                     {}
+func (t *metaTask) GetDownloadHeaders() map[string]string                { return map[string]string{} }
 func (t *metaTask) GetDownloadObjects() ([]*model.DownloadObject, error) { return nil, nil }
-func (t *metaTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error { return nil }
+func (t *metaTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
+	return nil
+}
 func (t *metaTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error { return nil }
-func (t *metaTask) Close() error                                    { return nil }
-func (t *metaTask) GetAllObjects(lock bool) []*model.DownloadObject { return nil }
-func (t *metaTask) Start() error                                    { return nil }
-func (t *metaTask) Concurrency() int                                { return 1 }
-func (t *metaTask) SetConcurrency(c int) error                      { return nil }
-func (t *metaTask) RefreshInterval() int                            { return 0 }
-func (t *metaTask) SetRefreshInterval(i int) error                  { return nil }
+func (t *metaTask) Close() error                                                   { return nil }
+func (t *metaTask) GetAllObjects(lock bool) []*model.DownloadObject                { return nil }
+func (t *metaTask) Start() error                                                   { return nil }
+func (t *metaTask) Concurrency() int                                               { return 1 }
+func (t *metaTask) SetConcurrency(c int) error                                     { return nil }
+func (t *metaTask) RefreshInterval() int                                           { return 0 }
+func (t *metaTask) SetRefreshInterval(i int) error                                 { return nil }
 
 // TestGetTaskObjectsMeta_LightFilter 验证轻量查询使用 Light 投影 + content_group 过滤。
 func TestGetTaskObjectsMeta_LightFilter(t *testing.T) {

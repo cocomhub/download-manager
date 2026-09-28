@@ -5,9 +5,9 @@
 // 本文件由 scripts/new-task-type.sh 从 task/TEMPLATE/task.go.tmpl 生成。
 //
 // 接入路径（三件套）：
-//   1. task.go  — 注册工厂 + NewTask + 组装 PagingScanner + SiteAdapter
-//   2. adapter.go — 实现 task.SiteAdapter（分页生命周期 + 对象构建）
-//   3. ui/       — 前端 UI 插件（由脚手架生成）
+//  1. task.go  — 注册工厂 + NewTask + 组装 PagingScanner + SiteAdapter
+//  2. adapter.go — 实现 task.SiteAdapter（分页生命周期 + 对象构建）
+//  3. ui/       — 前端 UI 插件（由脚手架生成）
 package booksite
 
 import (

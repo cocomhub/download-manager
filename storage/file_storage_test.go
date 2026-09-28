@@ -263,7 +263,6 @@ func TestFileStorage_LoadFromExistingFile(t *testing.T) {
 	}
 }
 
-
 // TestFileStorage_LazyLoadReadsAfterConstruction 验证惰性加载：
 // 构造时文件不存在（启动零加载），写文件后首次访问能读到（旧实现构造时空加载 → Get 空）。
 func TestFileStorage_LazyLoadReadsAfterConstruction(t *testing.T) {

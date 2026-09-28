@@ -154,7 +154,7 @@ func TestAggregateByContent_FastPathMultiTaskOneCustom(t *testing.T) {
 		{TaskID: "t2", URL: "t2-a", Metadata: map[string]string{"content_group": "g2", "date": "2026-01-02", "task_type": "custom"}, Status: model.StatusCompleted},
 	}}
 	m.tasks.Store("t1", &fastPathTask{id: "t1", st: store1})
-	m.tasks.Store("t2", &customPickerTask{fastPathTask: fastPathTask{id: "t2", st: store2}})
+	m.tasks.Store("t2", &customPickerTask{id: "t2", st: store2})
 
 	res, err := m.AggregateByContent(1, 50, "", "", "", []string{"fastpath", "custom"})
 	if err != nil {
@@ -184,7 +184,7 @@ func TestAggregateByContent_NoFastPathWhenCustomPicker(t *testing.T) {
 		{TaskID: "t1", URL: "u1", Metadata: map[string]string{"content_group": "g1", "task_type": "custom"}, Status: model.StatusCompleted},
 	}}
 	// customTask 实现 ContentGroupProvider（自定义代表语义）
-	m.tasks.Store("t1", &customPickerTask{fastPathTask: fastPathTask{id: "t1", st: store}})
+	m.tasks.Store("t1", &customPickerTask{id: "t1", st: store})
 
 	if _, err := m.AggregateByContent(1, 50, "", "", "", []string{"custom"}); err != nil {
 		t.Fatalf("AggregateByContent: %v", err)
