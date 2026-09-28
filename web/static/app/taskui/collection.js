@@ -7,7 +7,7 @@
  *
  * Usage:
  *   var panel = CollectionPanel.create({
- *     type: 'hanime',
+ *     type: 'mock',
  *     currentId: 407014,
  *     onPlayItem: function (item) { ... }
  *   })

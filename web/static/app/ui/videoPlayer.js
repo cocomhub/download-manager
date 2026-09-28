@@ -233,7 +233,7 @@
 
   function switchToCollectionItem (state, item) {
     var type = state.currentVideo && state.currentVideo.metadata && state.currentVideo.metadata.task_type
-    if (!type) { type = 'hanime' }
+    if (!type) { type = '' }
     AppAPI.getObject(type, item.id).then(function (obj) {
       state.currentVideo = obj
     }).catch(function () {

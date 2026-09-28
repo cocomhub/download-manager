@@ -86,9 +86,9 @@ test.describe('UI-only Mode & Error Boundaries', () => {
     await page.waitForTimeout(500);
 
     // Switch between task types in the form — triggers renderForm switching
-    const typeSelect = page.locator('select').filter({ has: page.locator('option[value="url_list"]') });
+    const typeSelect = page.locator('select').filter({ has: page.locator('option[value="url_list"]') }).last();
     if (await typeSelect.isVisible()) {
-      await typeSelect.selectOption('tktube');
+      await typeSelect.selectOption('mock');
       await page.waitForTimeout(500);
       await typeSelect.selectOption('url_list');
       await page.waitForTimeout(500);

@@ -7,7 +7,7 @@
  *
  * Usage:
  *   var panel = RecommendationPanel.create({
- *     type: 'hanime',
+ *     type: 'mock',
  *     currentId: 407014,
  *     tags: ['action', 'comedy'],
  *     onPlayItem: function (item) { ... }

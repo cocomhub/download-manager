@@ -104,11 +104,9 @@
     var handler = TaskUI.get(task.type)
     if (handler && handler.label) return handler.label
     var known = {
-      'tktube': 'TKTube',
-      'hanime': 'Hanime',
-      'vikacg': 'VikACG',
       'url_list': 'URL',
-      'mxs': '漫小肆'
+      'booksite': 'BookSite',
+      'mock': 'Mock'
     }
     return known[task.type] || (task.type.length > 12 ? task.type.slice(0, 12) + '…' : task.type)
   }
