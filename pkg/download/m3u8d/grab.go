@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cavaliergopher/grab/v3"
+	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
 // DownloadTask 描述一个需要下载的资源。
@@ -44,6 +45,14 @@ func (d *M3U8DEngine) downloadFilesConcurrently(ctx context.Context, files []Dow
 		}
 		if retryRound >= maxRetryRounds-1 {
 			return formatRetryError(errReqs)
+		}
+		// 轮间指数退避（对齐单文件 downloadFileWithRetry：round² 秒），
+		// 避免失败分片立即重试放大源站压力（尤其 5xx/超时类）。
+		wait := min((retryRound+1)*(retryRound+1), 30)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(wait) * time.Second):
 		}
 		reqs = errReqs
 	}
@@ -131,8 +140,10 @@ func (d *M3U8DEngine) recordSuccess(resp *grab.Response) {
 
 func (d *M3U8DEngine) recordFailure(resp *grab.Response, ctx context.Context, errReqs *[]*grab.Request) error {
 	status := "unknown"
+	var statusCode int
 	if resp.HTTPResponse != nil {
 		status = resp.HTTPResponse.Status
+		statusCode = resp.HTTPResponse.StatusCode
 		if resp.HTTPResponse.StatusCode == 472 {
 			d.concurrencyMu.Lock()
 			d.Config.Concurrency = 1
@@ -146,6 +157,15 @@ func (d *M3U8DEngine) recordFailure(resp *grab.Response, ctx context.Context, er
 		slog.Warn("grab: response has no associated request, skipping")
 		return nil
 	}
+
+	// 4xx 永久失败：不占用重试额度（重试也不会成功，避免浪费轮次放大请求）。
+	// 5xx/超时等可恢复类失败仍进 errReqs 参与下一轮重试。
+	if statusCode >= 400 && statusCode < 500 {
+		slog.Warn("grab: permanent 4xx failure, not retried",
+			logutil.LogKeyURL, resp.Request.HTTPRequest.URL.String(), "status", statusCode)
+		return nil
+	}
+
 	req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
 	if err != nil {
 		return err
