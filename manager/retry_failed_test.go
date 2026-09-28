@@ -16,7 +16,9 @@ import (
 
 // TestRetryFailedPermanent_SelectsLeastFailed 验证选批：失败次数最少优先 + 批大小限制。
 func TestRetryFailedPermanent_SelectsLeastFailed(t *testing.T) {
-	mgr, _ := newMockManager(t, "retry-lf", 5, mockdl.New(mockdl.ModeAlwaysSuccess))
+	// WithDelay：worker 消费 pending 下载慢于断言，避免 retryFailedPermanent 发
+	// schedulerSignal 后 worker 立即完成 pending，导致测试查 pending 时已被消费（CI 高频 flake）。
+	mgr, _ := newMockManager(t, "retry-lf", 5, mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(200*time.Millisecond)))
 	_ = startManager(t, mgr)
 	task := waitForTask(t, mgr, "retry-lf")
 
