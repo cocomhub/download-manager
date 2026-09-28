@@ -60,10 +60,14 @@ type Manager struct {
 	activeDownloads map[string]int // TaskID -> Active Count (Just for stats/per-task limit if needed)
 	mu              sync.Mutex
 	downloadingObj  sync.Map // URL -> *model.DownloadObject (Active downloads)
-	processingTask  sync.Map // TaskID -> bool (To track if task is being processed)
-	scrapingTask    sync.Map // TaskID -> bool (To dedupe concurrent Scrape per task)
-	failedCount     sync.Map // URL -> int (Failed download attempts)
-	metrics         sync.Map // TaskID -> *taskMetrics
+	// inflight 精确跟踪「真正在执行 download() 的对象」（worker 取出后开始下载即登记，
+	// 下载结束移除）。与 downloadingObj 不同——后者在入队时就登记，含排队项；
+	// inflight 只含 worker 正在 Download 的，用于排空(shutdown-by-drain)判据。
+	inflight       sync.Map // URL -> struct{}
+	processingTask sync.Map // TaskID -> bool (To track if task is being processed)
+	scrapingTask   sync.Map // TaskID -> bool (To dedupe concurrent Scrape per task)
+	failedCount    sync.Map // URL -> int (Failed download attempts)
+	metrics        sync.Map // TaskID -> *taskMetrics
 
 	// Event Bus
 	subscribers map[<-chan core.Event]chan core.Event
@@ -123,6 +127,14 @@ type Manager struct {
 	soPending  sync.Map
 
 	initializedCh chan struct{} // closed when Start() initialization completes
+
+	// Drain-to-exit 支持：API POST /api/system/shutdown 触发「完成当前下载后退出」。
+	// drainMode 置位后：调度器不再入队新任务、worker 不再取新请求，仅等在途下载完成。
+	// drainDone 在等待结束后关闭（由 main 的排空退出路径消费）。
+	drainMode        atomic.Bool
+	drainDone        chan struct{}
+	drainOnce        sync.Once
+	drainOnceStarted atomic.Bool
 }
 
 type taskMetrics struct {
@@ -190,6 +202,7 @@ func NewManager(cfg *config.Config) *Manager {
 		resolveQueue:    make(chan resolveRequest, 128),
 		soQueue:         make(chan smallObjectRequest, 128),
 		initializedCh:   make(chan struct{}),
+		drainDone:       make(chan struct{}),
 	}
 	mgr.objectCtrl = newObjectController(mgr)
 	mgr.schedSvc = newSchedulerService(mgr)

@@ -111,6 +111,10 @@ func (m *Manager) runRetryTicker(stop <-chan struct{}) {
 	for {
 		select {
 		case <-ticker.C:
+			// 排空模式：不再自动重试新失败对象。
+			if m.drainMode.Load() {
+				return
+			}
 			if n := m.retryFailedPermanent(); n > 0 {
 				slog.Info("Auto retry ticker round done", "retried", n)
 			}

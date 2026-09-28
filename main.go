@@ -203,6 +203,15 @@ func main() {
 	server := api.NewServer(mgr)
 	// 装配 /files/ 符号链接逃逸开关（否则 config 的 files_allow_symlink 不生效）。
 	server.SetFilesAllowSymlink(cfg.Server.FilesAllowSymlink)
+
+	// 排空退出触发通道：API POST /api/system/shutdown 触发「完成当前下载后退出」。
+	drainTrigger := make(chan struct{}, 1)
+	server.SetDrainTrigger(func() {
+		select {
+		case drainTrigger <- struct{}{}:
+		default:
+		}
+	})
 	router := server.Router()
 
 	port := resolveHTTPPort(cfg)
@@ -222,8 +231,21 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	slog.Info("Received shutdown signal", "signal", sig)
+
+	// 排空退出 vs 信号退出二选一：
+	//   - drainTrigger（API）→ 完成当前下载后退出（不取消在途）；
+	//   - quit（SIGINT/SIGTERM）→ 现有优雅退出（取消在途，5s 超时）。
+	select {
+	case <-drainTrigger:
+		slog.Info("Drain-to-exit requested via API: finishing in-flight downloads")
+		mgrDrainCtx, mgrCancel := context.WithCancel(context.Background())
+		defer mgrCancel()
+		// 等所有在途下载完成（无超时；期间 HTTP 保持可用，可查进度）。
+		mgr.WaitForDrain(mgrDrainCtx)
+		slog.Info("In-flight downloads finished, shutting down")
+	case sig := <-quit:
+		slog.Info("Received shutdown signal", "signal", sig)
+	}
 
 	// Create shutdown context with 5s timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -22,11 +22,17 @@ type Server struct {
 	// filesAllowSymlink 允许 /files/ 服务解析符号链接逃逸 root（macOS 系统
 	// symlink 如 /tmp→/private/tmp 场景）。默认 false = 保持逃逸防护。
 	filesAllowSymlink bool
+	// drainTrigger 由 main 注入：API 触发排空退出时回调（触发 main 走排空退出路径）。
+	// 为 nil 时（测试环境）仅触发 Manager.StartDrain，不涉及进程退出。
+	drainTrigger func()
 }
 
 // SetFilesAllowSymlink 设置 /files/ 服务是否放行符号链接逃逸。
 // 默认 false（防护开启）；mac 等系统 symlink 导致合法文件 403 时置 true。
 func (s *Server) SetFilesAllowSymlink(v bool) { s.filesAllowSymlink = v }
+
+// SetDrainTrigger 注入排空退出触发回调（main.go 使用）。
+func (s *Server) SetDrainTrigger(fn func()) { s.drainTrigger = fn }
 
 // NewServer creates a new API server wrapping the given manager.
 func NewServer(mgr *manager.Manager) *Server {
@@ -126,6 +132,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
 	r.HandleFunc("/api/metrics", s.metricsHandler).Methods("GET")
 	r.HandleFunc("/api/metrics/failures", s.failuresHandler).Methods("GET")
+	r.HandleFunc("/api/system/shutdown", s.systemShutdownHandler).Methods("POST")
 
 	// Task UI Assets (custom JS/CSS registered by task types)
 	r.HandleFunc("/api/ui/types", s.serveUITypes).Methods("GET")

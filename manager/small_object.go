@@ -115,6 +115,10 @@ type pendingSO struct {
 // 队列仍满则停止本次排空（保留在 pending，下次再试）；文件已落地则直接清除。
 // 由 enqueueSmallObjects 与 soWorker 调用，形成「drop 后自动补下载」的自愈机制。
 func (m *Manager) drainPendingSO() {
+	// 排空模式：不再补下载待补小对象（本次不拉，下次启动再补）。
+	if m.drainMode.Load() {
+		return
+	}
 	m.soPending.Range(func(key, value any) bool {
 		p := value.(pendingSO)
 		// 已落地则无需再补。
