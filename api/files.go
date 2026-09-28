@@ -43,11 +43,14 @@ func (s *Server) filesHandler() http.Handler {
 			return
 		}
 		// symlink 逃逸防护：解析后真实路径必须仍在 realRoot 内。
-		if real, err := filepath.EvalSymlinks(clean); err == nil {
-			real = filepath.Clean(real)
-			if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
-				writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
-				return
+		// SetFilesAllowSymlink(true) 时跳过（macOS 系统 symlink 导致合法文件 403 场景）。
+		if !s.filesAllowSymlink {
+			if real, err := filepath.EvalSymlinks(clean); err == nil {
+				real = filepath.Clean(real)
+				if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
+					writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
+					return
+				}
 			}
 		}
 		f, err := os.Open(clean)
