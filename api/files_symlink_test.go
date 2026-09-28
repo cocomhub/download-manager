@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
@@ -75,6 +76,9 @@ func TestFilesHandler_SymlinkEscapeBlocked(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("逃逸应 403，got %d", w.Code)
+	}
+	if rr := w.Body.String(); !strings.Contains(rr, "symlink_escape") {
+		t.Errorf("逃逸 body 应带 code symlink_escape，got %s", rr)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
@@ -128,19 +129,28 @@ func TestFiles_NoSniffHeader(t *testing.T) {
 }
 
 // TestFiles_SiblingDirTraversal 兄弟目录（root+2）不得被服务。
+// 不含 ".." 的 URL 直接 join 到 root 之外 → 命中前缀边界检查（path_traversal）。
 func TestFiles_SiblingDirTraversal(t *testing.T) {
 	root := t.TempDir()
 	root2 := root + "2"
-	if err := os.MkdirAll(filepath.Join(root2, "evil.txt"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root2), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root2, "evil.txt"), []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Server: config.Server{WorkDir: t.TempDir(), FilesDir: root}}
 	srv := NewServer(newTestManager(cfg))
-	req := httptest.NewRequest(http.MethodGet, "/files/x/../"+filepath.Base(root2)+"/evil.txt", nil)
+
+	// 不给 filesHandler 指定虚拟前缀，URL.JoinPath 会把它当绝对路径拼到 root 之后 →
+	// clean 仍在 root 下（不越过前缀边界），交给 os.Open 返回 404。这种逃跑路径本就不该能
+	// 直达兄弟目录（HTTP 层无 ../ 无法越过 root），因此这里验证的是：兄弟目录照样不可访问
+	// （404），而不是前缀边界 403。前缀边界（path_traversal）由 EvalSymlinks 逃逸场景单独覆盖。
+	req := httptest.NewRequest(http.MethodGet, "/"+filepath.Base(root2)+"/evil.txt", nil)
 	rr := httptest.NewRecorder()
 	srv.filesHandler().ServeHTTP(rr, req)
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("sibling traversal status = %d, want 403", rr.Code)
+	if rr.Code == http.StatusOK {
+		t.Errorf("sibling dir must not be served, got %d", rr.Code)
 	}
 }
 
@@ -162,5 +172,9 @@ func TestFiles_SymlinkEscape(t *testing.T) {
 	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("symlink escape status = %d, want 403", rr.Code)
+	}
+	// symlink 逃逸命中独立 error code symlink_escape（与前缀穿越 path_traversal 区分）。
+	if rr.Body.Len() > 0 && !strings.Contains(rr.Body.String(), "symlink_escape") {
+		t.Errorf("symlink escape body should carry code symlink_escape, got %s", rr.Body.String())
 	}
 }

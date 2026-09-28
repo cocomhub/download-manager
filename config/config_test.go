@@ -812,6 +812,23 @@ func TestDiff_AuthExpiresAtChanges(t *testing.T) {
 	}
 }
 
+// TestDiff_FilesAllowSymlinkChanges 验证 files_allow_symlink 变更被 Diff 检测。
+func TestDiff_FilesAllowSymlinkChanges(t *testing.T) {
+	a := Config{Server: Server{FilesAllowSymlink: false}}
+	b := Config{Server: Server{FilesAllowSymlink: true}}
+	changes := a.Diff(b)
+	found := false
+	for _, c := range changes {
+		if c.Path == "server.files_allow_symlink" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'server.files_allow_symlink' change in diff")
+	}
+}
+
 func TestTaskTypeDefaults_StorageDefaults(t *testing.T) {
 	// 测试类型默认值中 storage 配置被正确保留
 	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}

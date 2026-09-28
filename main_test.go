@@ -70,3 +70,14 @@ func TestParseFlags_NoProvided_NotSet(t *testing.T) {
 		t.Fatalf("RunModeSet = true, want false when no flags/env")
 	}
 }
+
+// TestParseFlags_ConfigPath 解析 --config 路径。
+func TestParseFlags_ConfigPath(t *testing.T) {
+	res, err := parseFlags([]string{"--config", "my.yaml"})
+	if err != nil {
+		t.Fatalf("parseFlags error: %v", err)
+	}
+	if res.ConfigPath != "my.yaml" {
+		t.Fatalf("config path = %q, want my.yaml", res.ConfigPath)
+	}
+}

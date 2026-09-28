@@ -77,6 +77,9 @@ func diffServerFields(c, b Config) []Change {
 	if c.Server.FilesDir != b.Server.FilesDir {
 		changes = append(changes, Change{Path: "server.files_dir", A: c.Server.FilesDir, B: b.Server.FilesDir})
 	}
+	if c.Server.FilesAllowSymlink != b.Server.FilesAllowSymlink {
+		changes = append(changes, Change{Path: "server.files_allow_symlink", A: c.Server.FilesAllowSymlink, B: b.Server.FilesAllowSymlink})
+	}
 	if c.Server.Auth.Type != b.Server.Auth.Type {
 		changes = append(changes, Change{Path: "server.auth.type", A: c.Server.Auth.Type, B: b.Server.Auth.Type})
 	}

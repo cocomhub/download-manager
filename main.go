@@ -201,6 +201,8 @@ func main() {
 
 	// Start HTTP Server
 	server := api.NewServer(mgr)
+	// 装配 /files/ 符号链接逃逸开关（否则 config 的 files_allow_symlink 不生效）。
+	server.SetFilesAllowSymlink(cfg.Server.FilesAllowSymlink)
 	router := server.Router()
 
 	port := resolveHTTPPort(cfg)

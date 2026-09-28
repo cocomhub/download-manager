@@ -39,7 +39,7 @@ func (s *Server) filesHandler() http.Handler {
 		clean := filepath.Clean(filepath.Join(root, filepath.FromSlash(upath)))
 		// 前缀边界：clean 必须等于 root 或位于 root/ 之下（防止 root=/data 时 /data2 误放行）。
 		if clean != root && !strings.HasPrefix(clean, root+string(os.PathSeparator)) {
-			writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
+			writeJSONError(w, http.StatusForbidden, "path_traversal", "path traversal")
 			return
 		}
 		// symlink 逃逸防护：解析后真实路径必须仍在 realRoot 内。
@@ -48,7 +48,7 @@ func (s *Server) filesHandler() http.Handler {
 			if real, err := filepath.EvalSymlinks(clean); err == nil {
 				real = filepath.Clean(real)
 				if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
-					writeJSONError(w, http.StatusForbidden, "forbidden", "path traversal")
+					writeJSONError(w, http.StatusForbidden, "symlink_escape", "symlink escape")
 					return
 				}
 			}

@@ -55,6 +55,9 @@ func TestAPI_ConfigServerGet_ServerSection(t *testing.T) {
 	if _, ok := server["files_dir"]; !ok {
 		t.Error("server.files_dir missing")
 	}
+	if _, ok := server["files_allow_symlink"]; !ok {
+		t.Error("server.files_allow_symlink missing")
+	}
 
 	// Auth must be redacted: no plaintext password/token.
 	auth, ok := server["auth"].(map[string]any)
@@ -98,8 +101,9 @@ func TestAPI_ConfigServerUpdate_ServerSection(t *testing.T) {
 
 	body := map[string]any{
 		"server": map[string]any{
-			"http_port": 18080,
-			"files_dir": "/tmp/dm-files",
+			"http_port":           18080,
+			"files_dir":           "/tmp/dm-files",
+			"files_allow_symlink": true,
 		},
 	}
 	rr := doJSONPost(t, r, "/api/config/server", body)
@@ -124,8 +128,17 @@ func TestAPI_ConfigServerUpdate_ServerSection(t *testing.T) {
 		if p, _ := server["http_port"].(float64); int(p) != 18080 {
 			return false
 		}
+		// files_allow_symlink 需回显 true（GET 视图带该字段）。
+		if as, _ := server["files_allow_symlink"].(bool); !as {
+			return false
+		}
 		return true
 	}, 3*time.Second, 50*time.Millisecond, "server config update persisted")
+
+	// 装配校验：POST 后 srv.filesAllowSymlink 已同步为 true（热更接线）。
+	if !srv.filesAllowSymlink {
+		t.Error("filesAllowSymlink not wired after server config update")
+	}
 
 	_ = done
 }
