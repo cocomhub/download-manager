@@ -44,14 +44,10 @@ var Levels = map[string]int{
 	"github.com/cocomhub/download-manager/task/TEMPLATE/ui": 2,
 	"github.com/cocomhub/download-manager/task/booksite":    2,
 	"github.com/cocomhub/download-manager/task/booksite/ui": 2,
-	"github.com/cocomhub/download-manager/task/hanime":      2,
-	"github.com/cocomhub/download-manager/task/hanime/ui":   2,
 	"github.com/cocomhub/download-manager/task/mock":        2,
 	"github.com/cocomhub/download-manager/task/mock/ui":     2,
 	"github.com/cocomhub/download-manager/task/urllist":     2,
 	"github.com/cocomhub/download-manager/task/urllist/ui":  2,
-	"github.com/cocomhub/download-manager/task/vikacg":      2,
-	"github.com/cocomhub/download-manager/task/vikacg/ui":   2,
 
 	// ---- L3 编排层（Manager）----
 	"github.com/cocomhub/download-manager/manager": 3,

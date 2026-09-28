@@ -8,7 +8,7 @@
 server:            # HTTP 服务与工作目录
 log:               # 日志（slog + lumberjack）
 mongo:             # MongoDB 存储源列表
-downloader:        # 下载器配置（native/wget/scraper）
+downloader:        # 下载器配置（native/wget）
 task_scan:         # 任务扫描周期
 runtime:           # 运行模式与功能开关
 contexts:          # 命名任务上下文（storage 等）
@@ -25,9 +25,6 @@ task_type_defaults:# 任务类型默认配置
 | `work_dir` | string | 工作目录（缓存等） |
 | `lock_file` | string | full 模式单实例锁文件 |
 | `ui_only_lock_file` | string | UI 模式锁文件 |
-| `scraper_path` | string | scraper 可执行路径 |
-| `scraper_url` | string | scraper 隧道服务 URL |
-| `scraper_tunnel_key` | string | 隧道鉴权 key |
 | `download_root_dir` | string | 下载根目录（落盘） |
 | `files_dir` | string | HTTP `/files/` 服务根目录（优先于 download_root_dir） |
 | `auth` | object | 鉴权（见下） |
@@ -51,7 +48,7 @@ auth:
 
 | 字段 | 说明 |
 |------|------|
-| `type` | native / wget / scraper |
+| `type` | native / wget |
 | `global_concurrent` | 全局并发 worker 数 |
 | `max_retries` | 失败重试次数 |
 | `log_dir` | 下载器日志目录 |
@@ -71,7 +68,7 @@ auth:
 ```yaml
 tasks:
   - id: my-task          # 唯一 ID
-    type: tktube         # urllist | tktube | hanime | vikacg | mock
+    type: url_list         # url_list | booksite | mock（站点任务见 sdserver）
     save_dir: ./downloads
     save_sub_dir: ""     # 可选子目录
     storage:             # 覆盖默认存储

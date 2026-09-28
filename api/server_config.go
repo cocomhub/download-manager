@@ -25,8 +25,6 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"work_dir":          cfg.Server.WorkDir,
 			"download_root_dir": cfg.Server.DownloadRootDir,
 			"files_dir":         cfg.Server.FilesDir,
-			"scraper_path":      cfg.Server.ScraperPath,
-			"scraper_url":       cfg.Server.ScraperURL,
 			"auth":              authConfigView(cfg.Server.Auth),
 		},
 		"task_scan":  cfg.TaskScan,

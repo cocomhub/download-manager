@@ -119,7 +119,7 @@ func (b *BaseTask) Close() error {
 }
 
 // ResolveObject provides a default no-op implementation.
-// Tasks that need detail resolution (hanime, vikacg, tktube) override this.
+// Tasks that need detail resolution (e.g. sdserver hanime/vikacg) override this.
 func (b *BaseTask) ResolveObject(_ context.Context, _ *model.DownloadObject) error {
 	return nil
 }

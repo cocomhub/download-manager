@@ -47,7 +47,7 @@ TYPE=mytype LABEL="My Type" HAS_FORM=y HAS_VIEWER=y VIEWER_TYPE=video ./scripts/
 | 方法 | 职责 |
 |------|------|
 | `BuildPageURL(page)` | 构造第 page 页 URL（1 起） |
-| `RunScraper(url)` | 抓取页面内容（HTML/JSON）；API 型站点可把 page 编码进 URL 在此解码（参考 vikacg） |
+| `RunScraper(url)` | 抓取页面内容（HTML/JSON）；API 型站点可把 page 编码进 URL 在此解码（参考 booksite） |
 | `ParseTotalPages(html)` | 提取总页数；未知返回 ≤0（PagingScanner 用空页熔断停止） |
 | `ParsePage(html)` | 解析条目（站点私有切片类型） |
 | `ItemsToURLs(items)` | 提取去重 URL，长度与条目数一致 |
@@ -65,13 +65,15 @@ bt.SetSelf(t)
 #### 1.3 详情解析（可选）
 
 有详情页解析需求时实现 `ResolveObject`：解析详情页填充 `Metadata`（title/date/tags）与
-`Extra`（files/images）。参考 `task/tktube/`（HTML 详情）、`task/vikacg/`（cache + scrapeAndBuild）。
+`Extra`（files/images）。参考 `task/booksite/`（缓存优先 BuildObject）。
 
 参考现有实现：
 - `task/urllist/` — 简单 URL 列表下载（无分页/详情）
-- `task/tktube/` — 视频网站（分页 + HTML 详情）
-- `task/hanime/` — 动漫网站（分页 + HTML 详情）
-- `task/vikacg/` — 图片网站（API 分页 + cache 优先详情）
+- `task/booksite/` — 模板验证站点（PagingScanner + SiteAdapter，合成 URL 分页 + 缓存优先）
+- `task/mock/` — 测试用模拟任务（mock_rules 生成对象）
+
+> 其余站点任务（tktube / hanime / vikacg / njavtv / mxs）已外迁 **sdserver**：
+> 参考实现见 `github.com/cocomhub/sdserver/internal/task/`（如 hanime 动漫、vikacg 图片、tktube 视频）。
 
 ### 2. 创建 UI 注册
 
@@ -119,8 +121,8 @@ TaskUI.register('mytype', {
 
 | 类型 | 适用场景 | 参考实现 |
 |------|---------|---------|
-| 视频播放器 | 视频/动画内容 | tktube、hanime |
-| 图片画廊 | 图片/漫画内容 | vikacg |
+| 视频播放器 | 视频/动画内容 | sdserver hanime、tktube |
+| 图片画廊 | 图片/漫画内容 | sdserver vikacg |
 | 纯表单 | 无查看器，仅任务创建 | urllist |
 
 ### 4. 配置

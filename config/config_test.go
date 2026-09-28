@@ -499,7 +499,7 @@ func TestTaskTypeDefaults_DefaultValues(t *testing.T) {
 	// 空 Config → ValidateAndClamp 后已知类型默认全 true
 	cfg := &Config{Server: Server{WorkDir: t.TempDir()}}
 	cfg.ValidateAndClamp()
-	for _, typ := range []string{"hanime", "tktube", "vikacg", "urllist"} {
+	for _, typ := range []string{"booksite", "url_list", "mock"} {
 		def, ok := cfg.TaskTypeDefaults[typ]
 		if !ok {
 			t.Fatalf("missing default for %q", typ)

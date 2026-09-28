@@ -55,8 +55,8 @@ type Task interface {
 
 | 接口 | 用途 | 示例 |
 |------|------|------|
-| `core.Scraper` | 爬取新对象（分页遍历源站） | hanime, tktube, vikacg |
-| `core.SmallObjectProvider` | 下载关联小对象（封面、预览） | tktube |
+| `core.Scraper` | 爬取新对象（分页遍历源站） | booksite（sdserver 站点任务均实现） |
+| `core.SmallObjectProvider` | 下载关联小对象（封面、预览） | sdserver tktube |
 | `core.FailedTaskMarker` | 永久失败标记 | 所有 task（通过 BaseTask） |
 
 ## 方法职责详解
@@ -196,6 +196,8 @@ tasks:
 | Task | 特点 | 文件 |
 |------|------|------|
 | **urllist** | 最简单的 task，无爬取无解析 | `task/urllist/task.go` |
-| **hanime** | PagingScanner + SiteAdapter + Resolve | `task/hanime/task.go` |
-| **vikacg** | PagingScanner + Resolve 重爬取 | `task/vikacg/task.go` |
-| **tktube** | PagingScanner + Resolve + SmallObjectProvider | `task/tktube/task.go` |
+| **booksite** | PagingScanner + SiteAdapter（合成 URL 分页 + 缓存优先） | `task/booksite/` |
+| **mock** | 测试用模拟任务（mock_rules 生成对象） | `task/mock/` |
+
+> 站点任务（tktube / hanime / vikacg / njavtv / mxs）已外迁 **sdserver**（`github.com/cocomhub/sdserver`），
+> 参考实现见 `internal/task/`（如 hanime 动漫、vikacg 图片、tktube 视频）。

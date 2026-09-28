@@ -50,14 +50,11 @@ type Runtime struct {
 }
 
 type Server struct {
-	HTTPPort          int        `yaml:"http_port" json:"http_port"`                 // Add port for web UI
-	UIOnlyPort        int        `yaml:"ui_only_port" json:"ui_only_port"`           // Port for UI only mode
-	WorkDir           string     `yaml:"work_dir" json:"work_dir"`                   // Working directory for cache etc
-	LockFile          string     `yaml:"lock_file" json:"lock_file"`                 // Lock file for full mode
-	UIOnlyLockFile    string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"` // Run UI only mode, lock file for UI only mode
-	ScraperPath       string     `yaml:"scraper_path" json:"scraper_path"`
-	ScraperURL        string     `yaml:"scraper_url" json:"scraper_url"`                 // Scraper tunnel server URL (e.g. http://host:18082)
-	ScraperTunnelKey  string     `yaml:"scraper_tunnel_key" json:"scraper_tunnel_key"`   // Scraper tunnel auth key
+	HTTPPort          int        `yaml:"http_port" json:"http_port"`                     // Add port for web UI
+	UIOnlyPort        int        `yaml:"ui_only_port" json:"ui_only_port"`               // Port for UI only mode
+	WorkDir           string     `yaml:"work_dir" json:"work_dir"`                       // Working directory for cache etc
+	LockFile          string     `yaml:"lock_file" json:"lock_file"`                     // Lock file for full mode
+	UIOnlyLockFile    string     `yaml:"ui_only_lock_file" json:"ui_only_lock_file"`     // Run UI only mode, lock file for UI only mode
 	DownloadRootDir   string     `yaml:"download_root_dir" json:"download_root_dir"`     // Root directory for downloads
 	FilesDir          string     `yaml:"files_dir" json:"files_dir"`                     // Root directory for HTTP /files/ serving
 	FilesAllowSymlink bool       `yaml:"files_allow_symlink" json:"files_allow_symlink"` // /files/ 放行符号链接逃逸（mac 系统 symlink）
@@ -714,12 +711,12 @@ func (t *Task) GetDownloadEnabled(cfg *Config) bool {
 }
 
 // validateTaskTypeDefaults initializes default values for known task types.
-// Known types: hanime, tktube, vikacg, urllist.
+// Known types: booksite, url_list, mock.
 func (c *Config) validateTaskTypeDefaults() {
 	if c.TaskTypeDefaults == nil {
 		c.TaskTypeDefaults = make(map[string]TaskTypeDefault)
 	}
-	knownTypes := []string{"hanime", "tktube", "vikacg", "urllist"}
+	knownTypes := []string{"booksite", "url_list", "mock"}
 	for _, typ := range knownTypes {
 		// Each iteration creates a new trueVal to avoid shared pointer
 		trueVal := true

@@ -59,9 +59,6 @@ linters:
         path: api\\server\\.go
       - linters:
           - staticcheck
-        path: task\\vikacg\\task\\.go
-      - linters:
-          - staticcheck
         path: manager\\manager\\.go
       - linters:
           - staticcheck

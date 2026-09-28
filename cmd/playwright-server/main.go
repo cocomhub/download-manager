@@ -22,14 +22,10 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/manager"
 	"github.com/cocomhub/download-manager/pkg/logutil"
-	_ "github.com/cocomhub/download-manager/task/hanime"
-	_ "github.com/cocomhub/download-manager/task/hanime/ui"
 	_ "github.com/cocomhub/download-manager/task/mock" // register mock task type
 	_ "github.com/cocomhub/download-manager/task/mock/ui"
 	_ "github.com/cocomhub/download-manager/task/urllist"
 	_ "github.com/cocomhub/download-manager/task/urllist/ui"
-	_ "github.com/cocomhub/download-manager/task/vikacg"
-	_ "github.com/cocomhub/download-manager/task/vikacg/ui"
 )
 
 func main() {
