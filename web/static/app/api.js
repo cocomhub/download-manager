@@ -43,7 +43,7 @@
     if (!path) return ''
     var normalized = path.replace(/\\/g, '/')
     // Strip download root prefix if the path is absolute
-    // (e.g. /opt/.../downloads/hanime/... → hanime/...)
+    // (e.g. /opt/.../downloads/<task>/... → <task>/...)
     var downloadRoot = typeof window.__dm_downloadRoot === 'string' ? window.__dm_downloadRoot : ''
     if (downloadRoot && normalized.indexOf(downloadRoot) === 0) {
       normalized = normalized.slice(downloadRoot.length)

@@ -1174,7 +1174,7 @@
         </div>
 
         <!-- Viewers are now rendered dynamically by TaskUI -->
-        <!-- (Old vikacg/hanime/customUI modal markup removed) -->
+        <!-- (Old customUI modal markup removed) -->
         <!-- Hover Preview Config Toggle -->
         <div class="fixed bottom-4 right-4 bg-white p-3 rounded-full shadow-lg z-40 cursor-pointer hover:bg-gray-50" @click="enablePreview = !enablePreview" :title="enablePreview ? 'Disable Hover Preview' : 'Enable Hover Preview'">
             <i class="fas" :class="enablePreview ? 'fa-eye text-blue-500' : 'fa-eye-slash text-gray-400'"></i>
@@ -1198,7 +1198,7 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Domain Limits (host=max, one per line)</label>
-                                <textarea v-model="configForm.domain_limits_text" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="tktube.com=2&#10;cdn.example.com=4"></textarea>
+                                <textarea v-model="configForm.domain_limits_text" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="example.com=2&#10;cdn.example.com=4"></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Controls per-host concurrent downloads to avoid congestion.</p>
                             </div>
                             <div>

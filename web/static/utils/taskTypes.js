@@ -6,9 +6,7 @@
 ;(function (global) {
   var BUILTIN_TYPES = [
     { id: 'all', label: '全部' },
-    { id: 'tktube', label: 'TKTube' },
-    { id: 'vikacg', label: 'VikACG' },
-    { id: 'hanime', label: 'Hanime' }
+    { id: 'url_list', label: 'URL列表' }
   ]
 
   var typeCache = null
