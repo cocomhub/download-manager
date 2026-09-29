@@ -132,6 +132,8 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/events", s.handleEvents).Methods("GET")
 	r.HandleFunc("/api/metrics", s.metricsHandler).Methods("GET")
 	r.HandleFunc("/api/metrics/failures", s.failuresHandler).Methods("GET")
+	r.HandleFunc("/api/retry/overview", s.retryOverviewHandler).Methods("GET")
+	r.HandleFunc("/api/retry/retry-category", s.retryCategoryHandler).Methods("POST")
 	r.HandleFunc("/api/system/shutdown", s.systemShutdownHandler).Methods("POST")
 
 	// Task UI Assets (custom JS/CSS registered by task types)

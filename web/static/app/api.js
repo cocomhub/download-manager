@@ -214,6 +214,17 @@
       })
     },
 
+    retryOverview: function () {
+      return authFetch('/api/retry/overview').then(function (r) {
+        if (!r.ok) throw new Error('Retry overview fetch failed')
+        return r.json()
+      })
+    },
+
+    retryCategory: function (category) {
+      return this.post('/api/retry/retry-category', { category: category })
+    },
+
     get: function (url) {
       return authFetch(url, { method: 'GET' }).then(function (r) {
         if (!r.ok) throw new Error('GET request failed: ' + url)

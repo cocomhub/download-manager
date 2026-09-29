@@ -206,7 +206,7 @@ build-all:
 
 .PHONY: check-ci
 web-test:
-	@node --test web/static/app/*.test.js
+	@node --test web/static/app/*.test.js web/static/app/ui/*.test.js
 
 .PHONY: web-test
 archcheck:
