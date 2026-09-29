@@ -24,6 +24,9 @@ func TestObjectController_RetryObjectsBatch(t *testing.T) {
 		return len(objs) >= 3
 	}, 3*time.Second, 50*time.Millisecond, "objects seeded")
 
+	// 等所有对象被下载完成（ModeAlwaysSuccess；waitForObjectsFinal 循环 scan 触发下载）。
+	waitForObjectsFinal(t, mgr, task, 3, model.StatusCompleted, 5*time.Second)
+
 	// 禁用扫描，避免重试后 scan/worker 抢跑改状态。
 	cfg := mgr.currentCfg().Clone()
 	cfg.TaskScan.Disable = true
