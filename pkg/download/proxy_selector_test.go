@@ -193,3 +193,85 @@ func TestCheckDirect_UsesBrowserUA(t *testing.T) {
 		t.Fatalf("checkDirect 未带浏览器 UA: %q", ua)
 	}
 }
+
+// ---- 域名维度真实下载结果缓存（P7-6）----
+
+// TestStaticProxySelector_NoProxiesWritesDirectCache 验证：未配置代理时，
+// Select 仍检查/写入直连缓存（缓存命中的直连域名直接返回直连）。
+func TestStaticProxySelector_NoProxiesWritesDirectCache(t *testing.T) {
+	s := NewStaticProxySelector(nil)
+	cacheDir := t.TempDir()
+	s.WithCache(cacheDir, 3600)
+
+	// 无缓存时：Select 直连（无代理可用，返回空）
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxy != "" {
+		t.Fatalf("expected empty proxy (direct), got: %s", proxy)
+	}
+
+	// 无代理配置时也应写入直连缓存（真实结果回写）
+	s.ReportResult("example.com", "direct")
+	decision, ok := s.readCachedDecision(s.cachePathForDomain("example.com"))
+	if !ok || decision != "direct" {
+		t.Fatalf("expected direct decision cached, got %q ok=%v", decision, ok)
+	}
+}
+
+// TestStaticProxySelector_CacheHitDirectSkipsProbe 验证：缓存命中 direct 时，
+// 即使配置了代理也直接直连（不探测、不走代理）。
+func TestStaticProxySelector_CacheHitDirectSkipsProbe(t *testing.T) {
+	probeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("直连探测不应发生（缓存命中 direct 跳过探测）")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer probeSrv.Close()
+
+	s := NewStaticProxySelector([]string{"http://127.0.0.1:1"}) // 配置一个死代理
+	cacheDir := t.TempDir()
+	s.WithCache(cacheDir, 3600)
+	s.WithProbe(1)
+
+	// 预置 direct 缓存
+	s.ReportResult("example.com", "direct")
+
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxy != "" {
+		t.Fatalf("expected direct (empty proxy) on direct cache hit, got: %s", proxy)
+	}
+}
+
+// TestStaticProxySelector_CacheHitProxySkipsProbe 验证：缓存命中 proxy 时，
+// 直接走代理（跳过直连探测），并选出一个可用代理。
+func TestStaticProxySelector_CacheHitProxySkipsProbe(t *testing.T) {
+	proxySrv := mockBandwidthServer(t, "10")
+	defer proxySrv.Close()
+
+	s := NewStaticProxySelector([]string{proxySrv.URL})
+	cacheDir := t.TempDir()
+	s.WithCache(cacheDir, 3600)
+
+	// 预置 proxy 缓存
+	s.ReportResult("example.com", "proxy")
+
+	proxy, err := s.Select(t.Context(), "http://example.com/file.zip", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxy != proxySrv.URL {
+		t.Fatalf("expected proxy %s on proxy cache hit, got: %s", proxySrv.URL, proxy)
+	}
+}
+
+// TestStaticProxySelector_DefaultTTLIsOneHour 验证：决策缓存 TTL 默认值为 1 小时（3600 秒）。
+func TestStaticProxySelector_DefaultTTLIsOneHour(t *testing.T) {
+	s := NewStaticProxySelector(nil)
+	if got := s.decisionCacheTTL.Load(); got != 3600 {
+		t.Fatalf("expected default decision cache TTL 3600s, got: %d", got)
+	}
+}

@@ -510,3 +510,103 @@ func TestHTTPExtractorOnMetadataFires(t *testing.T) {
 		t.Errorf("metadata checksum: expected '%s', got '%s'", hexMD5, req.Metadata["checksum"])
 	}
 }
+
+// TestHTTPExtractor_ReportsDirectResult 验证：直连下载成功后回写域名决策缓存（direct），
+// 后续对同域名 Select 直接返回直连（缓存命中，不再探测）。
+func TestHTTPExtractor_ReportsDirectResult(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("hello world"))
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "output.txt")
+
+	// 构造带 StaticProxySelector 的 selector（无代理配置，但可回写直连缓存）
+	s := download.NewStaticProxySelector(nil)
+	s.WithCache(t.TempDir(), 3600)
+	sel := download.NewDefaultSelector().WithProxySelector(s)
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+	ext.SetSelector(sel)
+
+	err := ext.Extract(t.Context(), &download.Request{
+		URL:      ts.URL,
+		SavePath: dest,
+		Metadata: make(map[string]string),
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// 直连成功回写后，后续 Select 缓存命中 direct → 返回直连（不探测）。
+	proxyURL, err := sel.SelectProxy(t.Context(), ts.URL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxyURL != "" {
+		t.Fatalf("expected direct (empty proxy) after direct download, got: %s", proxyURL)
+	}
+}
+
+// TestHTTPExtractor_ReportsProxyResult 验证：代理下载成功后回写域名决策缓存（proxy），
+// 后续对同一域名 Select 直接走代理（缓存命中）。
+func TestHTTPExtractor_ReportsProxyResult(t *testing.T) {
+	// 目标服务器（仅经代理可达）
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("proxied content"))
+	}))
+	defer target.Close()
+
+	// 简易正向代理：先处理带宽探测，再把实际请求转发到 target
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bandwidth" {
+			_, _ = w.Write([]byte("10"))
+			return
+		}
+		req, _ := http.NewRequestWithContext(r.Context(), r.Method, target.URL+r.URL.Path, r.Body)
+		req.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "output.txt")
+
+	s := download.NewStaticProxySelector([]string{proxySrv.URL})
+	s.WithCache(t.TempDir(), 3600)
+	s.WithForceProxy(true) // 强制代理（测试用：直连会失败，代理成功）
+	sel := download.NewDefaultSelector().WithProxySelector(s)
+
+	ext := download.NewHTTPExtractor()
+	ext.SetTransport(download.NewStdlibTransport())
+	ext.SetSelector(sel)
+
+	err := ext.Extract(t.Context(), &download.Request{
+		URL:      target.URL,
+		SavePath: dest,
+		Metadata: make(map[string]string),
+	})
+	if err != nil {
+		t.Fatalf("expected no error via proxy, got: %v", err)
+	}
+
+	// 代理成功回写后，后续请求缓存命中 → 返回代理。
+	proxyURL, err := sel.SelectProxy(t.Context(), target.URL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxyURL != proxySrv.URL {
+		t.Fatalf("expected proxy %s after proxy download, got: %s", proxySrv.URL, proxyURL)
+	}
+}

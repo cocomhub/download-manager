@@ -55,7 +55,7 @@ func TestValidateAndClampDefaults(t *testing.T) {
 	if got, want := cfg.Downloader.Filesystem.CacheDir, ".cache"; got != want {
 		t.Fatalf("Filesystem.CacheDir = %q, want %q", got, want)
 	}
-	if got, want := cfg.Downloader.Proxy.DecisionCacheTTLSecs, 1; got != want {
+	if got, want := cfg.Downloader.Proxy.DecisionCacheTTLSecs, 3600; got != want {
 		t.Fatalf("Proxy.DecisionCacheTTLSecs = %d, want %d", got, want)
 	}
 	if got, want := cfg.Downloader.Proxy.DirectProbeTimeoutSecs, 3; got != want {

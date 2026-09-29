@@ -793,6 +793,8 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 			if IsNoTry(err) {
 				return err
 			}
+			// 代理下载失败：上报代理故障（驱动冷却/故障切换）。
+			e.reportProxyFailure(proxyURL)
 			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
 			// 测试钩子：在进入 sleep 前通知调用方
 			if hook := e.TestHookRetrySleep; hook != nil {
@@ -817,9 +819,48 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 			startOffset = 0
 			continue
 		}
+		// 真实下载成功：回写域名决策缓存（直连成功→direct / 代理成功→proxy）。
+		// 缓存命中后直接优先对应通道，避免反复探测。
+		e.reportDownloadResult(rawURL, proxyURL)
 		return nil
 	}
 	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, maxRetries)
+}
+
+// reportProxyFailure 上报代理下载失败（驱动代理冷却/故障切换）。
+func (e *HTTPExtractor) reportProxyFailure(proxyURL string) {
+	if proxyURL == "" {
+		return
+	}
+	e.mu.RLock()
+	sel := e.selector
+	e.mu.RUnlock()
+	r, ok := sel.(ProxyFailureReporter)
+	if !ok {
+		return
+	}
+	r.ReportProxyFailure(proxyURL)
+}
+
+// reportDownloadResult 回写域名维度的真实下载结果（P7-6）。
+// 直连成功 → "direct"；代理成功 → "proxy"。
+func (e *HTTPExtractor) reportDownloadResult(rawURL, proxyURL string) {
+	e.mu.RLock()
+	sel := e.selector
+	e.mu.RUnlock()
+	r, ok := sel.(DownloadResultReporter)
+	if !ok {
+		return
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	channel := "direct"
+	if proxyURL != "" {
+		channel = "proxy"
+	}
+	r.ReportResult(u.Host, channel)
 }
 func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {
 	h := make(map[string]string)
