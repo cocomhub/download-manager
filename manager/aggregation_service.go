@@ -196,9 +196,18 @@ func (svc *AggregationService) collectMatchingTasks(search, status string, types
 	return matchingTasks, total, nil
 }
 
-// proportionalAllocation fetches a superset of objects from each task proportionally,
-// then sorts and paginates the merged result.
+// proportionalAllocation 按各任务计数比例分配页内配额，并对每个任务用
+// Search(Limit=share, Offset=(page-1)*share) 定向取数（取代旧实现的
+// limit*3 超集拉取 + 内存切片），合并后全局排序得到当前页。
+//
+// 注意：配额窗口是「按源比例」的近似分页——当对象在各任务的分布与其
+// 计数比例差异悬殊时，页边界可能与全局精确排序略有偏移（旧实现用 3x
+// 超集缓解同一近似；新实现把每任务取数限制到页配额内，内存/传输显著下降）。
 func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, page, limit, total int64, search, status, sortBy string, tags string, tagMode string, excludeIDs []int64) ([]*model.DownloadObject, error) {
+	offset := (page - 1) * limit
+	if offset >= total {
+		return []*model.DownloadObject{}, nil
+	}
 	var all []*model.DownloadObject
 	allocated := int64(0)
 	for i, ti := range matchingTasks {
@@ -213,7 +222,8 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 		// since they are already baked into the collectMatchingTasks count call.
 		dataQuery := buildBaseQuery(search, status, tags, tagMode, excludeIDs)
 		dataQuery.Sort = sortRules(sortBy)
-		dataQuery.Limit = share * 3
+		dataQuery.Limit = share
+		dataQuery.Offset = offset / limit * share
 		objs, err := svc.search(ti.t, dataQuery)
 		if err != nil {
 			return nil, err
@@ -221,15 +231,13 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 		all = append(all, objs...)
 		allocated += share
 	}
-	if len(all) > 1 {
-		storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
-	}
-	offset := (page - 1) * limit
-	if offset >= int64(len(all)) {
+	if len(all) == 0 {
 		return []*model.DownloadObject{}, nil
 	}
-	end := min(offset+limit, int64(len(all)))
-	return all[offset:end], nil
+	if len(all) > 1 {
+		all = storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
+	}
+	return all, nil
 }
 
 // simpleCollect gathers objects from every matching task,
