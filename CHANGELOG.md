@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0](https://github.com/cocomhub/download-manager/compare/v0.5.0...v0.6.0) (2026-09-29)
+
+
+### Added
+
+* **api:** 新增 POST /api/system/shutdown 完成当前下载后退出 ([#150](https://github.com/cocomhub/download-manager/issues/150)) ([8e4ab74](https://github.com/cocomhub/download-manager/commit/8e4ab74b56c2859d5c471bd925a30c6f6cd9efbd))
+* **download:** m3u8d 按分辨率选择转码 CRF，附默认兜底与测试覆盖 ([#159](https://github.com/cocomhub/download-manager/issues/159)) ([cdd57d8](https://github.com/cocomhub/download-manager/commit/cdd57d88f7d3697b2bfb7645c59f645a47c3786e))
+* **manager:** 多任务普通聚合查询分页下推 storage——配额取数取代全量收集 (P7-3) ([11f9ad2](https://github.com/cocomhub/download-manager/commit/11f9ad2e105de06c646a52db8161567562393857))
+* **proxy:** 域名维度真实下载结果缓存——命中直连/代理直接走记忆通道 (P7-6) ([942ce7f](https://github.com/cocomhub/download-manager/commit/942ce7f421056f7a549aaa049acc32afc7d38f52))
+* **task:** 对象批量管理——retry_batch / delete_batch / reorder_batch + 前端多选操作 (P7-2) ([c6d9493](https://github.com/cocomhub/download-manager/commit/c6d94939423261f110b524e64f31c6beaf87eb15))
+* **task:** 重试中心——失败分类 + 聚合 overview + 按类批量重试 + 前端面板 (P7-1) ([dbd4cc0](https://github.com/cocomhub/download-manager/commit/dbd4cc0df92f5a7897fca15ef1292039810cb127))
+
+
+### Fixed
+
+* **api:** 接线 files_allow_symlink 装配链 + 区分两种 path traversal 错误码 ([#149](https://github.com/cocomhub/download-manager/issues/149)) ([34988b8](https://github.com/cocomhub/download-manager/commit/34988b82bc38acbf1646b9d74cd8cb1370d24da9))
+* **hls:** m3u8d 模式透传 FFmpegArgs——默认 -c copy 防重编码打满 CPU ([#155](https://github.com/cocomhub/download-manager/issues/155)) ([b8590d6](https://github.com/cocomhub/download-manager/commit/b8590d6980be6d665e4b6aa316e18f906a4f9cfa))
+* **m3u8d:** 4xx 永久失败不重试 + 并发分片轮间退避 ([598281e](https://github.com/cocomhub/download-manager/commit/598281e42c59b9df1486d76d38b269358e99e963))
+* **manager:** 代码评审修复——shutdown 排空死锁/删除防复活/代理缓存降级/m3u8d 4xx/前端批量计数 ([#156](https://github.com/cocomhub/download-manager/issues/156)) ([934c721](https://github.com/cocomhub/download-manager/commit/934c721480887b1528174de14fbf30f3957b18eb))
+
+
+### Changed
+
+* **manager:** RetryObjectsBatch 前等待调度静默——消除 processTask 竞态 flake ([#157](https://github.com/cocomhub/download-manager/issues/157)) ([2507aa9](https://github.com/cocomhub/download-manager/commit/2507aa909ca096ec38251463907b79481021466a))
+* **manager:** 修复 TestRetryFailedPermanent_SelectsLeastFailed CI flake ([8868066](https://github.com/cocomhub/download-manager/commit/8868066e54e589e4e950a29b334cb1323de898b3))
+* **task:** hanime/vikacg 迁移至 sdserver（框架层移除站点任务） ([1a46416](https://github.com/cocomhub/download-manager/commit/1a46416285c121507922c794ff95ed9b72a16105))
+* **web:** 前端清理 tktube/hanime/vikacg stale 引用 ([174f797](https://github.com/cocomhub/download-manager/commit/174f7979835086662d8fa3fabe60dc0bb22cedb1))
+
 ## [0.5.0](https://github.com/cocomhub/download-manager/compare/v0.4.0...v0.5.0) (2026-09-28)
 
 
