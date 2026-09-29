@@ -194,6 +194,21 @@ func (m *Manager) ReorderObject(taskID, url string, newIndex int) error {
 	return m.objectCtrl.ReorderObject(taskID, url, newIndex)
 }
 
+// RetryObjectsBatch 批量重试失败对象（委托 ObjectController）。
+func (m *Manager) RetryObjectsBatch(taskID string, urls []string) map[string]string {
+	return m.objectCtrl.RetryObjectsBatch(taskID, urls)
+}
+
+// DeleteObjectsBatch 批量删除对象（委托 ObjectController）。
+func (m *Manager) DeleteObjectsBatch(taskID string, urls []string) map[string]string {
+	return m.objectCtrl.DeleteObjectsBatch(taskID, urls)
+}
+
+// ReorderObjectsBatch 批量重排对象顺序（委托 ObjectController）。
+func (m *Manager) ReorderObjectsBatch(taskID string, urls []string) error {
+	return m.objectCtrl.ReorderObjectsBatch(taskID, urls)
+}
+
 // UpdateObjectTags 更新指定下载对象的标签（委托 ObjectController）。
 func (m *Manager) UpdateObjectTags(taskType string, id int64, tags []string) error {
 	return m.objectCtrl.UpdateObjectTags(taskType, id, tags)

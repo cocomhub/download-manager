@@ -253,3 +253,133 @@ func (oc *ObjectController) RetryAllFailed(taskID string) error {
 	}
 	return nil
 }
+
+// RetryObjectsBatch 批量重试失败对象（status ∈ failed / failed_permanent → pending）。
+// 返回 URL → 结果字符串（"ok" 或错误信息），供前端逐条展示。
+func (oc *ObjectController) RetryObjectsBatch(taskID string, urls []string) map[string]string {
+	m := oc.m
+	res := make(map[string]string, len(urls))
+	t, ok := m.getTask(taskID)
+	if !ok {
+		for _, u := range urls {
+			res[u] = errTaskNotFound.Error()
+		}
+		return res
+	}
+	count := 0
+	for _, u := range urls {
+		obj, err := m.getTaskObject(t, u)
+		if err != nil {
+			res[u] = err.Error()
+			continue
+		}
+		if obj == nil {
+			res[u] = "object not found"
+			continue
+		}
+		st := obj.GetStatus()
+		if st != model.StatusFailed && st != model.StatusFailedPermanent {
+			res[u] = fmt.Sprintf("object status is %s, only failed objects can be retried", st)
+			continue
+		}
+		t.UpdateStatus(obj, model.StatusPending, nil)
+		obj.SetProgress(0)
+		m.getOrCreateMetrics(t.ID()).retried.Add(1)
+		res[u] = "ok"
+		count++
+	}
+	if count > 0 {
+		select {
+		case m.schedulerSignal <- struct{}{}:
+		default:
+		}
+	}
+	return res
+}
+
+// DeleteObjectsBatch 批量删除对象：从存储与共享注册表移除，并级联清理
+// runtime 下载槽位、失败计数、进度缓存、inflight 跟踪与共享缓存。
+func (oc *ObjectController) DeleteObjectsBatch(taskID string, urls []string) map[string]string {
+	m := oc.m
+	res := make(map[string]string, len(urls))
+	t, ok := m.getTask(taskID)
+	if !ok {
+		for _, u := range urls {
+			res[u] = errTaskNotFound.Error()
+		}
+		return res
+	}
+	st := t.Storage()
+	if st == nil {
+		for _, u := range urls {
+			res[u] = "task has no storage"
+		}
+		return res
+	}
+	for _, u := range urls {
+		// 若对象正在下载：取消并释放下载槽位，避免删除后仍占用。
+		oc.cancelActiveDownload(taskID, u)
+		if err := st.Delete(u); err != nil {
+			res[u] = err.Error()
+			continue
+		}
+		if m.urlRegistry != nil {
+			_ = m.urlRegistry.Delete(u)
+		}
+		m.failedCount.Delete(u)
+		m.lastProgress.Delete(u)
+		m.inflight.Delete(u)
+		m.downloadingObj.Delete(u)
+		res[u] = "ok"
+	}
+	m.BroadcastTaskUpdate(taskID)
+	return res
+}
+
+// cancelActiveDownload 若 URL 正在下载则取消并释放任务下载槽位。
+func (oc *ObjectController) cancelActiveDownload(taskID, url string) {
+	m := oc.m
+	if _, active := m.downloadingObj.Load(url); !active {
+		return
+	}
+	if c, ok := m.getDownloader().(interface {
+		Cancel(url string) error
+	}); ok {
+		_ = c.Cancel(url)
+	}
+	m.downloadingObj.Delete(url)
+	m.mu.Lock()
+	if m.activeDownloads[taskID] > 0 {
+		m.activeDownloads[taskID]--
+	}
+	m.mu.Unlock()
+}
+
+// ReorderObjectsBatch 按有序 URL 列表批量重排任务对象顺序。
+// 优先调用任务的 SetObjectOrder（整批原子提交）；若任务只支持单条
+// SetObjectIndex，则按 urls 顺序逐条移动。
+func (oc *ObjectController) ReorderObjectsBatch(taskID string, urls []string) error {
+	t, ok := oc.m.getTask(taskID)
+	if !ok {
+		return fmt.Errorf("%w", errTaskNotFound)
+	}
+	if len(urls) < 2 {
+		return fmt.Errorf("reorder requires at least 2 urls")
+	}
+	if batch, ok := t.(interface {
+		SetObjectOrder(urls []string) error
+	}); ok {
+		return batch.SetObjectOrder(urls)
+	}
+	if single, ok := t.(interface {
+		SetObjectIndex(url string, newIndex int) error
+	}); ok {
+		for i, u := range urls {
+			if err := single.SetObjectIndex(u, i); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("task does not support reordering")
+}

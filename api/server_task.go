@@ -219,6 +219,49 @@ func (s *Server) undoCancelObjectsBatch(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(result)
 }
 
+// retryObjectsBatch retries multiple failed objects in a task by their URLs.
+func (s *Server) retryObjectsBatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
+		return
+	}
+	result := s.mgr.RetryObjectsBatch(id, req.URLs)
+	json.NewEncoder(w).Encode(result)
+}
+
+// deleteObjectsBatch deletes multiple objects from a task.
+// 破坏性操作：直接从存储移除（含级联清理），前端必须二次确认。
+func (s *Server) deleteObjectsBatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) == 0 {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
+		return
+	}
+	result := s.mgr.DeleteObjectsBatch(id, req.URLs)
+	json.NewEncoder(w).Encode(result)
+}
+
+// reorderObjectsBatch reorders multiple objects by an ordered URL list.
+func (s *Server) reorderObjectsBatch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	var req ObjectURLsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) < 2 {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required (at least 2, in desired order)")
+		return
+	}
+	if err := s.mgr.ReorderObjectsBatch(id, req.URLs); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "reorder_failed", fmt.Sprintf("Failed to reorder objects: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // cancelTasksBatch cancels multiple tasks by their IDs.
 func (s *Server) cancelTasksBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
