@@ -61,6 +61,10 @@ downloader:
   # ffmpeg:
   #   path: ffmpeg
   #   extra_args: []
+  #   resolution_crf:
+  #     720: 40
+  #     1080: 34
+  #   default_crf: 33
   #   move_if_exists:
   #     enabled: false
   #   external_hls_log:
