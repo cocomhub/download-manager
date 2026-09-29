@@ -73,6 +73,8 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 	hlsEx := extractor.NewHLSExtractor(
 		extractor.WithFFmpegPath(cfg.FFmpeg.Path),
 		extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
+		extractor.WithResolutionCRF(cfg.FFmpeg.ResolutionCRF),
+		extractor.WithDefaultCRF(cfg.FFmpeg.DefaultCRF),
 		extractor.WithHLSUserAgent(userAgent),
 	)
 	// HLS 下载模式：ffmpeg（默认，需系统 ffmpeg）/ m3u8d（纯 Go 分片下载+拼接，无需 ffmpeg）
@@ -81,6 +83,8 @@ func newDownloaderFromConfig(cfg config.Downloader) *DownloaderAdapter {
 			extractor.WithHLSMode(cfg.HLSMode),
 			extractor.WithFFmpegPath(cfg.FFmpeg.Path),
 			extractor.WithFFmpegArgs(cfg.FFmpeg.ExtraArgs),
+			extractor.WithResolutionCRF(cfg.FFmpeg.ResolutionCRF),
+			extractor.WithDefaultCRF(cfg.FFmpeg.DefaultCRF),
 			extractor.WithHLSUserAgent(userAgent),
 		)
 	}

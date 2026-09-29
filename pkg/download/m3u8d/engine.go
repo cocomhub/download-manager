@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +27,15 @@ var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
 
 const maxRecursionDepth = 10
 
+// defaultCRF 是未显式配置 DefaultCRF 时的兜底转码质量值（SVT-AV1/常见编码的合理默认）。
+// 与 extractor.HLSExtractor 的默认 CRF 保持一致，避免直接构造 DownloadConfig 的用户
+// 因 DefaultCRF=0 产生 "-crf 0"（接近无损、码率爆炸）的意外结果。
+const defaultCRF = 33
+
 var reKeyURL = regexp.MustCompile(`URI="([^"]+)"`)
+
+// reResolution 匹配主列表档位的分辨率声明（RESOLUTION=WxH），提取 H 供按分辨率选 CRF。
+var reResolution = regexp.MustCompile(`RESOLUTION=(\d+)x(\d+)`)
 
 // M3U8DEngine 是 m3u8 下载引擎，支持 http.Client 注入。
 // 单文件下载（m3u8 解析、密钥下载等）使用注入的 client；
@@ -40,6 +50,10 @@ type M3U8DEngine struct {
 	mu            sync.RWMutex
 	concurrencyMu sync.Mutex
 	totalFiles    int
+	// resolutionHeight 主列表最高档位分辨率高度（如 720/1080/2160）。
+	// 由 parseM3U8 从 #EXT-X-STREAM-INF:RESOLUTION=WxH 提取；无档位时 0。
+	// 供 ConvertToMP4 按分辨率选择转码 CRF。
+	resolutionHeight int
 }
 
 // NewM3U8DEngine 创建 M3U8DEngine 实例。
@@ -152,7 +166,7 @@ func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) er
 	}
 	args = append(args, "-protocol_whitelist", protocols)
 	args = append(args, "-i", localM3U8Path)
-	args = append(args, d.Config.FFmpegArgs...)
+	args = append(args, d.resolveFFmpegArgs()...)
 	args = append(args, "--", d.Config.OutputFile)
 
 	ffmpegBin := d.Config.FFmpegPath
@@ -168,6 +182,51 @@ func (d *M3U8DEngine) ConvertToMP4(ctx context.Context, localM3U8Path string) er
 	}
 
 	return cmd.Run()
+}
+
+// resolveFFmpegArgs 返回转码参数，按主列表分辨率替换 {crf} 占位符。
+// 规则：取 ResolutionCRF 中 ≤ 实际分辨高度的最大 key 的 CRF；无匹配用 DefaultCRF。
+// FFmpegArgs 不含 {crf} 时原样返回。
+func (d *M3U8DEngine) resolveFFmpegArgs() []string {
+	args := d.Config.FFmpegArgs
+	if !slices.Contains(args, "{crf}") {
+		return args
+	}
+	crf := d.resolveCRF()
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "{crf}" {
+			out = append(out, strconv.Itoa(crf))
+		} else {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// resolveCRF 根据主列表档位分辨率选择 CRF。
+// 规则：取 ResolutionCRF 中 ≤ resolutionHeight 的最大 key 的 CRF；无匹配时用 DefaultCRF
+// （未显式配置时回退到包级默认 defaultCRF，避免 -crf 0 导致码率爆炸）。
+func (d *M3U8DEngine) resolveCRF() int {
+	fb := d.Config.DefaultCRF
+	if fb <= 0 {
+		fb = defaultCRF
+	}
+	if d.Config.ResolutionCRF == nil {
+		return fb
+	}
+	best := 0
+	found := false
+	for h := range d.Config.ResolutionCRF {
+		if h <= d.resolutionHeight && h > best {
+			best = h
+			found = true
+		}
+	}
+	if !found {
+		return fb
+	}
+	return d.Config.ResolutionCRF[best]
 }
 
 // Cleanup 清理工作目录。若 KeepFiles 为 true 则不删除。
@@ -270,6 +329,7 @@ func (d *M3U8DEngine) downloadFileWithRetry(ctx context.Context, fileURL, localP
 }
 
 // parseM3U8 递归解析 m3u8 文件，收集所有下载任务。
+// 主列表解析时同时提取最高档位分辨率（#EXT-X-STREAM-INF:RESOLUTION=WxH）。
 func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, level int) ([]DownloadTask, error) {
 	if level > maxRecursionDepth {
 		return nil, fmt.Errorf("m3u8: max recursion depth exceeded (%d)", maxRecursionDepth)
@@ -302,8 +362,16 @@ func (d *M3U8DEngine) parseM3U8(ctx context.Context, m3u8URL, localPath string, 
 	hasStreamInf := strings.Contains(string(content), "#EXT-X-STREAM-INF")
 	var lastSubList string
 	if hasStreamInf {
+		// 记录主列表最高档位分辨率（RESOLUTION=WxH 的 H）供转码按分辨率选 CRF。
+		// 取所有档位的最大高度而非依赖"最后一个即最高"的排序假设（乱序档位也正确）。
 		for _, l := range lines {
 			l = strings.TrimSpace(l)
+			if m := reResolution.FindStringSubmatch(l); len(m) == 3 {
+				h, _ := strconv.Atoi(m[2])
+				if h > d.resolutionHeight {
+					d.resolutionHeight = h
+				}
+			}
 			if l == "" || strings.HasPrefix(l, "#") {
 				continue
 			}

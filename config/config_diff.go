@@ -258,6 +258,12 @@ func diffFFmpegFields(c, b Config) []Change {
 	if !reflect.DeepEqual(c.Downloader.FFmpeg.ExtraArgs, b.Downloader.FFmpeg.ExtraArgs) {
 		changes = append(changes, Change{Path: "downloader.ffmpeg.extra_args", A: c.Downloader.FFmpeg.ExtraArgs, B: b.Downloader.FFmpeg.ExtraArgs})
 	}
+	if !reflect.DeepEqual(c.Downloader.FFmpeg.ResolutionCRF, b.Downloader.FFmpeg.ResolutionCRF) {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.resolution_crf", A: c.Downloader.FFmpeg.ResolutionCRF, B: b.Downloader.FFmpeg.ResolutionCRF})
+	}
+	if c.Downloader.FFmpeg.DefaultCRF != b.Downloader.FFmpeg.DefaultCRF {
+		changes = append(changes, Change{Path: "downloader.ffmpeg.default_crf", A: c.Downloader.FFmpeg.DefaultCRF, B: b.Downloader.FFmpeg.DefaultCRF})
+	}
 	if c.Downloader.FFmpeg.MoveIfExists.Enabled != b.Downloader.FFmpeg.MoveIfExists.Enabled {
 		changes = append(changes, Change{Path: "downloader.ffmpeg.move_if_exists.enabled", A: c.Downloader.FFmpeg.MoveIfExists.Enabled, B: b.Downloader.FFmpeg.MoveIfExists.Enabled})
 	}

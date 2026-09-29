@@ -341,7 +341,7 @@ func TestConfig_Clone(t *testing.T) {
 			HTTP:             DcHTTP{TimeoutSeconds: 600},
 			Proxy:            DcProxy{List: []string{"http://proxy1"}, Force: true, BandwidthPathSuffix: "/bw"},
 			Progress:         DcProgress{MinPercentStep: 0.5, MaxIntervalSeconds: 10},
-			FFmpeg:           DcFFmpeg{Path: "/usr/bin/ffmpeg", ExtraArgs: []string{"-v", "debug"}, HLSAutoMarkAsFail: true},
+			FFmpeg:           DcFFmpeg{Path: "/usr/bin/ffmpeg", ExtraArgs: []string{"-v", "debug"}, ResolutionCRF: map[int]int{720: 40, 1080: 34}, DefaultCRF: 33, HLSAutoMarkAsFail: true},
 		},
 		Contexts: map[string]Context{
 			"pool1": {
@@ -436,6 +436,16 @@ func TestConfig_Clone(t *testing.T) {
 	cfg.Downloader.FFmpeg.ExtraArgs[0] = "-evil"
 	if clone.Downloader.FFmpeg.ExtraArgs[0] != "-v" {
 		t.Errorf("clone FFmpeg.ExtraArgs[0] mutated to %q", clone.Downloader.FFmpeg.ExtraArgs[0])
+	}
+
+	// Modify FFmpeg.ResolutionCRF（map 深拷贝）
+	cfg.Downloader.FFmpeg.ResolutionCRF[1080] = 60
+	if clone.Downloader.FFmpeg.ResolutionCRF[1080] != 34 {
+		t.Errorf("clone FFmpeg.ResolutionCRF[1080] mutated to %d", clone.Downloader.FFmpeg.ResolutionCRF[1080])
+	}
+	// 标量字段独立
+	if clone.Downloader.FFmpeg.DefaultCRF != 33 {
+		t.Errorf("clone FFmpeg.DefaultCRF = %d, want 33", clone.Downloader.FFmpeg.DefaultCRF)
 	}
 
 	// Test Clone on nil Config
@@ -920,5 +930,35 @@ func TestRetryConfig_Diff(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("Diff 未检测到 downloader.retry 变化: %v", changes)
+	}
+}
+
+func TestFFmpegResolutionCRF_Diff(t *testing.T) {
+	a := Config{
+		Downloader: Downloader{FFmpeg: DcFFmpeg{ResolutionCRF: map[int]int{720: 40}, DefaultCRF: 33}},
+	}
+	b := Config{
+		Downloader: Downloader{FFmpeg: DcFFmpeg{ResolutionCRF: map[int]int{720: 40, 1080: 34}, DefaultCRF: 28}},
+	}
+	changes := a.Diff(b)
+	for _, wantPath := range []string{"downloader.ffmpeg.resolution_crf", "downloader.ffmpeg.default_crf"} {
+		found := false
+		for _, ch := range changes {
+			if ch.Path == wantPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Diff 未检测到 %s 变化: %v", wantPath, changes)
+		}
+	}
+}
+
+func TestFFmpegDefaults_DefaultCRF(t *testing.T) {
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Downloader.FFmpeg.DefaultCRF != 33 {
+		t.Errorf("FFmpeg.DefaultCRF = %d, want 33 (setFFmpegDefaults)", cfg.Downloader.FFmpeg.DefaultCRF)
 	}
 }

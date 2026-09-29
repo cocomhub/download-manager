@@ -46,7 +46,9 @@ type HLSExtractor struct {
 	ffmpegArgs    []string
 	ffmpegTimeout time.Duration
 	userAgent     string
-	active        sync.Map // map[string]context.CancelFunc
+	active        sync.Map    // map[string]context.CancelFunc
+	resolutionCRF map[int]int // 按分辨率(像素高度)选转码 CRF
+	defaultCRF    int         // 无匹配分辨率时的回退 CRF（默认 33）
 }
 
 // defaultFFmpegArgs 转封装默认参数：fragmented MP4（fMP4）流式 mux（低内存 + 网页即时播放）。
@@ -65,6 +67,7 @@ func NewHLSExtractor(opts ...HLSOption) *HLSExtractor {
 		ffmpegArgs:    append([]string(nil), defaultFFmpegArgs...),
 		ffmpegTimeout: 5 * time.Minute,
 		userAgent:     DefaultWgetUserAgent,
+		defaultCRF:    33,
 	}
 	for _, o := range opts {
 		o(e)
@@ -85,6 +88,17 @@ func WithFFmpegPath(path string) HLSOption { return func(e *HLSExtractor) { e.ff
 
 // WithFFmpegArgs 设置 ffmpeg 额外参数。
 func WithFFmpegArgs(args []string) HLSOption { return func(e *HLSExtractor) { e.ffmpegArgs = args } }
+
+// WithResolutionCRF 设置按分辨率选 CRF 的映射（key=像素高度）。
+// 与 WithFFmpegArgs 配合：FFmpegArgs 含 "{crf}" 占位符时，转码按 m3u8 档位分辨率替换。
+func WithResolutionCRF(m map[int]int) HLSOption {
+	return func(e *HLSExtractor) { e.resolutionCRF = m }
+}
+
+// WithDefaultCRF 设置无匹配分辨率时的回退 CRF。
+func WithDefaultCRF(crf int) HLSOption {
+	return func(e *HLSExtractor) { e.defaultCRF = crf }
+}
 
 // WithFFmpegTimeout 设置 ffmpeg 执行超时时间。
 func WithFFmpegTimeout(d time.Duration) HLSOption {
@@ -324,17 +338,19 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 	// 工作目录：输出文件旁 .hls-parts
 	workDir := rPath + ".hls-parts"
 	cfg := &m3u8d.DownloadConfig{
-		InputURL:    req.URL,
-		OutputFile:  rPath,
-		UserAgent:   e.userAgent,
-		Headers:     req.Headers,
-		Concurrency: 8,
-		MaxRetries:  3,
-		WorkDir:     workDir,
-		MinFiles:    1, // 兼容单分片/极小列表
-		Timeout:     30 * time.Second,
-		FFmpegArgs:  e.ffmpegArgs, // 转封装/转码参数：默认 -c copy（流复制），配置 extra_args 可替换为重编码
-		FFmpegPath:  e.ffmpegPath, // 转封装用注入的 ffmpeg 路径（测试 mock / 配置）
+		InputURL:      req.URL,
+		OutputFile:    rPath,
+		UserAgent:     e.userAgent,
+		Headers:       req.Headers,
+		Concurrency:   8,
+		MaxRetries:    3,
+		WorkDir:       workDir,
+		MinFiles:      1, // 兼容单分片/极小列表
+		Timeout:       30 * time.Second,
+		FFmpegArgs:    e.ffmpegArgs,    // 转封装/转码参数：默认 -c copy（流复制），配置 extra_args 可替换为重编码
+		FFmpegPath:    e.ffmpegPath,    // 转封装用注入的 ffmpeg 路径（测试 mock / 配置）
+		ResolutionCRF: e.resolutionCRF, // 按分辨率选 CRF（FFmpegArgs 含 {crf} 时生效）
+		DefaultCRF:    e.defaultCRF,    // 无匹配分辨率回退 CRF
 		// 本地 m3u8 + 分片已下载到 workdir；ffmpeg 转封装需允许 file 协议读取本地文件
 		AllowFileProtocol: true,
 	}

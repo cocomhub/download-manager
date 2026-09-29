@@ -103,9 +103,11 @@ type EnabledFlag struct {
 }
 
 type DcFFmpeg struct {
-	Path         string   `yaml:"path" json:"path"`
-	ExtraArgs    []string `yaml:"extra_args" json:"extra_args"`
-	MoveIfExists struct {
+	Path          string      `yaml:"path" json:"path"`
+	ExtraArgs     []string    `yaml:"extra_args" json:"extra_args"`
+	ResolutionCRF map[int]int `yaml:"resolution_crf" json:"resolution_crf"` // 按分辨率(像素高度)选转码 CRF：{720:40, 1080:34}
+	DefaultCRF    int         `yaml:"default_crf" json:"default_crf"`       // 无匹配分辨率回退 CRF（默认 33，由 setFFmpegDefaults 填充）
+	MoveIfExists  struct {
 		Enabled bool   `yaml:"enabled" json:"enabled"`
 		Dir     string `yaml:"dir" json:"dir"`
 	} `yaml:"move_if_exists" json:"move_if_exists"`
@@ -292,6 +294,10 @@ func (c *Config) cloneDownloader(src Downloader) {
 	if src.FFmpeg.ExtraArgs != nil {
 		c.Downloader.FFmpeg.ExtraArgs = make([]string, len(src.FFmpeg.ExtraArgs))
 		copy(c.Downloader.FFmpeg.ExtraArgs, src.FFmpeg.ExtraArgs)
+	}
+	if src.FFmpeg.ResolutionCRF != nil {
+		c.Downloader.FFmpeg.ResolutionCRF = make(map[int]int, len(src.FFmpeg.ResolutionCRF))
+		maps.Copy(c.Downloader.FFmpeg.ResolutionCRF, src.FFmpeg.ResolutionCRF)
 	}
 	if src.Filesystem.AllowPaths != nil {
 		c.Downloader.Filesystem.AllowPaths = make([]string, len(src.Filesystem.AllowPaths))
@@ -601,6 +607,9 @@ func (c *Config) setProgressDefaults() {
 func (c *Config) setFFmpegDefaults() {
 	if c.Downloader.FFmpeg.Path == "" {
 		c.Downloader.FFmpeg.Path = "ffmpeg"
+	}
+	if c.Downloader.FFmpeg.DefaultCRF == 0 {
+		c.Downloader.FFmpeg.DefaultCRF = 33
 	}
 }
 
