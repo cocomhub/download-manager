@@ -29,6 +29,7 @@ func main() {
 	keepFiles := flag.Bool("keep", false, "保留下载的临时文件")
 	workDir := flag.String("dir", "", "工作目录(默认自动生成)")
 	verbose := flag.Bool("v", true, "显示详细输出")
+	disableVerifyETag := flag.Bool("disable-verify-etag", false, "禁用下载后校验（默认开启：不匹配时重下比较保证可靠性；显式传 true 才禁用）")
 	ffmpegArgs := flag.String("args", "-c copy -bsf:a aac_adtstoasc -movflags +faststart -f mp4", "传递给ffmpeg的参数")
 
 	flag.Parse()
@@ -65,17 +66,18 @@ func main() {
 
 	// 创建配置
 	config := &m3u8d.DownloadConfig{
-		InputURL:    *inputURL,
-		OutputFile:  *outputFile,
-		UserAgent:   *userAgent,
-		Headers:     headerMap,
-		Concurrency: *concurrency,
-		MaxRetries:  *maxRetries,
-		WorkDir:     *workDir,
-		KeepFiles:   *keepFiles,
-		FFmpegArgs:  ffmpegArgsList,
-		Timeout:     time.Duration(*timeout) * time.Second,
-		Verbose:     *verbose,
+		InputURL:          *inputURL,
+		OutputFile:        *outputFile,
+		UserAgent:         *userAgent,
+		Headers:           headerMap,
+		Concurrency:       *concurrency,
+		MaxRetries:        *maxRetries,
+		WorkDir:           *workDir,
+		KeepFiles:         *keepFiles,
+		FFmpegArgs:        ffmpegArgsList,
+		Timeout:           time.Duration(*timeout) * time.Second,
+		Verbose:           *verbose,
+		DisableVerifyETag: *disableVerifyETag,
 	}
 
 	// 创建下载器

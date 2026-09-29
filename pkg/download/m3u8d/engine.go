@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cocomhub/download-manager/pkg/download"
 )
 
 var ErrNotEnoughFiles = errors.New("m3u8文件中包含的资源数量不足")
@@ -49,7 +51,10 @@ type M3U8DEngine struct {
 	downloaded    map[string]bool
 	mu            sync.RWMutex
 	concurrencyMu sync.Mutex
-	totalFiles    int
+	// verifyMD5 记录某 URL 最近一次下载内容的 MD5（url → hex）。
+	// 用于“重下选一致”闭环：两次下载内容相同即视为可靠终文件（见 grab.go verifyPicked）。
+	verifyMD5  sync.Map
+	totalFiles int
 	// resolutionHeight 主列表最高档位分辨率高度（如 720/1080/2160）。
 	// 由 parseM3U8 从 #EXT-X-STREAM-INF:RESOLUTION=WxH 提取；无档位时 0。
 	// 供 ConvertToMP4 按分辨率选择转码 CRF。
@@ -250,7 +255,19 @@ func (d *M3U8DEngine) Cleanup() error {
 }
 
 // downloadFile 下载单个文件，使用注入的 http.Client。
+// 支持两致对接：校验不匹配时重下并选“两份相同”为终文件（见 DownloadFileReliable）。
 func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath string) error {
+	return d.downloadFileReliable(ctx, fileURL, localPath)
+}
+
+// DownloadFileReliable 可靠下载单文件（m3u8 清单/密钥等）：
+//   - 先走两致对接（下载 → 若校验不匹配再下载 → 两份相同则接受）。
+//   - 不适用（ETag 缺失/非 MD5/命中白名单）时退化为普通下载。
+func (d *M3U8DEngine) DownloadFileReliable(ctx context.Context, fileURL, localPath string) error {
+	return d.downloadFileReliable(ctx, fileURL, localPath)
+}
+
+func (d *M3U8DEngine) downloadFileReliable(ctx context.Context, fileURL, localPath string) error {
 	if d.isAlreadyDownloaded(fileURL) {
 		if d.Config.Verbose {
 			fmt.Printf("文件已存在: %s\n", filepath.Base(localPath))
@@ -258,6 +275,62 @@ func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath strin
 		return nil
 	}
 
+	// 两致对接：最多 MaxRetries+1 次（至少 2 次以拿到“两份相同”），
+	// 每次下载后按 ETag 校验；不匹配时对比 verifyMD5，出现两份相同则接受。
+	maxAttempts := max(d.Config.MaxRetries+1, 2)
+	for range maxAttempts {
+		if err := d.downloadFileOnce(ctx, fileURL, localPath); err != nil {
+			return err
+		}
+		if d.Config.DisableVerifyETag {
+			d.markAsDownloaded(fileURL)
+			return nil
+		}
+
+		etag := d.fetchETag(ctx, fileURL)
+		want := download.TryGetMd5(map[string]string{"Etag": etag})
+		hexMD5, err := d.computeSegmentMD5(localPath)
+		if err != nil {
+			return err
+		}
+		if want != "" && download.MD5HexEqual(hexMD5, want) {
+			d.rememberVerifyMD5(fileURL, hexMD5)
+			d.markAsDownloaded(fileURL)
+			return nil
+		}
+		// ETag 缺失/非 MD5/与内容不符：一律走两致对接重下比较保证可靠。
+		if retry, _ := d.verifyPicked(fileURL, hexMD5, want, localPath); !retry {
+			d.markAsDownloaded(fileURL)
+			return nil
+		}
+	}
+	return fmt.Errorf("m3u8d: verify failed after %d attempts: %s", maxAttempts, fileURL)
+}
+
+// fetchETag 对目标 URL 发起 HEAD 获取 ETag 头（失败返回空）。
+func (d *M3U8DEngine) fetchETag(ctx context.Context, fileURL string) string {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", fileURL, nil)
+	if err != nil {
+		return ""
+	}
+	if d.Config != nil {
+		if d.Config.UserAgent != "" {
+			req.Header.Set("User-Agent", d.Config.UserAgent)
+		}
+		for k, v := range d.Config.Headers {
+			req.Header.Set(k, v)
+		}
+	}
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	return resp.Header.Get("ETag")
+}
+
+// downloadFileOnce 执行一次单文件下载（不重试、不校验）。
+func (d *M3U8DEngine) downloadFileOnce(ctx context.Context, fileURL, localPath string) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
 	if err != nil {
 		return err
@@ -293,8 +366,6 @@ func (d *M3U8DEngine) downloadFile(ctx context.Context, fileURL, localPath strin
 		os.Remove(localPath)
 		return err
 	}
-
-	d.markAsDownloaded(fileURL)
 	return nil
 }
 

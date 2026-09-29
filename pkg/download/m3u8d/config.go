@@ -28,6 +28,11 @@ type DownloadConfig struct {
 	// DefaultCRF 未匹配分辨率时的回退 CRF（默认 33）。
 	DefaultCRF int
 
+	// DisableVerifyETag 禁用下载后校验。默认 false = 默认开启校验（可靠性优先）：
+	// 每次下载后按 ETag（若为内容 MD5）直接比对，其余情况走两致对接重下确认。
+	// 必须显式传 true 才禁用（如对不需要可靠性的临时源，或源频繁变化导致重下开销大）。
+	DisableVerifyETag bool
+
 	// AllowFileProtocol 控制 ffmpeg 协议白名单是否包含 "file" 协议。
 	// 开启后允许 ffmpeg 读取本地文件系统作为输入源（如 m3u8 引用本地文件时）。
 	// 默认 false 以防范任意文件读取攻击。若需要使用本地 m3u8 文件转码，设为 true。

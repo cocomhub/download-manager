@@ -102,8 +102,11 @@ func TryGetMd5(headers map[string]string) string {
 	return ""
 }
 
-// md5HexEqual 比较 MD5 hex 字符串（大小写不敏感）。
+// MD5HexEqual 比较 MD5 hex 字符串（大小写不敏感）。
 // ETag（OSS/S3）常为大写 hex，ComputeFileMD5 返回小写——直接比较会误判 mismatch。
+// 导出封装供跨包（如 m3u8d）复用内部 md5HexEqual。
+func MD5HexEqual(a, b string) bool { return md5HexEqual(a, b) }
+
 func md5HexEqual(a, b string) bool {
 	if len(a) != len(b) || len(a) != 32 {
 		return false
