@@ -28,6 +28,11 @@ func (m *Manager) StartDrain() bool {
 	slog.Info("Drain-to-exit triggered: finishing in-flight downloads, no new tasks")
 	m.reclaimQueuedOnDrain()
 	m.signalDrain()
+	// 触发时已无在途下载（且排队项已回收为 pending）→ 立即完成排空，
+	// 避免 WaitForDrain 永久阻塞（drainDone 唯一关闭点是 download() defer）。
+	if !m.hasInflight() {
+		m.notifyDrainDone()
+	}
 	return true
 }
 
