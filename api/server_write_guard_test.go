@@ -73,6 +73,9 @@ func TestWriteGuardUIMode(t *testing.T) {
 		"/api/tasks/t1/object/undo_cancel",
 		"/api/tasks/t1/object/cancel_batch",
 		"/api/tasks/t1/object/undo_cancel_batch",
+		"/api/tasks/t1/object/retry_batch",
+		"/api/tasks/t1/object/delete_batch",
+		"/api/tasks/t1/object/reorder_batch",
 
 		// Task reorder & config
 		"/api/tasks/t1/reorder",
