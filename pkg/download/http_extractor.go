@@ -832,7 +832,10 @@ func (e *HTTPExtractor) reportProxyFailure(proxyURL string) {
 	if proxyURL == "" {
 		return
 	}
-	r, ok := e.selector.(ProxyFailureReporter)
+	e.mu.RLock()
+	sel := e.selector
+	e.mu.RUnlock()
+	r, ok := sel.(ProxyFailureReporter)
 	if !ok {
 		return
 	}
@@ -842,7 +845,10 @@ func (e *HTTPExtractor) reportProxyFailure(proxyURL string) {
 // reportDownloadResult 回写域名维度的真实下载结果（P7-6）。
 // 直连成功 → "direct"；代理成功 → "proxy"。
 func (e *HTTPExtractor) reportDownloadResult(rawURL, proxyURL string) {
-	r, ok := e.selector.(DownloadResultReporter)
+	e.mu.RLock()
+	sel := e.selector
+	e.mu.RUnlock()
+	r, ok := sel.(DownloadResultReporter)
 	if !ok {
 		return
 	}
