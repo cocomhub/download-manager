@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -156,6 +157,49 @@ func TestAPI_UpdateObjectTags_InvalidID(t *testing.T) {
 	rr := doJSONPost(t, r, "/api/objects/mock/abc/tags", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("POST with invalid ID returned %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+
+	_ = done
+}
+
+// TestAPI_BatchURLLimit 验证批量对象接口（retry_batch/delete_batch/reorder_batch）
+// 在 URL 数量超过 maxBatchURLs 时返回 400，防止无鉴权场景下 POST 超大数组放大内存/CPU。
+func TestAPI_BatchURLLimit(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-batch-limit", 1, true)
+	r := srv.Router()
+	done := startAPIManager(t, srv)
+
+	// 等任务就绪。
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/tasks/mock-batch-limit")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "task ready")
+
+	urls := make([]string, maxBatchURLs+1)
+	for i := range urls {
+		urls[i] = fmt.Sprintf("http://u/%d", i)
+	}
+
+	for _, path := range []string{
+		"/api/tasks/mock-batch-limit/object/retry_batch",
+		"/api/tasks/mock-batch-limit/object/delete_batch",
+		"/api/tasks/mock-batch-limit/object/reorder_batch",
+	} {
+		rr := doJSONPost(t, r, path, map[string]any{"urls": urls})
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("POST %s with %d urls returned %d, want 400", path, len(urls), rr.Code)
+		}
+		var resp map[string]string
+		_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+		if resp["error"] != errCodeInvalidRequest {
+			t.Errorf("POST %s expected error %q, got %q", path, errCodeInvalidRequest, resp["error"])
+		}
+	}
+
+	// 少量 URL 正常放行（不为过载误伤）。
+	small := []string{"http://u/0", "http://u/1"}
+	if rr := doJSONPost(t, r, "/api/tasks/mock-batch-limit/object/retry_batch", map[string]any{"urls": small}); rr.Code == http.StatusBadRequest {
+		t.Errorf("small retry_batch should not be rejected as invalid_request, got %d", rr.Code)
 	}
 
 	_ = done

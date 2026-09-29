@@ -237,6 +237,11 @@ func (svc *AggregationService) proportionalAllocation(matchingTasks []taskInfo, 
 	if len(all) > 1 {
 		all = storage.ApplyQueryToObjects(all, &core.StorageQuery{Sort: sortRules(sortBy)})
 	}
+	// 兜底截断：任务数 > limit+1 时前置任务的 share 被 max(1,...) 兜底到 1，
+	// 合并结果可能超过 limit（page 已全局排序，截断即得精确页）。
+	if int64(len(all)) > limit {
+		all = all[:limit]
+	}
 	return all, nil
 }
 

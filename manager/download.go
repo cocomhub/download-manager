@@ -36,6 +36,18 @@ func (m *Manager) isCancelled(t core.Task, obj *model.DownloadObject) bool {
 	return current.GetStatus() == model.StatusCancelled
 }
 
+// isObjectGone 从 storage 重读确认对象是否已被删除（DeleteObjectsBatch 从存储移除）。
+// 用于下载完成/失败回写前拦截：对象已不存在则跳过一切状态写回，
+// 避免被删除对象以 completed/failed 状态「复活」落库（FileStorage.Update 是纯 upsert）。
+func (m *Manager) isObjectGone(t core.Task, url string) bool {
+	st := t.Storage()
+	if st == nil {
+		return false
+	}
+	current, err := st.Get(url)
+	return err != nil || current == nil
+}
+
 func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	start := time.Now()
 	// 登记为「真正在途」：排空退出只等待这些对象，不等待排队项。
@@ -55,6 +67,14 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 		slog.Info("Download skipped — manager stopping", logutil.LogKeyURL, obj.URL)
 		return
 	default:
+	}
+
+	// 对象可能在下发前被 DeleteObjectsBatch 从存储移除，直接终止下载
+	// （避免本次下载结束后回写「复活」该对象）。
+	if m.isObjectGone(t, obj.URL) {
+		slog.Info("Download: object was deleted before download, aborting",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		return
 	}
 
 	// 定期清理小对象 tracker，防止内存泄漏
@@ -138,7 +158,9 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 func (m *Manager) cleanupAfterDownload(t core.Task, obj *model.DownloadObject) {
 	if _, stillActive := m.downloadingObj.Load(obj.URL); stillActive {
 		m.mu.Lock()
-		m.activeDownloads[t.ID()]--
+		if m.activeDownloads[t.ID()] > 0 {
+			m.activeDownloads[t.ID()]--
+		}
 		m.mu.Unlock()
 	}
 
@@ -197,6 +219,12 @@ func (m *Manager) setupMetadataFlusher(dl core.Downloader, t core.Task, obj *mod
 
 // handleDownloadError 根据错误类型分发处理：取消、复合空列表、或一般下载错误。
 func (m *Manager) handleDownloadError(t core.Task, obj *model.DownloadObject, err error) {
+	// 对象已被删除（DeleteObjectsBatch）则放弃一切失败回写，避免「复活」。
+	if m.isObjectGone(t, obj.URL) {
+		slog.Info("Download: object was deleted during download, skipping error writeback",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		return
+	}
 	if m.isCancelled(t, obj) {
 		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
@@ -300,6 +328,12 @@ func (m *Manager) handleDownloadSuccess(t core.Task, obj *model.DownloadObject, 
 		m.soTracker.Delete(obj.URL)
 	}
 
+	// 对象可能已在下载期间被 DeleteObjectsBatch 删除，跳过 completed 回写避免「复活」。
+	if m.isObjectGone(t, obj.URL) {
+		slog.Info("Download: object was deleted during download, skipping completion writeback",
+			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)
+		return
+	}
 	if m.isCancelled(t, obj) {
 		slog.Info("Download: object was cancelled before completion, preserving cancelled status",
 			logutil.LogKeyTaskID, t.ID(), logutil.LogKeyURL, obj.URL)

@@ -228,6 +228,10 @@ func (s *Server) retryObjectsBatch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
 		return
 	}
+	if len(req.URLs) > maxBatchURLs {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("urls exceeds batch limit of %d", maxBatchURLs))
+		return
+	}
 	result := s.mgr.RetryObjectsBatch(id, req.URLs)
 	json.NewEncoder(w).Encode(result)
 }
@@ -242,6 +246,10 @@ func (s *Server) deleteObjectsBatch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required")
 		return
 	}
+	if len(req.URLs) > maxBatchURLs {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("urls exceeds batch limit of %d", maxBatchURLs))
+		return
+	}
 	result := s.mgr.DeleteObjectsBatch(id, req.URLs)
 	json.NewEncoder(w).Encode(result)
 }
@@ -253,6 +261,10 @@ func (s *Server) reorderObjectsBatch(w http.ResponseWriter, r *http.Request) {
 	var req ObjectURLsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.URLs) < 2 {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "urls is required (at least 2, in desired order)")
+		return
+	}
+	if len(req.URLs) > maxBatchURLs {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("urls exceeds batch limit of %d", maxBatchURLs))
 		return
 	}
 	if err := s.mgr.ReorderObjectsBatch(id, req.URLs); err != nil {

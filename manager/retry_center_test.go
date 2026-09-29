@@ -172,3 +172,86 @@ func TestRetryAllFailedStatus(t *testing.T) {
 		t.Fatalf("failed obj status = %q, want pending", failed.GetStatus())
 	}
 }
+
+// guardRetryStatusTask 在 retryStatusTask 基础上实现 TaskStatusGuarder，
+// 用于验证 RetryAllFailedStatus 尊重并发取消的 cancelled 状态。
+type guardRetryStatusTask struct {
+	*retryStatusTask
+	refuse bool
+	calls  int
+}
+
+func (t *guardRetryStatusTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool {
+	t.calls++
+	if t.refuse {
+		return false // 模拟并发 CancelObject 已把对象置 cancelled
+	}
+	return t.UpdateStatus(obj, status, err) == nil
+}
+
+// TestRetryAllFailedStatus_RespectsGuard 验证 RetryAllFailedStatus 用
+// SetStatusUnlessCancelled 守卫：守卫拒绝时跳过重置、不计数、不改状态。
+func TestRetryAllFailedStatus_RespectsGuard(t *testing.T) {
+	st, err := storage.NewStorage("memory", nil)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	failed := &model.DownloadObject{TaskID: "t1", URL: "http://x/guard"}
+	failed.SetStatus(model.StatusFailed)
+	if err := st.Update(failed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	refused := &guardRetryStatusTask{retryStatusTask: &retryStatusTask{
+		id: "t1", typ: "mock", st: st, objs: []*model.DownloadObject{failed},
+	}, refuse: true}
+	m := &Manager{
+		maxFailures:     100,
+		failureRecords:  make([]FailureRecord, 100),
+		activeDownloads: make(map[string]int),
+		schedulerSignal: make(chan struct{}, 1),
+	}
+	m.tasks.Store("t1", refused)
+
+	n, err := m.RetryAllFailedStatus([]string{model.StatusFailed})
+	if err != nil {
+		t.Fatalf("RetryAllFailedStatus: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("retried = %d, want 0 when guard refuses (cancelled)", n)
+	}
+	if failed.GetStatus() != model.StatusFailed {
+		t.Errorf("object status changed to %q despite guard refusing", failed.GetStatus())
+	}
+	if refused.calls != 1 {
+		t.Errorf("guard calls = %d, want 1", refused.calls)
+	}
+
+	// 守卫放行 → 正常重置。
+	failed2 := &model.DownloadObject{TaskID: "t2", URL: "http://x/guard2"}
+	failed2.SetStatus(model.StatusFailed)
+	if err := st.Update(failed2); err != nil {
+		t.Fatalf("seed guard2: %v", err)
+	}
+	allowed := &guardRetryStatusTask{retryStatusTask: &retryStatusTask{
+		id: "t2", typ: "mock", st: st, objs: []*model.DownloadObject{failed2},
+	}, refuse: false}
+	m2 := &Manager{
+		maxFailures:     100,
+		failureRecords:  make([]FailureRecord, 100),
+		activeDownloads: make(map[string]int),
+		schedulerSignal: make(chan struct{}, 1),
+	}
+	m2.tasks.Store("t2", allowed)
+
+	n2, err := m2.RetryAllFailedStatus([]string{model.StatusFailed})
+	if err != nil {
+		t.Fatalf("RetryAllFailedStatus (allowed): %v", err)
+	}
+	if n2 != 1 {
+		t.Fatalf("retried = %d, want 1 when guard allows", n2)
+	}
+	if failed2.GetStatus() != model.StatusPending {
+		t.Errorf("object status = %q, want pending when guard allows", failed2.GetStatus())
+	}
+}

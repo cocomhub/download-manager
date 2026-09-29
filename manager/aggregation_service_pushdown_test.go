@@ -137,7 +137,53 @@ func TestAggregateObjects_MultiTask_QuotaPushdown(t *testing.T) {
 	}
 }
 
-// TestAggregateObjects_MultiTask_QuotaOffsetBeyond 验证页偏移越界（无更多数据）
+// TestAggregateObjects_MultiTask_SmallLimit_NoOverflow 验证边界修复（P2）：
+// 任务数 > limit 时，proportionalAllocation 前置任务的 share 被 max(1, ...) 兜底到 1，
+// 合并结果会超过 limit——最终返回前必须截断，保证每页条数 ≤ limit。
+func TestAggregateObjects_MultiTask_SmallLimit_NoOverflow(t *testing.T) {
+	var tasks []core.Task
+	perTask := map[string][]*model.DownloadObject{}
+	for i := range 5 {
+		id := fmt.Sprintf("tiny-%d", i)
+		tk, objs := stubCount(id, 1)
+		tasks = append(tasks, tk)
+		perTask[id] = objs
+	}
+	svc := NewAggregationService(
+		func() []core.Task { return tasks },
+		boundedPushdownSearch(perTask),
+		func(t core.Task, _ *core.StorageQuery) (int64, error) {
+			return int64(len(perTask[t.ID()])), nil
+		},
+		nil,
+	)
+
+	const limit = int64(2)
+	for _, page := range []int64{1, 2} {
+		res, err := svc.AggregateObjects(page, limit, "", "date_asc", "all", nil, "", "", nil)
+		if err != nil {
+			t.Fatalf("AggregateObjects(page=%d): %v", page, err)
+		}
+		objs, ok := res["objects"].([]*model.DownloadObject)
+		if !ok {
+			t.Fatalf("unexpected objects type %T", res["objects"])
+		}
+		if int64(len(objs)) > limit {
+			t.Fatalf("page %d returned %d objects, exceeds limit=%d", page, len(objs), limit)
+		}
+	}
+
+	// page=1 精确断言：5 个各 1 对象的任务，limit=2 应恰好返回 2 条（截断生效）。
+	res, err := svc.AggregateObjects(1, limit, "", "date_asc", "all", nil, "", "", nil)
+	if err != nil {
+		t.Fatalf("AggregateObjects: %v", err)
+	}
+	objs, _ := res["objects"].([]*model.DownloadObject)
+	if len(objs) != int(limit) {
+		t.Fatalf("page 1 returned %d objects, want exactly %d", len(objs), limit)
+	}
+}
+
 // 时返回空页而不报错（配额下推的边界：每任务 offset 可能超过其自身对象数）。
 func TestAggregateObjects_MultiTask_QuotaOffsetBeyond(t *testing.T) {
 	t1, objs1 := stubCount("t1", 10)

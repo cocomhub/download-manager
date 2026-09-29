@@ -282,7 +282,19 @@ func (oc *ObjectController) RetryObjectsBatch(taskID string, urls []string) map[
 			res[u] = fmt.Sprintf("object status is %s, only failed objects can be retried", st)
 			continue
 		}
-		t.UpdateStatus(obj, model.StatusPending, nil)
+		// 用 SetStatusUnlessCancelled 原子重置：避免并发 CancelObject 已置 cancelled
+		// 后仍被此处覆盖回 pending（对象应在取消后保留 cancelled 状态）。
+		reset := false
+		if guard, ok := t.(core.TaskStatusGuarder); ok {
+			reset = guard.SetStatusUnlessCancelled(obj, model.StatusPending, nil)
+		} else {
+			t.UpdateStatus(obj, model.StatusPending, nil)
+			reset = true
+		}
+		if !reset {
+			res[u] = "object was cancelled, not retried"
+			continue
+		}
 		obj.SetProgress(0)
 		m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		res[u] = "ok"
