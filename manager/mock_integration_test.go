@@ -209,6 +209,52 @@ func waitForObjectsFinal(t *testing.T, mgr *Manager, task core.Task, count int, 
 	}, timeout, 300*time.Millisecond, "waitForObjectsFinal: wanted %d×%s", count, target)
 }
 
+// waitForSchedulerIdle 等待调度管道完全静默：无在途 processTask、无活跃下载、
+// 任务队列/下载队列/downloadingObj/inflight 均清空。
+// 用于「禁用 scan 后、手动改对象状态前」确保没有 mid-flight 的 processTask 会把
+// 对象重新入队（processTask 在 snapshot 时若对象尚未 terminal 会照常入队下载，
+// 覆盖后续手动置 failed——见 TestObjectController_RetryObjectsBatch flake 根因）。
+func waitForSchedulerIdle(t *testing.T, mgr *Manager, taskID string) {
+	t.Helper()
+	assert.MustEventually(t, func() bool {
+		// 在途 processTask goroutine 仍在读对象列表并可能入队。
+		var processing bool
+		mgr.processingTask.Range(func(k, _ any) bool {
+			if k == taskID {
+				processing = true
+			}
+			return true
+		})
+		if processing {
+			return false
+		}
+		// 活跃下载槽位。
+		mgr.mu.Lock()
+		active := mgr.activeDownloads[taskID]
+		mgr.mu.Unlock()
+		if active > 0 {
+			return false
+		}
+		// 任务队列已搬空（worker 已取走或尚未产生）。
+		if len(mgr.getTaskQueue(taskID)) > 0 {
+			return false
+		}
+		// downloadingObj 中不应残留该任务对象。
+		var still bool
+		mgr.downloadingObj.Range(func(_ any, v any) bool {
+			if o, ok := v.(*model.DownloadObject); ok && o.TaskID == taskID {
+				still = true
+				return false
+			}
+			return true
+		})
+		if still {
+			return false
+		}
+		return mgr.countInflight() == 0
+	}, 5*time.Second, 50*time.Millisecond, "scheduler quiescent: task %s", taskID)
+}
+
 // getAllObjectsFromTask fetches all download objects from a task.
 func getAllObjectsFromTask(t *testing.T, task core.Task) []*model.DownloadObject {
 	t.Helper()

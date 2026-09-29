@@ -32,6 +32,13 @@ func TestObjectController_RetryObjectsBatch(t *testing.T) {
 	cfg.TaskScan.Disable = true
 	mgr.configSvc.StoreConfig(cfg)
 
+	// 关键：禁用 scan 后仍有在途 processTask goroutine（waitForObjectsFinal 返回时
+	// 它可能已 snapshot 全部 3 个对象，其中 failed 也会被入队）。等待调度管道
+	// 完全静默（无 processing、无活跃下载、队列清空）后再手动置 failed，
+	// 否则 processTask 会把对象重新入队下载，覆盖为 downloading，
+	// 导致 RetryObjectsBatch 报 "object status is downloading"（CI 高频 flake）。
+	waitForSchedulerIdle(t, mgr, task.ID())
+
 	objs, _ := task.Storage().Search(nil)
 	if len(objs) < 2 {
 		t.Fatalf("need at least 2 objects, got %d", len(objs))
