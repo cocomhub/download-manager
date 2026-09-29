@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cavaliergopher/grab/v3"
+	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
@@ -119,10 +120,114 @@ func (d *M3U8DEngine) runDownloadBatch(ctx context.Context, client *grab.Client,
 
 func (d *M3U8DEngine) handleBatchResponse(resp *grab.Response, ctx context.Context, errReqs *[]*grab.Request) error {
 	if resp == nil || resp.Err() == nil {
+		retry, err := d.verifySegment(resp)
+		if err != nil {
+			return err
+		}
+		if retry {
+			// 校验不匹配：不直接判失败，重建请求进入下一轮重下确认
+			// （再次下载后若内容与本次一致则通过，见 verifySegment）。
+			if req, rerr := d.rebuildRequest(resp, ctx); rerr != nil {
+				return rerr
+			} else {
+				*errReqs = append(*errReqs, req)
+			}
+			return nil
+		}
 		d.recordSuccess(resp)
 		return nil
 	}
 	return d.recordFailure(resp, ctx, errReqs)
+}
+
+// rebuildRequest 由已下载响应重建一个带 UA/自定义头的重试请求（对齐 buildGrabRequests）。
+// NoResume=true：校验重下确认需拿到完整文件内容比对，禁止对已存在文件续传。
+func (d *M3U8DEngine) rebuildRequest(resp *grab.Response, ctx context.Context) (*grab.Request, error) {
+	if resp.Request == nil || resp.Request.HTTPRequest == nil {
+		return nil, nil
+	}
+	url := resp.Request.HTTPRequest.URL.String()
+	req, err := grab.NewRequest(resp.Filename, url)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	req.NoResume = true
+	if d.Config != nil {
+		if d.Config.UserAgent != "" {
+			req.HTTPRequest.Header.Set("User-Agent", d.Config.UserAgent)
+		}
+		for k, v := range d.Config.Headers {
+			req.HTTPRequest.Header.Set(k, v)
+		}
+	}
+	return req, nil
+}
+
+// verifySegment 下载成功后按配置校验分片内容与云端一致（复用 pkg/download 的 MD5 工具）。
+// 返回 (retry, err)：
+//   - err==nil 且 retry=false → 校验通过/接受（含两一致确认），接受当前分片。
+//   - retry=true → 需要再下一次以“两致对接”确认（见 verifyPicked）。
+//   - err != nil → 硬错误（读文件失败等），中止。
+//
+// 决策：
+//   - DisableVerifyETag=true → 直接通过（显式禁用校验）。
+//   - ETag 为内容 MD5 且与已下载内容一致 → 直通（首下即可靠）。
+//   - 其余情况（ETag 缺失 / 非 MD5 / 与内容不符）→ 一律走两致对接（verifyPicked），
+//     出现两份内容相同即接受，保证文件可靠，无需白名单。
+func (d *M3U8DEngine) verifySegment(resp *grab.Response) (bool, error) {
+	if d.Config == nil || d.Config.DisableVerifyETag {
+		return false, nil
+	}
+	if resp == nil || resp.Request == nil || resp.Request.HTTPRequest == nil || resp.HTTPResponse == nil {
+		return false, nil
+	}
+	rawURL := resp.Request.HTTPRequest.URL.String()
+	etag := resp.HTTPResponse.Header.Get("ETag")
+	want := download.TryGetMd5(map[string]string{"Etag": etag})
+
+	hexMD5, err := d.computeSegmentMD5(resp.Filename)
+	if err != nil {
+		return false, fmt.Errorf("m3u8d: read segment for verify: %w", err)
+	}
+	// ETag 为内容 MD5 且内容一致 → 首下即可靠，直接接受。
+	if want != "" && download.MD5HexEqual(hexMD5, want) {
+		d.rememberVerifyMD5(rawURL, hexMD5)
+		if d.Config.Verbose {
+			fmt.Printf("校验通过: %s (MD5 %s)\n", filepath.Base(resp.Filename), hexMD5)
+		}
+		return false, nil
+	}
+	// 其余（ETag 缺失 / 非 MD5 / 与内容不符）：走两致对接重下比较保证可靠。
+	return d.verifyPicked(rawURL, hexMD5, want, resp.Filename)
+}
+
+// verifyPicked 校验不匹配/不可用时的“两致对接”决策：
+//   - 本次 MD5 与已记录的一致 → 已存在两份相同内容，接受为终文件。
+//   - 本次 MD5 与已记录的不同 → 记录最新，返回 retry=true 再下一次，直至出现两份相同。
+func (d *M3U8DEngine) verifyPicked(rawURL, hexMD5, want, filename string) (bool, error) {
+	if prev, seen := d.verifyMD5.Load(rawURL); seen && download.MD5HexEqual(hexMD5, prev.(string)) {
+		slog.Warn("m3u8d: two downloads identical — accepting",
+			logutil.LogKeyURL, rawURL, "md5", hexMD5, "etag", want)
+		if d.Config.Verbose {
+			fmt.Printf("两致对接通过: %s (MD5 %s)\n", filepath.Base(filename), hexMD5)
+		}
+		return false, nil
+	}
+	d.verifyMD5.Store(rawURL, hexMD5)
+	return true, nil
+}
+
+// rememberVerifyMD5 记录某 URL 最近一次（通过校验的）内容 MD5。
+// 用于两致对接比对：仅在校验通过/落定后更新，避免覆盖成“待确认”状态。
+func (d *M3U8DEngine) rememberVerifyMD5(url, hexMD5 string) {
+	d.verifyMD5.Store(url, hexMD5)
+}
+
+// computeSegmentMD5 计算分片 MD5。
+func (d *M3U8DEngine) computeSegmentMD5(path string) (string, error) {
+	_, hexMD5, err := download.ComputeFileMD5(path)
+	return hexMD5, err
 }
 
 func (d *M3U8DEngine) recordSuccess(resp *grab.Response) {
