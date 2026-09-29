@@ -187,44 +187,39 @@
       return
     }
 
-    var objs = (state.selectedTask && state.selectedTask.objects) || []
-    var failedUrls = []
-    objs.forEach(function (o) {
-      if (state.selectedObjectUrls.indexOf(o.url) >= 0 && o.status === 'failed') {
-        failedUrls.push(o.url)
-      }
-    })
+    var urls = state.selectedObjectUrls.slice()
+    if (urls.length === 0) return
 
-    if (failedUrls.length === 0) {
-      UiHelpers.showToast('选中的对象中没有可重试的失败项', 'info')
-      return
-    }
+    // 批量重试：单请求 retry_batch（取代逐条 /retry），返回 URL → 结果映射。
+    AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/retry_batch', { urls: urls })
+      .then(function (res) {
+        if (!res.ok) throw new Error('批量重试失败')
+        var data = (res && res.data) || {}
+        var okCount = 0
+        urls.forEach(function (u) { if (data[u] === 'ok') okCount++ })
+        UiHelpers.showToast('已重试 ' + okCount + '/' + urls.length + ' 个对象', okCount === urls.length ? 'success' : 'warning')
+        state.selectedObjectUrls = []
+        fetchTaskDetails(state, state.selectedTaskId, true)
+      }).catch(function (e) { UiHelpers.showToast('批量重试失败: ' + e.message, 'error') })
+  }
 
-    var completed = 0
-    var totalFailed = 0
-    failedUrls.forEach(function (url) {
-      AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/retry', { url: url })
-        .then(function (res) {
-          if (res.ok) {
-            completed++
-            var obj = (state.selectedTask && state.selectedTask.objects || []).find(function (o) { return o.url === url })
-            if (obj) { obj.status = 'pending'; obj.progress = 0 }
-          } else {
-            totalFailed++
-          }
-        }).catch(function () { totalFailed++ })
-        .finally(function () {
-          if (completed + totalFailed === failedUrls.length) {
-            if (totalFailed > 0) {
-              UiHelpers.showToast('已重试 ' + completed + ' 个，失败 ' + totalFailed + ' 个', 'error')
-            } else {
-              UiHelpers.showToast('已重试 ' + completed + ' 个失败对象', 'success')
-            }
-            state.selectedObjectUrls = []
-            fetchTaskDetails(state, state.selectedTaskId, true)
-          }
-        })
-    })
+  // deleteSelectedObjects 批量删除选中对象（破坏性，需二次确认）。
+  function deleteSelectedObjects (state) {
+    if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+    var urls = state.selectedObjectUrls.slice()
+    if (urls.length === 0) return
+    if (!window.confirm('确定删除选中的 ' + urls.length + ' 个对象？删除后不可恢复。')) return
+
+    AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/delete_batch', { urls: urls })
+      .then(function (res) {
+        if (!res.ok) throw new Error('批量删除失败')
+        var data = (res && res.data) || {}
+        var okCount = 0
+        urls.forEach(function (u) { if (data[u] === 'ok') okCount++ })
+        UiHelpers.showToast('已删除 ' + okCount + '/' + urls.length + ' 个对象', okCount === urls.length ? 'success' : 'warning')
+        state.selectedObjectUrls = []
+        fetchTaskDetails(state, state.selectedTaskId, true)
+      }).catch(function (e) { UiHelpers.showToast('批量删除失败: ' + e.message, 'error') })
   }
 
   function cancelSelectAllObjects (state) {
@@ -347,6 +342,7 @@
     changePage: changePage,
     changeLimit: changeLimit,
     retrySelectedObjects: retrySelectedObjects,
+    deleteSelectedObjects: deleteSelectedObjects,
     cancelSelectAllObjects: cancelSelectAllObjects,
     undoCancelSelectAllObjects: undoCancelSelectAllObjects,
     cancelObject: cancelObject,

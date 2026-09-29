@@ -427,6 +427,7 @@
       toggleSelectAllObjects: function() { UiTaskList.toggleSelectAllObjects(this) },
       cancelSelectAllObjects: function() { UiTaskList.cancelSelectAllObjects(this) },
       retrySelectedObjects: function() { UiTaskList.retrySelectedObjects(this) },
+      deleteSelectedObjects: function() { UiTaskList.deleteSelectedObjects(this) },
       undoCancelSelectAllObjects: function() { UiTaskList.undoCancelSelectAllObjects(this) },
       cancelObject: function(obj) { UiTaskList.cancelObject(this, obj) },
       undoCancelObject: function(obj) { UiTaskList.undoCancelObject(this, obj) },
