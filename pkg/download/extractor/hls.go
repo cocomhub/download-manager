@@ -333,6 +333,7 @@ func (e *HLSExtractor) downloadWithM3U8D(ctx context.Context, req *download.Requ
 		WorkDir:     workDir,
 		MinFiles:    1, // 兼容单分片/极小列表
 		Timeout:     30 * time.Second,
+		FFmpegArgs:  e.ffmpegArgs, // 转封装/转码参数：默认 -c copy（流复制），配置 extra_args 可替换为重编码
 		FFmpegPath:  e.ffmpegPath, // 转封装用注入的 ffmpeg 路径（测试 mock / 配置）
 		// 本地 m3u8 + 分片已下载到 workdir；ffmpeg 转封装需允许 file 协议读取本地文件
 		AllowFileProtocol: true,
