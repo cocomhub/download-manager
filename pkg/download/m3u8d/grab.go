@@ -158,17 +158,40 @@ func (d *M3U8DEngine) recordFailure(resp *grab.Response, ctx context.Context, er
 		return nil
 	}
 
-	// 4xx 永久失败：不占用重试额度（重试也不会成功，避免浪费轮次放大请求）。
-	// 5xx/超时等可恢复类失败仍进 errReqs 参与下一轮重试。
-	if statusCode >= 400 && statusCode < 500 {
-		slog.Warn("grab: permanent 4xx failure, not retried",
-			logutil.LogKeyURL, resp.Request.HTTPRequest.URL.String(), "status", statusCode)
-		return nil
+	url := resp.Request.HTTPRequest.URL.String()
+
+	// 4xx 分类（P1 修复：不再把全部 4xx 当永久 + 静默成功）：
+	//   - 可重试 4xx（408/425/429）：源站限流/请求过频，退避后重试可能成功，进入 errReqs。
+	//   - 472：源站对当前并发超限，已降并发为 1，继续重试。
+	//   - 终态 4xx（401/403/404/410 及其余 4xx）：资源不存在/无权限等，
+	//     返回显式错误而非静默 nil，使 downloadFilesConcurrently 失败而非当成功。
+	switch statusCode {
+	case 408, 425, 429, 472:
+		// 可重试：进入 errReqs 参与下一轮重试。
+	case 401, 403, 404, 410:
+		slog.Warn("grab: terminal 4xx failure, returning error",
+			logutil.LogKeyURL, url, "status", statusCode)
+		return fmt.Errorf("grab: permanent 4xx failure: HTTP %d (url=%s)", statusCode, url)
+	default:
+		if statusCode >= 400 && statusCode < 500 {
+			slog.Warn("grab: terminal 4xx failure, returning error",
+				logutil.LogKeyURL, url, "status", statusCode)
+			return fmt.Errorf("grab: permanent 4xx failure: HTTP %d (url=%s)", statusCode, url)
+		}
 	}
 
-	req, err := grab.NewRequest(resp.Filename, resp.Request.HTTPRequest.URL.String())
+	// 重建请求，补齐 UA 与自定义头（对齐 buildGrabRequests），避免重试丢头（P2 修复）。
+	req, err := grab.NewRequest(resp.Filename, url)
 	if err != nil {
 		return err
+	}
+	if d.Config != nil {
+		if d.Config.UserAgent != "" {
+			req.HTTPRequest.Header.Set("User-Agent", d.Config.UserAgent)
+		}
+		for k, v := range d.Config.Headers {
+			req.HTTPRequest.Header.Set(k, v)
+		}
 	}
 	*errReqs = append(*errReqs, req.WithContext(ctx))
 	return nil

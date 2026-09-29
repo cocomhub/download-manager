@@ -173,3 +173,29 @@ func TestDrain_AlreadyDrainingReturnsFalse(t *testing.T) {
 		t.Fatal("DrainRequested should be true after trigger")
 	}
 }
+
+// TestDrain_NoInflightCompletesImmediately 无在途下载时触发排空，
+// DrainDone 应立刻关闭，避免 WaitForDrain 永久阻塞
+// （drainDone 唯一关闭点是 download() defer，触发时若无 download() 在跑，
+// 该 defer 永不执行 → 曾导致 SIGINT 也救不回）。
+func TestDrain_NoInflightCompletesImmediately(t *testing.T) {
+	mgr := NewManager(&config.Config{Server: config.Server{WorkDir: t.TempDir()}})
+
+	if !mgr.StartDrain() {
+		t.Fatal("StartDrain should return true on first call")
+	}
+
+	// StartDrain 返回后，DrainDone 应已关闭（或很快关闭）。
+	select {
+	case <-mgr.DrainDone():
+	default:
+		// 留一点窗口再用轮询兜底，避免调度/信号竞态造成的偶发。
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
+		defer cancel()
+		select {
+		case <-mgr.DrainDone():
+		case <-ctx.Done():
+			t.Fatal("DrainDone should close immediately when no in-flight downloads")
+		}
+	}
+}

@@ -109,7 +109,17 @@ func (m *Manager) RetryAllFailedStatus(statuses []string) (int, error) {
 			if obj.GetStatus() == model.StatusCompleted {
 				continue
 			}
-			t.UpdateStatus(obj, model.StatusPending, nil)
+			// 用 SetStatusUnlessCancelled 原子重置：避免覆盖并发 CancelObject 已置的 cancelled 状态。
+			ok := false
+			if guard, gok := t.(core.TaskStatusGuarder); gok {
+				ok = guard.SetStatusUnlessCancelled(obj, model.StatusPending, nil)
+			} else {
+				t.UpdateStatus(obj, model.StatusPending, nil)
+				ok = true
+			}
+			if !ok {
+				continue // 对象已被取消，跳过重置
+			}
 			obj.SetProgress(0)
 			m.getOrCreateMetrics(t.ID()).retried.Add(1)
 			retried++

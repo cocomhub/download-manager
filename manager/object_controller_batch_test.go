@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -172,6 +173,155 @@ func TestObjectController_DeleteObjectsBatch(t *testing.T) {
 		if got == nil {
 			t.Errorf("object %s missing after batch delete of others", u)
 		}
+	}
+}
+
+// resurrectTrackingDL 包装 MockDownloader，记录 Download 开始/结束时刻，
+// 用于「删除在途对象不复活」的 P0 回归测试。
+type resurrectTrackingDL struct {
+	*mockdl.MockDownloader
+	started   chan struct{}
+	done      chan struct{}
+	startOnce sync.Once
+	doneOnce  sync.Once
+}
+
+func newResurrectTrackingDL(inner *mockdl.MockDownloader) *resurrectTrackingDL {
+	return &resurrectTrackingDL{
+		MockDownloader: inner,
+		started:        make(chan struct{}),
+		done:           make(chan struct{}),
+	}
+}
+
+func (d *resurrectTrackingDL) Download(obj *model.DownloadObject, h map[string]string) error {
+	d.startOnce.Do(func() { close(d.started) })
+	defer d.doneOnce.Do(func() { close(d.done) })
+	return d.MockDownloader.Download(obj, h)
+}
+
+// waitClosed 等待 channel 关闭或超时（测试辅助）。
+func waitClosed(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		t.Fatalf("timeout: %s", msg)
+	}
+}
+
+// TestObjectController_DeleteObjectsBatch_InFlightNoResurrect 验证 P0 修复：
+// 删除「正在下载」的对象后，下载 goroutine 结束时的状态回写不得让对象以
+// completed/failed 状态「复活」落库（FileStorage.Update 是纯 upsert）。
+func TestObjectController_DeleteObjectsBatch_InFlightNoResurrect(t *testing.T) {
+	inner := mockdl.New(mockdl.ModeSimulateProgress, mockdl.WithDelay(50*time.Millisecond))
+	tracked := newResurrectTrackingDL(inner)
+	mgr, _ := newMockManager(t, "oc-del-resurrect", 1, inner)
+	mgr.setDownloader(tracked)
+	// 默认 TaskScan.Interval=10s 会让对象到下次 scan 才进入下载队列，
+	// 调低扫描间隔让测试快速进入在途状态。
+	scanCfg := mgr.currentCfg().Clone()
+	scanCfg.TaskScan.Interval = 1
+	mgr.configSvc.StoreConfig(scanCfg)
+	_ = startManager(t, mgr)
+	task := waitForTask(t, mgr, "oc-del-resurrect")
+
+	// 等对象就绪。
+	assert.MustEventually(t, func() bool {
+		objs, _ := task.Storage().Search(nil)
+		return len(objs) == 1
+	}, 3*time.Second, 50*time.Millisecond, "object seeded")
+
+	// 等真实下载开始（Download 已进入 simulateProgress）。
+	waitClosed(t, tracked.started, 10*time.Second, "download started")
+
+	objs, _ := task.Storage().Search(nil)
+	url := objs[0].URL
+	if _, ok := mgr.downloadingObj.Load(url); !ok {
+		t.Fatal("expected object registered in downloadingObj while in flight")
+	}
+
+	// 删除在途对象。
+	res := mgr.DeleteObjectsBatch(task.ID(), []string{url})
+	if res[url] != "ok" {
+		t.Fatalf("expected ok for %s, got %q", url, res[url])
+	}
+	if got, _ := task.Storage().Get(url); got != nil {
+		t.Fatalf("object still present right after delete")
+	}
+
+	// 等待下载 goroutine 结束（状态回写已尝试，若未修复会在此刻「复活」）。
+	waitClosed(t, tracked.done, 10*time.Second, "in-flight download finished")
+
+	if got, _ := task.Storage().Get(url); got != nil {
+		t.Errorf("deleted object resurrected with status %q after download finished", got.GetStatus())
+	}
+	if shared, _ := mgr.urlRegistry.Get(url); shared != nil {
+		t.Errorf("deleted object resurrected in urlRegistry")
+	}
+}
+
+// guardRetryTask 实现 TaskStatusGuarder 的批量重试对象，记录守卫调用，
+// 用于验证 RetryObjectsBatch 对并发取消的 cancelled 状态不覆盖。
+type guardRetryTask struct {
+	mockTask
+	guardResult bool
+	guardCalls  int
+	updateCalls int
+}
+
+func (t *guardRetryTask) SetStatusUnlessCancelled(obj *model.DownloadObject, status string, err error) bool {
+	t.guardCalls++
+	return t.guardResult
+}
+
+func (t *guardRetryTask) UpdateStatus(obj *model.DownloadObject, status string, err error) error {
+	t.updateCalls++
+	return nil
+}
+
+// TestObjectController_RetryObjectsBatch_RespectsCancelGuard 验证批量重试使用
+// SetStatusUnlessCancelled 守卫：并发取消已置 cancelled 的对象不会被重置回 pending。
+func TestObjectController_RetryObjectsBatch_RespectsCancelGuard(t *testing.T) {
+	// 守卫拒绝（模拟并发 CancelObject 已把对象置 cancelled）→ 不得重置、不得直写。
+	refused := &guardRetryTask{guardResult: false}
+	refused.id = "t-retry-guard"
+	refused.typ = "mock"
+	refused.objs = []*model.DownloadObject{
+		{TaskID: "t-retry-guard", URL: "http://retry-guard/1", Status: model.StatusFailed},
+	}
+	m := NewManager(&config.Config{})
+	m.tasks.Store(refused.id, refused)
+	m.objectCtrl = newObjectController(m)
+
+	res := m.RetryObjectsBatch(refused.id, []string{"http://retry-guard/1"})
+	if res["http://retry-guard/1"] == "ok" {
+		t.Errorf("cancelled object should not be retried as ok, got %q", res["http://retry-guard/1"])
+	}
+	if refused.guardCalls != 1 {
+		t.Errorf("expected guard consulted once, got %d", refused.guardCalls)
+	}
+	if refused.updateCalls != 0 {
+		t.Errorf("expected no direct UpdateStatus writeback when guard refuses, got %d", refused.updateCalls)
+	}
+
+	// 守卫放行（正常失败对象）→ 重置为 pending。
+	allowed := &guardRetryTask{guardResult: true}
+	allowed.id = "t-retry-guard-ok"
+	allowed.typ = "mock"
+	allowed.objs = []*model.DownloadObject{
+		{TaskID: "t-retry-guard-ok", URL: "http://retry-guard/2", Status: model.StatusFailedPermanent},
+	}
+	m2 := NewManager(&config.Config{})
+	m2.tasks.Store(allowed.id, allowed)
+	m2.objectCtrl = newObjectController(m2)
+
+	res2 := m2.RetryObjectsBatch(allowed.id, []string{"http://retry-guard/2"})
+	if res2["http://retry-guard/2"] != "ok" {
+		t.Errorf("expected ok when guard allows, got %q", res2["http://retry-guard/2"])
+	}
+	if allowed.guardCalls != 1 {
+		t.Errorf("expected guard consulted once for happy path, got %d", allowed.guardCalls)
 	}
 }
 

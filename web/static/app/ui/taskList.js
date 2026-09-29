@@ -127,9 +127,11 @@
   }
 
   function cancelSelected (state) {
+    if (state.batchBusy) return
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     if (state.selectedTaskIds.length === 0) return
-    AppAPI.post('/api/tasks/cancel_batch', { ids: state.selectedTaskIds }).then(function (res) {
+    state.batchBusy = true
+    return AppAPI.post('/api/tasks/cancel_batch', { ids: state.selectedTaskIds }).then(function (res) {
       if (!res.ok) throw new Error('批量取消失败')
       return res.json()
     }).then(function (result) {
@@ -140,6 +142,7 @@
       fetchTasks(state)
       if (state.selectedTaskId) fetchTaskDetails(state, state.selectedTaskId, true)
     }).catch(function (e) { UiHelpers.showToast('批量取消失败: ' + e.message, 'error') })
+      .finally(function () { state.batchBusy = false })
   }
 
   function retryAllFailed (state) {
@@ -169,6 +172,7 @@
   }
 
   function retrySelectedObjects (state) {
+    if (state.batchBusy) return
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     if (state.selectedObjectUrls.length === 0) return
 
@@ -176,7 +180,8 @@
 
     if (isAllMode) {
       if (!state.selectedTaskId) return
-      AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/retry', {})
+      state.batchBusy = true
+      return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/retry', {})
         .then(function (res) {
           if (!res.ok) throw new Error('批量重试失败')
           UiHelpers.showToast('已重试所有失败对象', 'success')
@@ -184,51 +189,76 @@
           state.selectAllScope = 'page'
           fetchTaskDetails(state, state.selectedTaskId, true)
         }).catch(function (e) { UiHelpers.showToast('批量重试失败: ' + e.message, 'error') })
-      return
+        .finally(function () { state.batchBusy = false })
     }
 
     var urls = state.selectedObjectUrls.slice()
     if (urls.length === 0) return
 
     // 批量重试：单请求 retry_batch（取代逐条 /retry），返回 URL → 结果映射。
-    AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/retry_batch', { urls: urls })
+    // 注意：fetch Response 无 .data 属性，须用 res.json() 解析 {url:"ok"} 统计成功数。
+    state.batchBusy = true
+    return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/retry_batch', { urls: urls })
       .then(function (res) {
         if (!res.ok) throw new Error('批量重试失败')
-        var data = (res && res.data) || {}
+        return res.json()
+      }).then(function (result) {
+        var data = result || {}
         var okCount = 0
-        urls.forEach(function (u) { if (data[u] === 'ok') okCount++ })
-        UiHelpers.showToast('已重试 ' + okCount + '/' + urls.length + ' 个对象', okCount === urls.length ? 'success' : 'warning')
+        var failedCount = 0
+        urls.forEach(function (u) {
+          if (data[u] === 'ok') okCount++
+          else failedCount++
+        })
+        var msg = '已重试 ' + okCount + '/' + urls.length + ' 个对象'
+        if (failedCount > 0) msg += '，失败 ' + failedCount + ' 个'
+        UiHelpers.showToast(msg, okCount === urls.length ? 'success' : 'warning')
         state.selectedObjectUrls = []
         fetchTaskDetails(state, state.selectedTaskId, true)
       }).catch(function (e) { UiHelpers.showToast('批量重试失败: ' + e.message, 'error') })
+      .finally(function () { state.batchBusy = false })
   }
 
   // deleteSelectedObjects 批量删除选中对象（破坏性，需二次确认）。
   function deleteSelectedObjects (state) {
+    if (state.batchBusy) return
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     var urls = state.selectedObjectUrls.slice()
     if (urls.length === 0) return
     if (!window.confirm('确定删除选中的 ' + urls.length + ' 个对象？删除后不可恢复。')) return
 
-    AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/delete_batch', { urls: urls })
+    // 注意：fetch Response 无 .data 属性，须用 res.json() 解析 {url:"ok"} 统计成功数。
+    state.batchBusy = true
+    return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/delete_batch', { urls: urls })
       .then(function (res) {
         if (!res.ok) throw new Error('批量删除失败')
-        var data = (res && res.data) || {}
+        return res.json()
+      }).then(function (result) {
+        var data = result || {}
         var okCount = 0
-        urls.forEach(function (u) { if (data[u] === 'ok') okCount++ })
-        UiHelpers.showToast('已删除 ' + okCount + '/' + urls.length + ' 个对象', okCount === urls.length ? 'success' : 'warning')
+        var failedCount = 0
+        urls.forEach(function (u) {
+          if (data[u] === 'ok') okCount++
+          else failedCount++
+        })
+        var msg = '已删除 ' + okCount + '/' + urls.length + ' 个对象'
+        if (failedCount > 0) msg += '，失败 ' + failedCount + ' 个'
+        UiHelpers.showToast(msg, okCount === urls.length ? 'success' : 'warning')
         state.selectedObjectUrls = []
         fetchTaskDetails(state, state.selectedTaskId, true)
       }).catch(function (e) { UiHelpers.showToast('批量删除失败: ' + e.message, 'error') })
+      .finally(function () { state.batchBusy = false })
   }
 
   function cancelSelectAllObjects (state) {
+    if (state.batchBusy) return
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     if (state.selectedObjectUrls.length === 0) return
 
     if (state.selectAllScope === 'all') {
       if (!state.selectedTaskId) return
-      AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/cancel', {})
+      state.batchBusy = true
+      return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/cancel', {})
         .then(function (res) {
           if (!res.ok) throw new Error('取消失败')
           UiHelpers.showToast('任务已取消', 'success')
@@ -237,10 +267,12 @@
           fetchTasks(state)
           fetchTaskDetails(state, state.selectedTaskId, true)
         }).catch(function (e) { UiHelpers.showToast('取消失败: ' + e.message, 'error') })
+        .finally(function () { state.batchBusy = false })
       return
     }
 
-    AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/cancel_batch', { urls: state.selectedObjectUrls })
+    state.batchBusy = true
+    return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/cancel_batch', { urls: state.selectedObjectUrls })
       .then(function (res) { if (!res.ok) throw new Error('批量取消失败'); return res.json() })
       .then(function (result) {
         var okList = Object.entries(result).filter(function (kv) { return kv[1] === 'ok' }).map(function (kv) { return kv[0] })
@@ -254,6 +286,7 @@
         else UiHelpers.showToast('部分对象取消失败', 'error')
         state.selectedObjectUrls = []
       }).catch(function (e) { UiHelpers.showToast('批量取消失败: ' + e.message, 'error') })
+      .finally(function () { state.batchBusy = false })
   }
 
   function undoCancelSelectAllObjects (state) {
