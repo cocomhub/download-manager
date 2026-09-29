@@ -610,3 +610,63 @@ func TestHTTPExtractor_ReportsProxyResult(t *testing.T) {
 		t.Fatalf("expected proxy %s after proxy download, got: %s", proxySrv.URL, proxyURL)
 	}
 }
+
+// TestHTTPExtractor_Origin500DoesNotCoolProxy 验证（P1 修复）：
+// 源站 5xx 是源站/资源自身问题，不应计入代理故障——
+// 经代理下载遇源站 500 全部重试失败后，代理不应被打入冷却。
+func TestHTTPExtractor_Origin500DoesNotCoolProxy(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer origin.Close()
+
+	// 简易正向代理：先处理带宽探测，再把实际请求转发到 origin。
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bandwidth" {
+			_, _ = w.Write([]byte("10"))
+			return
+		}
+		req, _ := http.NewRequestWithContext(r.Context(), r.Method, origin.URL+r.URL.Path, r.Body)
+		req.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	defer proxySrv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out.txt")
+
+	s := download.NewStaticProxySelector([]string{proxySrv.URL})
+	s.WithCache(t.TempDir(), 3600)
+	s.WithProbe(1)
+	sel := download.NewDefaultSelector().WithProxySelector(s)
+
+	// maxRetries=2：若 500 被误计代理故障，连续 2 次即触发冷却（阈值 2）。
+	ext := download.NewHTTPExtractorWithConfig(2, "", "", "")
+	ext.SetTransport(download.NewStdlibTransport())
+	ext.SetSelector(sel)
+
+	err := ext.Extract(t.Context(), &download.Request{
+		URL:      origin.URL,
+		SavePath: dest,
+		Metadata: make(map[string]string),
+	})
+	if err == nil {
+		t.Fatal("expected error from origin 500")
+	}
+
+	// 源站 500 不应把代理计入冷却：再次 Select 应仍能选中同一代理。
+	proxy, err2 := sel.SelectProxy(t.Context(), origin.URL, nil)
+	if err2 != nil {
+		t.Fatalf("proxy was incorrectly cooled after origin 500: %v", err2)
+	}
+	if proxy != proxySrv.URL {
+		t.Fatalf("expected proxy %s to remain selectable, got %q", proxySrv.URL, proxy)
+	}
+}

@@ -135,7 +135,7 @@
                 </div>
                 <div class="flex gap-2">
                     <button @click="toggleSelectAll" class="flex-1 bg-white border text-gray-700 hover:bg-gray-50 py-1.5 rounded shadow-sm text-xs transition">全选</button>
-                    <button @click="cancelSelected" :disabled="isWriteDisabled || selectedTaskIds.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="flex-1 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 py-1.5 rounded shadow-sm text-xs transition">取消选中</button>
+                    <button @click="cancelSelected" :disabled="isWriteDisabled || batchBusy || selectedTaskIds.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="flex-1 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 py-1.5 rounded shadow-sm text-xs transition">取消选中</button>
                 </div>
             </div>
 
@@ -743,9 +743,9 @@
                                     <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer" v-if="selectedObjectUrls.length > 0">
                                       <input type="radio" v-model="selectAllScope" value="all" class="accent-blue-500"> 全选所有页
                                     </label>
-                                    <button @click="cancelSelectAllObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">取消选中</button>
-                                    <button @click="retrySelectedObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">批量重试</button>
-                                    <button @click="deleteSelectedObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : '删除选中对象（不可恢复）'" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">删除选中</button>
+                                    <button @click="cancelSelectAllObjects" :disabled="isWriteDisabled || batchBusy || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">取消选中</button>
+                                    <button @click="retrySelectedObjects" :disabled="isWriteDisabled || batchBusy || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">批量重试</button>
+                                    <button @click="deleteSelectedObjects" :disabled="isWriteDisabled || batchBusy || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : '删除选中对象（不可恢复）'" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">删除选中</button>
                                     <button @click="undoCancelSelectAllObjects" :disabled="isWriteDisabled || selectedObjectUrls.length===0" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded-md transition-colors" :class="selectedObjectUrls.length>0 ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'">撤销取消</button>
                                     <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" v-if="selectedObjectUrls.length>0">已选 {{ selectedObjectUrls.length }} 个对象<span v-if="selectAllScope === 'all'">（跨页全选）</span></span>
                                 </div>

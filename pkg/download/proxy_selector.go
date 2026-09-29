@@ -37,6 +37,15 @@ const (
 	// 1 小时：缓存命中后直接走记忆通道（直连/代理），避免反复探测；
 	// 缓存类型不通时自动降级换另一方式，成功则回写立即切换。
 	defaultDecisionCacheTTL = 3600
+
+	// probeDecisionCacheTTL 是探测式决策缓存 TTL（秒）。
+	// 探测结果（checkDirect / 带宽选择）只代表当下可达性，易过期，
+	// 用短 TTL（60s）避免长期固化错误结论；真实下载结果（ReportResult）才用长 TTL。
+	probeDecisionCacheTTL = 60
+
+	// probeCacheSuffix 是探测式决策缓存文件后缀，
+	// 与真实结果缓存（长 TTL）区分，使同一域名可分别按不同 TTL 失效。
+	probeCacheSuffix = ".probe"
 )
 
 // proxyHealth 记录单个代理的健康状态。
@@ -120,12 +129,28 @@ func (s *StaticProxySelector) cachePathForDomain(domain string) string {
 
 // readCachedDecision 读取并验证缓存中的代理决策。
 // 返回决策值（"direct"/"proxy"）和是否命中有效缓存。
+//
+// 优先级与 TTL（P1 修复）：
+//   - 真实下载结果缓存（ReportResult 写入，长 TTL）优先；
+//   - 探测式缓存（checkDirect/带宽选择写入，短 TTL）次之。
 func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool) {
+	// 真实下载结果缓存（长 TTL）优先
+	if decision, ok := s.readDecisionFile(cachePath, s.decisionCacheTTL.Load()); ok {
+		return decision, true
+	}
+	// 探测式缓存（短 TTL）次之
+	if decision, ok := s.readDecisionFile(cachePath+probeCacheSuffix, probeDecisionCacheTTL); ok {
+		return decision, true
+	}
+	return "", false
+}
+
+// readDecisionFile 读取单个决策缓存文件，按给定 TTL 判断是否有效。
+func (s *StaticProxySelector) readDecisionFile(cachePath string, ttl int64) (string, bool) {
 	info, err := os.Stat(cachePath)
 	if err != nil {
 		return "", false
 	}
-	ttl := int(s.decisionCacheTTL.Load())
 	if ttl <= 0 {
 		ttl = 1
 	}
@@ -139,7 +164,7 @@ func (s *StaticProxySelector) readCachedDecision(cachePath string) (string, bool
 	return strings.TrimSpace(string(content)), true
 }
 
-// writeCacheDecision 将代理决策写入缓存文件。
+// writeCacheDecision 将代理决策写入缓存文件（真实下载结果，长 TTL）。
 func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision string) {
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
 		slog.Warn("Failed to create cache directory for proxy decision", "path", cachePath, logutil.LogKeyError, err)
@@ -148,6 +173,11 @@ func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision stri
 	if err := os.WriteFile(cachePath, []byte(decision), 0644); err != nil {
 		slog.Warn("Failed to write proxy decision cache", "path", cachePath, logutil.LogKeyError, err)
 	}
+}
+
+// writeProbeDecision 将探测式代理决策写入缓存文件（短 TTL）。
+func (s *StaticProxySelector) writeProbeDecision(cachePath, decision string) {
+	s.writeCacheDecision(cachePath+probeCacheSuffix, decision)
 }
 
 // Select 实现 ProxySelector 接口。
@@ -190,7 +220,7 @@ skipCache:
 
 	// 直连探测
 	if !forceProxy && checkDirect(ctx, targetURL, probeTimeout) {
-		s.writeCacheDecision(cachePath, "direct")
+		s.writeProbeDecision(cachePath, "direct")
 		return "", nil
 	}
 
@@ -241,7 +271,7 @@ func (s *StaticProxySelector) selectBestProxy(ctx context.Context, cachePath str
 		}
 	}
 	if bestProxy != "" {
-		s.writeCacheDecision(cachePath, "proxy")
+		s.writeProbeDecision(cachePath, "proxy")
 		return bestProxy, nil
 	}
 	if s.forceProxy.Load() {
@@ -283,6 +313,24 @@ func (s *StaticProxySelector) ReportResult(domain, channel string) {
 		return
 	}
 	s.writeCacheDecision(s.cachePathForDomain(domain), channel)
+}
+
+// ReportDomainFailure 实现 DomainFailureReporter：某域名真实下载全部重试失败后，
+// 删除该域名的决策缓存（真实 + 探测），使下次 Select 重新探测或回落其它通道
+// （P1 修复：direct 命中后直连持续失败不再长期沿用陈旧缓存硬阻断降级）。
+func (s *StaticProxySelector) ReportDomainFailure(domain, channel string) {
+	if domain == "" {
+		return
+	}
+	// 当前统一失效（删除）该域名缓存，不区分 direct/proxy 通道，
+	// 下次 Select 重新走探测/带宽扫描决定通道。
+	cachePath := s.cachePathForDomain(domain)
+	for _, p := range []string{cachePath, cachePath + probeCacheSuffix} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			slog.Warn("Failed to remove proxy decision cache after domain failure",
+				"domain", domain, "channel", channel, "path", p, logutil.LogKeyError, err)
+		}
+	}
 }
 
 // healthForLocked 返回代理的健康状态（调用方须持 healthMu）。

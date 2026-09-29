@@ -5,6 +5,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,20 @@ import (
 
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
+
+// errHTTPStatus 标记「源站 HTTP 状态类错误」（源站返回非预期状态码）。
+// 与「代理隧道层故障」（连接/拨号/TLS/超时）区分：
+// 前者反映源站/资源本身状态，后者才归因于代理出口不可用。
+// 重试循环只对隧道层错误上报代理故障（P1 修复：源站 5xx 不误计代理冷却）。
+var errHTTPStatus = errors.New("http status error")
+
+// DomainFailureReporter 是可选接口：代理选择器可实现它，
+// 以便真实下载在某域名/通道全部重试失败后失效对应决策缓存，
+// 使下次 Select 重新探测或回落其它通道（P1：direct 缓存命中后直连持续失败可降级）。
+type DomainFailureReporter interface {
+	// ReportDomainFailure 记录某域名一次真实下载（全部重试后）失败，失效其决策缓存。
+	ReportDomainFailure(domain, channel string)
+}
 
 // mediaExtensionSet 是预期为媒体文件的 URL 扩展名集合，用于 Content-Type 校验。
 // 当 URL 扩展名在此集合中但响应 Content-Type 不匹配期望类型时，报 ErrNoTry。
@@ -449,9 +464,9 @@ func handleHTTPResponseStatus(tresp *TransportResponse, w io.Writer, req *Reques
 		return true, false, nil
 	case tresp.StatusCode != http.StatusOK && tresp.StatusCode != http.StatusPartialContent:
 		if tresp.StatusCode >= 400 {
-			return true, false, fmt.Errorf("HTTP %d", tresp.StatusCode)
+			return true, false, fmt.Errorf("%w: HTTP %d", errHTTPStatus, tresp.StatusCode)
 		}
-		return true, false, fmt.Errorf("HTTP error: %d", tresp.StatusCode)
+		return true, false, fmt.Errorf("%w: HTTP error: %d", errHTTPStatus, tresp.StatusCode)
 	default:
 		return false, false, nil
 	}
@@ -793,8 +808,11 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 			if IsNoTry(err) {
 				return err
 			}
-			// 代理下载失败：上报代理故障（驱动冷却/故障切换）。
-			e.reportProxyFailure(proxyURL)
+			// 仅代理隧道层错误（连接/拨号/TLS/超时）计入代理故障，驱动冷却/故障切换；
+			// 源站 HTTP 状态类错误（4xx/5xx）是源站问题，不计代理故障（P1 修复）。
+			if !isHTTPStatusError(err) {
+				e.reportProxyFailure(proxyURL)
+			}
 			slog.Warn("Download attempt failed, retrying", "attempt", attempt, logutil.LogKeyURL, rawURL, logutil.LogKeyError, err)
 			// 测试钩子：在进入 sleep 前通知调用方
 			if hook := e.TestHookRetrySleep; hook != nil {
@@ -824,7 +842,15 @@ func (e *HTTPExtractor) retryDownload(dlCtx context.Context, rPath, rawURL, prox
 		e.reportDownloadResult(rawURL, proxyURL)
 		return nil
 	}
+	// 全部重试失败：失效该域名决策缓存，使下次 Select 重新探测或回落其它通道
+	//（P1 修复：direct 命中后直连持续失败不再长期沿用陈旧缓存）。
+	e.reportDomainFailure(rawURL, proxyURL)
 	return fmt.Errorf("%w: max retries reached (%d)", ErrNoTry, maxRetries)
+}
+
+// isHTTPStatusError 判断错误是否为源站 HTTP 状态类错误（而非代理隧道层故障）。
+func isHTTPStatusError(err error) bool {
+	return errors.Is(err, errHTTPStatus)
 }
 
 // reportProxyFailure 上报代理下载失败（驱动代理冷却/故障切换）。
@@ -861,6 +887,27 @@ func (e *HTTPExtractor) reportDownloadResult(rawURL, proxyURL string) {
 		channel = "proxy"
 	}
 	r.ReportResult(u.Host, channel)
+}
+
+// reportDomainFailure 上报某域名一次真实下载（全部重试后）失败，失效其决策缓存
+// （P1 修复）。channel 为该次下载使用的通道（"direct"/"proxy"）。
+func (e *HTTPExtractor) reportDomainFailure(rawURL, proxyURL string) {
+	e.mu.RLock()
+	sel := e.selector
+	e.mu.RUnlock()
+	r, ok := sel.(DomainFailureReporter)
+	if !ok {
+		return
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	channel := "direct"
+	if proxyURL != "" {
+		channel = "proxy"
+	}
+	r.ReportDomainFailure(u.Host, channel)
 }
 func (e *HTTPExtractor) buildHeaders(req *Request, localUA string, localBrowserHdrs bool) map[string]string {
 	h := make(map[string]string)

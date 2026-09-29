@@ -275,3 +275,75 @@ func TestStaticProxySelector_DefaultTTLIsOneHour(t *testing.T) {
 		t.Fatalf("expected default decision cache TTL 3600s, got: %d", got)
 	}
 }
+
+// TestStaticProxySelector_DirectFailureInvalidatesCacheAndDegrades 验证（P1 修复）：
+// direct 缓存命中后直连持续失败（ReportDomainFailure 失效缓存），
+// 再次 Select 不再硬阻断直连，而是重新探测并回落代理。
+func TestStaticProxySelector_DirectFailureInvalidatesCacheAndDegrades(t *testing.T) {
+	// 目标域名指向一个已关闭的服务器（直连不可达）。
+	deadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadHost := strings.TrimPrefix(deadSrv.URL, "http://")
+	deadSrv.Close()
+
+	proxySrv := mockBandwidthServer(t, "10")
+	defer proxySrv.Close()
+
+	s := NewStaticProxySelector([]string{proxySrv.URL})
+	cacheDir := t.TempDir()
+	s.WithCache(cacheDir, 3600)
+	s.WithProbe(1)
+
+	targetURL := "http://" + deadHost + "/file.zip"
+
+	// 预置真实直连缓存（此前直连成功过）。
+	s.ReportResult(deadHost, "direct")
+
+	// 缓存命中：直接返回直连（不探测、不走代理）。
+	proxy, err := s.Select(t.Context(), targetURL, nil)
+	if err != nil || proxy != "" {
+		t.Fatalf("expected direct on cache hit, got %q err=%v", proxy, err)
+	}
+
+	// 直连持续失败 → 失效该域名决策缓存。
+	s.ReportDomainFailure(deadHost, "direct")
+	if decision, ok := s.readCachedDecision(s.cachePathForDomain(deadHost)); ok {
+		t.Fatalf("expected cache invalidated after domain failure, got %q", decision)
+	}
+
+	// 再次 Select：无缓存 + 直连探测失败 → 回落代理（不再被陈旧 direct 缓存阻断）。
+	proxy, err = s.Select(t.Context(), targetURL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if proxy != proxySrv.URL {
+		t.Fatalf("expected proxy %s after direct failure degradation, got %q", proxySrv.URL, proxy)
+	}
+}
+
+// TestStaticProxySelector_ProbeDecisionShortTTLRealPrecedes 验证（P1 修复）：
+// 探测式决策用短 TTL（60s），真实下载结果（长 TTL）优先于探测结果。
+func TestStaticProxySelector_ProbeDecisionShortTTLRealPrecedes(t *testing.T) {
+	s := NewStaticProxySelector(nil)
+	cacheDir := t.TempDir()
+	s.WithCache(cacheDir, 3600)
+
+	if probeDecisionCacheTTL != 60 {
+		t.Fatalf("expected probe decision TTL 60s, got: %d", probeDecisionCacheTTL)
+	}
+
+	cachePath := s.cachePathForDomain("example.com")
+
+	// 探测式写入（短 TTL）：readCachedDecision 可命中。
+	s.writeProbeDecision(cachePath, "direct")
+	decision, ok := s.readCachedDecision(cachePath)
+	if !ok || decision != "direct" {
+		t.Fatalf("expected probe decision direct, got %q ok=%v", decision, ok)
+	}
+
+	// 真实下载结果（长 TTL）覆盖探测：读取优先返回真实结果。
+	s.ReportResult("example.com", "proxy")
+	decision, ok = s.readCachedDecision(cachePath)
+	if !ok || decision != "proxy" {
+		t.Fatalf("expected real result to precede probe decision, got %q ok=%v", decision, ok)
+	}
+}

@@ -115,6 +115,8 @@
         // Retry center (retryPanel.js)
         retryOverview: null,
         retryBusy: false,
+        // 批量对象/任务操作 in-flight 守卫（taskList.js batchBusy）
+        batchBusy: false,
         retryCategories: (typeof UiRetryPanel !== 'undefined' ? UiRetryPanel.CATEGORIES : []),
 
         // Mobile responsive
