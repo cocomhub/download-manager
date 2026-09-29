@@ -112,6 +112,11 @@
         dashboardMetricsTimer: null,
         dashboardFailuresTimer: null,
 
+        // Retry center (retryPanel.js)
+        retryOverview: null,
+        retryBusy: false,
+        retryCategories: (typeof UiRetryPanel !== 'undefined' ? UiRetryPanel.CATEGORIES : []),
+
         // Mobile responsive
         mobileSidebarOpen: false,
         mobileToolbarOpen: false,
@@ -230,7 +235,10 @@
           }
         }
         return null
-      }
+      },
+      retryPanelVisible: function () {
+        return !!(this.retryOverview && this.retryOverview.categories)
+      },
     },
 
     watch: {
@@ -273,6 +281,7 @@
       viewMode: function (val) {
         if (val === 'dashboard') {
           this.fetchDashboardData()
+          this.fetchRetryOverview()
           this.startDashboardPolling()
         } else {
           this.stopDashboardPolling()
@@ -287,6 +296,7 @@
       this.initAuth()
       this.initTypeFromURL()
       this.initRuntime()
+      this.fetchRetryOverview()
       this.fetchTasks()
       this.initSSE()
       this.loadVideoSettings()
@@ -750,6 +760,19 @@
       stopDashboardPolling: function() { UiDashboard.stopDashboardPolling() },
       changeDashboardFailuresLimit: function() { UiDashboard.changeDashboardFailuresLimit(this) },
       searchDashboardFailures: function() { UiDashboard.searchDashboardFailures(this) },
+
+      // Retry center delegates
+      fetchRetryOverview: function() { UiRetryPanel.fetchOverview(this) },
+      retryCategory: function(cat) {
+        var self = this
+        UiRetryPanel.retryCategory(this, cat).then(function() {
+          UiHelpers.showToast('已触发' + UiRetryPanel.categoryLabel(cat) + '重试', 'success')
+        })
+      },
+      retryCategoryLabel: function(cat) { return UiRetryPanel.categoryLabel(cat) },
+      retryCategoryColor: function(cat) { return UiRetryPanel.categoryColor(cat) },
+      retryCategoryCount: function(cat) { return UiRetryPanel.categoryCount(this.retryOverview, cat) },
+      retryableCats: function() { return UiRetryPanel.retryableCategories(this.retryOverview) },
 
       loadTaskUIForType: function (taskType, callback) {
         var self = this

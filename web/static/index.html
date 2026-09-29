@@ -642,6 +642,36 @@
                     </div>
                   </div>
 
+                  <!-- 重试中心：失败分类聚合 + 批量重试 -->
+                  <div class="bg-white rounded-xl shadow-sm p-6 border" data-testid="retry-panel">
+                    <div class="flex justify-between items-center mb-4">
+                      <div class="text-xs text-gray-500 uppercase tracking-wider">🎯 重试中心</div>
+                      <div class="flex items-center gap-2">
+                        <button @click="fetchRetryOverview" class="text-sm bg-white border text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-md">刷新</button>
+                        <button
+                          v-for="c in retryableCats()"
+                          :key="'retry-' + c.key"
+                          @click="retryCategory(c.key)"
+                          :disabled="isWriteDisabled || retryBusy || retryCategoryCount(c.key) === 0"
+                          :data-testid="'btn-retry-' + c.key"
+                          :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : '重试全部 ' + c.label + ' 失败对象'"
+                          class="text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 px-3 py-1.5 rounded-md">
+                          重试 {{ c.label.split('（')[0] }}
+                        </button>
+                      </div>
+                    </div>
+                    <div v-if="retryPanelVisible" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div v-for="c in retryCategories" :key="c.key" class="bg-gray-50 rounded-lg p-4 text-center" :data-testid="'retry-cat-' + c.key">
+                        <div class="text-2xl font-bold" :class="'text-' + retryCategoryColor(c.key) + '-600'">{{ retryCategoryCount(c.key) }}</div>
+                        <div class="text-xs text-gray-500 mt-1">{{ retryCategoryLabel(c.key) }}</div>
+                        <div v-if="retryCategoryColor(c.key) === 'red'" class="text-[10px] text-gray-400 mt-1">永久失败，重试需人工确认</div>
+                      </div>
+                    </div>
+                    <div v-else class="text-sm text-gray-400 py-4 text-center" data-testid="retry-panel-loading">
+                      {{ retryOverview === null ? '加载中...' : '暂无失败记录' }}
+                    </div>
+                  </div>
+
                   <!-- 第三段：失败记录 -->
                   <div class="bg-white rounded-xl shadow-sm p-6 border">
                     <div class="flex justify-between items-center mb-4">
@@ -1705,6 +1735,7 @@
     <script src="app/ui/taskList.js"></script>
     <script src="app/ui/videoPlayer.js"></script>
     <script src="app/ui/dashboard.js"></script>
+    <script src="app/ui/retryPanel.js"></script>
     <script src="app/main.js"></script>
 </body>
 </html>
