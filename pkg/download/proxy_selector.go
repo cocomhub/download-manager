@@ -32,6 +32,11 @@ const (
 
 	// proxyCooldown 是代理故障后的冷却时长。
 	proxyCooldown = 30 * time.Second
+
+	// defaultDecisionCacheTTL 是域名决策缓存默认 TTL（秒）。
+	// 1 小时：缓存命中后直接走记忆通道（直连/代理），避免反复探测；
+	// 缓存类型不通时自动降级换另一方式，成功则回写立即切换。
+	defaultDecisionCacheTTL = 3600
 )
 
 // proxyHealth 记录单个代理的健康状态。
@@ -58,7 +63,7 @@ type StaticProxySelector struct {
 
 // NewStaticProxySelector 创建基于静态代理列表的选择器。
 // 默认值：
-//   - 决策缓存 TTL：1 秒
+//   - 决策缓存 TTL：1 小时（3600 秒）
 //   - 探测超时：3 秒
 //   - 带宽路径后缀："/bandwidth"
 func NewStaticProxySelector(proxies []string) *StaticProxySelector {
@@ -66,7 +71,7 @@ func NewStaticProxySelector(proxies []string) *StaticProxySelector {
 		proxies: proxies,
 		health:  make(map[string]*proxyHealth, len(proxies)),
 	}
-	s.decisionCacheTTL.Store(1)
+	s.decisionCacheTTL.Store(defaultDecisionCacheTTL)
 	s.probeTimeout.Store(3)
 	s.bandwidthSuffix.Store(config.DefaultBandwidthPath)
 	s.cacheDir.Store("")
@@ -147,11 +152,12 @@ func (s *StaticProxySelector) writeCacheDecision(cachePath string, decision stri
 
 // Select 实现 ProxySelector 接口。
 // 返回空字符串表示直连（不使用代理）。
+//
+// 域名决策缓存（P7-6）语义：
+//   - 缓存命中直连（direct）→ 直接返回直连（跳过探测）
+//   - 缓存命中代理（proxy）→ 直接走代理选择（跳过直连探测）
+//   - 无缓存 → 优先直连探测，失败才走代理
 func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint *DownloadHint) (string, error) {
-	if len(s.proxies) == 0 {
-		return "", nil
-	}
-
 	// 快照所有原子值，后续 Select 热路径使用局部变量（无锁读）
 	forceProxy := s.forceProxy.Load()
 	probeTimeout := int(s.probeTimeout.Load())
@@ -163,7 +169,8 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 
 	cachePath := s.cachePathForDomain(u.Host)
 
-	// 检查缓存
+	// 缓存命中：直接走记忆通道（不探测）。
+	// 未配置代理时该项同样生效（无代理也记录直连缓存）。
 	if decision, ok := s.readCachedDecision(cachePath); ok {
 		if decision == "direct" {
 			if forceProxy {
@@ -176,6 +183,11 @@ func (s *StaticProxySelector) Select(ctx context.Context, targetURL string, hint
 	}
 
 skipCache:
+	// 无代理配置：默认直连（不探测、不写缓存——由真实下载结果回写）
+	if len(s.proxies) == 0 {
+		return "", nil
+	}
+
 	// 直连探测
 	if !forceProxy && checkDirect(ctx, targetURL, probeTimeout) {
 		s.writeCacheDecision(cachePath, "direct")
@@ -253,6 +265,24 @@ func (s *StaticProxySelector) ReportProxyFailure(proxyURL string) {
 		slog.Warn("Proxy marked unhealthy, entering cooldown", "proxy", redactProxyURL(proxyURL), "failures", h.failures, "cooldown", proxyCooldown.String())
 	}
 	s.healthMu.Unlock()
+}
+
+// ReportResult 记录某域名一次真实下载结果并回写决策缓存（P7-6）。
+// channel 取值 "direct"（直连成功）或 "proxy"（代理成功）。
+// 与探测式缓存不同，这里回写的是真实下载结果——直连成功记 direct、
+// 代理成功记 proxy，缓存命中后直接优先对应通道（跳过探测/带宽扫描）。
+// 无代理配置时同样生效（记录直连成功，避免对已知可达域名反复探测）。
+func (s *StaticProxySelector) ReportResult(domain, channel string) {
+	if domain == "" {
+		return
+	}
+	switch channel {
+	case "direct", "proxy":
+	default:
+		slog.Warn("ReportResult: unknown channel, ignored", "domain", domain, "channel", channel)
+		return
+	}
+	s.writeCacheDecision(s.cachePathForDomain(domain), channel)
 }
 
 // healthForLocked 返回代理的健康状态（调用方须持 healthMu）。

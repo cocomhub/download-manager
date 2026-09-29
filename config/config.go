@@ -577,7 +577,9 @@ func (c *Config) setHTTPDefaults() {
 
 func (c *Config) setProxyDefaults() {
 	if c.Downloader.Proxy.DecisionCacheTTLSecs == 0 {
-		c.Downloader.Proxy.DecisionCacheTTLSecs = 1
+		// 默认 1 小时：域名决策缓存（直连/代理）长记忆，命中后直接优先对应通道；
+		// 缓存类型不通时自动降级换另一方式，成功则回写缓存立即切换。
+		c.Downloader.Proxy.DecisionCacheTTLSecs = 3600
 	}
 	if c.Downloader.Proxy.DirectProbeTimeoutSecs == 0 {
 		c.Downloader.Proxy.DirectProbeTimeoutSecs = 3
