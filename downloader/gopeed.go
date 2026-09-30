@@ -256,15 +256,18 @@ func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) 
 }
 
 // resultPath 由任务的产物文件列表解析来源路径；找不到时回退到 URL basename。
+// 下载目录与 Gopeed 落盘一致：优先 obj.SavePath 所在目录（resolveDownloadDir），
+// 而非全局 DownloadDir —— 保证 moveResult 同区找到产物。
 func (d *GopeedDownloader) resultPath(obj *model.DownloadObject, files []gopeedFile) string {
+	dlDir := d.resolveDownloadDir(obj)
 	for _, f := range files {
 		if f.Name == "" {
 			continue
 		}
-		return filepath.Join(d.downloadDir, f.Name)
+		return filepath.Join(dlDir, f.Name)
 	}
 	base := filepath.Base(obj.URL)
-	return filepath.Join(d.downloadDir, base)
+	return filepath.Join(dlDir, base)
 }
 
 // isPikPakURL 判断 URL 是否 PikPak 分享类：
