@@ -962,3 +962,50 @@ func TestFFmpegDefaults_DefaultCRF(t *testing.T) {
 		t.Errorf("FFmpeg.DefaultCRF = %d, want 33 (setFFmpegDefaults)", cfg.Downloader.FFmpeg.DefaultCRF)
 	}
 }
+
+func TestGopeedDefaults(t *testing.T) {
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Downloader.Gopeed.RPCURL != DefaultGopeedRPCURL {
+		t.Errorf("Gopeed.RPCURL = %q, want %q", cfg.Downloader.Gopeed.RPCURL, DefaultGopeedRPCURL)
+	}
+	if cfg.Downloader.Gopeed.PollIntervalSecs != DefaultPollIntervalSecs {
+		t.Errorf("Gopeed.PollIntervalSecs = %d, want %d", cfg.Downloader.Gopeed.PollIntervalSecs, DefaultPollIntervalSecs)
+	}
+	if cfg.Downloader.Gopeed.TimeoutSecs != DefaultTimeoutSecs {
+		t.Errorf("Gopeed.TimeoutSecs = %d, want %d", cfg.Downloader.Gopeed.TimeoutSecs, DefaultTimeoutSecs)
+	}
+}
+
+func TestGopeedConfig_Explicit(t *testing.T) {
+	cfg := &Config{
+		Downloader: Downloader{
+			Gopeed: GopeedConfig{RPCURL: "http://127.0.0.1:12345", DownloadDir: "/data", PollIntervalSecs: 5, TimeoutSecs: 120},
+		},
+	}
+	cfg.ValidateAndClamp()
+	if cfg.Downloader.Gopeed.RPCURL != "http://127.0.0.1:12345" || cfg.Downloader.Gopeed.DownloadDir != "/data" ||
+		cfg.Downloader.Gopeed.PollIntervalSecs != 5 || cfg.Downloader.Gopeed.TimeoutSecs != 120 {
+		t.Fatalf("Gopeed explicit config lost: %+v", cfg.Downloader.Gopeed)
+	}
+}
+
+func TestGopeedConfig_Diff(t *testing.T) {
+	a := Config{
+		Downloader: Downloader{Gopeed: GopeedConfig{RPCURL: "http://a", PollIntervalSecs: 1}},
+	}
+	b := Config{
+		Downloader: Downloader{Gopeed: GopeedConfig{RPCURL: "http://b", PollIntervalSecs: 9}},
+	}
+	changes := a.Diff(b)
+	found := false
+	for _, ch := range changes {
+		if ch.Path == "downloader.gopeed" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Diff 未检测到 downloader.gopeed 变化: %v", changes)
+	}
+}
