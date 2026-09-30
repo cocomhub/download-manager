@@ -31,7 +31,11 @@ type GopeedDownloader struct {
 	timeout      time.Duration
 	httpClient   *http.Client
 	status       *statusWriter // 下载状态持久化（文件 JSON，可空=不落盘）
+	tempSuffix   string        // 落盘中间文件名后缀（默认 .download）
 }
+
+// defaultTempSuffix 默认中间文件后缀（标识下载中，成功后改名）。
+const defaultTempSuffix = ".download"
 
 // Ensure GopeedDownloader implements core.Downloader
 var _ core.Downloader = &GopeedDownloader{}
@@ -49,9 +53,10 @@ type gopeedCreateTaskReq struct {
 	Extra    map[string]any `json:"extra"`
 }
 
-// gopeedCreateTaskOpts 是任务选项（下载目录等）。
+// gopeedCreateTaskOpts 是任务选项（下载目录/文件名等）。
 type gopeedCreateTaskOpts struct {
 	Path string `json:"path"`
+	Name string `json:"name"`
 }
 
 // gopeedResponse 是 Gopeed API 的统一响应包装 {code, message, data}。
@@ -111,6 +116,7 @@ func NewGopeedDownloader(cfg config.Downloader) *GopeedDownloader {
 		timeout:      timeout,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 		status:       newStatusWriter(cfg.Gopeed.StatusFile),
+		tempSuffix:   cfg.Gopeed.TempSuffix,
 	}
 }
 
@@ -157,7 +163,9 @@ func (d *GopeedDownloader) createTask(obj *model.DownloadObject) (string, error)
 			Extra:    map[string]any{},
 		},
 		// 下载目录：优先 obj.SavePath 所在目录（受控落盘），回退配置 DownloadDir。
-		Opts: &gopeedCreateTaskOpts{Path: d.resolveDownloadDir(obj)},
+		// 文件名：任务指定 SavePath 文件名 + TempSuffix（中间后缀标识下载中），
+		// 下载成功后 moveResult 改名为最终名（避免 Gopeed 推断 'download'）。
+		Opts: &gopeedCreateTaskOpts{Path: d.resolveDownloadDir(obj), Name: d.tempName(obj)},
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -235,14 +243,18 @@ func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) 
 		return fmt.Errorf("gopeed get task result: %w", err)
 	}
 
-	srcPath := d.resultPath(obj, task.Meta.Res.Files)
-	if srcPath == "" {
-		return fmt.Errorf("gopeed: unable to resolve downloaded file path for url %s", obj.URL)
-	}
-	// files[0].name 指向的文件不存在（Gopeed 加了 '(1)' 后缀等）→ 扫描目录最新文件
-	if fi, err := os.Stat(srcPath); err != nil || fi.IsDir() {
-		if latest := d.latestFileInDir(obj); latest != "" {
-			srcPath = latest
+	// 优先：Gopeed 落盘中间文件名（Path/Name = SavePath 文件名 + TempSuffix）
+	srcPath := d.tempResultPath(obj)
+	if srcPath == "" || !fileExists(srcPath) {
+		// 回退：files[0].name 或目录最新文件（Gopeed 未按 Name 落盘时）
+		srcPath = d.resultPath(obj, task.Meta.Res.Files)
+		if srcPath == "" {
+			return fmt.Errorf("gopeed: unable to resolve downloaded file path for url %s", obj.URL)
+		}
+		if !fileExists(srcPath) {
+			if latest := d.latestFileInDir(obj); latest != "" {
+				srcPath = latest
+			}
 		}
 	}
 	if obj.SavePath == "" {
@@ -610,4 +622,36 @@ func (d *GopeedDownloader) resolveDownloadDir(obj *model.DownloadObject) string 
 		}
 	}
 	return d.downloadDir
+}
+
+// tempName 计算 Gopeed 落盘中间文件名：SavePath 文件名 + TempSuffix（默认 .download）。
+func (d *GopeedDownloader) tempName(obj *model.DownloadObject) string {
+	if obj == nil || obj.SavePath == "" {
+		return ""
+	}
+	base := filepath.Base(obj.SavePath)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	suffix := d.tempSuffix
+	if suffix == "" {
+		suffix = defaultTempSuffix
+	}
+	return base + suffix
+}
+
+// tempResultPath 由中间文件名定位 Gopeed 落盘产物路径。
+func (d *GopeedDownloader) tempResultPath(obj *model.DownloadObject) string {
+	dir := d.resolveDownloadDir(obj)
+	name := d.tempName(obj)
+	if name == "" {
+		return ""
+	}
+	return filepath.Join(dir, name)
+}
+
+// fileExists 判断路径是否为存在的常规文件。
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }

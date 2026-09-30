@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -56,9 +57,14 @@ func TestGopeedStatus_Persisted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status file missing: %v", err)
 	}
+	// NDJSON：多行追加，逐行解析取最后一条（done 终态）
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected ≥2 appended lines (NDJSON), got %d: %q", len(lines), string(data))
+	}
 	var st GopeedTaskState
-	if err := json.Unmarshal(data, &st); err != nil {
-		t.Fatalf("bad status json: %v", err)
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &st); err != nil {
+		t.Fatalf("bad last status json: %v", err)
 	}
 	if st.TaskID != "t-prog" || st.Status != "done" || st.URL != obj.URL || st.SavePath != obj.SavePath {
 		t.Fatalf("status = %+v", st)
@@ -92,8 +98,14 @@ func TestGopeedStatus_Error(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status file missing on error: %v", err)
 	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		t.Fatalf("no status lines: %q", string(data))
+	}
 	var st GopeedTaskState
-	json.Unmarshal(data, &st)
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &st); err != nil {
+		t.Fatalf("bad status json: %v", err)
+	}
 	if st.Status != "error" || st.Error == "" {
 		t.Fatalf("error status not recorded: %+v", st)
 	}

@@ -40,7 +40,8 @@ func newStatusWriter(path string) *statusWriter {
 	return &statusWriter{path: path}
 }
 
-// write 覆盖写入一条任务状态（保持最新，单任务场景）。
+// write 追加写入一条任务状态（NDJSON：每行一条 JSON，保留历史记录）。
+// 覆盖写会丢前序轮询记录（避免静默 → 需完整审计轨迹）。
 func (w *statusWriter) write(st *GopeedTaskState) {
 	if w == nil || w.path == "" {
 		return
@@ -51,18 +52,19 @@ func (w *statusWriter) write(st *GopeedTaskState) {
 		slog.Warn("gopeed status: mkdir failed", logutil.LogKeyError, err, "path", w.path)
 		return
 	}
-	data, err := json.MarshalIndent(st, "", "  ")
+	data, err := json.Marshal(st)
 	if err != nil {
 		slog.Warn("gopeed status: marshal failed", logutil.LogKeyError, err)
 		return
 	}
-	tmp := w.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		slog.Warn("gopeed status: write failed", logutil.LogKeyError, err, "path", w.path)
+	f, err := os.OpenFile(w.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		slog.Warn("gopeed status: open failed", logutil.LogKeyError, err, "path", w.path)
 		return
 	}
-	if err := os.Rename(tmp, w.path); err != nil {
-		slog.Warn("gopeed status: rename failed", logutil.LogKeyError, err, "path", w.path)
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		slog.Warn("gopeed status: append failed", logutil.LogKeyError, err, "path", w.path)
 		return
 	}
 }

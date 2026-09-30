@@ -155,6 +155,7 @@ type GopeedConfig struct {
 	PollIntervalSecs int    `yaml:"poll_interval_secs" json:"poll_interval_secs"` // 轮询任务状态间隔，默认 3
 	TimeoutSecs      int    `yaml:"timeout_secs" json:"timeout_secs"`             // 总超时，默认 600
 	StatusFile       string `yaml:"status_file" json:"status_file"`               // 下载状态持久化文件（JSON，可空=不落盘，避免静默）
+	TempSuffix       string `yaml:"temp_suffix" json:"temp_suffix"`               // Gopeed 落盘中间文件名后缀（默认 .download），成功后改名为最终名
 }
 
 // RetryConfig 配置 failed_permanent 对象的限流自动重试。
