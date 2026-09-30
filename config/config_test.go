@@ -980,12 +980,13 @@ func TestGopeedDefaults(t *testing.T) {
 func TestGopeedConfig_Explicit(t *testing.T) {
 	cfg := &Config{
 		Downloader: Downloader{
-			Gopeed: GopeedConfig{RPCURL: "http://127.0.0.1:12345", DownloadDir: "/data", PollIntervalSecs: 5, TimeoutSecs: 120},
+			Gopeed: GopeedConfig{RPCURL: "http://127.0.0.1:12345", DownloadDir: "/data", PollIntervalSecs: 5, TimeoutSecs: 120, StatusFile: "/tmp/gp-status.json"},
 		},
 	}
 	cfg.ValidateAndClamp()
 	if cfg.Downloader.Gopeed.RPCURL != "http://127.0.0.1:12345" || cfg.Downloader.Gopeed.DownloadDir != "/data" ||
-		cfg.Downloader.Gopeed.PollIntervalSecs != 5 || cfg.Downloader.Gopeed.TimeoutSecs != 120 {
+		cfg.Downloader.Gopeed.PollIntervalSecs != 5 || cfg.Downloader.Gopeed.TimeoutSecs != 120 ||
+		cfg.Downloader.Gopeed.StatusFile != "/tmp/gp-status.json" {
 		t.Fatalf("Gopeed explicit config lost: %+v", cfg.Downloader.Gopeed)
 	}
 }

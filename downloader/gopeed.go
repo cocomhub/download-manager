@@ -30,6 +30,7 @@ type GopeedDownloader struct {
 	pollInterval time.Duration
 	timeout      time.Duration
 	httpClient   *http.Client
+	status       *statusWriter // 下载状态持久化（文件 JSON，可空=不落盘）
 }
 
 // Ensure GopeedDownloader implements core.Downloader
@@ -62,9 +63,17 @@ type gopeedResponse struct {
 
 // gopeedTask 是 GET /api/v1/tasks/{id} 返回的任务对象。
 type gopeedTask struct {
-	ID     string     `json:"id"`
-	Status string     `json:"status"` // running / done / error / ...
-	Meta   gopeedMeta `json:"meta"`
+	ID       string         `json:"id"`
+	Status   string         `json:"status"` // running / done / error / ...
+	Meta     gopeedMeta     `json:"meta"`
+	Progress gopeedProgress `json:"progress"`
+}
+
+// gopeedProgress 是任务进度（downloaded/total/speed）。
+type gopeedProgress struct {
+	Downloaded int64 `json:"downloaded"`
+	Total      int64 `json:"total"`
+	Speed      int64 `json:"speed"`
 }
 
 type gopeedMeta struct {
@@ -101,6 +110,7 @@ func NewGopeedDownloader(cfg config.Downloader) *GopeedDownloader {
 		pollInterval: pollInterval,
 		timeout:      timeout,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		status:       newStatusWriter(cfg.Gopeed.StatusFile),
 	}
 }
 
@@ -128,37 +138,13 @@ func (d *GopeedDownloader) Download(obj *model.DownloadObject, headers map[strin
 
 	taskID, err := d.createTask(obj)
 	if err != nil {
+		d.recordTaskError(taskID, obj, "error", err.Error())
 		return fmt.Errorf("gopeed create task: %w", err)
 	}
 
 	slog.Info("Gopeed task created", "task_id", taskID, logutil.LogKeyURL, obj.URL)
-
-	deadline := time.Now().Add(d.timeout)
-	lastStatus := ""
-	for {
-		status, err := d.pollTask(taskID)
-		if err != nil {
-			return fmt.Errorf("gopeed poll task %s: %w", taskID, err)
-		}
-		lastStatus = status
-
-		switch status {
-		case "done":
-			slog.Info("Gopeed task done", "task_id", taskID, logutil.LogKeyURL, obj.URL)
-			return d.moveResult(obj, taskID)
-		case "error":
-			return fmt.Errorf("gopeed task %s failed: status=error", taskID)
-		}
-
-		if time.Now().After(deadline) {
-			return fmt.Errorf("gopeed task %s timed out after %s (last status %q)", taskID, d.timeout, lastStatus)
-		}
-		select {
-		case <-time.After(d.pollInterval):
-		case <-context.Background().Done():
-			return fmt.Errorf("gopeed task %s cancelled", taskID)
-		}
-	}
+	// 统一走 waitAndMove：轮询进度持久化 + done/error/timeout 终态记录。
+	return d.waitAndMove(obj, taskID)
 }
 
 // createTask 调用 POST {rpcURL}/api/v1/tasks 下发任务，返回 task id。
@@ -198,11 +184,6 @@ func (d *GopeedDownloader) createTask(obj *model.DownloadObject) (string, error)
 	return data, nil
 }
 
-// pollTask 查询 {rpcURL}/api/v1/tasks/{id} 的任务状态。
-func (d *GopeedDownloader) pollTask(taskID string) (string, error) {
-	return d.taskStatus(taskID)
-}
-
 // getTask 查询 {rpcURL}/api/v1/tasks/{id} 并解码任务对象。
 func (d *GopeedDownloader) getTask(taskID string) (*gopeedTask, error) {
 	u := d.rpcURL + "/api/v1/tasks/" + taskID
@@ -219,14 +200,6 @@ func (d *GopeedDownloader) getTask(taskID string) (*gopeedTask, error) {
 		return nil, fmt.Errorf("decode task response data: %w", err)
 	}
 	return &task, nil
-}
-
-func (d *GopeedDownloader) taskStatus(taskID string) (string, error) {
-	task, err := d.getTask(taskID)
-	if err != nil {
-		return "", err
-	}
-	return task.Status, nil
 }
 
 // doRequest 执行 HTTP 请求并解析 Gopeed 统一响应包装，非零 code 视为失败。
@@ -462,28 +435,51 @@ func (d *GopeedDownloader) downloadHTTP(obj *model.DownloadObject, extraHeaders 
 func (d *GopeedDownloader) waitAndMove(obj *model.DownloadObject, taskID string) error {
 	deadline := time.Now().Add(d.timeout)
 	lastStatus := ""
+	var lastProg gopeedProgress
 	for {
-		status, err := d.pollTask(taskID)
+		status, prog, err := d.pollTaskState(taskID)
 		if err != nil {
+			d.recordTaskError(taskID, obj, "error", err.Error())
 			return fmt.Errorf("gopeed poll task %s: %w", taskID, err)
 		}
 		lastStatus = status
+		if prog.Downloaded > 0 || prog.Total > 0 {
+			lastProg = prog // 保留最近一次有进度的轮询
+		}
+		// 轮询进度持久化（避免静默）
+		d.recordTaskState(taskID, obj.URL, obj.SavePath, status, lastProg.Downloaded, lastProg.Total, lastProg.Speed, "")
 		switch status {
 		case "done":
 			slog.Info("Gopeed task done", "task_id", taskID, logutil.LogKeyURL, obj.URL)
+			d.recordTaskState(taskID, obj.URL, obj.SavePath, "done", lastProg.Downloaded, lastProg.Total, 0, "")
 			return d.moveResult(obj, taskID)
 		case "error":
-			return fmt.Errorf("gopeed task %s failed: status=error", taskID)
+			msg := fmt.Sprintf("gopeed task %s failed: status=error", taskID)
+			d.recordTaskError(taskID, obj, "error", msg)
+			return fmt.Errorf("%s", msg)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("gopeed task %s timed out after %s (last status %q)", taskID, d.timeout, lastStatus)
+			msg := fmt.Sprintf("gopeed task %s timed out after %s (last status %q)", taskID, d.timeout, lastStatus)
+			d.recordTaskError(taskID, obj, "timeout", msg)
+			return fmt.Errorf("%s", msg)
 		}
 		select {
 		case <-time.After(d.pollInterval):
 		case <-context.Background().Done():
-			return fmt.Errorf("gopeed task %s cancelled", taskID)
+			msg := fmt.Sprintf("gopeed task %s cancelled", taskID)
+			d.recordTaskError(taskID, obj, "cancelled", msg)
+			return fmt.Errorf("%s", msg)
 		}
 	}
+}
+
+// pollTaskState 查询任务状态与进度（downloaded/total/speed）。
+func (d *GopeedDownloader) pollTaskState(taskID string) (string, gopeedProgress, error) {
+	task, err := d.getTask(taskID)
+	if err != nil {
+		return "", gopeedProgress{}, err
+	}
+	return task.Status, task.Progress, nil
 }
 
 // resolveProtocol 按 URL 前缀选择 Gopeed 协议类型，无法识别时回退 "default"。
