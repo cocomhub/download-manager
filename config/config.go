@@ -16,6 +16,16 @@ import (
 
 const defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
+// Gopeed 后端默认值（ValidateAndClamp 与 NewGopeedDownloader 兜底共用）。
+const (
+	// DefaultGopeedRPCURL 是 Gopeed 后端默认 REST API 地址。
+	DefaultGopeedRPCURL = "http://127.0.0.1:9999"
+	// DefaultPollIntervalSecs 是 Gopeed 任务状态轮询间隔（秒）。
+	DefaultPollIntervalSecs = 3
+	// DefaultTimeoutSecs 是 Gopeed 任务下载总超时（秒）。
+	DefaultTimeoutSecs = 600
+)
+
 // DefaultBandwidthPath is the default URL path suffix for proxy bandwidth probing.
 const DefaultBandwidthPath = "/bandwidth"
 
@@ -135,6 +145,15 @@ type Downloader struct {
 	Progress          DcProgress     `yaml:"progress" json:"progress"`
 	FFmpeg            DcFFmpeg       `yaml:"ffmpeg" json:"ffmpeg"`
 	Retry             RetryConfig    `yaml:"retry" json:"retry"`
+	Gopeed            GopeedConfig   `yaml:"gopeed" json:"gopeed"`
+}
+
+// GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。
+type GopeedConfig struct {
+	RPCURL           string `yaml:"rpc_url" json:"rpc_url"`                       // Gopeed REST API 地址，默认 http://127.0.0.1:9999
+	DownloadDir      string `yaml:"download_dir" json:"download_dir"`             // Gopeed 落盘目录（可空，由 Gopeed 决定）
+	PollIntervalSecs int    `yaml:"poll_interval_secs" json:"poll_interval_secs"` // 轮询任务状态间隔，默认 3
+	TimeoutSecs      int    `yaml:"timeout_secs" json:"timeout_secs"`             // 总超时，默认 600
 }
 
 // RetryConfig 配置 failed_permanent 对象的限流自动重试。
@@ -354,6 +373,7 @@ func (c *Config) ValidateAndClamp() {
 	c.setProgressDefaults()
 	c.setFFmpegDefaults()
 	c.setRetryDefaults()
+	c.setGopeedDefaults()
 	c.resolveTaskContexts()
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
@@ -610,6 +630,18 @@ func (c *Config) setFFmpegDefaults() {
 	}
 	if c.Downloader.FFmpeg.DefaultCRF == 0 {
 		c.Downloader.FFmpeg.DefaultCRF = 33
+	}
+}
+
+func (c *Config) setGopeedDefaults() {
+	if c.Downloader.Gopeed.RPCURL == "" {
+		c.Downloader.Gopeed.RPCURL = DefaultGopeedRPCURL
+	}
+	if c.Downloader.Gopeed.PollIntervalSecs <= 0 {
+		c.Downloader.Gopeed.PollIntervalSecs = DefaultPollIntervalSecs
+	}
+	if c.Downloader.Gopeed.TimeoutSecs <= 0 {
+		c.Downloader.Gopeed.TimeoutSecs = DefaultTimeoutSecs
 	}
 }
 

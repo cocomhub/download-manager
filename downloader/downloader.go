@@ -26,6 +26,8 @@ func New(cfg config.Downloader) core.Downloader {
 	case "wget":
 		slog.Warn("wget backend is deprecated, use native instead")
 		return NewWgetDownloader(cfg)
+	case "gopeed":
+		return NewGopeedDownloader(cfg)
 	default:
 		return newDownloaderFromConfig(cfg)
 	}

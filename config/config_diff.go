@@ -276,6 +276,12 @@ func diffFFmpegFields(c, b Config) []Change {
 	if c.Downloader.HLSMode != b.Downloader.HLSMode {
 		changes = append(changes, Change{Path: "downloader.hls_mode", A: c.Downloader.HLSMode, B: b.Downloader.HLSMode})
 	}
+	if c.Downloader.Gopeed.RPCURL != b.Downloader.Gopeed.RPCURL ||
+		c.Downloader.Gopeed.DownloadDir != b.Downloader.Gopeed.DownloadDir ||
+		c.Downloader.Gopeed.PollIntervalSecs != b.Downloader.Gopeed.PollIntervalSecs ||
+		c.Downloader.Gopeed.TimeoutSecs != b.Downloader.Gopeed.TimeoutSecs {
+		changes = append(changes, Change{Path: "downloader.gopeed", A: c.Downloader.Gopeed, B: b.Downloader.Gopeed})
+	}
 	if c.Downloader.Retry.Enabled != b.Downloader.Retry.Enabled ||
 		c.Downloader.Retry.IntervalHours != b.Downloader.Retry.IntervalHours ||
 		c.Downloader.Retry.BatchSize != b.Downloader.Retry.BatchSize {
