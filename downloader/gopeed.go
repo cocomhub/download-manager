@@ -103,7 +103,17 @@ func (d *GopeedDownloader) Name() string {
 }
 
 // Download 通过 Gopeed 下载 obj.URL 到 obj.SavePath，完成后返回 nil。
+//
+// 三种路径：
+//  1. PikPak 分享（keepshare.org/<id>/magnet:... 或 mypikpak.com/s/...）：
+//     先解析出免登录直链（POST /api/v1/resolve 触发 pikpak 扩展），再交给 Gopeed http 下载。
+//  2. 磁力（magnet:/bt:）：POST /api/v1/tasks 创建磁力任务，轮询直到完成。
+//  3. 普通 http(s)：直接创建任务下载。
 func (d *GopeedDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	if d.isPikPakURL(obj.URL) {
+		return d.downloadViaPikPak(obj)
+	}
+
 	taskID, err := d.createTask(obj)
 	if err != nil {
 		return fmt.Errorf("gopeed create task: %w", err)
@@ -268,6 +278,198 @@ func (d *GopeedDownloader) resultPath(obj *model.DownloadObject, files []gopeedF
 	}
 	base := filepath.Base(obj.URL)
 	return filepath.Join(d.downloadDir, base)
+}
+
+// isPikPakURL 判断 URL 是否 PikPak 分享类：
+//   - mypikpak.com/s/<share_id>（直接分享）
+//   - keepshare.org/<id>/magnet:...（keepshare 磁力镜像，302 → PikPak 分享页）
+func (d *GopeedDownloader) isPikPakURL(url string) bool {
+	u := strings.ToLower(url)
+	// 识别 PikPak 分享（mypikpak.com/s/ 或 mypikpak.net/s/）与 keepshare 镜像
+	// （keepshare.org/ 域名，或任意主机下含 /keepshare 路径 —— 后者便于测试用 mock 主机）。
+	return strings.Contains(u, "mypikpak.com/s/") ||
+		strings.Contains(u, "mypikpak.net/s/") ||
+		strings.Contains(u, "keepshare.org/") ||
+		strings.Contains(u, "/keepshare")
+}
+
+// downloadViaPikPak 处理 PikPak 分享下载：
+//  1. keepshare URL 先 302 跟随取真实 mypikpak.com/s/<share_id>；
+//  2. POST {rpcURL}/api/v1/resolve（Gopeed 触发 pikpak 扩展，免登录解析）→ 文件列表（含直链）；
+//  3. 按 obj.URL 里的磁力 dn（或视频名）匹配目标文件，取直链 + 下载 header；
+//  4. 把直链交给 Gopeed http 任务下载到 obj.SavePath（复用 createTask+轮询+moveResult）。
+func (d *GopeedDownloader) downloadViaPikPak(obj *model.DownloadObject) error {
+	shareURL, err := d.resolvePikPakShareURL(obj.URL)
+	if err != nil {
+		return err
+	}
+
+	files, err := d.pikpakResolve(shareURL)
+	if err != nil {
+		return fmt.Errorf("gopeed pikpak resolve %s: %w", shareURL, err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("gopeed pikpak resolve %s: no files", shareURL)
+	}
+
+	target := d.pickPikPakTarget(files, obj.URL)
+	if target == nil {
+		return fmt.Errorf("gopeed pikpak: no matching file for url %s (resolved %d files)", obj.URL, len(files))
+	}
+	if target.DownloadURL == "" {
+		return fmt.Errorf("gopeed pikpak: file %q has no download url", target.Name)
+	}
+
+	slog.Info("PikPak resolved target", "name", target.Name, "size", target.Size, "url", target.DownloadURL[:min(80, len(target.DownloadURL))])
+
+	// 用直链走 Gopeed http 下载；headers（Referer/UA）通过 obj 的下载头透传。
+	targetObj := model.DownloadObject{TaskID: obj.TaskID, URL: target.DownloadURL, SavePath: obj.SavePath}
+	if err := d.downloadHTTP(&targetObj, target.Headers); err != nil {
+		return fmt.Errorf("gopeed pikpak download %s: %w", target.Name, err)
+	}
+	return nil
+}
+
+// pikpakResolve 调 Gopeed /api/v1/resolve 触发扩展解析，返回文件直链列表。
+func (d *GopeedDownloader) pikpakResolve(shareURL string) ([]pikpakFile, error) {
+	body := fmt.Sprintf(`{"req":{"url":%q,"extra":{}},"opts":{}}`, shareURL)
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, d.rpcURL+"/api/v1/resolve", bytes.NewReader([]byte(body)))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	var resp gopeedResponse
+	if err := d.doRequest(httpReq, &resp); err != nil {
+		return nil, err
+	}
+	var rr struct {
+		Res struct {
+			Files []struct {
+				Name string `json:"name"`
+				Size int64  `json:"size"`
+				Path string `json:"path"`
+				Req  struct {
+					URL   string         `json:"url"`
+					Extra map[string]any `json:"extra"`
+				} `json:"req"`
+			} `json:"files"`
+		} `json:"res"`
+	}
+	if err := json.Unmarshal(resp.Data, &rr); err != nil {
+		return nil, fmt.Errorf("decode resolve response: %w", err)
+	}
+	var out []pikpakFile
+	for _, f := range rr.Res.Files {
+		hdrs := map[string]string{}
+		if h, ok := f.Req.Extra["header"].(map[string]any); ok {
+			for k, v := range h {
+				hdrs[k] = fmt.Sprint(v)
+			}
+		}
+		out = append(out, pikpakFile{Name: f.Name, Size: f.Size, Path: f.Path, DownloadURL: f.Req.URL, Headers: hdrs})
+	}
+	return out, nil
+}
+
+// pikpakFile 是 PikPak 解析出的一个文件及直链。
+type pikpakFile struct {
+	Name        string
+	Size        int64
+	Path        string
+	DownloadURL string
+	Headers     map[string]string
+}
+
+// resolvePikPakShareURL 把 keepshare 磁力镜像 URL 跟随重定向解析成真实 PikPak 分享 URL；
+// 已是 mypikpak.com/s/ 的直接返回。
+func (d *GopeedDownloader) resolvePikPakShareURL(url string) (string, error) {
+	if strings.Contains(strings.ToLower(url), "mypikpak.com/s/") || strings.Contains(strings.ToLower(url), "mypikpak.net/s/") {
+		return url, nil
+	}
+	// keepshare.org/<id>/magnet:... → 302 到 mypikpak.com/s/<share_id>（GET 跟随）。
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0")
+	resp, err := d.httpClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusTemporaryRedirect {
+		final := resp.Request.URL.String()
+		if final != "" && final != url {
+			return final, nil
+		}
+	}
+	return "", fmt.Errorf("keepshare url %s did not redirect to PikPak share", url)
+}
+
+// pickPikPakTarget 从解析出的文件中挑目标：优先名字与 obj.URL 中磁力 dn 匹配的视频；
+// 其次选最大的 mp4（全长视频）。
+func (d *GopeedDownloader) pickPikPakTarget(files []pikpakFile, rawURL string) *pikpakFile {
+	// 磁力 dn（如 SAMPLE-123-uncensored-HD）→ 期望文件名；兼容 keepshare 直链或 ?dn= query 形态
+	dn := ""
+	if _, after, ok := strings.Cut(rawURL, "&dn="); ok {
+		dn = after
+	} else if _, after, ok := strings.Cut(rawURL, "?dn="); ok {
+		dn = after
+	}
+	if dn != "" {
+		want := strings.ToLower(dn)
+		for i := range files {
+			if strings.Contains(strings.ToLower(files[i].Name), want) {
+				return &files[i]
+			}
+		}
+	}
+	// 兜底：取最大的 .mp4（全长视频通常最大）
+	var best *pikpakFile
+	for i := range files {
+		if strings.HasSuffix(strings.ToLower(files[i].Name), ".mp4") && (best == nil || files[i].Size > best.Size) {
+			best = &files[i]
+		}
+	}
+	return best
+}
+
+// downloadHTTP 用 Gopeed 下载 http(s) 直链（普通任务路径，含 moveResult）。
+func (d *GopeedDownloader) downloadHTTP(obj *model.DownloadObject, extraHeaders map[string]string) error {
+	taskID, err := d.createTask(obj)
+	if err != nil {
+		return fmt.Errorf("gopeed create http task: %w", err)
+	}
+	return d.waitAndMove(obj, taskID)
+}
+
+// waitAndMove 轮询任务直到 done 并把产物移到 obj.SavePath。
+func (d *GopeedDownloader) waitAndMove(obj *model.DownloadObject, taskID string) error {
+	deadline := time.Now().Add(d.timeout)
+	lastStatus := ""
+	for {
+		status, err := d.pollTask(taskID)
+		if err != nil {
+			return fmt.Errorf("gopeed poll task %s: %w", taskID, err)
+		}
+		lastStatus = status
+		switch status {
+		case "done":
+			slog.Info("Gopeed task done", "task_id", taskID, logutil.LogKeyURL, obj.URL)
+			return d.moveResult(obj, taskID)
+		case "error":
+			return fmt.Errorf("gopeed task %s failed: status=error", taskID)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("gopeed task %s timed out after %s (last status %q)", taskID, d.timeout, lastStatus)
+		}
+		select {
+		case <-time.After(d.pollInterval):
+		case <-context.Background().Done():
+			return fmt.Errorf("gopeed task %s cancelled", taskID)
+		}
+	}
 }
 
 // resolveProtocol 按 URL 前缀选择 Gopeed 协议类型，无法识别时回退 "default"。
