@@ -171,3 +171,103 @@ func TestResolveProtocol(t *testing.T) {
 		}
 	}
 }
+
+// gopeedPikPakServer 构造 PikPak 场景的 mock：
+//   - /keepshare 返回 302 → /s/<share_id>
+//   - POST /api/v1/resolve 返回扩展解析结果（文件列表含直链）
+//   - POST /api/v1/tasks + GET /api/v1/tasks/<id> 走普通 http 下载轮询
+func gopeedPikPakServer(t *testing.T, files []map[string]any) string {
+	t.Helper()
+	var dlCalls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/keepshare":
+			http.Redirect(w, r, "/s/voyza0000", http.StatusFound)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/resolve":
+			res := map[string]any{"res": map[string]any{"files": files}}
+			writeGopeedResponse(w, res)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/tasks":
+			writeGopeedResponse(w, "dl-1")
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/tasks/dl-1":
+			n := dlCalls.Add(1)
+			task := gopeedTask{ID: "dl-1", Status: "done", Meta: gopeedMeta{Res: gopeedRes{Files: []gopeedFile{{Name: "target.mp4"}}}}}
+			if n == 1 {
+				task.Status = "running"
+			}
+			writeGopeedResponse(w, task)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// TestGopeedDownload_PikPakKeepShare 验证 keepshare 磁力镜像 URL 走 PikPak 分支：
+// keepshare 302 → resolve 免登录直链 → 按 dn 匹配目标 → 直链走 http 下载移动到 SavePath。
+func TestGopeedDownload_PikPakKeepShare(t *testing.T) {
+	dir := t.TempDir()
+	savePath := filepath.Join(dir, "out", "nhdtc-183.mp4")
+	// 先在 DownloadDir 放产物（直链下载完成后 moveResult 会移到 SavePath）
+	prodPath := filepath.Join(dir, "target.mp4")
+	if err := os.WriteFile(prodPath, []byte("full-movie"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []map[string]any{
+		{"name": "promo.png", "size": 1000, "req": map[string]any{"url": "http://x/promo.png"}},
+		{"name": "NHDTC-183-uncensored-nyap2p.com.mp4", "size": 4856139541,
+			"req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=abc", "extra": map[string]any{"header": map[string]any{"Referer": "https://mypikpak.com/", "User-Agent": "UA"}}}},
+	}
+	rpc := gopeedPikPakServer(t, files)
+	d := gopeedTestDownloader(rpc, dir)
+
+	keepshareURL := "https://keepshare.org/p5uj7smo/magnet:?xt=urn:btih:8E1D93D0D4380D4CC101DD4B5CE441EC18AFA7C4&dn=NHDTC-183-uncensored-HD"
+	obj := &model.DownloadObject{URL: keepshareURL, SavePath: savePath}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+	if _, err := os.Stat(savePath); err != nil {
+		t.Errorf("产物未到 SavePath %s: %v", savePath, err)
+	}
+}
+
+// TestGopeedDownload_PikPakNoMatch 验证 resolve 出文件但无匹配 → 明确错误。
+func TestGopeedDownload_PikPakNoMatch(t *testing.T) {
+	dir := t.TempDir()
+	files := []map[string]any{
+		{"name": "promo.png", "size": 1000, "req": map[string]any{"url": "http://x/promo.png"}},
+	}
+	rpc := gopeedPikPakServer(t, files)
+	d := gopeedTestDownloader(rpc, dir)
+	keepshareURL := "https://keepshare.org/x/magnet:?xt=urn:btih:aaa&dn=NHDTC-999"
+	err := d.Download(&model.DownloadObject{URL: keepshareURL, SavePath: filepath.Join(dir, "x.mp4")}, nil)
+	if err == nil {
+		t.Fatal("expected error when no matching pikpak file, got nil")
+	}
+	if !strings.Contains(err.Error(), "no matching file") {
+		t.Errorf("err = %v, want mention no matching file", err)
+	}
+}
+
+// TestGopeedDownload_PikPakDirectShare 验证直接 mypikpak.com/s/<id> 分享链接（无 keepshare）也走 PikPak 分支。
+func TestGopeedDownload_PikPakDirectShare(t *testing.T) {
+	dir := t.TempDir()
+	savePath := filepath.Join(dir, "out", "full.mp4")
+	prodPath := filepath.Join(dir, "target.mp4")
+	if err := os.WriteFile(prodPath, []byte("movie"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	files := []map[string]any{
+		{"name": "NHDTC-183-uncensored-HD.mp4", "size": 100, "req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=zzz"}},
+	}
+	rpc := gopeedPikPakServer(t, files)
+	d := gopeedTestDownloader(rpc, dir)
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/VOyzaO053v2g4TInjd1TLlnwo2", SavePath: savePath}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+	if _, err := os.Stat(savePath); err != nil {
+		t.Errorf("产物未到 SavePath %s: %v", savePath, err)
+	}
+}
