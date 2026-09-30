@@ -39,10 +39,6 @@ func gopeedProgressServer(t *testing.T, statusFile string) *GopeedDownloader {
 	t.Cleanup(srv.Close)
 
 	dir := t.TempDir()
-	// 预置产物
-	if err := os.WriteFile(filepath.Join(dir, "movie.mp4"), []byte("x"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	d := gopeedTestDownloader(srv.URL, dir)
 	d.status = newStatusWriter(statusFile)
 	return d

@@ -248,6 +248,10 @@ func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) 
 	if obj.SavePath == "" {
 		return fmt.Errorf("gopeed: obj.SavePath is empty")
 	}
+	// 产物已就位（Gopeed 直接落盘到 SavePath 同名）→ 无需移动
+	if filepath.Clean(srcPath) == filepath.Clean(obj.SavePath) {
+		return nil
+	}
 	dir := filepath.Dir(obj.SavePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("gopeed create save dir: %w", err)

@@ -14,7 +14,10 @@ import (
 func TestGopeedDownload_FilesPikPak(t *testing.T) {
 	dir := t.TempDir()
 	savePath := filepath.Join(dir, "out", "full.mp4")
-	prodPath := filepath.Join(dir, "target.mp4")
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prodPath := filepath.Join(filepath.Dir(savePath), "target.mp4")
 	if err := os.WriteFile(prodPath, []byte("movie"), 0644); err != nil {
 		t.Fatal(err)
 	}
