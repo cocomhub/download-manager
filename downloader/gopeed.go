@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,18 +129,16 @@ func (d *GopeedDownloader) Name() string {
 // Download 通过 Gopeed 下载 obj.URL 到 obj.SavePath，完成后返回 nil。
 //
 // 三种路径：
-//  1. PikPak 分享（keepshare.org/<id>/magnet:... 或 mypikpak.com/s/...）：
-//     先解析出免登录直链（POST /api/v1/resolve 触发 pikpak 扩展），再交给 Gopeed http 下载。
+//  1. PikPak 磁力全长（magnet_list 多条候选，或 files[0] keepshare / obj.URL 分享链接）：
+//     候选按 size 降序逐个 resolve 免登录直链再交 Gopeed http 下载；
+//     任一候选成功即主视频成功，全部失败返回聚合错误（上层回退 HLS）。
 //  2. 磁力（magnet:/bt:）：POST /api/v1/tasks 创建磁力任务，轮询直到完成。
 //  3. 普通 http(s)：直接创建任务下载。
 func (d *GopeedDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	// 优先从 obj.Extra.files 读下载源：任务（如 njavtv）可能把 keepshare/magnet 链接
-	// 放在 files[0].url（磁力全长优先），obj.URL 保持详情页身份键不变。
-	if u := d.firstPikPakFromFiles(obj); u != "" {
-		target := model.DownloadObject{TaskID: obj.TaskID, URL: u, SavePath: obj.SavePath}
-		return d.downloadViaPikPak(&target)
-	}
-	if d.isPikPakURL(obj.URL) {
+	// 磁力全长优先：obj.Extra.magnet_list 多条磁力候选（keepshare/纯 magnet 按大小降序）
+	// 或 files[0] keepshare / obj.URL 分享链接 → downloadViaPikPak；
+	// 任一候选成功即主视频成功，全部失败返回聚合错误由上层回退 HLS。
+	if d.hasPikPakSource(obj) {
 		return d.downloadViaPikPak(obj)
 	}
 
@@ -332,43 +332,116 @@ func (d *GopeedDownloader) isPikPakURL(url string) bool {
 		strings.Contains(u, "/keepshare")
 }
 
-// downloadViaPikPak 处理 PikPak 分享下载：
-//  1. keepshare URL 先 302 跟随取真实 mypikpak.com/s/<share_id>；
-//  2. POST {rpcURL}/api/v1/resolve（Gopeed 触发 pikpak 扩展，免登录解析）→ 文件列表（含直链）；
-//  3. 按 obj.URL 里的磁力 dn（或视频名）匹配目标文件，取直链 + 下载 header；
-//  4. 把直链交给 Gopeed http 任务下载到 obj.SavePath（复用 createTask+轮询+moveResult）。
+// hasPikPakSource 判断对象是否有 PikPak 磁力全长下载源：
+// files[0] keepshare/magnet 镜像，或 obj.URL 本身就是分享链接。
+func (d *GopeedDownloader) hasPikPakSource(obj *model.DownloadObject) bool {
+	if obj == nil {
+		return false
+	}
+	return d.hasMagnetList(obj) || d.firstPikPakFromFiles(obj) != "" || d.isPikPakURL(obj.URL)
+}
+
+// hasMagnetList 判断对象 Extra 是否含非空 magnet_list。
+func (d *GopeedDownloader) hasMagnetList(obj *model.DownloadObject) bool {
+	if obj == nil {
+		return false
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	if _, ok := obj.Extra["magnet_list"].([]map[string]string); ok {
+		return true
+	}
+	if fa, ok := obj.Extra["magnet_list"].([]any); ok {
+		for _, it := range fa {
+			if m, ok2 := it.(map[string]any); ok2 {
+				if ks, _ := m["keepshare"].(string); ks != "" {
+					return true
+				}
+				if mg, _ := m["magnet"].(string); mg != "" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// downloadViaPikPak 处理 PikPak 磁力全长下载：
+//  1. 收集候选：obj.Extra.magnet_list 的 keepshare（无则纯 magnet）链接，按 size 降序
+//     （无 size 垫底保持 magnet 顺序）；无 magnet_list 时兼容单分享 URL（files[0] 或 obj.URL）。
+//  2. 逐个尝试：resolve → 挑目标（dn 匹配/最大 mp4）→ 下载；任一候选成功即主视频成功返回 nil。
+//  3. 全部失败：返回聚合错误（含每个候选失败原因），供上层回退 HLS。
 func (d *GopeedDownloader) downloadViaPikPak(obj *model.DownloadObject) error {
-	shareURL, err := d.resolvePikPakShareURL(obj.URL)
-	if err != nil {
-		d.recordTaskError("", obj, "error", err.Error())
-		return err
+	if obj == nil {
+		msg := "gopeed pikpak: nil object"
+		d.recordTaskError("", nil, "error", msg)
+		return fmt.Errorf("%s", msg)
+	}
+	cands := d.collectPikPakCandidates(obj)
+	if len(cands) == 0 {
+		// 无 magnet_list → 兼容单分享 URL：files[0] keepshare 优先，其次 obj.URL。
+		u := d.firstPikPakFromFiles(obj)
+		if u == "" {
+			u = obj.URL
+		}
+		if u == "" {
+			msg := "gopeed pikpak: no magnet candidate and no share url"
+			d.recordTaskError("", obj, "error", msg)
+			return fmt.Errorf("%s", msg)
+		}
+		cands = []magnetCandidate{{name: "", url: u, size: -1}}
+	}
+
+	var reasons []string
+	for _, cand := range cands {
+		if err := d.tryPikPakCandidate(obj, cand); err != nil {
+			reasons = append(reasons, fmt.Sprintf("%s: %v", cand.url, err))
+			continue
+		}
+		return nil // 任一候选成功即主视频成功
+	}
+
+	if len(cands) == 1 {
+		// 单候选：保持原有错误形态（不聚合）。
+		msg := reasons[0]
+		d.recordTaskError("", obj, "error", msg)
+		return fmt.Errorf("%s", msg)
+	}
+	msg := fmt.Sprintf("gopeed pikpak: all %d magnet candidates failed: %s", len(cands), strings.Join(reasons, "; "))
+	d.recordTaskError("", obj, "error", msg)
+	return fmt.Errorf("%s", msg)
+}
+
+// tryPikPakCandidate 尝试单个磁力候选：keepshare/分享 URL resolve → 挑目标 → 下载。
+// 返回 nil 表示该候选成功（主视频已下好）；失败原因返回给调用方继续下一个候选。
+func (d *GopeedDownloader) tryPikPakCandidate(obj *model.DownloadObject, cand magnetCandidate) error {
+	shareURL := cand.url
+	// 纯 magnet 链接直接交给 resolve（Gopeed 按协议分发扩展）；keepshare/分享页先 302 跟随。
+	if !strings.HasPrefix(strings.ToLower(cand.url), "magnet:") && !strings.HasPrefix(strings.ToLower(cand.url), "magnetic:") {
+		var err error
+		shareURL, err = d.resolvePikPakShareURL(cand.url)
+		if err != nil {
+			return err
+		}
 	}
 
 	files, err := d.pikpakResolve(shareURL)
 	if err != nil {
-		msg := fmt.Sprintf("gopeed pikpak resolve %s: %v", shareURL, err)
-		d.recordTaskError("", obj, "error", msg)
 		return fmt.Errorf("gopeed pikpak resolve %s: %w", shareURL, err)
 	}
 	if len(files) == 0 {
-		msg := fmt.Sprintf("gopeed pikpak resolve %s: no files", shareURL)
-		d.recordTaskError("", obj, "error", msg)
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("gopeed pikpak resolve %s: no files", shareURL)
 	}
 
-	target := d.pickPikPakTarget(files, obj.URL)
+	target := d.pickPikPakTarget(files, cand.url)
 	if target == nil {
-		msg := fmt.Sprintf("gopeed pikpak: no matching file for url %s (resolved %d files)", obj.URL, len(files))
-		d.recordTaskError("", obj, "error", msg)
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("gopeed pikpak: no matching file for url %s (resolved %d files)", cand.url, len(files))
 	}
 	if target.DownloadURL == "" {
-		msg := fmt.Sprintf("gopeed pikpak: file %q has no download url", target.Name)
-		d.recordTaskError("", obj, "error", msg)
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("gopeed pikpak: file %q has no download url", target.Name)
 	}
 
-	slog.Info("PikPak resolved target", "name", target.Name, "size", target.Size, "url", target.DownloadURL[:min(80, len(target.DownloadURL))])
+	slog.Info("PikPak resolved target", "candidate", cand.name, "name", target.Name, "size", target.Size, "url", target.DownloadURL[:min(80, len(target.DownloadURL))])
 
 	// 用直链走 Gopeed http 下载；headers（Referer/UA）通过 obj 的下载头透传。
 	targetObj := model.DownloadObject{TaskID: obj.TaskID, URL: target.DownloadURL, SavePath: obj.SavePath}
@@ -376,6 +449,117 @@ func (d *GopeedDownloader) downloadViaPikPak(obj *model.DownloadObject) error {
 		return fmt.Errorf("gopeed pikpak download %s: %w", target.Name, err)
 	}
 	return nil
+}
+
+// magnetCandidate 一个磁力全长候选：keepshare 镜像优先，无 keepshare 时用纯 magnet。
+type magnetCandidate struct {
+	name string // 磁力名（dn），仅用于日志
+	url  string // 待尝试链接：keepshare 镜像或 magnet
+	size int64  // 解析后字节数；-1 表示无 size（排序垫底）
+}
+
+// collectPikPakCandidates 从 obj.Extra.magnet_list（[{magnet,name,keepshare,rapidgator,size}]）
+// 收集磁力候选并按 size 降序排列：keepshare 镜像优先，无 keepshare 时用纯 magnet；
+// 无 size（解析失败）垫底并保持 magnet_list 原始顺序（sort.SliceStable）。
+func (d *GopeedDownloader) collectPikPakCandidates(obj *model.DownloadObject) []magnetCandidate {
+	if obj == nil {
+		return nil
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	raw, ok := obj.Extra["magnet_list"].([]map[string]string)
+	var items []map[string]string
+	switch {
+	case ok:
+		items = raw
+	default:
+		if fa, ok2 := obj.Extra["magnet_list"].([]any); ok2 {
+			for _, it := range fa {
+				if m, ok3 := it.(map[string]any); ok3 {
+					item := make(map[string]string, len(m))
+					for k, v := range m {
+						if s, ok4 := v.(string); ok4 {
+							item[k] = s
+						}
+					}
+					items = append(items, item)
+				}
+			}
+		}
+	}
+
+	out := make([]magnetCandidate, 0, len(items))
+	for _, m := range items {
+		u := strings.TrimSpace(m["keepshare"])
+		if u == "" {
+			u = strings.TrimSpace(m["magnet"])
+		}
+		if u == "" {
+			continue
+		}
+		size := parseSizeBytes(m["size"])
+		if size < 0 {
+			// 磁力 URL 内 &size=<bytes> 兜底（无人类可读 size 时）
+			if _, after, ok := strings.Cut(u, "&size="); ok {
+				if n, err := strconv.ParseInt(strings.Split(after, "&")[0], 10, 64); err == nil {
+					size = n
+				}
+			}
+		}
+		out = append(out, magnetCandidate{name: m["name"], url: u, size: size})
+	}
+	const minInt = int64(-1 << 63) // size 无值的占位（垫底）
+	sort.SliceStable(out, func(i, j int) bool {
+		si, sj := out[i].size, out[j].size
+		if si < 0 {
+			si = minInt
+		}
+		if sj < 0 {
+			sj = minInt
+		}
+		return si > sj
+	})
+	return out
+}
+
+// parseSizeBytes 解析人类可读大小（如 "4.65GB"/"768MB"）为字节数；无法解析返回 -1。
+func parseSizeBytes(s string) int64 {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if s == "" {
+		return -1
+	}
+	var numStr strings.Builder
+	unit := ""
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			numStr.WriteString(string(r))
+		case r == '.' || r == ',':
+			numStr.WriteString(".")
+		default:
+			unit += string(r)
+		}
+	}
+	if numStr.String() == "" {
+		return -1
+	}
+	n, err := strconv.ParseFloat(numStr.String(), 64)
+	if err != nil {
+		return -1
+	}
+	unit = strings.TrimSpace(unit)
+	var mult int64 = 1
+	switch {
+	case strings.HasPrefix(unit, "TB"):
+		mult = 1 << 40
+	case strings.HasPrefix(unit, "GB"):
+		mult = 1 << 30
+	case strings.HasPrefix(unit, "MB"):
+		mult = 1 << 20
+	case strings.HasPrefix(unit, "KB"):
+		mult = 1 << 10
+	}
+	return int64(n * float64(mult))
 }
 
 // pikpakResolve 调 Gopeed /api/v1/resolve 触发扩展解析，返回文件直链列表。
