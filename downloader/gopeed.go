@@ -110,6 +110,12 @@ func (d *GopeedDownloader) Name() string {
 //  2. 磁力（magnet:/bt:）：POST /api/v1/tasks 创建磁力任务，轮询直到完成。
 //  3. 普通 http(s)：直接创建任务下载。
 func (d *GopeedDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	// 优先从 obj.Extra.files 读下载源：任务（如 njavtv）可能把 keepshare/magnet 链接
+	// 放在 files[0].url（磁力全长优先），obj.URL 保持详情页身份键不变。
+	if u := d.firstPikPakFromFiles(obj); u != "" {
+		target := model.DownloadObject{TaskID: obj.TaskID, URL: u, SavePath: obj.SavePath}
+		return d.downloadViaPikPak(&target)
+	}
 	if d.isPikPakURL(obj.URL) {
 		return d.downloadViaPikPak(obj)
 	}
@@ -508,4 +514,34 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+// firstPikPakFromFiles 从 obj.Extra.files 中找第一个 keepshare/magnet 下载源。
+// 任务（njavtv）把磁力全长来源放 files[0].url + 标记，obj.URL 保持详情页身份。
+func (d *GopeedDownloader) firstPikPakFromFiles(obj *model.DownloadObject) string {
+	if obj == nil {
+		return ""
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	raw, ok := obj.Extra["files"].([]map[string]string)
+	if !ok {
+		if fa, ok2 := obj.Extra["files"].([]any); ok2 {
+			for _, it := range fa {
+				if fm, ok3 := it.(map[string]any); ok3 {
+					if u, _ := fm["url"].(string); u != "" && d.isPikPakURL(u) {
+						return u
+					}
+				}
+			}
+			return ""
+		}
+		return ""
+	}
+	for _, f := range raw {
+		if u := strings.TrimSpace(f["url"]); u != "" && d.isPikPakURL(u) {
+			return u
+		}
+	}
+	return ""
 }
