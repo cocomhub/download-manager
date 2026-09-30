@@ -207,7 +207,7 @@ func gopeedPikPakServer(t *testing.T, files []map[string]any) string {
 // keepshare 302 → resolve 免登录直链 → 按 dn 匹配目标 → 直链走 http 下载移动到 SavePath。
 func TestGopeedDownload_PikPakKeepShare(t *testing.T) {
 	dir := t.TempDir()
-	savePath := filepath.Join(dir, "out", "nhdtc-183.mp4")
+	savePath := filepath.Join(dir, "out", "sample-123.mp4")
 	// 先在 DownloadDir 放产物（直链下载完成后 moveResult 会移到 SavePath）
 	prodPath := filepath.Join(dir, "target.mp4")
 	if err := os.WriteFile(prodPath, []byte("full-movie"), 0644); err != nil {
@@ -216,14 +216,14 @@ func TestGopeedDownload_PikPakKeepShare(t *testing.T) {
 
 	files := []map[string]any{
 		{"name": "promo.png", "size": 1000, "req": map[string]any{"url": "http://x/promo.png"}},
-		{"name": "NHDTC-183-uncensored-nyap2p.com.mp4", "size": 1024,
+		{"name": "SAMPLE-123-uncensored-full.mp4", "size": 1024,
 			"req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=abc", "extra": map[string]any{"header": map[string]any{"Referer": "https://mypikpak.com/", "User-Agent": "UA"}}}},
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
 
 	// keepshare URL 指向 mock server（避免真实网络请求 mypikpak.com）
-	keepshareURL := rpc + "/keepshare?dn=NHDTC-183-uncensored-HD"
+	keepshareURL := rpc + "/keepshare?dn=SAMPLE-123-uncensored-HD"
 	obj := &model.DownloadObject{URL: keepshareURL, SavePath: savePath}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download() error: %v", err)
@@ -241,7 +241,7 @@ func TestGopeedDownload_PikPakNoMatch(t *testing.T) {
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
-	keepshareURL := "https://keepshare.org/x/magnet:?xt=urn:btih:aaa&dn=NHDTC-999"
+	keepshareURL := "https://keepshare.org/x/magnet:?xt=urn:btih:aaa&dn=SAMPLE-999"
 	err := d.Download(&model.DownloadObject{URL: keepshareURL, SavePath: filepath.Join(dir, "x.mp4")}, nil)
 	if err == nil {
 		t.Fatal("expected error when no matching pikpak file, got nil")
@@ -260,11 +260,11 @@ func TestGopeedDownload_PikPakDirectShare(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := []map[string]any{
-		{"name": "NHDTC-183-uncensored-HD.mp4", "size": 100, "req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=zzz"}},
+		{"name": "SAMPLE-123-uncensored-HD.mp4", "size": 100, "req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=zzz"}},
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
-	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/VOyzaO053v2g4TInjd1TLlnwo2", SavePath: savePath}
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abcdef0123456789abcdef0123456789", SavePath: savePath}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download() error: %v", err)
 	}
