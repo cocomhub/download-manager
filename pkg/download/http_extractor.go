@@ -78,6 +78,10 @@ type HTTPExtractor struct {
 	// md5SkipPatterns 是跳过 MD5 校验的 URL 正则白名单。
 	// 用于源站返回错误 Content-MD5/ETag（与内容不符，如 fourhoi）时避免无限重试。
 	md5SkipPatterns []*regexp.Regexp
+	// verifyMD5 记录某 URL 最近一次下载内容的 MD5（url → hex）。
+	// 仅用于「无法比较 MD5」（ETag 缺失/非 MD5 形态）场景的两致对接：
+	// 连续两次下载内容一致即接受（参考 m3u8d verifyPicked 语义）。
+	verifyMD5 sync.Map
 	// followSymlinks 控制是否解析符号链接。默认 true（安全检查）。
 	// 设为 false 时，ResolvePath/IsWithinRoot 不解析符号链接，适用于路径中存在
 	// 尚未创建的文件（如下载前）且 rootDir 可能涉及系统符号链接的场景。
@@ -244,6 +248,10 @@ func (e *HTTPExtractor) Extract(ctx context.Context, req *Request) error {
 	startOffset := e.prepareDownloadOffset(rPath, action)
 	ensureRequestFields(req)
 
+	// 每次处理均为一次全新下载：清空该 URL 的历史 MD5，确保「两份一致」
+	// 比较的是本次下载内的两次拷贝，而非与更早一次下载的记录做比对。
+	e.verifyMD5.Delete(req.URL)
+
 	return e.retryDownload(dlCtx, rPath, req.URL, proxyURL, startOffset, req, localTransport, localLogDir, localMaxRetries, localUA, localBrowserHdrs, localResponseChecks, localRedactSensitiveHeaders)
 }
 
@@ -313,7 +321,7 @@ func (e *HTTPExtractor) tryDownload(ctx context.Context, rPath, rawURL, proxyURL
 
 	// MD5 白名单：URL 匹配任一 pattern → 跳过校验（上游 Content-MD5 错误时避免无限重试）。
 	if !e.matchMd5Skip(req.URL) {
-		if restart, err := checkFileMD5(tresp, rPath, req, logWriter); err != nil {
+		if restart, err := e.checkFileMD5(tresp, rPath, req.URL, req, logWriter, startOffset > 0); err != nil {
 			return false, err
 		} else if restart {
 			return false, nil
@@ -602,29 +610,54 @@ func (e *HTTPExtractor) matchMd5Skip(rawURL string) bool {
 }
 
 // checkFileMD5 验证下载文件的 MD5 校验和。返回 restart=true 表示需要重新下载。
-func checkFileMD5(tresp *TransportResponse, rPath string, req *Request, w io.Writer) (restart bool, err error) {
-	wantMd5 := TryGetMd5(tresp.Headers)
-	if wantMd5 == "" {
-		return false, nil
-	}
-
+//
+// 决策：
+//   - 能取出期望 MD5（ETag/Content-MD5 为内容 MD5）且与本地一致 → 直通（首下即可靠）。
+//   - 能取出但不匹配 → 返回 restart=true 重新下载（现状）。
+//   - 无法比较（ETag 缺失/非 MD5 形态）→ 不跳过，进入两致对接：
+//     本次 MD5 与上一次下载记录一致 → 已连续两次得到相同内容，接受；
+//     不一致 → 记录最新、返回 restart=true 再下一次，直至两份一致或重试耗尽。
+//     resume=true（断点续传，起始偏移>0）时关闭两致对接：续传后的终文件由残片拼接
+//     而来，与下一次重下内容做比较语义不符，保持原有跳过行为。
+func (e *HTTPExtractor) checkFileMD5(tresp *TransportResponse, rPath, rawURL string, req *Request, w io.Writer, resume bool) (restart bool, err error) {
 	base64MD5, hexMD5, md5Err := ComputeFileMD5(rPath)
 	if md5Err != nil {
 		return false, fmt.Errorf("failed to compute MD5: %w", md5Err)
 	}
 
-	// wantMd5 可能来自 ETag（大写 hex）或 X-Amz-Meta-Md5chksum（base64）——
-	// hex 比较大小写不敏感（ETag 常大写，ComputeFileMD5 返回小写），base64 精确比较。
-	if !md5HexEqual(hexMD5, wantMd5) && base64MD5 != wantMd5 {
-		slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
-		writeLog(w, "MD5 check failed: want %s, got %s (hex: %s)\n", wantMd5, base64MD5, hexMD5)
-		return true, nil
+	wantMd5 := TryGetMd5(tresp.Headers)
+	if wantMd5 != "" {
+		// wantMd5 可能来自 ETag（大写 hex）或 X-Amz-Meta-Md5chksum（base64）——
+		// hex 比较大小写不敏感（ETag 常大写，ComputeFileMD5 返回小写），base64 精确比较。
+		if !md5HexEqual(hexMD5, wantMd5) && base64MD5 != wantMd5 {
+			slog.Warn("MD5 mismatch, retrying download", "want", wantMd5, "got", base64MD5)
+			writeLog(w, "MD5 check failed: want %s, got %s (hex: %s)\n", wantMd5, base64MD5, hexMD5)
+			return true, nil
+		}
+		// ETag/Content-MD5 为内容 MD5 且匹配 → 首下即可靠，直接接受（现状）。
+	} else if !resume {
+		// 无法比较（ETag 缺失/非 MD5 形态）→ 两两对接：连续两份内容一致才接受。
+		if prev, seen := e.verifyMD5.Load(rawURL); seen && md5HexEqual(hexMD5, prev.(string)) {
+			slog.Warn("No comparable MD5, two downloads identical — accepting",
+				"url", rawURL, "md5", hexMD5)
+			writeLog(w, "No comparable MD5: two downloads identical, accepting (hex: %s)\n", hexMD5)
+		} else {
+			e.verifyMD5.Store(rawURL, hexMD5)
+			slog.Warn("No comparable MD5, content differs between downloads, retrying",
+				"url", rawURL, "md5", hexMD5)
+			writeLog(w, "No comparable MD5; content differs between downloads, retrying (hex: %s)\n", hexMD5)
+			return true, nil
+		}
 	}
 
 	req.Result.MD5Base64 = base64MD5
 	req.Result.MD5Hex = hexMD5
 	setReqMetadata(req, "checksum", hexMD5)
-	writeLog(w, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
+	if wantMd5 != "" {
+		writeLog(w, "MD5 check passed: %s (hex: %s)\n", base64MD5, hexMD5)
+	} else if !resume {
+		writeLog(w, "MD5 check passed (two identical downloads): %s (hex: %s)\n", base64MD5, hexMD5)
+	}
 	return false, nil
 }
 
