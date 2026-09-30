@@ -216,13 +216,14 @@ func TestGopeedDownload_PikPakKeepShare(t *testing.T) {
 
 	files := []map[string]any{
 		{"name": "promo.png", "size": 1000, "req": map[string]any{"url": "http://x/promo.png"}},
-		{"name": "NHDTC-183-uncensored-nyap2p.com.mp4", "size": 4856139541,
+		{"name": "NHDTC-183-uncensored-nyap2p.com.mp4", "size": 1024,
 			"req": map[string]any{"url": "https://dl.mypikpak.com/download/?fid=abc", "extra": map[string]any{"header": map[string]any{"Referer": "https://mypikpak.com/", "User-Agent": "UA"}}}},
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
 
-	keepshareURL := "https://keepshare.org/p5uj7smo/magnet:?xt=urn:btih:8E1D93D0D4380D4CC101DD4B5CE441EC18AFA7C4&dn=NHDTC-183-uncensored-HD"
+	// keepshare URL 指向 mock server（避免真实网络请求 mypikpak.com）
+	keepshareURL := rpc + "/keepshare?dn=NHDTC-183-uncensored-HD"
 	obj := &model.DownloadObject{URL: keepshareURL, SavePath: savePath}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download() error: %v", err)

@@ -405,9 +405,11 @@ func (d *GopeedDownloader) resolvePikPakShareURL(url string) (string, error) {
 // pickPikPakTarget 从解析出的文件中挑目标：优先名字与 obj.URL 中磁力 dn 匹配的视频；
 // 其次选最大的 mp4（全长视频）。
 func (d *GopeedDownloader) pickPikPakTarget(files []pikpakFile, rawURL string) *pikpakFile {
-	// 磁力 dn（如 NHDTC-183-uncensored-HD）→ 期望文件名
+	// 磁力 dn（如 NHDTC-183-uncensored-HD）→ 期望文件名；兼容 keepshare 直链或 ?dn= query 形态
 	dn := ""
 	if _, after, ok := strings.Cut(rawURL, "&dn="); ok {
+		dn = after
+	} else if _, after, ok := strings.Cut(rawURL, "?dn="); ok {
 		dn = after
 	}
 	if dn != "" {
