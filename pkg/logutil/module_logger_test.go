@@ -16,6 +16,7 @@ import (
 func TestNewModuleLogger_WritesAppend(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "module.log")
 	lg := NewModuleLogger(ModuleLogConfig{Filename: path, Level: slog.LevelInfo})
+	defer lg.Close()
 	lg.Info("first")
 	lg.Warn("second")
 	// lumberjack 异步缓冲写：短暂等待落盘后读取
@@ -37,6 +38,7 @@ func TestNewModuleLogger_WritesAppend(t *testing.T) {
 func TestNewModuleLogger_LevelFilter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "module.log")
 	lg := NewModuleLogger(ModuleLogConfig{Filename: path, Level: slog.LevelInfo})
+	defer lg.Close()
 	lg.Debug("should-not-appear")
 	lg.Info("should-appear")
 	waitForFile(t, path)
