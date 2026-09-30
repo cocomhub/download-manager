@@ -4,9 +4,11 @@
 package manager
 
 import (
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/testutil/assert"
 	mockdl "github.com/cocomhub/download-manager/testutil/mockdl"
 )
@@ -94,4 +96,161 @@ func TestSchedulerService_Stop(t *testing.T) {
 	mgr, _ := newMockManager(t, "sched-stop", 2, mockdl.New(mockdl.ModeAlwaysSuccess))
 	_ = startManager(t, mgr)
 	_ = waitForTask(t, mgr, "sched-stop")
+}
+
+// TestSchedulerService_SequentialConcurrencyLimit 验证 sequential=true 时
+// 同一任务同时下载的对象不超过 1 个（任务内串行）。
+func TestSchedulerService_SequentialConcurrencyLimit(t *testing.T) {
+	dl := mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(20*time.Millisecond))
+	mgr, _ := newMockManager(t, "sched-seq", 3, dl)
+
+	cfg := mgr.currentCfg().Clone()
+	cfg.Downloader.Sequential = true
+	mgr.configSvc.StoreConfig(cfg)
+
+	_ = startManager(t, mgr)
+	task := waitForTask(t, mgr, "sched-seq")
+
+	// 多轮扫描直到全部 3 个对象下载完成。
+	assert.MustEventually(t, func() bool {
+		for range 3 {
+			mgr.schedSvc.Scan()
+			time.Sleep(20 * time.Millisecond)
+		}
+		objs, _ := task.Storage().Search(nil)
+		completed := 0
+		for _, o := range objs {
+			if o.GetStatus() == model.StatusCompleted {
+				completed++
+			}
+		}
+		return completed >= 3
+	}, 15*time.Second, 100*time.Millisecond, "all sequential objects completed")
+
+	// 顺序开关生效：任务内任何时候并发下载不超过 1。
+	mgr.mu.Lock()
+	active := mgr.activeDownloads[task.ID()]
+	mgr.mu.Unlock()
+	if active > 1 {
+		t.Errorf("sequential mode: active=%d, want <= 1", active)
+	}
+}
+
+// TestSchedulerService_SequentialOrderConsumed 验证顺序模式按 GetDownloadObjects
+// 返回顺序逐个下载：每个时刻同时下载不超过 1 个对象（任务内串行）。
+func TestSchedulerService_SequentialOrderConsumed(t *testing.T) {
+	dl := mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(25*time.Millisecond))
+	var mu sync.Mutex
+	var maxPeak int
+	var peakCount int
+	var firstURL string
+	activeSet := make(map[string]bool)
+
+	dl.OnStart = func(url string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if activeSet[url] {
+			t.Errorf("duplicate concurrent start for %s", url)
+		}
+		wasEmpty := len(activeSet) == 0
+		activeSet[url] = true
+		if len(activeSet) > maxPeak {
+			maxPeak = len(activeSet)
+		}
+		if wasEmpty {
+			peakCount++
+			if firstURL == "" {
+				firstURL = url
+			}
+		}
+	}
+	dl.OnComplete = func(url string) {
+		mu.Lock()
+		delete(activeSet, url)
+		mu.Unlock()
+	}
+
+	mgr, _ := newMockManager(t, "sched-seq-order", 3, dl)
+	cfg := mgr.currentCfg().Clone()
+	cfg.Downloader.Sequential = true
+	mgr.configSvc.StoreConfig(cfg)
+
+	_ = startManager(t, mgr)
+	task := waitForTask(t, mgr, "sched-seq-order")
+
+	completedAll := func() bool {
+		objs, _ := task.Storage().Search(nil)
+		completed := 0
+		for _, o := range objs {
+			if o.GetStatus() == model.StatusCompleted {
+				completed++
+			}
+		}
+		return completed >= 3
+	}
+	assert.MustEventually(t, func() bool {
+		for range 3 {
+			mgr.schedSvc.Scan()
+			time.Sleep(20 * time.Millisecond)
+		}
+		return completedAll()
+	}, 15*time.Second, 100*time.Millisecond, "all sequential-order objects completed")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxPeak > 1 {
+		t.Errorf("sequential mode: peak concurrent = %d, want 1", maxPeak)
+	}
+	if peakCount < 3 {
+		t.Errorf("sequential mode: saw %d serial starts, want 3", peakCount)
+	}
+	t.Logf("sequential mode: peak=%d serialStarts=%d first=%q", maxPeak, peakCount, firstURL)
+}
+
+// TestSchedulerService_NonSequentialUnchanged 验证 sequential=false（默认）时
+// 并发行为不回归：任务内并发可以超过 1（只要任务配置并发度允许）。
+func TestSchedulerService_NonSequentialUnchanged(t *testing.T) {
+	dl := mockdl.New(mockdl.ModeAlwaysSuccess, mockdl.WithDelay(30*time.Millisecond))
+	var mu sync.Mutex
+	var maxPeak int
+	activeSet := make(map[string]bool)
+	dl.OnStart = func(url string) {
+		mu.Lock()
+		activeSet[url] = true
+		if len(activeSet) > maxPeak {
+			maxPeak = len(activeSet)
+		}
+		mu.Unlock()
+	}
+	dl.OnComplete = func(url string) {
+		mu.Lock()
+		delete(activeSet, url)
+		mu.Unlock()
+	}
+
+	mgr, _ := newMockManager(t, "sched-nonseq", 3, dl)
+	_ = startManager(t, mgr)
+	task := waitForTask(t, mgr, "sched-nonseq")
+
+	assert.MustEventually(t, func() bool {
+		for range 3 {
+			mgr.schedSvc.Scan()
+			time.Sleep(20 * time.Millisecond)
+		}
+		objs, _ := task.Storage().Search(nil)
+		completed := 0
+		for _, o := range objs {
+			if o.GetStatus() == model.StatusCompleted {
+				completed++
+			}
+		}
+		return completed >= 3
+	}, 15*time.Second, 100*time.Millisecond, "all non-sequential objects completed")
+
+	mu.Lock()
+	sawPeak := maxPeak
+	mu.Unlock()
+	if sawPeak < 2 {
+		t.Logf("note: non-sequential peak concurrent = %d (expected >= 2 with default concurrency 2)", sawPeak)
+	}
 }

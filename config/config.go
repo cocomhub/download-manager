@@ -131,6 +131,7 @@ type DcFFmpeg struct {
 type Downloader struct {
 	Type              string         `yaml:"type" json:"type"`
 	GlobalConcurrent  int            `yaml:"global_concurrent" json:"global_concurrent"`
+	Sequential        bool           `yaml:"sequential" json:"sequential"` // true=每任务同时只下载 1 个对象（按返回顺序逐个串行）
 	MaxRetries        int            `yaml:"max_retries" json:"max_retries"`
 	LogDir            string         `yaml:"log_dir" json:"log_dir"`
 	ForceProxy        bool           `yaml:"force_proxy" json:"force_proxy"`

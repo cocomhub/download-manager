@@ -963,6 +963,32 @@ func TestFFmpegDefaults_DefaultCRF(t *testing.T) {
 	}
 }
 
+// TestSequentialConfig_Diff 验证 downloader.sequential 变化被 Diff 检测（供热更新判定）。
+func TestSequentialConfig_Diff(t *testing.T) {
+	a := Config{Downloader: Downloader{Sequential: false}}
+	b := Config{Downloader: Downloader{Sequential: true}}
+	changes := a.Diff(b)
+	found := false
+	for _, ch := range changes {
+		if ch.Path == "downloader.sequential" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Diff 未检测到 downloader.sequential 变化: %v", changes)
+	}
+}
+
+// TestSequentialDefaultFalse 验证 sequential 默认值为 false（默认保持并发行为，不回退）。
+func TestSequentialDefaultFalse(t *testing.T) {
+	cfg := &Config{}
+	cfg.ValidateAndClamp()
+	if cfg.Downloader.Sequential {
+		t.Errorf("Downloader.Sequential 默认应为 false，got true")
+	}
+}
+
 func TestGopeedDefaults(t *testing.T) {
 	cfg := &Config{}
 	cfg.ValidateAndClamp()

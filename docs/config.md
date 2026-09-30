@@ -50,6 +50,7 @@ auth:
 |------|------|
 | `type` | native / wget |
 | `global_concurrent` | 全局并发 worker 数 |
+| `sequential` | true=每任务同时只下载 1 个对象（任务内串行，按返回顺序逐个），默认 false=保持并发 |
 | `max_retries` | 失败重试次数 |
 | `log_dir` | 下载器日志目录 |
 | `force_proxy` | 强制走代理 |
