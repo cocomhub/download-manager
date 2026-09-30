@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/cocomhub/download-manager/compare/v0.6.0...v0.7.0) (2026-09-30)
+
+
+### Added
+
+* **downloader:** gopeed 下载器 + PikPak 免登录直链 + 状态持久化 ([04adde4](https://github.com/cocomhub/download-manager/commit/04adde4a463e7400c12049ee99d08bfde59532b8))
+* **downloader:** gopeed 下载器后端支持磁力/直链 ([#163](https://github.com/cocomhub/download-manager/issues/163)) ([ec861ee](https://github.com/cocomhub/download-manager/commit/ec861ee0793d5559b7be14b15a98d696a6843f10))
+* **downloader:** gopeed 支持 PikPak 分享免登录直链下载 ([#164](https://github.com/cocomhub/download-manager/issues/164)) ([93950a2](https://github.com/cocomhub/download-manager/commit/93950a2c4274d874e6219f62b5ab20a180a77b3b))
+* **m3u8d:** 下载后默认校验分片，两致对接重发保证可靠性 ([#160](https://github.com/cocomhub/download-manager/issues/160)) ([277e05e](https://github.com/cocomhub/download-manager/commit/277e05e1cedebdd14d3102b5d78e62b6bde5a9f9))
+
+
+### Fixed
+
+* **manager:** 版本升级写回前合并最新状态，进度/状态不被旧快照覆盖 ([#162](https://github.com/cocomhub/download-manager/issues/162)) ([70518c2](https://github.com/cocomhub/download-manager/commit/70518c27c7c1a42e436f726e9bfdfed110e521ce))
+
 ## [0.6.0](https://github.com/cocomhub/download-manager/compare/v0.5.0...v0.6.0) (2026-09-29)
 
 
