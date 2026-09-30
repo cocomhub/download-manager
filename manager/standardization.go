@@ -13,6 +13,33 @@ import (
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
 
+// mergeUpgradeResult 将升级改写写回存储，同时保住任务运行态不丢失。
+//
+// UpgradeStep 只应刷新抓取数据（metadata/extra/version）；但 mongo/memory 的 Update
+// 是整对象覆盖。若直接用升级前的旧快照 obj 写回，可能覆盖并发下载刚更新的
+// status/progress/savepath。因此这里先从 storage 重读最新对象 latest，
+// 把升级步改写的 metadata/extra/version 合并进 latest，再 Update(latest)。
+// 这样升级只刷新抓取数据，进度等任务数据保持不变（用户硬要求）。
+// 若重读失败或对象已删除，回退直接写回 obj。
+func mergeUpgradeResult(st core.Storage, obj *model.DownloadObject) error {
+	latest, err := st.Get(obj.URL)
+	if err != nil || latest == nil {
+		// 对象被删或读失败：直接用已升级对象写回（升级本身仍生效，尽力而为）。
+		return st.Update(obj)
+	}
+	// 仅升级 metadata/extra 与 version，其它字段（status/progress/savepath 等）以 latest 为准。
+	obj.RLock()
+	latest.RLock()
+	latest.Metadata = obj.Metadata
+	latest.Extra = obj.Extra
+	ver := obj.GetVersion()
+	latest.RUnlock()
+	obj.RUnlock()
+	// 写锁与读锁分开获取：SetVersion 内部需要写锁，不能在持有 RLock 时调用（死锁）。
+	latest.SetVersion(ver)
+	return st.Update(latest)
+}
+
 // StandardizationService 扫描存量旧数据，执行标准化操作（如 ID 提取）。
 // 每种任务类型只处理一次，与任务实例数量无关。
 type StandardizationService struct {
@@ -97,6 +124,10 @@ func (s *StandardizationService) runIDStandardization(ctx context.Context) {
 // runVersionUpgrade 扫描实现 core.ObjectVersioner 的任务类型中 version < LatestVersion 的对象，
 // 逐级调用 UpgradeStep 升级到最新结构。BeginUpgrade 在扫描开始前清理跨对象缓存；
 // 每个对象至少跑过一个升级步骤（即使无内容改动）也会持久化，确保 version 在存储中收敛。
+//
+// 升级只应刷新抓取数据（metadata/extra/version），不得覆盖进度等任务运行态
+// （status/progress/savepath）。写回前从 storage 重读最新对象并合并升级改动，
+// 避免与下载/状态迁移并发时用旧快照覆盖最新 status/progress（见 mergeUpgradeResult）。
 func (s *StandardizationService) runVersionUpgrade(ctx context.Context) {
 	for _, taskType := range s.mgr.UniqueTaskTypes() {
 		task := s.mgr.FirstTaskOfType(taskType)
@@ -139,7 +170,7 @@ func (s *StandardizationService) runVersionUpgrade(ctx context.Context) {
 				cur++
 				_ = modified
 			}
-			if err := st.Update(obj); err != nil {
+			if err := mergeUpgradeResult(st, obj); err != nil {
 				slog.Error("VersionUpgrade: update failed", logutil.LogKeyTaskID, task.ID(),
 					logutil.LogKeyURL, obj.URL, logutil.LogKeyError, err)
 				return nil
