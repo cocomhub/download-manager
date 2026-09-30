@@ -37,14 +37,20 @@ var _ core.Downloader = &GopeedDownloader{}
 
 // gopeedCreateTaskRequest 是 Gopeed POST /api/v1/tasks 的请求体。
 type gopeedCreateTaskRequest struct {
-	ReqID string              `json:"reqId"`
-	Req   gopeedCreateTaskReq `json:"req"`
+	ReqID string                `json:"reqId"`
+	Req   gopeedCreateTaskReq   `json:"req"`
+	Opts  *gopeedCreateTaskOpts `json:"opts"`
 }
 
 type gopeedCreateTaskReq struct {
 	URL      string         `json:"url"`
 	Protocol string         `json:"protocol"`
 	Extra    map[string]any `json:"extra"`
+}
+
+// gopeedCreateTaskOpts 是任务选项（下载目录等）。
+type gopeedCreateTaskOpts struct {
+	Path string `json:"path"`
 }
 
 // gopeedResponse 是 Gopeed API 的统一响应包装 {code, message, data}。
@@ -164,6 +170,8 @@ func (d *GopeedDownloader) createTask(obj *model.DownloadObject) (string, error)
 			Protocol: resolveProtocol(obj.URL),
 			Extra:    map[string]any{},
 		},
+		// 下载目录：优先 obj.SavePath 所在目录（受控落盘），回退配置 DownloadDir。
+		Opts: &gopeedCreateTaskOpts{Path: d.resolveDownloadDir(obj)},
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -544,4 +552,17 @@ func (d *GopeedDownloader) firstPikPakFromFiles(obj *model.DownloadObject) strin
 		}
 	}
 	return ""
+}
+
+// resolveDownloadDir 决定 Gopeed 任务的下载目录：
+//   - obj.SavePath 非空 → 其所在目录（受控，便于 moveResult 同区移动）
+//   - 否则 → 配置 DownloadDir（空则由 Gopeed 默认）
+func (d *GopeedDownloader) resolveDownloadDir(obj *model.DownloadObject) string {
+	if obj != nil && obj.SavePath != "" {
+		dir := filepath.Dir(obj.SavePath)
+		if dir != "" && dir != "." {
+			return dir
+		}
+	}
+	return d.downloadDir
 }
