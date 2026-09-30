@@ -89,8 +89,12 @@ func TestNewGopeedDownloader_Defaults(t *testing.T) {
 func TestGopeedDownload_Success(t *testing.T) {
 	dir := t.TempDir()
 	savePath := filepath.Join(dir, "out", "movie.mp4")
-	prodName := "movie.mp4"
-	prodPath := filepath.Join(dir, prodName)
+	prodName := "download" // Gopeed 落盘名（直链 URL 推断），与 SavePath 不同名
+	// 产物在 SavePath 所在目录（Gopeed 落盘语义：与 jpg/preview 同目录）
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prodPath := filepath.Join(filepath.Dir(savePath), prodName)
 	if err := os.WriteFile(prodPath, []byte("content"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -211,8 +215,11 @@ func gopeedPikPakServer(t *testing.T, files []map[string]any) string {
 func TestGopeedDownload_PikPakKeepShare(t *testing.T) {
 	dir := t.TempDir()
 	savePath := filepath.Join(dir, "out", "sample-123.mp4")
-	// 先在 DownloadDir 放产物（直链下载完成后 moveResult 会移到 SavePath）
-	prodPath := filepath.Join(dir, "target.mp4")
+	// 产物在 SavePath 所在目录（Gopeed 落盘语义）
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prodPath := filepath.Join(filepath.Dir(savePath), "target.mp4")
 	if err := os.WriteFile(prodPath, []byte("full-movie"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +266,10 @@ func TestGopeedDownload_PikPakNoMatch(t *testing.T) {
 func TestGopeedDownload_PikPakDirectShare(t *testing.T) {
 	dir := t.TempDir()
 	savePath := filepath.Join(dir, "out", "full.mp4")
-	prodPath := filepath.Join(dir, "target.mp4")
+	if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prodPath := filepath.Join(filepath.Dir(savePath), "target.mp4")
 	if err := os.WriteFile(prodPath, []byte("movie"), 0644); err != nil {
 		t.Fatal(err)
 	}
