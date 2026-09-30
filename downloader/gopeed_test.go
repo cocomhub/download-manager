@@ -183,6 +183,9 @@ func gopeedPikPakServer(t *testing.T, files []map[string]any) string {
 		switch {
 		case r.URL.Path == "/keepshare":
 			http.Redirect(w, r, "/s/voyza0000", http.StatusFound)
+		case r.URL.Path == "/s/voyza0000":
+			// keepshare 302 跟随后的最终页（真实是 mypikpak 分享页），返回 200 即可
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/resolve":
 			res := map[string]any{"res": map[string]any{"files": files}}
 			writeGopeedResponse(w, res)
@@ -241,7 +244,8 @@ func TestGopeedDownload_PikPakNoMatch(t *testing.T) {
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
-	keepshareURL := "https://keepshare.org/x/magnet:?xt=urn:btih:aaa&dn=SAMPLE-999"
+	// 同样指向 mock server（避免真实网络请求 keepshare.org）
+	keepshareURL := rpc + "/keepshare?dn=SAMPLE-999"
 	err := d.Download(&model.DownloadObject{URL: keepshareURL, SavePath: filepath.Join(dir, "x.mp4")}, nil)
 	if err == nil {
 		t.Fatal("expected error when no matching pikpak file, got nil")

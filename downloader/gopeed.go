@@ -285,7 +285,12 @@ func (d *GopeedDownloader) resultPath(obj *model.DownloadObject, files []gopeedF
 //   - keepshare.org/<id>/magnet:...（keepshare 磁力镜像，302 → PikPak 分享页）
 func (d *GopeedDownloader) isPikPakURL(url string) bool {
 	u := strings.ToLower(url)
-	return strings.Contains(u, "mypikpak.com/s/") || strings.Contains(u, "keepshare.org/") || strings.Contains(u, "mypikpak.net/s/")
+	// 识别 PikPak 分享（mypikpak.com/s/ 或 mypikpak.net/s/）与 keepshare 镜像
+	// （keepshare.org/ 域名，或任意主机下含 /keepshare 路径 —— 后者便于测试用 mock 主机）。
+	return strings.Contains(u, "mypikpak.com/s/") ||
+		strings.Contains(u, "mypikpak.net/s/") ||
+		strings.Contains(u, "keepshare.org/") ||
+		strings.Contains(u, "/keepshare")
 }
 
 // downloadViaPikPak 处理 PikPak 分享下载：
