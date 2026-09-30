@@ -328,23 +328,32 @@ func (d *GopeedDownloader) isPikPakURL(url string) bool {
 func (d *GopeedDownloader) downloadViaPikPak(obj *model.DownloadObject) error {
 	shareURL, err := d.resolvePikPakShareURL(obj.URL)
 	if err != nil {
+		d.recordTaskError("", obj, "error", err.Error())
 		return err
 	}
 
 	files, err := d.pikpakResolve(shareURL)
 	if err != nil {
+		msg := fmt.Sprintf("gopeed pikpak resolve %s: %v", shareURL, err)
+		d.recordTaskError("", obj, "error", msg)
 		return fmt.Errorf("gopeed pikpak resolve %s: %w", shareURL, err)
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("gopeed pikpak resolve %s: no files", shareURL)
+		msg := fmt.Sprintf("gopeed pikpak resolve %s: no files", shareURL)
+		d.recordTaskError("", obj, "error", msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	target := d.pickPikPakTarget(files, obj.URL)
 	if target == nil {
-		return fmt.Errorf("gopeed pikpak: no matching file for url %s (resolved %d files)", obj.URL, len(files))
+		msg := fmt.Sprintf("gopeed pikpak: no matching file for url %s (resolved %d files)", obj.URL, len(files))
+		d.recordTaskError("", obj, "error", msg)
+		return fmt.Errorf("%s", msg)
 	}
 	if target.DownloadURL == "" {
-		return fmt.Errorf("gopeed pikpak: file %q has no download url", target.Name)
+		msg := fmt.Sprintf("gopeed pikpak: file %q has no download url", target.Name)
+		d.recordTaskError("", obj, "error", msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	slog.Info("PikPak resolved target", "name", target.Name, "size", target.Size, "url", target.DownloadURL[:min(80, len(target.DownloadURL))])
