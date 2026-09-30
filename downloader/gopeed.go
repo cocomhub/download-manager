@@ -226,7 +226,9 @@ func (d *GopeedDownloader) doRequest(req *http.Request, out *gopeedResponse) err
 	return nil
 }
 
-// moveResult 把 Gopeed 下载产物移动到 obj.SavePath。
+// moveResult 把 Gopeed 下载产物移动到 obj.SavePath（任务指定的最终文件名/目录）。
+// 产物定位：优先 Gopeed 任务返回的 files[0].name；
+// 找不到（文件名冲突/被 Gopeed 加后缀）时扫描下载目录找最新修改文件。
 func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) error {
 	task, err := d.getTask(taskID)
 	if err != nil {
@@ -236,6 +238,12 @@ func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) 
 	srcPath := d.resultPath(obj, task.Meta.Res.Files)
 	if srcPath == "" {
 		return fmt.Errorf("gopeed: unable to resolve downloaded file path for url %s", obj.URL)
+	}
+	// files[0].name 指向的文件不存在（Gopeed 加了 '(1)' 后缀等）→ 扫描目录最新文件
+	if fi, err := os.Stat(srcPath); err != nil || fi.IsDir() {
+		if latest := d.latestFileInDir(obj); latest != "" {
+			srcPath = latest
+		}
 	}
 	if obj.SavePath == "" {
 		return fmt.Errorf("gopeed: obj.SavePath is empty")
@@ -253,6 +261,31 @@ func (d *GopeedDownloader) moveResult(obj *model.DownloadObject, taskID string) 
 		_ = os.Remove(srcPath)
 	}
 	return nil
+}
+
+// latestFileInDir 扫描下载目录，返回最近修改的常规文件（Gopeed 落盘产物）。
+func (d *GopeedDownloader) latestFileInDir(obj *model.DownloadObject) string {
+	dir := d.resolveDownloadDir(obj)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	var best string
+	var bestTime time.Time
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(bestTime) {
+			best = filepath.Join(dir, e.Name())
+			bestTime = info.ModTime()
+		}
+	}
+	return best
 }
 
 // resultPath 由任务的产物文件列表解析来源路径；找不到时回退到 URL basename。
