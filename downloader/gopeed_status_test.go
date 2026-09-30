@@ -49,7 +49,7 @@ func gopeedProgressServer(t *testing.T, statusFile string) *GopeedDownloader {
 func TestGopeedStatus_Persisted(t *testing.T) {
 	sf := filepath.Join(t.TempDir(), "gopeed-status.json")
 	d := gopeedProgressServer(t, sf)
-	obj := &model.DownloadObject{URL: "http://example.com/movie.mp4", SavePath: filepath.Join(d.downloadDir, "out", "movie.mp4")}
+	obj := &model.DownloadObject{URL: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890", SavePath: filepath.Join(d.downloadDir, "out", "movie.mp4")}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download(): %v", err)
 	}
@@ -92,7 +92,7 @@ func TestGopeedStatus_Error(t *testing.T) {
 	defer srv.Close()
 	d := gopeedTestDownloader(srv.URL, t.TempDir())
 	d.status = newStatusWriter(sf)
-	obj := &model.DownloadObject{URL: "http://example.com/f", SavePath: filepath.Join(d.downloadDir, "x")}
+	obj := &model.DownloadObject{URL: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890", SavePath: filepath.Join(d.downloadDir, "x")}
 	_ = d.Download(obj, nil) // 返回 error，不关心
 	data, err := os.ReadFile(sf)
 	if err != nil {

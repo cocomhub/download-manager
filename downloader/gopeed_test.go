@@ -5,6 +5,7 @@ package downloader
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -111,7 +112,8 @@ func TestGopeedDownload_Success(t *testing.T) {
 	})
 
 	d := gopeedTestDownloader(rpc, dir)
-	obj := &model.DownloadObject{URL: "http://example.com/movie.mp4", SavePath: savePath}
+	// 磁力 URL：验证 createTask + waitAndMove 整条路径（Gopeed 对磁力/直链均走 http 任务）。
+	obj := &model.DownloadObject{URL: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890", SavePath: savePath}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download() returned error: %v", err)
 	}
@@ -131,7 +133,7 @@ func TestGopeedDownload_TaskError(t *testing.T) {
 		return &gopeedTask{ID: "task-1", Status: "error"}
 	})
 	d := gopeedTestDownloader(rpc, dir)
-	err := d.Download(&model.DownloadObject{URL: "http://example.com/f", SavePath: filepath.Join(dir, "x")}, nil)
+	err := d.Download(&model.DownloadObject{URL: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890", SavePath: filepath.Join(dir, "x")}, nil)
 	if err == nil {
 		t.Fatal("expected error for status=error task, got nil")
 	}
@@ -146,13 +148,35 @@ func TestGopeedDownload_Timeout(t *testing.T) {
 	rpc := gopeedTestServer(t, nil) // 一直 running
 	d := gopeedTestDownloader(rpc, dir)
 	d.timeout = 80 * time.Millisecond
-	err := d.Download(&model.DownloadObject{URL: "http://example.com/f", SavePath: filepath.Join(dir, "x")}, nil)
+	err := d.Download(&model.DownloadObject{URL: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890", SavePath: filepath.Join(dir, "x")}, nil)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
 	if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("err = %v, want timed out", err)
 	}
+}
+
+// TestGopeedDownload_UnsupportedDetailPage 验证：普通 http 详情页 URL（非磁力、非 PikPak）
+// 在入口被拦截，返回 ErrUnsupportedURL，不创建 Gopeed http 任务（避免下 HTML/页面）。
+func TestGopeedDownload_UnsupportedDetailPage(t *testing.T) {
+	// 无 /api/v1/tasks 处理器 —— 若误建任务会 404/超时，但正确行为应根本不触达
+	d := &GopeedDownloader{
+		rpcURL:       "http://127.0.0.1:1", // 不可达，防止意外网络请求
+		pollInterval: 10 * time.Millisecond,
+		timeout:      500 * time.Millisecond,
+		httpClient:   &http.Client{Timeout: 500 * time.Millisecond},
+	}
+	obj := &model.DownloadObject{URL: "https://njavtv.com/ja/sample-123", SavePath: filepath.Join(t.TempDir(), "x.mp4")}
+	err := d.Download(obj, nil)
+	if err == nil {
+		t.Fatal("expected ErrUnsupportedURL for plain detail page URL, got nil")
+	}
+	if !errors.Is(err, ErrUnsupportedURL) {
+		t.Fatalf("err = %v, want ErrUnsupportedURL", err)
+	}
+	// ensure 未尝试创建任务：直接在 rpc 层等价 —— 若创建，会请求失败，但入口拦截应返回 ErrUnsupportedURL
+	// （上述 err 已覆盖该行为）
 }
 
 func TestResolveProtocol(t *testing.T) {
