@@ -657,14 +657,36 @@ func (d *GopeedDownloader) pickPikPakTarget(files []pikpakFile, rawURL string) *
 			}
 		}
 	}
-	// 兜底：取最大的 .mp4（全长视频通常最大）
+	// 兜底：优先取最大的视频文件（mp4/mkv/ts/m4v/webm/avi，全长视频通常最大且为主片）。
 	var best *pikpakFile
 	for i := range files {
-		if strings.HasSuffix(strings.ToLower(files[i].Name), ".mp4") && (best == nil || files[i].Size > best.Size) {
+		name := strings.ToLower(files[i].Name)
+		if !hasVideoExt(name) {
+			continue
+		}
+		if best == nil || files[i].Size > best.Size {
 			best = &files[i]
 		}
 	}
-	return best
+	if best != nil {
+		return best
+	}
+	// 极端兜底：无任何视频扩展名时，若仅一个文件直接接受（磁力分享常为单文件，
+	// 文件名可能不含标准扩展，如带编码/点号后缀）；多文件仍返回 nil（避免误下缩略图）。
+	if len(files) == 1 {
+		return &files[0]
+	}
+	return nil
+}
+
+// hasVideoExt 判断文件名是否带常见视频容器扩展名（全长视频）。
+func hasVideoExt(name string) bool {
+	for _, ext := range []string{".mp4", ".mkv", ".ts", ".m4v", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m2ts"} {
+		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // downloadHTTP 用 Gopeed 下载 http(s) 直链（普通任务路径，含 moveResult）。
