@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -126,20 +127,41 @@ func (d *GopeedDownloader) Name() string {
 	return "gopeed"
 }
 
+// ErrUnsupportedURL 表示该 URL 不是 Gopeed 下载器可支持的来源（非磁力、非 PikPak
+// 分享/直链），不应创建 Gopeed http 任务去下 HTML/页面——上层应回退原生下载器或明确失败。
+var ErrUnsupportedURL = errors.New("gopeed: unsupported url scheme for gopeed downloader")
+
+// isMagnetURL 判断 URL 是否为磁力类（magnet:/bt:/ed2k:）。
+func isMagnetURL(url string) bool {
+	return strings.HasPrefix(url, "magnet:") ||
+		strings.HasPrefix(url, "magnetic:") ||
+		strings.HasPrefix(url, "bt:") ||
+		strings.HasPrefix(url, "ed2k:")
+}
+
 // Download 通过 Gopeed 下载 obj.URL 到 obj.SavePath，完成后返回 nil。
 //
-// 三种路径：
+// 三条路径：
 //  1. PikPak 磁力全长（magnet_list 多条候选，或 files[0] keepshare / obj.URL 分享链接）：
 //     候选按 size 降序逐个 resolve 免登录直链再交 Gopeed http 下载；
 //     任一候选成功即主视频成功，全部失败返回聚合错误（上层回退 HLS）。
 //  2. 磁力（magnet:/bt:）：POST /api/v1/tasks 创建磁力任务，轮询直到完成。
-//  3. 普通 http(s)：直接创建任务下载。
+//  3. 普通 http(s) 直链：仅当明确来自内部下载路径（PikPak resolve 出的 dl-*.mypikpak.com 直链）
+//     才允许——外部手动传入普通 http 详情页/HLS URL 会在入口被拦截，避免 Gopeed 去下页面。
+//
+// 入口校验：URL 必须为磁力或 PikPak 类，否则返回 ErrUnsupportedURL；
+// 但 obj.Extra 含 magnet_list / files 里含 keepshare/magnet（磁力优先已设）时仍允许走 PikPak 分支。
 func (d *GopeedDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
 	// 磁力全长优先：obj.Extra.magnet_list 多条磁力候选（keepshare/纯 magnet 按大小降序）
 	// 或 files[0] keepshare / obj.URL 分享链接 → downloadViaPikPak；
 	// 任一候选成功即主视频成功，全部失败返回聚合错误由上层回退 HLS。
 	if d.hasPikPakSource(obj) {
 		return d.downloadViaPikPak(obj)
+	}
+	if !isMagnetURL(obj.URL) {
+		err := fmt.Errorf("%w: %s", ErrUnsupportedURL, obj.URL)
+		d.recordTaskError("", obj, "error", err.Error())
+		return err
 	}
 
 	taskID, err := d.createTask(obj)
