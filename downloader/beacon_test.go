@@ -319,6 +319,10 @@ func NewComparator(t *testing.T, beacon *Beacon, opts ...ComparatorOption) *Comp
 		},
 	}
 
+	if o.MaxRetries > 0 {
+		baseCfg.MaxRetries = o.MaxRetries
+	}
+
 	// native → pkg/download → DownloaderAdapter
 	cfgNew := baseCfg
 	cfgNew.Type = "native"

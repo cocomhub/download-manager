@@ -183,7 +183,9 @@ func TestFunc_ResumeContentChanged(t *testing.T) {
 // 组C：重试
 // ================================================================
 
-// TestFunc_RetryOnMD5Mismatch 验证 MD5 不匹配后重试。
+// TestFunc_RetryOnMD5Mismatch 验证 MD5 无法比较时重复下载至两份一致：
+// 前两次携带错误 Content-MD5（可比较但每次不匹配）→ 重试；
+// 后续去掉错误头（无法比较）→ 连续两次得到相同内容后经两致对接通过。
 func TestFunc_RetryOnMD5Mismatch(t *testing.T) {
 	b := NewBeacon(t)
 
@@ -195,9 +197,9 @@ func TestFunc_RetryOnMD5Mismatch(t *testing.T) {
 			return http.StatusOK, map[string]string{
 				"Content-Type": "application/octet-stream",
 				"Content-MD5":  "d41d8cd98f00b204e9800998ecf8427e", // md5("")
-			}, []byte("wrong content that won't match md5")
+			}, []byte("correct content")
 		}
-		// 第三次返回正确内容
+		// 第三次返回正确内容（去掉错误头）
 		return http.StatusOK, map[string]string{
 			"Content-Type": "application/octet-stream",
 		}, []byte("correct content")
