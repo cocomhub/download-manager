@@ -139,6 +139,12 @@ func (s *SchedulerService) processTask(t core.Task) {
 
 	limit := t.Concurrency()
 
+	// 下载顺序化（downloader.sequential=true）：同一任务同时只下载 1 个对象，
+	// 保证按 GetDownloadObjects 返回顺序逐个消费（避免多个大文件并发打满带宽/磁盘）。
+	if m.currentCfg().Downloader.Sequential {
+		limit = 1
+	}
+
 	m.mu.Lock()
 	active := m.activeDownloads[t.ID()]
 	// If active >= limit, we stop scheduling new downloads for this task.

@@ -161,6 +161,9 @@ func diffDownloaderBasic(c, b Config) []Change {
 	if c.Downloader.GlobalConcurrent != b.Downloader.GlobalConcurrent {
 		changes = append(changes, Change{Path: "downloader.global_concurrent", A: c.Downloader.GlobalConcurrent, B: b.Downloader.GlobalConcurrent})
 	}
+	if c.Downloader.Sequential != b.Downloader.Sequential {
+		changes = append(changes, Change{Path: "downloader.sequential", A: c.Downloader.Sequential, B: b.Downloader.Sequential})
+	}
 	if c.Downloader.MaxRetries != b.Downloader.MaxRetries {
 		changes = append(changes, Change{Path: "downloader.max_retries", A: c.Downloader.MaxRetries, B: b.Downloader.MaxRetries})
 	}
