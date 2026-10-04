@@ -28,6 +28,8 @@ func New(cfg config.Downloader) core.Downloader {
 		return NewWgetDownloader(cfg)
 	case "gopeed":
 		return NewGopeedDownloader(cfg)
+	case "sproxy_hybrid":
+		return NewSproxyHybridDownloader(cfg.SproxyHybrid)
 	default:
 		return newDownloaderFromConfig(cfg)
 	}
