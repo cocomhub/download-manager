@@ -248,6 +248,7 @@ func TestGopeedDownload_PikPakNoMatch(t *testing.T) {
 	dir := t.TempDir()
 	files := []map[string]any{
 		{"name": "promo.png", "size": 1000, "req": map[string]any{"url": "http://x/promo.png"}},
+		{"name": "back.jpg", "size": 2000, "req": map[string]any{"url": "http://x/back.jpg"}},
 	}
 	rpc := gopeedPikPakServer(t, files)
 	d := gopeedTestDownloader(rpc, dir)
@@ -284,5 +285,47 @@ func TestGopeedDownload_PikPakDirectShare(t *testing.T) {
 	}
 	if _, err := os.Stat(savePath); err != nil {
 		t.Errorf("产物未到 SavePath %s: %v", savePath, err)
+	}
+}
+
+// TestPickPikPakTarget_SingleNonVideoFile 验证「解析出唯一文件但无视频扩展名」也接受（磁力单文件兜底）。
+func TestPickPikPakTarget_SingleNonVideoFile(t *testing.T) {
+	d := &GopeedDownloader{}
+	files := []pikpakFile{
+		{Name: "movie.2026", Size: 1024, DownloadURL: "http://dl/f1"},
+	}
+	got := d.pickPikPakTarget(files, "https://keepshare.org/abc/magnet:?xt=urn:btih:deadbeef&dn=MOVIE-001")
+	if got == nil {
+		t.Fatal("pickPikPakTarget single file should accept even without video ext")
+	}
+	if got.DownloadURL != "http://dl/f1" {
+		t.Errorf("got %v, want f1", got.DownloadURL)
+	}
+}
+
+// TestPickPikPakTarget_MultiNonVideoNil 验证「多文件且都无视频扩展」仍返回 nil（避免误下缩略图）。
+func TestPickPikPakTarget_MultiNonVideoNil(t *testing.T) {
+	d := &GopeedDownloader{}
+	files := []pikpakFile{
+		{Name: "cover.jpg", Size: 100, DownloadURL: "http://dl/cover"},
+		{Name: "preview.ts.bak", Size: 50, DownloadURL: "http://dl/pv"},
+	}
+	got := d.pickPikPakTarget(files, "https://keepshare.org/abc/magnet:?xt=urn:btih:deadbeef&dn=X")
+	if got != nil {
+		t.Errorf("multi non-video should return nil, got %+v", got)
+	}
+}
+
+// TestPickPikPakTarget_VideoExtPick 验证多文件时优先视频扩展（不再只认 mp4）。
+func TestPickPikPakTarget_VideoExtPick(t *testing.T) {
+	d := &GopeedDownloader{}
+	files := []pikpakFile{
+		{Name: "cover.jpg", Size: 100, DownloadURL: "http://dl/cover"},
+		{Name: "MOVIE-001.full.mkv", Size: 2048, DownloadURL: "http://dl/mkv"},
+		{Name: "trailer.mp4", Size: 500, DownloadURL: "http://dl/tr"},
+	}
+	got := d.pickPikPakTarget(files, "https://keepshare.org/abc/magnet:?xt=urn:btih:deadbeef&dn=MOVIE-001")
+	if got == nil || got.DownloadURL != "http://dl/mkv" {
+		t.Fatalf("want largest video (mkv), got %+v", got)
 	}
 }
