@@ -54,8 +54,16 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		apiToken:   cfg.APIToken,
 		pollEvery:  pollEvery,
 		timeout:    timeout,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: clientTimeout(cfg.ClientTimeout)},
 	}
+}
+
+// clientTimeout 返回单请求超时：0 或负用默认 30s（可由 ClientTimeout 放宽）。
+func clientTimeout(ct time.Duration) time.Duration {
+	if ct <= 0 {
+		return 30 * time.Second
+	}
+	return ct
 }
 
 // Name 返回下载器名称。
@@ -66,17 +74,20 @@ var _ core.Downloader = &SproxyHybridDownloader{}
 
 // Download 把 obj 的分享 URL 提交到 sproxy cloud download，轮询完成后移动产物。
 //
+// headers 透传给 submit（sproxy 若需 Referer/UA 等下载头，不丢失）。
+//
 // 分享 URL 来源（按优先级）：
-//  1. obj.Extra.files 里的 keepshare/mypikpak 分享链接（njavtv magnet_list 分流后）
-//  2. obj.URL 本身是分享链接
+//  1. obj.Extra.magnet_list 里的 keepshare 分享链接（与 gopeed collectPikPakCandidates 对齐）
+//  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
+//  3. obj.URL 本身是分享链接
 func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
 	shareURL := d.pickShareURL(obj)
 	if shareURL == "" {
 		return fmt.Errorf("sproxy_hybrid: no share url for %s", obj.URL)
 	}
 
-	// 1. 提交任务
-	taskID, err := d.submit(shareURL, obj.SavePath)
+	// 1. 提交任务（透传 headers；纯 magnet 候选 hybrid 用不了，submit 已只接受分享 URL）
+	taskID, err := d.submit(shareURL, obj.SavePath, headers)
 	if err != nil {
 		return fmt.Errorf("sproxy_hybrid submit %s: %w", shareURL, err)
 	}
@@ -89,13 +100,59 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 	return nil
 }
 
-// pickShareURL 从 obj 提取分享 URL（files[0] keepshare 优先，其次 obj.URL）。
+// pickShareURL 从 obj 提取分享 URL（按优先级，与 gopeed collectPikPakCandidates 对齐）：
+//  1. obj.Extra.magnet_list[].keepshare 分享链接（keepshare 镜像 = HTTP 形态，302→分享页，hybrid 可用）
+//  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
+//  3. obj.URL 本身是分享链接
+//
+// 注意：magnet_list 里的纯 magnet（`magnet:`/`bt:`）走 Gopeed P2P 分支，hybrid resolve 不回
+// 分享直链 → 不采集（正确忽略，spx not support 纯 magnet）。
 func (d *SproxyHybridDownloader) pickShareURL(obj *model.DownloadObject) string {
 	if obj == nil {
 		return ""
 	}
 	obj.RLock()
 	defer obj.RUnlock()
+	// ① magnet_list[].keepshare 优先（与 gopeed 同源解析）：keepshare 分享直链 hybrid 可用。
+	if u := d.shareFromMagnetList(obj); u != "" {
+		return u
+	}
+	// ② files[] 分享链接
+	if u := d.shareFromFiles(obj); u != "" {
+		return u
+	}
+	// ③ obj.URL 本身
+	if isShareURL(obj.URL) {
+		return obj.URL
+	}
+	return ""
+}
+
+// shareFromMagnetList 从 magnet_list 取第一个 keepshare 分享直链（keepshare.org/<id>/magnet: 形态）。
+func (d *SproxyHybridDownloader) shareFromMagnetList(obj *model.DownloadObject) string {
+	raw, ok := obj.Extra["magnet_list"].([]map[string]string)
+	if ok {
+		for _, m := range raw {
+			if u := strings.TrimSpace(m["keepshare"]); u != "" && isShareURL(u) {
+				return u
+			}
+		}
+		return ""
+	}
+	if fa, ok := obj.Extra["magnet_list"].([]any); ok {
+		for _, it := range fa {
+			if m, ok2 := it.(map[string]any); ok2 {
+				if u, _ := m["keepshare"].(string); u != "" && isShareURL(u) {
+					return u
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// shareFromFiles 从 obj.Extra.files 取第一个分享链接（keepshare/mypikpak）。
+func (d *SproxyHybridDownloader) shareFromFiles(obj *model.DownloadObject) string {
 	if raw, ok := obj.Extra["files"].([]map[string]string); ok {
 		for _, f := range raw {
 			if u := strings.TrimSpace(f["url"]); u != "" && isShareURL(u) {
@@ -112,9 +169,6 @@ func (d *SproxyHybridDownloader) pickShareURL(obj *model.DownloadObject) string 
 			}
 		}
 	}
-	if isShareURL(obj.URL) {
-		return obj.URL
-	}
 	return ""
 }
 
@@ -128,7 +182,8 @@ func isShareURL(u string) bool {
 }
 
 // submit POST 到 sproxy cloud download，返回 task id。
-func (d *SproxyHybridDownloader) submit(shareURL, savePath string) (string, error) {
+// headers 透传给请求（sproxy 若需 Referer/UA 等下载头不丢失）。
+func (d *SproxyHybridDownloader) submit(shareURL, savePath string, headers map[string]string) (string, error) {
 	body := map[string]string{"url": shareURL}
 	if savePath != "" {
 		body["filename"] = baseName(savePath)
@@ -139,6 +194,12 @@ func (d *SproxyHybridDownloader) submit(shareURL, savePath string) (string, erro
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		if k == "" || v == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
 	if d.apiToken != "" {
 		req.Header.Set("Authorization", "Bearer "+d.apiToken)
 	}
@@ -164,9 +225,13 @@ func (d *SproxyHybridDownloader) submit(shareURL, savePath string) (string, erro
 }
 
 // poll 轮询 sproxy cloud download 任务状态直到 done/failed/timeout。
+// 非 2xx 且非 timeout 的错误（404 任务不存在/服务端异常）连续失败 N 次短路返回，
+// 避免无限 sleep 到总超时（默认 3h）空等。
 func (d *SproxyHybridDownloader) poll(taskID string) error {
+	const maxConsecutiveErr = 3
 	deadline := time.Now().Add(d.timeout)
 	statusURL := strings.Replace(d.apiURL, "/download", "/tasks/"+taskID, 1)
+	consecErr := 0
 	for {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out after %s", d.timeout)
@@ -175,10 +240,15 @@ func (d *SproxyHybridDownloader) poll(taskID string) error {
 			Status string `json:"status"`
 		}
 		if err := d.getJSON(statusURL, &out); err != nil {
-			// 轮询失败（任务详情 404 等）——重试直到超时
+			// 轮询失败（404 任务不存在/服务端异常）——连续失败 N 次短路返回，避免 3h 空等
+			consecErr++
+			if consecErr >= maxConsecutiveErr {
+				return fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
+			}
 			time.Sleep(d.pollEvery)
 			continue
 		}
+		consecErr = 0
 		switch out.Status {
 		case "completed", "done":
 			return nil
