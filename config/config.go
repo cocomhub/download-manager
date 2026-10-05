@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/cocomhub/download-manager/pkg/logutil"
 )
@@ -129,24 +130,36 @@ type DcFFmpeg struct {
 }
 
 type Downloader struct {
-	Type              string         `yaml:"type" json:"type"`
-	GlobalConcurrent  int            `yaml:"global_concurrent" json:"global_concurrent"`
-	Sequential        bool           `yaml:"sequential" json:"sequential"` // true=每任务同时只下载 1 个对象（按返回顺序逐个串行）
-	MaxRetries        int            `yaml:"max_retries" json:"max_retries"`
-	LogDir            string         `yaml:"log_dir" json:"log_dir"`
-	ForceProxy        bool           `yaml:"force_proxy" json:"force_proxy"`
-	Proxies           []string       `yaml:"proxies" json:"proxies"`
-	DomainLimits      map[string]int `yaml:"domain_limits" json:"domain_limits"`
-	FfmpegPath        string         `yaml:"ffmpeg_path" json:"ffmpeg_path"`
-	HlsAutoMarkAsFail bool           `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
-	HLSMode           string         `yaml:"hls_mode" json:"hls_mode"` // ffmpeg（默认）/ m3u8d（纯 Go 无需 ffmpeg）
-	Filesystem        DcFilesystem   `yaml:"filesystem" json:"filesystem"`
-	HTTP              DcHTTP         `yaml:"http" json:"http"`
-	Proxy             DcProxy        `yaml:"proxy" json:"proxy"`
-	Progress          DcProgress     `yaml:"progress" json:"progress"`
-	FFmpeg            DcFFmpeg       `yaml:"ffmpeg" json:"ffmpeg"`
-	Retry             RetryConfig    `yaml:"retry" json:"retry"`
-	Gopeed            GopeedConfig   `yaml:"gopeed" json:"gopeed"`
+	Type              string             `yaml:"type" json:"type"`
+	GlobalConcurrent  int                `yaml:"global_concurrent" json:"global_concurrent"`
+	Sequential        bool               `yaml:"sequential" json:"sequential"` // true=每任务同时只下载 1 个对象（按返回顺序逐个串行）
+	MaxRetries        int                `yaml:"max_retries" json:"max_retries"`
+	LogDir            string             `yaml:"log_dir" json:"log_dir"`
+	ForceProxy        bool               `yaml:"force_proxy" json:"force_proxy"`
+	Proxies           []string           `yaml:"proxies" json:"proxies"`
+	DomainLimits      map[string]int     `yaml:"domain_limits" json:"domain_limits"`
+	FfmpegPath        string             `yaml:"ffmpeg_path" json:"ffmpeg_path"`
+	HlsAutoMarkAsFail bool               `yaml:"hls_auto_mark_as_fail" json:"hls_auto_mark_as_fail"`
+	HLSMode           string             `yaml:"hls_mode" json:"hls_mode"` // ffmpeg（默认）/ m3u8d（纯 Go 无需 ffmpeg）
+	Filesystem        DcFilesystem       `yaml:"filesystem" json:"filesystem"`
+	HTTP              DcHTTP             `yaml:"http" json:"http"`
+	Proxy             DcProxy            `yaml:"proxy" json:"proxy"`
+	Progress          DcProgress         `yaml:"progress" json:"progress"`
+	FFmpeg            DcFFmpeg           `yaml:"ffmpeg" json:"ffmpeg"`
+	Retry             RetryConfig        `yaml:"retry" json:"retry"`
+	Gopeed            GopeedConfig       `yaml:"gopeed" json:"gopeed"`
+	SproxyHybrid      SproxyHybridConfig `yaml:"sproxy_hybrid" json:"sproxy_hybrid"`
+}
+
+// SproxyHybridConfig 配置 sproxy 混合下载后端（分享直链前段 + 账号流量后段）。
+// download-manager 只做任务解析/装配：把分享 URL 提交到 sproxy cloud download
+// （sproxy 侧实现 hybrid 分片并行），本进程仅轮询完成并移动产物。
+type SproxyHybridConfig struct {
+	APIURL        string        `yaml:"api_url" json:"api_url"`               // sproxy cloud download API（默认 http://127.0.0.1:8080/api/cloud/download）
+	APIToken      string        `yaml:"api_token" json:"api_token"`           // sproxy API 认证 token（可空）
+	PollEvery     time.Duration `yaml:"poll_every" json:"poll_every"`         // 任务轮询间隔（默认 5s）
+	Timeout       time.Duration `yaml:"timeout" json:"timeout"`               // 总超时（默认 3h）
+	ClientTimeout time.Duration `yaml:"client_timeout" json:"client_timeout"` // 单次 HTTP 请求超时（默认 30s；sproxy 同步装配慢时调大）
 }
 
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。
