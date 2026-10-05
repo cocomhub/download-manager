@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -42,6 +43,11 @@ type SproxyHybridDownloader struct {
 	httpClient *http.Client
 	sig        *sproxyclient.FileClient // SproxySig 凭据客户端（nil = Bearer 路径）；自带签名+轮换
 	sigEnabled bool
+	// 主动轮换调度（提前 24h 每小时直到成功）：
+	now        func() time.Time // 时钟注入（测试可控）
+	rotateMu   sync.Mutex
+	expireAt   time.Time // 当前 SK 过期时间（RenewAccessKey 响应记录）
+	lastRotate time.Time // 上次轮换时刻（每小时限频）
 }
 
 // NewSproxyHybridDownloader 创建 sproxy hybrid 下载器。
@@ -81,8 +87,15 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		httpClient: &http.Client{Timeout: clientTimeout(cfg.ClientTimeout)},
 		sig:        sig,
 		sigEnabled: sigEnabled,
+		now:        time.Now,
 	}
 }
+
+// 主动 SK 轮换调度（用户确认策略：拿到凭证记录过期时间，提前 24h 开始每小时轮换直到成功）。
+const (
+	rotateAhead       = 24 * time.Hour // 到期前 24h 进入轮换窗口
+	rotateIntervalGap = time.Hour      // 相邻两次轮换的最小间隔（每小时限频）
+)
 
 // clientTimeout 返回单请求超时：0 或负用默认 30s（可由 ClientTimeout 放宽）。
 func clientTimeout(ct time.Duration) time.Duration {
@@ -112,6 +125,10 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 		return fmt.Errorf("sproxy_hybrid: no share url for %s", obj.URL)
 	}
 
+	// 1. 提交前：SproxySig 凭证到期前 24h 窗口内先主动轮换（每小时限频，失败不阻塞提交）
+	if d.sigEnabled {
+		_ = d.ensureRotatedBeforeSubmit()
+	}
 	// 1. 提交任务（透传 headers；纯 magnet 候选 hybrid 用不了，submit 已只接受分享 URL）
 	taskID, err := d.submit(shareURL, obj.SavePath, headers)
 	if err != nil {
@@ -296,6 +313,7 @@ func (d *SproxyHybridDownloader) submitSig(shareURL, savePath string, headers ma
 }
 
 // rotateOnce 调用一次 RenewAccessKey（热替换新 SK；失败 Warn 下轮重试）。
+// 成功后记录新 SK 的过期时间（供提前 24h 主动轮换调度）。
 func (d *SproxyHybridDownloader) rotateOnce() error {
 	if d.sig == nil {
 		return fmt.Errorf("sproxy sig client not initialized")
@@ -306,7 +324,47 @@ func (d *SproxyHybridDownloader) rotateOnce() error {
 		return err
 	}
 	slog.Info("sproxy sig key rotated", "sk_id", res.SKID, "expires", res.ExpiresAt)
+	d.recordRotate(res)
 	return nil
+}
+
+// recordRotate 记录轮换结果：新 SK 过期时间 + 本次轮换时刻（限频基准）。
+func (d *SproxyHybridDownloader) recordRotate(res *sproxyclient.RenewResult) {
+	now := d.now()
+	d.rotateMu.Lock()
+	if !res.ExpiresAt.IsZero() {
+		d.expireAt = res.ExpiresAt
+	}
+	d.lastRotate = now
+	d.rotateMu.Unlock()
+}
+
+// ensureRotatedBeforeSubmit 提交前检查：若凭证进入「到期前 24h 窗口」且距上次轮换
+// >1h，触发一次轮换（直到成功；失败仅 Warn，下个任务/下小时重试——不阻塞提交）。
+// 用于推进「提前 24h 每小时轮换直到成功」的调度。
+func (d *SproxyHybridDownloader) ensureRotatedBeforeSubmit() error {
+	if d.sig == nil {
+		return nil
+	}
+	d.rotateMu.Lock()
+	expireAt := d.expireAt
+	lastRotate := d.lastRotate
+	d.rotateMu.Unlock()
+	now := d.now()
+	// 未记录到期时间（尚未 renew 过）→ 无可调度；等 401 触发
+	if expireAt.IsZero() {
+		return nil
+	}
+	// 距到期 >24h → 不轮换
+	if now.Add(rotateAhead).Before(expireAt) {
+		return nil
+	}
+	// 距上次轮换 <1h → 限频跳过
+	if !lastRotate.IsZero() && now.Sub(lastRotate) < rotateIntervalGap {
+		return nil
+	}
+	// 进窗口：每小时轮换直到成功（失败返错，由调用方决定是否继续）
+	return d.rotateOnce()
 }
 
 // poll 轮询 sproxy cloud download 任务状态直到 done/failed/timeout。
