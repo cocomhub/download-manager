@@ -155,11 +155,14 @@ type Downloader struct {
 // download-manager 只做任务解析/装配：把分享 URL 提交到 sproxy cloud download
 // （sproxy 侧实现 hybrid 分片并行），本进程仅轮询完成并移动产物。
 type SproxyHybridConfig struct {
-	APIURL        string        `yaml:"api_url" json:"api_url"`               // sproxy cloud download API（默认 http://127.0.0.1:8080/api/cloud/download）
-	APIToken      string        `yaml:"api_token" json:"api_token"`           // sproxy API 认证 token（可空）
-	PollEvery     time.Duration `yaml:"poll_every" json:"poll_every"`         // 任务轮询间隔（默认 5s）
-	Timeout       time.Duration `yaml:"timeout" json:"timeout"`               // 总超时（默认 3h）
-	ClientTimeout time.Duration `yaml:"client_timeout" json:"client_timeout"` // 单次 HTTP 请求超时（默认 30s；sproxy 同步装配慢时调大）
+	APIURL          string        `yaml:"api_url" json:"api_url"`
+	APIToken        string        `yaml:"api_token" json:"api_token"`
+	AccessKey       string        `yaml:"access_key" json:"access_key"`
+	AccessKeySecret string        `yaml:"access_key_secret" json:"access_key_secret"`
+	AccessKeyID     string        `yaml:"access_key_id" json:"access_key_id"`
+	PollEvery       time.Duration `yaml:"poll_every" json:"poll_every"`
+	Timeout         time.Duration `yaml:"timeout" json:"timeout"`
+	ClientTimeout   time.Duration `yaml:"client_timeout" json:"client_timeout"`
 }
 
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。
