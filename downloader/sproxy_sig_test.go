@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -198,9 +200,9 @@ func TestSproxyHybrid_RenewRotation(t *testing.T) {
 		PollEvery:       10,
 	})
 	// 场景：poll 先遇 401（旧 SK 失效）→ 触发 renew → 热替换 → 重试成功
-	err = d.pollWithRotate("task-rot")
-	if err != nil {
-		t.Fatalf("poll with rotate: %v", err)
+	_, rerr := d.pollWithRotateResult("task-rot")
+	if rerr != nil {
+		t.Fatalf("poll with rotate: %v", rerr)
 	}
 	if !renewHit.Load() {
 		t.Fatal("renew not triggered")
@@ -330,5 +332,159 @@ func TestSproxyHybrid_RotationSchedule(t *testing.T) {
 	}
 	if renewCount.Load() != 1 {
 		t.Fatalf("renew called = %d, want still 1 (rate-limited 1h)", renewCount.Load())
+	}
+}
+
+// TestSproxyHybrid_TransferAndPullback 验证默认转存 + 可选拉回：
+//  1. TransferVolume 配置 → submit 带 transfer 选项（mock 收到 body. transfer.volume）
+//  2. 完成后 TransferURL 写入 obj.Extra[transfer_url]
+//  3. PullBackToSavePath=true → 拉回原始文件到 SavePath（kind=cloud_task 下载）
+func TestSproxyHybrid_TransferAndPullback(t *testing.T) {
+	t.Parallel()
+	ak := "ak-transfer"
+	sk := "3333333333333333333333333333333333333333333333333333333333333333"
+	skid := "skey-transfer01"
+
+	var gotTransferVolume string
+	var downloadHit atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		hdr, err := sproxysig.ParseHeader(auth)
+		if err != nil {
+			http.Error(w, "malformed", http.StatusUnauthorized)
+			return
+		}
+		if hdr.EntryID != skid || hdr.AK != ak {
+			http.Error(w, "entry mismatch", http.StatusUnauthorized)
+			return
+		}
+		if verr := sproxysig.Verify(sk, hdr, sproxysig.Request{Method: r.Method, Path: r.URL.EscapedPath(), Query: r.URL.RawQuery}, time.Now(), 0, 0, nil); verr != nil {
+			http.Error(w, "bad sig", http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if tr, ok := body["transfer"].(map[string]any); ok {
+			gotTransferVolume, _ = tr["volume"].(string)
+		}
+		writeJSONResp(w, map[string]any{"id": "task-t", "status": "completed", "filename": "movie.mp4",
+			"transfer_url": "sproxy://default/cloud/task-t/movie.mp4"})
+	})
+	// 轮询：返回 completed + transfer_url（含验签）
+	mux.HandleFunc("GET /api/cloud/tasks/task-t", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		hdr, err := sproxysig.ParseHeader(auth)
+		if err != nil || hdr.EntryID != skid || hdr.AK != ak {
+			http.Error(w, "unauth", http.StatusUnauthorized)
+			return
+		}
+		if verr := sproxysig.Verify(sk, hdr, sproxysig.Request{Method: r.Method, Path: r.URL.EscapedPath(), Query: r.URL.RawQuery}, time.Now(), 0, 0, nil); verr != nil {
+			http.Error(w, "bad sig", http.StatusUnauthorized)
+			return
+		}
+		writeJSONResp(w, map[string]any{"id": "task-t", "status": "completed", "filename": "movie.mp4",
+			"transfer_url": "sproxy://default/cloud/task-t/movie.mp4"})
+	})
+	// 拉回 stat（HEAD /api/files/stat?filename=<taskID>/<file>&kind=cloud_task）
+	mux.HandleFunc("HEAD /api/files/stat", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("kind") != "cloud_task" || r.URL.Query().Get("filename") != "task-t/movie.mp4" {
+			http.Error(w, "wrong stat params", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("X-File-Size", "9")
+		w.Header().Set("X-File-Checksum", "")
+		w.WriteHeader(http.StatusOK)
+	})
+	// 拉回：kind=cloud_task 下载 filename=<taskID>/<file>
+	mux.HandleFunc("GET /download/chunk", func(w http.ResponseWriter, r *http.Request) {
+		filename := r.URL.Query().Get("filename")
+		kind := r.URL.Query().Get("kind")
+		if kind != "cloud_task" || filename != "task-t/movie.mp4" {
+			http.Error(w, "wrong download params", http.StatusBadRequest)
+			return
+		}
+		downloadHit.Store(true)
+		w.Header().Set("Content-Range", "bytes 0-8/9")
+		w.Write([]byte("fakevideo"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:             srv.URL + "/api/cloud/download",
+		AccessKey:          ak,
+		AccessKeySecret:    sk,
+		AccessKeyID:        skid,
+		TransferVolume:     "default",
+		PullBackToSavePath: true,
+		PollEvery:          10,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if gotTransferVolume != "default" {
+		t.Fatalf("transfer volume = %q, want default", gotTransferVolume)
+	}
+	// TransferURL 写入 obj.Extra
+	obj.RLock()
+	tu, _ := obj.Extra["transfer_url"].(string)
+	obj.RUnlock()
+	if !strings.Contains(tu, "task-t") {
+		t.Fatalf("transfer_url = %q, want contains task-t", tu)
+	}
+	// PullBack 命中 SavePath
+	if !downloadHit.Load() {
+		t.Fatal("pullback download not hit")
+	}
+	got, err := os.ReadFile(obj.SavePath)
+	if err != nil {
+		t.Fatalf("read savepath: %v", err)
+	}
+	if string(got) != "fakevideo" {
+		t.Fatalf("savepath content = %q, want fakevideo", got)
+	}
+}
+
+// TestSproxyHybrid_TransferDefaultNoPullback 默认（TransferVolume 配置但 PullBack=false）
+// 只转存不拉回（SavePath 无文件，TransferURL 已存）。
+func TestSproxyHybrid_TransferDefaultNoPullback(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-n", "status": "completed", "filename": "movie.mp4",
+			"transfer_url": "sproxy://default/cloud/task-n/movie.mp4"})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/task-n", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-n", "status": "completed", "filename": "movie.mp4",
+			"transfer_url": "sproxy://default/cloud/task-n/movie.mp4"})
+	})
+	mux.HandleFunc("GET /download/chunk", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "should not download", http.StatusBadRequest)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       "ak-n",
+		AccessKeySecret: "4444444444444444444444444444444444444444444444444444444444444444",
+		AccessKeyID:     "skey-n000001",
+		TransferVolume:  "default",
+		PollEvery:       10,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	obj.RLock()
+	tu, _ := obj.Extra["transfer_url"].(string)
+	obj.RUnlock()
+	if !strings.Contains(tu, "task-n") {
+		t.Fatalf("transfer_url = %q, want contains task-n", tu)
+	}
+	if _, err := os.Stat(obj.SavePath); !os.IsNotExist(err) {
+		t.Fatalf("savepath should not exist (no pullback), stat err=%v", err)
 	}
 }

@@ -155,14 +155,16 @@ type Downloader struct {
 // download-manager 只做任务解析/装配：把分享 URL 提交到 sproxy cloud download
 // （sproxy 侧实现 hybrid 分片并行），本进程仅轮询完成并移动产物。
 type SproxyHybridConfig struct {
-	APIURL          string        `yaml:"api_url" json:"api_url"`
-	APIToken        string        `yaml:"api_token" json:"api_token"`
-	AccessKey       string        `yaml:"access_key" json:"access_key"`
-	AccessKeySecret string        `yaml:"access_key_secret" json:"access_key_secret"`
-	AccessKeyID     string        `yaml:"access_key_id" json:"access_key_id"`
-	PollEvery       time.Duration `yaml:"poll_every" json:"poll_every"`
-	Timeout         time.Duration `yaml:"timeout" json:"timeout"`
-	ClientTimeout   time.Duration `yaml:"client_timeout" json:"client_timeout"`
+	APIURL             string        `yaml:"api_url" json:"api_url"`
+	APIToken           string        `yaml:"api_token" json:"api_token"`
+	AccessKey          string        `yaml:"access_key" json:"access_key"`
+	AccessKeySecret    string        `yaml:"access_key_secret" json:"access_key_secret"`
+	AccessKeyID        string        `yaml:"access_key_id" json:"access_key_id"`
+	TransferVolume     string        `yaml:"transfer_volume" json:"transfer_volume"`               // sproxy 转存目标卷（非空则提交时带 transfer）；留空 = 产物仅留 cloud 桶
+	PullBackToSavePath bool          `yaml:"pull_back_to_save_path" json:"pull_back_to_save_path"` // 可选补拉回：完成后把原始文件拉到本地 SavePath（默认 false=只转存不下载）
+	PollEvery          time.Duration `yaml:"poll_every" json:"poll_every"`
+	Timeout            time.Duration `yaml:"timeout" json:"timeout"`
+	ClientTimeout      time.Duration `yaml:"client_timeout" json:"client_timeout"`
 }
 
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。

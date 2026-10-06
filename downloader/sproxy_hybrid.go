@@ -36,13 +36,15 @@ import (
 // 复用 sproxy pkg/client.FileClient——同 sclient 同一库，自带 v2 签名 + SK 轮换）；
 // 未配 SproxySig 三件套时回落旧 Bearer 直连（APIToken，向后兼容零回归）。
 type SproxyHybridDownloader struct {
-	apiURL     string        // sproxy 云下载 API（如 http://127.0.0.1:8080/api/cloud/download）
-	apiToken   string        // sproxy API 认证 token（可空；SproxySig 配置后忽略）
-	pollEvery  time.Duration // 任务轮询间隔
-	timeout    time.Duration // 总超时
-	httpClient *http.Client
-	sig        *sproxyclient.FileClient // SproxySig 凭据客户端（nil = Bearer 路径）；自带签名+轮换
-	sigEnabled bool
+	apiURL      string        // sproxy 云下载 API（如 http://127.0.0.1:8080/api/cloud/download）
+	apiToken    string        // sproxy API 认证 token（可空；SproxySig 配置后忽略）
+	pollEvery   time.Duration // 任务轮询间隔
+	timeout     time.Duration // 总超时
+	httpClient  *http.Client
+	sig         *sproxyclient.FileClient // SproxySig 凭据客户端（nil = Bearer 路径）；自带签名+轮换
+	sigEnabled  bool
+	transferVol string // 转存目标卷（非空 → 提交带 transfer；默认留 cloud 桶）
+	pullBack    bool   // 可选补拉回 SavePath（默认 false=只转存不下载）
 	// 主动轮换调度（提前 24h 每小时直到成功）：
 	now        func() time.Time // 时钟注入（测试可控）
 	rotateMu   sync.Mutex
@@ -80,14 +82,16 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		sig = sproxyclient.NewFileClient(baseURL, opts...)
 	}
 	return &SproxyHybridDownloader{
-		apiURL:     strings.TrimRight(apiURL, "/"),
-		apiToken:   cfg.APIToken,
-		pollEvery:  pollEvery,
-		timeout:    timeout,
-		httpClient: &http.Client{Timeout: clientTimeout(cfg.ClientTimeout)},
-		sig:        sig,
-		sigEnabled: sigEnabled,
-		now:        time.Now,
+		apiURL:      strings.TrimRight(apiURL, "/"),
+		apiToken:    cfg.APIToken,
+		pollEvery:   pollEvery,
+		timeout:     timeout,
+		httpClient:  &http.Client{Timeout: clientTimeout(cfg.ClientTimeout)},
+		sig:         sig,
+		sigEnabled:  sigEnabled,
+		transferVol: cfg.TransferVolume,
+		pullBack:    cfg.PullBackToSavePath,
+		now:         time.Now,
 	}
 }
 
@@ -136,11 +140,38 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 	}
 	slog.Info("Sproxy hybrid task submitted", "task_id", taskID, logutil.LogKeyURL, shareURL)
 
-	// 2. 轮询直到完成
-	if err := d.poll(taskID); err != nil {
+	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
+	task, err := d.pollResult(taskID)
+	if err != nil {
 		return fmt.Errorf("sproxy_hybrid task %s: %w", taskID, err)
 	}
+	// 3. 转存 URL 记录到 obj.Extra（默认转存；不下载）
+	if task != nil && task.TransferURL != "" {
+		obj.Lock()
+		if obj.Extra == nil {
+			obj.Extra = make(map[string]any)
+		}
+		obj.Extra["transfer_url"] = task.TransferURL
+		obj.Unlock()
+	}
+	// 4. 可选补拉回：PullBackToSavePath=true → 用 kind=cloud_task 下载原始文件到 SavePath
+	if task != nil && d.pullBack && d.sig != nil && task.Filename != "" {
+		if perr := d.pullBackToSavePath(task, obj.SavePath); perr != nil {
+			return fmt.Errorf("sproxy_hybrid pullback %s: %w", task.ID, perr)
+		}
+	}
 	return nil
+}
+
+// pullBackToSavePath 用 FileClient 以 kind=cloud_task 下载任务原始文件到本地 SavePath。
+func (d *SproxyHybridDownloader) pullBackToSavePath(task *sproxyclient.CloudTask, savePath string) error {
+	if savePath == "" {
+		// 无本地目标（submit 未传 filename）→ 只记录 transfer_url，不拉回
+		return nil
+	}
+	// 服务端 cloud_task 下载 filename=<taskID>/<file>（resolveCloudTaskPath 契约）
+	return d.sig.ChunkedDownload(context.Background(), task.ID+"/"+task.Filename, savePath,
+		sproxyclient.WithChunkedKind(sproxyclient.DownloadKindCloudTask))
 }
 
 // pickShareURL 从 obj 提取分享 URL（按优先级，与 gopeed collectPikPakCandidates 对齐）：
@@ -272,10 +303,14 @@ func (d *SproxyHybridDownloader) submit(shareURL, savePath string, headers map[s
 }
 
 // submitSig 用 SproxySig 客户端提交（RequestRaw 带签名 + 透传自定义 headers）。
+// TransferVolume 非空 → 请求体带 transfer（master 新三行为：转存到卷）。
 func (d *SproxyHybridDownloader) submitSig(shareURL, savePath string, headers map[string]string) (string, error) {
-	body := map[string]string{"url": shareURL}
+	body := map[string]any{"url": shareURL}
 	if savePath != "" {
 		body["filename"] = baseName(savePath)
+	}
+	if d.transferVol != "" {
+		body["transfer"] = map[string]any{"volume": d.transferVol}
 	}
 	b, _ := json.Marshal(body)
 	hdr := make(http.Header)
@@ -372,8 +407,15 @@ func (d *SproxyHybridDownloader) ensureRotatedBeforeSubmit() error {
 // 避免无限 sleep 到总超时（默认 3h）空等。
 // SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
 func (d *SproxyHybridDownloader) poll(taskID string) error {
+	_, err := d.pollResult(taskID)
+	return err
+}
+
+// pollResult 轮询直到完成，返回最终 CloudTask（含 transfer_url / filename 供转存记录与拉回）。
+// SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
+func (d *SproxyHybridDownloader) pollResult(taskID string) (*sproxyclient.CloudTask, error) {
 	if d.sigEnabled && d.sig != nil {
-		return d.pollWithRotate(taskID)
+		return d.pollWithRotateResult(taskID)
 	}
 	const maxConsecutiveErr = 3
 	deadline := time.Now().Add(d.timeout)
@@ -381,16 +423,18 @@ func (d *SproxyHybridDownloader) poll(taskID string) error {
 	consecErr := 0
 	for {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s", d.timeout)
+			return nil, fmt.Errorf("timed out after %s", d.timeout)
 		}
 		var out struct {
-			Status string `json:"status"`
+			Status      string `json:"status"`
+			TransferURL string `json:"transfer_url"`
+			Filename    string `json:"filename"`
 		}
 		if err := d.getJSON(statusURL, &out); err != nil {
 			// 轮询失败（404 任务不存在/服务端异常）——连续失败 N 次短路返回，避免 3h 空等
 			consecErr++
 			if consecErr >= maxConsecutiveErr {
-				return fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
+				return nil, fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
 			}
 			time.Sleep(d.pollEvery)
 			continue
@@ -398,23 +442,24 @@ func (d *SproxyHybridDownloader) poll(taskID string) error {
 		consecErr = 0
 		switch out.Status {
 		case "completed", "done":
-			return nil
+			return &sproxyclient.CloudTask{ID: taskID, Status: out.Status, TransferURL: out.TransferURL, Filename: out.Filename}, nil
 		case "failed", "error":
-			return fmt.Errorf("task status %q", out.Status)
+			return nil, fmt.Errorf("task status %q", out.Status)
 		}
 		time.Sleep(d.pollEvery)
 	}
 }
 
-// pollWithRotate 用 SproxySig 客户端轮询（GetCloudTask），遇 401（签名失效）先
+// pollWithRotateResult 用 SproxySig 客户端轮询（GetCloudTask），遇 401（签名失效）先
 // RenewAccessKey 轮换（每小时直到成功，每次轮换失败 Warn），成功后用新 SK 继续轮询。
-func (d *SproxyHybridDownloader) pollWithRotate(taskID string) error {
+// 返回最终 CloudTask。
+func (d *SproxyHybridDownloader) pollWithRotateResult(taskID string) (*sproxyclient.CloudTask, error) {
 	const maxConsecutiveErr = 3
 	deadline := time.Now().Add(d.timeout)
 	consecErr := 0
 	for {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s", d.timeout)
+			return nil, fmt.Errorf("timed out after %s", d.timeout)
 		}
 		task, err := d.sig.GetCloudTask(context.Background(), taskID)
 		if err != nil {
@@ -422,7 +467,7 @@ func (d *SproxyHybridDownloader) pollWithRotate(taskID string) error {
 			if errors.Is(err, sproxyclient.ErrNotFound) {
 				consecErr++
 				if consecErr >= maxConsecutiveErr {
-					return fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
+					return nil, fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
 				}
 				time.Sleep(d.pollEvery)
 				continue
@@ -435,7 +480,7 @@ func (d *SproxyHybridDownloader) pollWithRotate(taskID string) error {
 			}
 			consecErr++
 			if consecErr >= maxConsecutiveErr {
-				return fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
+				return nil, fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
 			}
 			time.Sleep(d.pollEvery)
 			continue
@@ -443,9 +488,9 @@ func (d *SproxyHybridDownloader) pollWithRotate(taskID string) error {
 		consecErr = 0
 		switch task.Status {
 		case "completed", "done":
-			return nil
+			return task, nil
 		case "failed", "error":
-			return fmt.Errorf("task status %q", task.Status)
+			return nil, fmt.Errorf("task status %q", task.Status)
 		}
 		time.Sleep(d.pollEvery)
 	}
