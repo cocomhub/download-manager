@@ -3,8 +3,8 @@ module github.com/cocomhub/download-manager
 go 1.27
 
 require (
-	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/cavaliergopher/grab/v3 v3.0.1
+	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0
 	github.com/gofrs/flock v0.13.1
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
@@ -14,13 +14,17 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/cocomhub/sproxy/pkg/volume/ext/pikpak => ../sproxy/pkg/volume/ext/pikpak
+
+replace github.com/cocomhub/sproxy => ../sproxy
+
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cocomhub/sproxy v0.0.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
@@ -68,7 +72,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
