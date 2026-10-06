@@ -59,6 +59,7 @@ func TestSproxyHybrid_SigAuth_Submit(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
+	mockCredList(mux, "ak-test", "skey-1234567890ab")
 
 	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
@@ -103,6 +104,7 @@ func TestSproxyHybrid_SigAuth_Poll(t *testing.T) {
 		writeJSONResp(w, map[string]any{"id": "task-sig", "status": "completed"})
 	})
 	srv := httptest.NewServer(mux)
+	mockCredList(mux, "ak-test2", "skey-abcdef123456")
 	defer srv.Close()
 
 	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
@@ -189,6 +191,7 @@ func TestSproxyHybrid_RenewRotation(t *testing.T) {
 		}
 		writeJSONResp(w, map[string]any{"id": "task-rot", "status": "completed"})
 	})
+	mockCredList(mux, "ak-rotate", "skey-rotate0001")
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -300,6 +303,7 @@ func TestSproxyHybrid_RotationSchedule(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
+	mockCredList(mux, "ak-sched", "skey-sched0001")
 
 	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
@@ -410,6 +414,7 @@ func TestSproxyHybrid_TransferAndPullback(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
+	mockCredList(mux, "ak-transfer", "skey-transfer01")
 
 	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
 		APIURL:             srv.URL + "/api/cloud/download",
@@ -460,6 +465,7 @@ func TestSproxyHybrid_TransferDefaultNoPullback(t *testing.T) {
 		writeJSONResp(w, map[string]any{"id": "task-n", "status": "completed", "filename": "movie.mp4",
 			"transfer_url": "sproxy://default/cloud/task-n/movie.mp4"})
 	})
+	mockCredList(mux, "ak-n", "skey-n000001")
 	mux.HandleFunc("GET /download/chunk", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "should not download", http.StatusBadRequest)
 	})
@@ -486,5 +492,201 @@ func TestSproxyHybrid_TransferDefaultNoPullback(t *testing.T) {
 	}
 	if _, err := os.Stat(obj.SavePath); !os.IsNotExist(err) {
 		t.Fatalf("savepath should not exist (no pullback), stat err=%v", err)
+	}
+}
+
+// mockCredList 在 mux 上挂 GET /api/credentials/<ak>/sk：返回含当前 skeyID 的 SK 列表
+// （30d 过期，供 verifyOnStart 预热 expireAt）。
+func mockCredList(mux *http.ServeMux, ak, skid string) {
+	mux.HandleFunc("GET /api/credentials/"+ak+"/sk", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{
+			"ak": ak, "total": 1, "admin": false,
+			"sk": []map[string]any{{
+				"sk_id": skid, "created": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+				"expires": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+				"status":  "alive",
+			}},
+		})
+	})
+}
+
+// TestSproxyHybrid_VerifyOnStartFail 验证：启动验证失败（ListAccessKeys 401）→ verified=false
+// → Download 显式拒绝（用户要求：确认有效才能启动任务）。
+func TestSproxyHybrid_VerifyOnStartFail(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/credentials/ak-bad/sk", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad sig", http.StatusUnauthorized)
+	})
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-x", "status": "completed", "filename": "movie.mp4"})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/task-x", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-x", "status": "completed", "filename": "movie.mp4"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       "ak-bad",
+		AccessKeySecret: "5555555555555555555555555555555555555555555555555555555555555555",
+		AccessKeyID:     "skey-bad000001",
+	})
+	if d.verified {
+		t.Fatal("verified should be false after 401 verify-on-start")
+	}
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("Download should fail when verify-on-start failed")
+	}
+}
+
+// TestSproxyHybrid_VerifyOnStartPrimesExpiry 验证：启动验证成功 → expireAt 预热（30d），
+// 进入提前 24h 窗口时 ensureRotatedBeforeSubmit 真正触发轮换。
+func TestSproxyHybrid_VerifyOnStartPrimesExpiry(t *testing.T) {
+	t.Parallel()
+	ak := "ak-prime"
+	sk := "6666666666666666666666666666666666666666666666666666666666666666"
+	skid := "skey-prime0001"
+	newSK := "9999999999999999999999999999999999999999999999999999999999999999"
+	var renewCount atomic.Int64
+	// 信封：旧 SK 包裹新 SK（RenewAccessKey 解封需要真 wrapped_secret）
+	skBytes := mustDecodeHex(t, sk)
+	wk, err := accesskey.DeriveWrapKey(skBytes, ak, client.CredentialWrapContext(ak))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := accesskey.EncryptSecret(ak, mustDecodeHex(t, newSK), wk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("POST /api/credentials/ak-prime/renew", func(w http.ResponseWriter, r *http.Request) {
+		renewCount.Add(1)
+		writeJSONResp(w, map[string]any{"ak": ak, "sk_id": skid, "kind": "symmetric", "wrap_key_ak": ak,
+			"expires_at": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+			"wrapped_secret": map[string]any{
+				"kind": env.Kind, "wrap_key_id": env.WrapKeyID, "nonce": env.Nonce, "ciphertext": env.Cipher,
+			}})
+	})
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-p", "status": "running"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	if !d.verified {
+		t.Fatal("verify-on-start should succeed")
+	}
+	// 预热后 expireAt ≈ 30d 后；模拟时钟推进到到期前 23h
+	d.expireAt = time.Now().Add(23 * time.Hour)
+	d.lastRotate = time.Time{}
+	if err := d.ensureRotatedBeforeSubmit(); err != nil {
+		t.Fatalf("ensureRotated: %v", err)
+	}
+	if renewCount.Load() != 1 {
+		t.Fatalf("renew called = %d, want 1 (within 24h window after prime)", renewCount.Load())
+	}
+}
+
+// TestSproxyHybrid_Poll500DoesNotRotate 验证：poll 遇 500 不触发轮换（评审 P1-A/P1-2：
+// 仅 401 轮换；5xx/网络错误只计数短路，不风暴）。
+func TestSproxyHybrid_Poll500DoesNotRotate(t *testing.T) {
+	t.Parallel()
+	ak := "ak-500"
+	sk := "7777777777777777777777777777777777777777777777777777777777777777"
+	skid := "skey-50000001"
+	var renewCount atomic.Int64
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("POST /api/credentials/ak-500/renew", func(w http.ResponseWriter, r *http.Request) {
+		renewCount.Add(1)
+		writeJSONResp(w, map[string]any{"ak": ak, "sk_id": skid, "kind": "symmetric", "wrap_key_ak": ak,
+			"expires_at": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339), "wrapped_secret": nil})
+	})
+	// 任务详情恒 500
+	mux.HandleFunc("GET /api/cloud/tasks/task-500", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+		PollEvery:       10,
+	})
+	start := time.Now()
+	_, err := d.pollWithRotateResult("task-500")
+	if err == nil {
+		t.Fatal("poll should fail on 500")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("poll did not short-circuit, took %v", time.Since(start))
+	}
+	if renewCount.Load() != 0 {
+		t.Fatalf("renew called = %d, want 0 (500 should NOT rotate)", renewCount.Load())
+	}
+}
+
+// TestSproxyHybrid_Submit401LimitedRetry 验证 submit 401 有限重试（评审 P1-1：无界递归
+// → DoS）：renew 后仍 401 → 最多重试 2 次后返回错误，不无限递归。
+func TestSproxyHybrid_Submit401LimitedRetry(t *testing.T) {
+	t.Parallel()
+	ak := "ak-sub401"
+	sk := "8888888888888888888888888888888888888888888888888888888888888888"
+	skid := "skey-sub40101"
+	newSK := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	var renewCount atomic.Int64
+	// 真信封：RenewAccessKey 解封成功 → 401 后继续重试
+	skBytes := mustDecodeHex(t, sk)
+	wk, err := accesskey.DeriveWrapKey(skBytes, ak, client.CredentialWrapContext(ak))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := accesskey.EncryptSecret(ak, mustDecodeHex(t, newSK), wk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("POST /api/credentials/ak-sub401/renew", func(w http.ResponseWriter, r *http.Request) {
+		renewCount.Add(1)
+		writeJSONResp(w, map[string]any{"ak": ak, "sk_id": skid, "kind": "symmetric", "wrap_key_ak": ak,
+			"expires_at": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+			"wrapped_secret": map[string]any{
+				"kind": env.Kind, "wrap_key_id": env.WrapKeyID, "nonce": env.Nonce, "ciphertext": env.Cipher,
+			}})
+	})
+	// 提交恒 401
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad creds", http.StatusUnauthorized)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	_, sErr := d.submitSig("https://mypikpak.com/s/abc", "out.mp4", nil)
+	if sErr == nil {
+		t.Fatal("submit should fail after 401 retries exhausted")
+	}
+	// renew 最多 maxSubmitRetry 次（2），不无限递归
+	if renewCount.Load() > 2 {
+		t.Fatalf("renew called = %d, want <=2 (limited retry)", renewCount.Load())
 	}
 }

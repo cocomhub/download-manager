@@ -6,7 +6,6 @@ package downloader
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -43,13 +42,16 @@ type SproxyHybridDownloader struct {
 	httpClient  *http.Client
 	sig         *sproxyclient.FileClient // SproxySig 凭据客户端（nil = Bearer 路径）；自带签名+轮换
 	sigEnabled  bool
+	ak          string // SproxySig AccessKey（启动验证 ListAccessKeys 用）
+	skid        string // SproxySig SK 条目 ID（启动验证取过期时间用）
 	transferVol string // 转存目标卷（非空 → 提交带 transfer；默认留 cloud 桶）
 	pullBack    bool   // 可选补拉回 SavePath（默认 false=只转存不下载）
-	// 主动轮换调度（提前 24h 每小时直到成功）：
+	// 主动 SK 轮换调度（提前 24h 每小时直到成功）：
 	now        func() time.Time // 时钟注入（测试可控）
 	rotateMu   sync.Mutex
-	expireAt   time.Time // 当前 SK 过期时间（RenewAccessKey 响应记录）
+	expireAt   time.Time // 当前 SK 过期时间（RenewAccessKey/启动验证 记录）
 	lastRotate time.Time // 上次轮换时刻（每小时限频）
+	verified   bool      // 启动验证通过（签名链路有效才启用 SproxySig 路径；否则 degraded）
 }
 
 // NewSproxyHybridDownloader 创建 sproxy hybrid 下载器。
@@ -68,20 +70,23 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		timeout = 3 * time.Hour
 	}
 	headerOK := strings.TrimRight(apiURL, "/")
-	sigEnabled := cfg.AccessKey != "" && cfg.AccessKeySecret != ""
+	// 评审 P0-1：SproxySig 需三件套齐（AK/SK/ID）才启用——缺 access_key_id 时 v2 签名
+	// 必被服务端 401，半启用会造成「看似配好、实则全任务失败」静默失效。
+	sigEnabled := cfg.AccessKey != "" && cfg.AccessKeySecret != "" && cfg.AccessKeyID != ""
 	var sig *sproxyclient.FileClient
 	if sigEnabled {
 		baseURL := strings.TrimSuffix(headerOK, "/api/cloud/download")
 		if baseURL == "" {
 			baseURL = "http://127.0.0.1:8080"
 		}
-		opts := []sproxyclient.Option{sproxyclient.WithAccessKey(cfg.AccessKey, cfg.AccessKeySecret), sproxyclient.WithTimeout(clientTimeout(cfg.ClientTimeout))}
-		if cfg.AccessKeyID != "" {
-			opts = append(opts, sproxyclient.WithAccessKeyID(cfg.AccessKeyID))
+		opts := []sproxyclient.Option{
+			sproxyclient.WithAccessKey(cfg.AccessKey, cfg.AccessKeySecret),
+			sproxyclient.WithAccessKeyID(cfg.AccessKeyID),
+			sproxyclient.WithTimeout(clientTimeout(cfg.ClientTimeout)),
 		}
 		sig = sproxyclient.NewFileClient(baseURL, opts...)
 	}
-	return &SproxyHybridDownloader{
+	d := &SproxyHybridDownloader{
 		apiURL:      strings.TrimRight(apiURL, "/"),
 		apiToken:    cfg.APIToken,
 		pollEvery:   pollEvery,
@@ -89,10 +94,51 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		httpClient:  &http.Client{Timeout: clientTimeout(cfg.ClientTimeout)},
 		sig:         sig,
 		sigEnabled:  sigEnabled,
+		ak:          cfg.AccessKey,
+		skid:        cfg.AccessKeyID,
 		transferVol: cfg.TransferVolume,
 		pullBack:    cfg.PullBackToSavePath,
 		now:         time.Now,
 	}
+	// 用户要求：启动时立刻确认签名链路有效才启用——同步带外验证（ListAccessKeys 200），
+	// 失败仅 Warn + 标记 degraded（Download 显式报错，不静默降级）；成功则预热 expireAt
+	// 使「过期前 24h 每小时轮换」调度立即生效。
+	if sigEnabled {
+		d.verifyOnStart()
+	}
+	return d
+}
+
+// verifyOnStart 启动时验证 SproxySig 签名链路有效：ListAccessKeys 返回 200 即凭据
+// 有效（服务端真实鉴权）；成功时从 SK 列表取当前条目过期时间预热 expireAt（供提前
+// 24h 每小时轮换调度）。失败 → verified=false（Download 显式报错，不静默降级）。
+func (d *SproxyHybridDownloader) verifyOnStart() {
+	ctx, cancel := context.WithTimeout(context.Background(), clientTimeout(0))
+	defer cancel()
+	infos, err := d.sig.ListAccessKeys(ctx, d.ak)
+	if err != nil {
+		slog.Error("sproxy sig verify-on-start failed: 签名链路不可用，SproxySig 路径停用（任务将显式失败）",
+			"err", err, "ak", d.ak)
+		d.verified = false
+		return
+	}
+	d.verified = true
+	// 预热 expireAt：找当前 skeyID 条目过期；找不到取最晚过期（服务端多 SK 共存）
+	var latest time.Time
+	for _, info := range infos {
+		if info.SKID == d.skid {
+			d.expireAt = info.Expires
+			break
+		}
+		if info.Expires.After(latest) {
+			latest = info.Expires
+		}
+	}
+	if d.expireAt.IsZero() {
+		d.expireAt = latest
+	}
+	d.lastRotate = d.now()
+	slog.Info("sproxy sig verified on start", "ak", d.ak, "expire_at", d.expireAt.Format(time.RFC3339))
 }
 
 // 主动 SK 轮换调度（用户确认策略：拿到凭证记录过期时间，提前 24h 开始每小时轮换直到成功）。
@@ -124,6 +170,10 @@ var _ core.Downloader = &SproxyHybridDownloader{}
 //  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
 //  3. obj.URL 本身是分享链接
 func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	// 用户要求：启动验证失败（签名链路不可用）→ 显式拒绝任务，不静默降级
+	if d.sigEnabled && !d.verified {
+		return fmt.Errorf("sproxy_hybrid: SproxySig 启动验证失败（签名链路不可用），任务拒绝；请检查 access_key/access_key_secret/access_key_id 配置")
+	}
 	shareURL := d.pickShareURL(obj)
 	if shareURL == "" {
 		return fmt.Errorf("sproxy_hybrid: no share url for %s", obj.URL)
@@ -304,47 +354,53 @@ func (d *SproxyHybridDownloader) submit(shareURL, savePath string, headers map[s
 
 // submitSig 用 SproxySig 客户端提交（RequestRaw 带签名 + 透传自定义 headers）。
 // TransferVolume 非空 → 请求体带 transfer（master 新三行为：转存到卷）。
+// 401（签名失效）触发轮换后**有限次重试**（评审 P1-1：无界递归 → DoS）；
+// 重试次数耗尽后返回显式错误（不静默降级）。
 func (d *SproxyHybridDownloader) submitSig(shareURL, savePath string, headers map[string]string) (string, error) {
-	body := map[string]any{"url": shareURL}
-	if savePath != "" {
-		body["filename"] = baseName(savePath)
-	}
-	if d.transferVol != "" {
-		body["transfer"] = map[string]any{"volume": d.transferVol}
-	}
-	b, _ := json.Marshal(body)
-	hdr := make(http.Header)
-	for k, v := range headers {
-		if k == "" || v == "" {
-			continue
+	const maxSubmitRetry = 2
+	for attempt := 0; attempt <= maxSubmitRetry; attempt++ {
+		body := map[string]any{"url": shareURL}
+		if savePath != "" {
+			body["filename"] = baseName(savePath)
 		}
-		hdr.Set(k, v)
-	}
-	resp, err := d.sig.RequestRaw(context.Background(), http.MethodPost, "/api/cloud/download", strings.NewReader(string(b)), hdr)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusUnauthorized {
-			// 签名失效（条目过期/删除）：触发轮换后再重试一次
-			if rerr := d.rotateOnce(); rerr == nil {
-				return d.submitSig(shareURL, savePath, headers)
+		if d.transferVol != "" {
+			body["transfer"] = map[string]any{"volume": d.transferVol}
+		}
+		b, _ := json.Marshal(body)
+		hdr := make(http.Header)
+		for k, v := range headers {
+			if k == "" || v == "" {
+				continue
 			}
+			hdr.Set(k, v)
 		}
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateSproxy(string(respBody), 200))
+		resp, err := d.sig.RequestRaw(context.Background(), http.MethodPost, "/api/cloud/download", strings.NewReader(string(b)), hdr)
+		if err != nil {
+			return "", err
+		}
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// 仅 401 触发轮换重试（有限次）；其它错误直接返回
+			if resp.StatusCode == http.StatusUnauthorized && attempt < maxSubmitRetry {
+				if rerr := d.rotateOnce(); rerr == nil {
+					continue // 换新 SK 后重试
+				}
+			}
+			return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateSproxy(string(respBody), 200))
+		}
+		var out struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(respBody, &out); err != nil {
+			return "", fmt.Errorf("decode submit response: %w", err)
+		}
+		if out.ID == "" {
+			return "", fmt.Errorf("submit response missing task id")
+		}
+		return out.ID, nil
 	}
-	var out struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		return "", fmt.Errorf("decode submit response: %w", err)
-	}
-	if out.ID == "" {
-		return "", fmt.Errorf("submit response missing task id")
-	}
-	return out.ID, nil
+	return "", fmt.Errorf("submit failed after %d attempts", maxSubmitRetry+1)
 }
 
 // rotateOnce 调用一次 RenewAccessKey（热替换新 SK；失败 Warn 下轮重试）。
@@ -443,16 +499,16 @@ func (d *SproxyHybridDownloader) pollResult(taskID string) (*sproxyclient.CloudT
 		switch out.Status {
 		case "completed", "done":
 			return &sproxyclient.CloudTask{ID: taskID, Status: out.Status, TransferURL: out.TransferURL, Filename: out.Filename}, nil
-		case "failed", "error":
+		case "failed", "error", "cancelled":
 			return nil, fmt.Errorf("task status %q", out.Status)
 		}
 		time.Sleep(d.pollEvery)
 	}
 }
 
-// pollWithRotateResult 用 SproxySig 客户端轮询（GetCloudTask），遇 401（签名失效）先
-// RenewAccessKey 轮换（每小时直到成功，每次轮换失败 Warn），成功后用新 SK 继续轮询。
-// 返回最终 CloudTask。
+// pollWithRotateResult 用 SproxySig 客户端轮询（GetCloudTask），**仅 401**（签名失效）
+// 才触发 RenewAccessKey 轮换（评审 P1-A/P1-2：5xx/网络错误不轮换，防凭据风暴）；
+// 轮换成功后用新 SK 继续轮询，连续错误仍计数短路。
 func (d *SproxyHybridDownloader) pollWithRotateResult(taskID string) (*sproxyclient.CloudTask, error) {
 	const maxConsecutiveErr = 3
 	deadline := time.Now().Add(d.timeout)
@@ -463,8 +519,8 @@ func (d *SproxyHybridDownloader) pollWithRotateResult(taskID string) (*sproxycli
 		}
 		task, err := d.sig.GetCloudTask(context.Background(), taskID)
 		if err != nil {
-			// 401 签名失效 → 轮换一次（新 SK 热替换）后重试；其它错误连续短路
-			if errors.Is(err, sproxyclient.ErrNotFound) {
+			// 404（任务不存在）→ 连续计数短路；其它（500/网络）同样计数——不轮换
+			if !isUnauthorizedErr(err) {
 				consecErr++
 				if consecErr >= maxConsecutiveErr {
 					return nil, fmt.Errorf("task %s poll failed %d consecutive times: %w", taskID, consecErr, err)
@@ -472,9 +528,8 @@ func (d *SproxyHybridDownloader) pollWithRotateResult(taskID string) (*sproxycli
 				time.Sleep(d.pollEvery)
 				continue
 			}
-			// 网络/401 等：尝试轮换
+			// 仅 401：轮换一次（新 SK 热替换）后重试；轮换失败也计数（不风暴）
 			if rerr := d.rotateOnce(); rerr == nil {
-				consecErr = 0
 				time.Sleep(d.pollEvery)
 				continue
 			}
@@ -489,11 +544,23 @@ func (d *SproxyHybridDownloader) pollWithRotateResult(taskID string) (*sproxycli
 		switch task.Status {
 		case "completed", "done":
 			return task, nil
-		case "failed", "error":
+		case "failed", "error", "cancelled":
 			return nil, fmt.Errorf("task status %q", task.Status)
 		}
 		time.Sleep(d.pollEvery)
 	}
+}
+
+// isUnauthorizedErr 判断错误是否为 401（签名失效）。优先 errors.Is(ErrUnauthorized)
+// 哨兵（sproxy master 已支持）；哨兵未合并时回退字符串匹配（旧伪版本兼容）。
+// 注意：不能静态引用 sproxyclient.ErrUnauthorized（旧伪版本无此常量会编译失败），
+// 用 errors.New 本地哨兵 + errors.Is 无法跨包命中 → 直接字符串判断（401 特征稳定）。
+func isUnauthorizedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// HTTP 401 特征：sproxy doJSONStatusError 文案固定为 "请求失败 (HTTP 401)"
+	return strings.Contains(err.Error(), "(HTTP 401)")
 }
 
 // apiBase 返回 sproxy 服务基地址（apiURL 去掉 /api/cloud/download）。
