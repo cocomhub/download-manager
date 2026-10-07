@@ -213,3 +213,16 @@ func TestSpeedAccuracy_ThrottledBurst(t *testing.T) {
 		t.Logf("✅ 显示接近平均")
 	}
 }
+
+// TestSpeedSingleSample 验证单采样（开始下载第一帧）速率即可用——total ETA 不为空。
+func TestSpeedSingleSample(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, false)
+	p.addWorker("chunk-0", 64<<20, 0, "c0")
+	p.set("chunk-0", 1<<20, 64<<20) // 第一个采样：已下 1MB
+	time.Sleep(500 * time.Millisecond)
+	speed := windowSpeed(p.workers["chunk-0"], time.Now())
+	if speed <= 0 {
+		t.Fatalf("single-sample speed = 0, want >0 (ETA 可用)")
+	}
+	t.Logf("single-sample speed = %.2f MiB/s", speed/1048576)
+}

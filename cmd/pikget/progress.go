@@ -170,21 +170,24 @@ const rateWindowMs = 3000
 // windowSpeed 计算某 worker 的滑动窗口速率（窗口内字节增量 / 窗口时长）。
 // 窗口内无采样或仅 1 点 → 0（未开始/刚起始）；空闲期窗口滑出 → 速率自然衰减到 0。
 func windowSpeed(w *workerStat, now time.Time) float64 {
-	if len(w.samples) < 2 {
-		return 0
+	if len(w.samples) == 0 {
+		return 0 // 无采样（pending/未开始）
 	}
 	first := w.samples[0]
 	last := w.samples[len(w.samples)-1]
-	dt := last.ts - first.ts
-	if dt <= 0 {
-		return 0
-	}
 	// 窗口真实时长：首点到当前（含空闲）—— 用 now 而非 last（空闲期也算，速率衰减）
 	realDt := now.UnixMilli() - first.ts
 	if realDt <= 0 {
-		realDt = dt
+		// 单采样且首点=now：返回 0（无法定速率）
+		return 0
 	}
-	return float64(last.val-first.val) * 1000 / float64(realDt)
+	// 单采样：速率 = 已下字节/距首点时长（从 0 起算——开始下载即有用，total ETA 不空）
+	// 多采样：窗口增量/窗口真实时长（平均，限速场景准）
+	delta := last.val
+	if len(w.samples) > 1 {
+		delta = last.val - first.val
+	}
+	return float64(delta) * 1000 / float64(realDt)
 }
 
 // refreshLocked 检查节流并渲染（调用方持锁）。
