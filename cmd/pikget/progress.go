@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
-
 	"time"
+
+	"golang.org/x/term"
 )
 
 // workerStat 是单个执行者（chunk）的进度状态。
@@ -32,35 +34,56 @@ type workerStat struct {
 // - 每行显示：进度条 + 百分比 + 字节 + 速率 + ETA；完成移除速率/ETA
 // - 最后一行汇总所有执行者的总进度/速率/ETA
 // - Update(id, n) 传增量字节，内部自动对齐对应 chunk
+//
+// 终端能力分级：
+//   - ansi（Windows Terminal / Linux / macOS 终端）：多行原地刷新（\x1b[A 上移）
+//   - 非 ansi（经典 conhost / PowerShell 5.1）：退化为单行汇总原地刷新（\r+\x1b[K），
+//     避免滚屏——worker 明细由 -v 时 sproxy chunk 日志呈现
 type multiProgress struct {
 	w       io.Writer
 	mu      sync.Mutex // 保护 workers 快照与渲染
 	workers map[string]*workerStat
 	enabled bool     // 显示开关（TTY 或非 quiet 才画）
+	ansi    bool     // 支持 ANSI 光标移动（\x1b[A）
 	order   []string // id 稳定顺序（创建序）
 	widths  int      // 名称列宽（固定，避免长度抖动残留）
 	refresh time.Time
 }
 
 // newMultiProgress 创建多执行者进度条。enabled=false 时 Update/Done 为 no-op。
+// ansi 能力由终端探测决定：Windows Terminal 或非 Windows → 多行；经典 conhost → 单行汇总。
 func newMultiProgress(w io.Writer, enabled bool) *multiProgress {
 	return &multiProgress{
 		w:       w,
 		enabled: enabled,
+		ansi:    ansiCursorSupported(),
 		workers: make(map[string]*workerStat),
 		widths:  20,
 	}
 }
 
+// ansiCursorSupported 判断是否支持 ANSI 光标移动序列（\x1b[A）。
+// Windows：Windows Terminal（WT_SESSION 存在）→ 支持多行；经典 conhost（PowerShell 5.1）
+// 的 VT 支持不保证 → false（退化为单行汇总刷新）。非 Windows 终端默认支持。
+func ansiCursorSupported() bool {
+	if os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return os.Getenv("WT_SESSION") != "" // Windows Terminal 才信任 \x1b[A
+	}
+	return true
+}
+
 // isTTY 判断 writer 是否为字符设备（终端）。非终端（管道/重定向/测试 buffer）→ false，
 // 调用方据此禁用进度动画（避免 ANSI 控制码污染管道输出与捕获断言）。
+// 用 golang.org/x/term.IsTerminal（跨平台：Windows conhost 也正确识别）替代手写 Stat。
 func isTTY(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // addWorker 注册一个执行者（chunk）。base 为续传起始字节；total 总大小；name 展示名。
@@ -124,7 +147,13 @@ func (p *multiProgress) refreshLocked() {
 }
 
 // render 清空并重绘全部行 + 汇总行。
+// ansi=false（经典 conhost / PowerShell 5.1）→ 单行汇总原地刷新（\r+\x1b[K），不滚屏。
 func (p *multiProgress) render(now time.Time) {
+	if !p.ansi {
+		// 单行：\r 回车 + 清行尾 + 汇总
+		fmt.Fprintf(p.w, "\r\x1b[K%s", p.summary(now))
+		return
+	}
 	// 上移 N 行（每行 \r 起点）+ 汇总行占位
 	n := len(p.order)
 	// 清空区域：每行写 \r + 空白填充到行宽 + \x1b[K（清行尾）
@@ -247,26 +276,25 @@ func (p *multiProgress) finish(ok bool) {
 	if !p.enabled {
 		return
 	}
-	if isTTY(p.w) {
-		// TTY：清掉全部行 + 回顶部，输出摘要
-		for range p.order {
-			fmt.Fprintf(p.w, "\r\x1b[K")
-			fmt.Fprint(p.w, "\n")
-		}
-		fmt.Fprintf(p.w, "\r\x1b[K")
-		fmt.Fprintf(p.w, "\r\x1b[%dA", len(p.order)+1)
-		if ok {
+	if !p.ansi {
+		// 单行刷新模式：收尾清行，摘要由调用方打印（非 TTY 摘要）或这里打（TTY 单行）
+		if isTTY(p.w) && ok {
 			s := p.summary(time.Now())
-			fmt.Fprintf(p.w, "%s\n", strings.TrimSpace(s))
+			fmt.Fprintf(p.w, "\r\x1b[K%s\n", strings.TrimSpace(s))
 		}
 		return
 	}
-	// 非 TTY：无 ANSI，仅清行（不输出——调用方显式打摘要）
+	// TTY + ANSI：清掉全部行 + 回顶部，输出摘要
 	for range p.order {
 		fmt.Fprintf(p.w, "\r\x1b[K")
 		fmt.Fprint(p.w, "\n")
 	}
 	fmt.Fprintf(p.w, "\r\x1b[K")
+	fmt.Fprintf(p.w, "\r\x1b[%dA", len(p.order)+1)
+	if ok {
+		s := p.summary(time.Now())
+		fmt.Fprintf(p.w, "%s\n", strings.TrimSpace(s))
+	}
 }
 
 // pad 按固定宽度填充（右侧补空格，避免长度变化残留）。
