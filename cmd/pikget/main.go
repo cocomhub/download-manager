@@ -236,6 +236,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		concurrency: fl.concurrency,
 		autoDelete:  fl.autoDelete,
 		secretsDir:  fl.secretsDir,
+		verbose:     fl.verbose,
 	}
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
 		pr.set("total", downloaded, total)

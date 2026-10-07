@@ -27,6 +27,7 @@ type pikpakOpts struct {
 	secretsDir  string // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
 	stateDir    string // 账号配额状态目录（默认 <UserConfigDir>/pikget/pikpak-account-state）
 	cliBinary   string // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
+	verbose     bool   // -v：slog 提为 Debug 级
 }
 
 // newHybrid 装配 sproxy HybridDownloader。
@@ -89,7 +90,7 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 		ShareRatio:  o.shareRatio,
 		Concurrency: o.concurrency,
 		AutoDelete:  o.autoDelete,
-		Logger:      slogForPikget(),
+		Logger:      slogForPikget(o.verbose),
 	})
 }
 
@@ -186,7 +187,13 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// slogForPikget 返回默认 slog logger（hybrid 内部日志到 stderr，-v 时降噪可切 debug）。
-func slogForPikget() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, nil))
+// slogForPikget 返回默认 slog logger（hybrid 内部日志到 stderr）。
+// 默认 LevelWarn：Info 级（hybrid download start/plan/chunks done）在带进度条时
+// 会打断进度行渲染——降噪为只报 Warn（分片失败/降级等真正异常），-v 时提为 Debug。
+func slogForPikget(verbose bool) *slog.Logger {
+	lvl := slog.LevelWarn
+	if verbose {
+		lvl = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
 }

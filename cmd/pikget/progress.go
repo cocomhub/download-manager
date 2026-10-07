@@ -307,10 +307,7 @@ func pad(s string, w int) string {
 
 // progressBar 渲染进度条（width 格）。
 func progressBar(percent, width int) string {
-	pct := percent
-	if pct > 100 {
-		pct = 100
-	}
+	pct := min(percent, 100)
 	b := make([]byte, width+2)
 	b[0] = '['
 	b[width+1] = ']'

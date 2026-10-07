@@ -46,22 +46,22 @@ func (p *multiProgress) totalDone() int64 {
 func TestMultiProgress_ConcurrentUpdateNoRace(t *testing.T) {
 	p := newMultiProgress(&bytes.Buffer{}, false) // enabled=false：不渲染，纯累加
 	const workers = 8
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		p.addWorker(string(rune('a'+i)), 10000, 0, "w")
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for range 1000 {
 				p.update(id, 1)
 			}
 		}(string(rune('a' + i)))
 	}
 	wg.Wait()
 	// 每 worker 1000 次 × 1 = 1000
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		id := string(rune('a' + i))
 		p.mu.Lock()
 		done := p.workers[id].done
