@@ -262,11 +262,10 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
 	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
-	// resumeBase 记入进度条（续传起始字节）。
-	_ = resumeBase
+	// resumeBase 记入进度条（续传起始字节）——已完成 chunk 计入总进度，不从 0 重计。
+	pr.setBase(resumeBase)
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
-		_ = downloaded
-		_ = total
+		pr.setProgress(downloaded, total)
 	})
 	if ctxErr(ctx) {
 		fmt.Fprintf(stderr, "pikget: 中断\n")

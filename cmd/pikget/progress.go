@@ -41,6 +41,7 @@ type multiProgress struct {
 	w            io.Writer
 	mu           sync.Mutex // 保护 workers 快照与渲染
 	workers      map[string]*workerStat
+	base         int64    // 续传起始字节（manifest 已完成，计入总进度）
 	enabled      bool     // 显示开关（TTY 或非 quiet 才画）
 	order        []string // id 稳定顺序（创建序）
 	renderedOnce bool     // 是否已画过第一帧（后续刷新先上移）
@@ -68,6 +69,20 @@ func isTTY(w io.Writer) bool {
 		return false
 	}
 	return term.IsTerminal(int(f.Fd()))
+}
+
+// setBase 设置总进度续传基址（manifest 已完成字节，计入 summary 总进度）。
+func (p *multiProgress) setBase(b int64) {
+	p.mu.Lock()
+	p.base = b
+	p.mu.Unlock()
+}
+
+// setProgress 设置聚合进度（sproxy 全局 prog 回调）——仅刷新渲染（total 由 summary 算）。
+func (p *multiProgress) setProgress(downloaded, total int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.refreshLocked()
 }
 
 // addWorker 注册一个执行者（chunk）。base 为续传起始字节；total 总大小；name 展示名。
@@ -223,6 +238,8 @@ func (p *multiProgress) summary(now time.Time) string {
 			doneCnt++
 		}
 	}
+	// 续传基址（manifest 已完成字节）计入总进度——重启不从 0 重计
+	totalBase += p.base
 	eff := totalBase + totalDone
 	pct := float64(eff) / float64(totalSize) * 100
 	if pct > 100 {
