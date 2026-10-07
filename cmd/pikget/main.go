@@ -234,7 +234,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
 	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
-	pr.addWorker("total", 0, hybridResumeBase(dest), filepath.Base(dest))
+	resumeBase := hybridResumeBase(dest)
 	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done）。
 	// 来源链显示：share=匿名分享直链；acct=账号直链（多账号时含账号名）。
 	chunkProgress := func(info pikpak.ChunkInfo) {
@@ -260,8 +260,13 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		chunkProg:   chunkProgress,
 		logFile:     fl.logFile,
 	}
+	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
+	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
+	// resumeBase 记入进度条（续传起始字节）。
+	_ = resumeBase
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
-		pr.set("total", downloaded, total)
+		_ = downloaded
+		_ = total
 	})
 	if ctxErr(ctx) {
 		fmt.Fprintf(stderr, "pikget: 中断\n")
