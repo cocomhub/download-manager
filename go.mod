@@ -14,9 +14,9 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/cocomhub/sproxy/pkg/volume/ext/pikpak => ../sproxy/pkg/volume/ext/pikpak
+replace github.com/cocomhub/sproxy/pkg/volume/ext/pikpak => ../sproxy-pikget-downloading/pkg/volume/ext/pikpak
 
-replace github.com/cocomhub/sproxy => ../sproxy
+replace github.com/cocomhub/sproxy => ../sproxy-pikget-downloading
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
