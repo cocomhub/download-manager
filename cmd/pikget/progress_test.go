@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -225,4 +226,33 @@ func TestSpeedSingleSample(t *testing.T) {
 		t.Fatalf("single-sample speed = 0, want >0 (ETA 可用)")
 	}
 	t.Logf("single-sample speed = %.2f MiB/s", speed/1048576)
+}
+
+// TestSummary_ResumeTotalSize 验证续传场景 total 总大小正确：
+// 已完成 chunk 不注册 worker（sproxy filterChunks），但真实文件总大小由聚合回调提供，
+// summary 百分比基于真实 total（不漏已完成字节，含最后冗余非完整分片）。
+func TestSummary_ResumeTotalSize(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, false)
+	// 续传：manifest 已完成 32MB（base），真实文件 1.7GB，剩余 52 个未完成 chunk 注册
+	p.setBase(32 << 20)
+	remainChunks := int64(52)
+	for i := int64(0); i < remainChunks; i++ {
+		p.addWorker(fmt.Sprintf("chunk-%d", i), 32<<20, 0, "c")
+	}
+	// 聚合回调提供真实 total（1.7GB）
+	realTotal := int64(1781871696)
+	p.setProgress(32<<20, realTotal)
+	// 下载中：已完成 1 个未完成 chunk（32MB）
+	p.set("chunk-0", 32<<20, 32<<20)
+	// summary：eff = base(32MB) + done(32MB) = 64MB；totalSize = 真实 1.7GB
+	s := p.summary(time.Now())
+	// 百分比 = 64MB/1781871696 ≈ 3.77% ≈ 3.8%（真实 total 覆盖，不漏已完成 32MB）；
+	// 若漏算（分母 52×32MB=1664MB）会是 64MB/1664MB=3.85%≈3.8% —— 需区分：
+	// 真实 total 的 3.77% 与漏算的 3.85% 接近，改用 total 字符串断言更强（1.7 GB）。
+	if !strings.Contains(s, "1.7 GB") {
+		t.Fatalf("summary total should show real file size 1.7 GB: %s", s)
+	}
+	if !strings.Contains(s, "1.7 GB") {
+		t.Fatalf("summary total should show real file size 1.7 GB: %s", s)
+	}
 }

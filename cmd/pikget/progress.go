@@ -48,6 +48,7 @@ type multiProgress struct {
 	mu           sync.Mutex // 保护 workers 快照与渲染
 	workers      map[string]*workerStat
 	base         int64    // 续传起始字节（manifest 已完成，计入总进度）
+	totalFile    int64    // 真实文件总大小（sproxy 聚合回调 total；0=未知回落各 worker 之和）
 	enabled      bool     // 显示开关（TTY 或非 quiet 才画）
 	order        []string // id 稳定顺序（创建序）
 	renderedOnce bool     // 是否已画过第一帧（后续刷新先上移）
@@ -88,6 +89,12 @@ func (p *multiProgress) setBase(b int64) {
 func (p *multiProgress) setProgress(downloaded, total int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// 真实文件总大小（sproxy 聚合回调 total）——**续传场景 totalSize 必须用它**：
+	// 已完成 chunk 不注册 worker（filterChunks 跳过），各 worker.total 之和会漏已完成
+	// 字节（含最后冗余非完整分片）→ 百分比虚高。用真实 total 覆盖。
+	if total > 0 {
+		p.totalFile = total
+	}
 	p.refreshLocked()
 }
 
@@ -273,6 +280,11 @@ func (p *multiProgress) summary(now time.Time) string {
 		if w.finish {
 			doneCnt++
 		}
+	}
+	// 真实文件总大小优先（sproxy 聚合回调 total）：续传时已完成 chunk 不注册 worker，
+	// 各 worker.total 之和会漏已完成字节（含最后冗余非完整分片）→ 用真实 total 兜底。
+	if p.totalFile > totalSize {
+		totalSize = p.totalFile
 	}
 	// 续传基址（manifest 已完成字节）计入总进度——重启不从 0 重计
 	totalBase += p.base
