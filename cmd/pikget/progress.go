@@ -81,6 +81,7 @@ func (p *multiProgress) addWorker(id string, total, base int64, name string) {
 		id: id, name: name, total: total, base: base,
 		lastTm: time.Now().UnixMilli(),
 	}
+
 	p.order = append(p.order, id)
 	if len(name) > p.widths {
 		p.widths = len(name)
@@ -112,7 +113,15 @@ func (p *multiProgress) set(id string, downloaded, total int64) {
 		w.total = total
 	}
 	if downloaded > w.done {
+		// 速率差分：窗口 ≥500ms 时用增量算速度（否则保留上次）
+		nowMs := time.Now().UnixMilli()
+		if dt := nowMs - w.lastTm; dt >= 500 && w.lastTm > 0 {
+			w.speed = float64(downloaded-w.done) * 1000 / float64(dt)
+			w.lastTm = nowMs
+		}
 		w.done = downloaded
+	} else {
+		w.lastTm = time.Now().UnixMilli()
 	}
 	p.refreshLocked()
 }
