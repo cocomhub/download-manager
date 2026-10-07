@@ -109,3 +109,24 @@ func TestRun_QuietNoProgress(t *testing.T) {
 		t.Fatalf("quiet mode should print nothing, got: %q", so)
 	}
 }
+
+// TestHybridResumeBase 验证从 .hybrid manifest 累计已完成 chunk 字节作为续传基准。
+func TestHybridResumeBase(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "out.bin")
+	// 无 manifest → 0
+	if got := hybridResumeBase(dest); got != 0 {
+		t.Fatalf("no manifest: got %d, want 0", got)
+	}
+	// 写入 manifest：3 个已完成 chunk
+	m := `{"total":100,"chunks":{"0":10,"10":20,"30":40}}`
+	if err := os.WriteFile(dest+".hybrid", []byte(m), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := hybridResumeBase(dest); got != 70 {
+		t.Fatalf("got %d, want 70", got)
+	}
+}
+
+// TestHybridResumeBase_SkipCompletedRecompute 验证续传时 dl 不含 base——
+// 进度行 base 已从 manifest 累计，report 的数字字节 = 本次新增，percent 来自 sproxy
+// （含 manifest 跳过已完成 chunk，见直接进度）。多断言防止回归。

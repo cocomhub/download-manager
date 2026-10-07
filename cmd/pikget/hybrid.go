@@ -5,12 +5,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	syncpkg "github.com/cocomhub/sproxy/pkg/sync"
 	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
@@ -46,6 +48,18 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	if cliPath == "" || !fileExists(cliPath) {
 		return nil, fmt.Errorf("pikget hybrid: pikpak CLI 不可用（账号区依赖）——请先安装 pikpak CLI 到 PATH（sproxy pikpak cli install）或 --pikpak-cli <path> 指定")
 	}
+
+	// 登录预检（fail-closed）：默认凭据 ~/.pikpak/.credentials.json（单账号）或
+	// secrets 目录下 pikpak-*.json（多账号）必须存在且含 access_token。
+	// 未登录立即告警，而不是账号 chunk 走到一半才发现 ErrNotLoggedIn。
+	if o.secretsDir != "" {
+		if err := checkAccountsLoggedIn(o.secretsDir); err != nil {
+			return nil, fmt.Errorf("pikget hybrid: 账号未登录：%v", err)
+		}
+	} else if err := checkDefaultCredential(); err != nil {
+		return nil, fmt.Errorf("pikget hybrid: 账号未登录：%v", err)
+	}
+
 	var pool *pikpak.AccountPool
 	if o.secretsDir != "" {
 		if err := os.MkdirAll(o.secretsDir, 0o700); err != nil {
@@ -101,6 +115,51 @@ func defaultStateDir() string {
 	return filepath.Join(cfgDir, "pikget", "pikpak-account-state")
 }
 
+// checkDefaultCredential 校验默认单账号凭据 ~/.pikpak/.credentials.json 存在且含 access_token。
+func checkDefaultCredential() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home dir: %w", err)
+	}
+	path := filepath.Join(home, ".pikpak", ".credentials.json")
+	if !fileExists(path) {
+		return fmt.Errorf("默认凭据 %s 不存在——请先运行 sproxy pikpak login（OAuth 授权）", path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("读凭据 %s: %w", path, err)
+	}
+	var cred struct {
+		AccessToken string `json:"access_token"`
+	}
+	if json.Unmarshal(b, &cred) != nil || cred.AccessToken == "" {
+		return fmt.Errorf("凭据 %s 缺 access_token——请重新登录", path)
+	}
+	return nil
+}
+
+// checkAccountsLoggedIn 校验多账号 secrets 目录下存在至少一个 pikpak-*.json 账号凭据
+// （账号池 LoadAccounts 语义：secret 名以 pikpak- 前缀）。
+func checkAccountsLoggedIn(secretsDir string) error {
+	if !dirExists(secretsDir) {
+		return fmt.Errorf("secrets 目录 %s 不存在——请先 sproxy pikpak account add", secretsDir)
+	}
+	entries, err := os.ReadDir(secretsDir)
+	if err != nil {
+		return fmt.Errorf("读 secrets 目录 %s: %w", secretsDir, err)
+	}
+	found := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "pikpak-") && strings.HasSuffix(e.Name(), ".json") {
+			found++
+		}
+	}
+	if found == 0 {
+		return fmt.Errorf("secrets 目录 %s 下无 pikpak-*.json 账号——请先 sproxy pikpak account add", secretsDir)
+	}
+	return nil
+}
+
 // lookupPikpakBinary 在 PATH 查 pikpak 可执行文件（无测试注入时）。
 func lookupPikpakBinary() string {
 	name := "pikpak"
@@ -119,6 +178,12 @@ func lookupPikpakBinary() string {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// dirExists 判断目录存在。
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // slogForPikget 返回默认 slog logger（hybrid 内部日志到 stderr，-v 时降噪可切 debug）。

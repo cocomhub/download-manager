@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -67,7 +68,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		shareRatio = fs.Float64("share-ratio", 0.5, "PikPak 分享区比例（恒 ≤0.5）")
 		chunkSize  = fs.Int64("chunk-size", 64<<20, "PikPak 分片大小(字节)")
 		concur     = fs.Int("concurrency", 4, "并发数")
-		autoDelete = fs.Bool("auto-delete", false, "完成后永久删除 PikPak 转存副本")
+		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
 		secretsDir = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")
 		showVer    = fs.Bool("version", false, "显示版本")
 	)
@@ -111,7 +112,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		shareRatio:  *shareRatio,
 		chunkSize:   *chunkSize,
 		concurrency: *concur,
-		autoDelete:  *autoDelete,
+		autoDelete:  !*autoDelete, // 默认删除；--disable-auto-remove 才保留
 		secretsDir:  *secretsDir,
 	}
 	if len(cfg.Downloader.HTTP.Headers) > 0 {
@@ -180,6 +181,7 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	pr := newProgress(stdout, fl.quiet)
 	pr.start(filepath.Base(dest))
 	pr.setBase(fileSize(dest)) // 续传：已有部分计入 ETA/速度
+	// 直链进度：pkg/download 的 percent 已含 startOffset 基准（ProgressReader downloaded 初值 = offset）
 	opts := httpOpts{
 		userAgent: fl.userAgent,
 		proxyURL:  fl.proxyURL,
@@ -187,6 +189,8 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		maxRetry:  fl.retry,
 	}
 	err = downloadDirect(ctx, url, dest, opts, func(p float64, dl, total int64) {
+		// 直链回调的 dl 是本次新下载字节（含 base 计入 percent 但 dl 参数不含 base）——
+		// 进度行显示有效进度（percent 已含续传基），字节用本次新下部分即可
 		pr.report(p, dl, total)
 	})
 	if ctxErr(ctx) {
@@ -214,6 +218,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr := newProgress(stdout, fl.quiet)
 	pr.start(filepath.Base(dest))
+	pr.setBase(hybridResumeBase(dest)) // 续传：读取 .hybrid manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
 	opts := pikpakOpts{
 		shareRatio:  fl.shareRatio,
 		chunkSize:   fl.chunkSize,
@@ -271,9 +276,24 @@ func parseHeaders(pairs []string) map[string]string {
 	return out
 }
 
-// ctxErr 判断是否因 ctx 取消而退出。
-func ctxErr(ctx context.Context) bool {
-	return ctx.Err() != nil
+// hybridResumeBase 读取 dest+latestWatch".hybrid" manifest，累计已完成 chunk 字节作为续传基准。
+// 预分配文件本身就是 total（os.Truncate 全量），不能右文件大小当基准——只能用 manifest 已下 chunk 之和。
+func hybridResumeBase(dest string) int64 {
+	b, err := os.ReadFile(dest + ".hybrid")
+	if err != nil {
+		return 0
+	}
+	var m struct {
+		Chunks map[string]int64 `json:"chunks"` // offset → length
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return 0
+	}
+	var base int64
+	for _, ln := range m.Chunks {
+		base += ln
+	}
+	return base
 }
 
 // fileSize 返回文件大小（不存在返回 0）。
@@ -283,6 +303,11 @@ func fileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// ctxErr 判断是否因 ctx 取消而退出（Ctrl-C / SIGTERM）。
+func ctxErr(ctx context.Context) bool {
+	return ctx.Err() != nil
 }
 
 // 小型字符串工具（避免引入 strconv 等）：trimSpace/trimLeft/indexAny。
