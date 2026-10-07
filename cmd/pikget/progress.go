@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -73,21 +74,31 @@ func ansiCursorSupported() bool {
 	if !term.IsTerminal(int(f.Fd())) {
 		return false
 	}
-	// 发 DSR 查询，读 stdin 响应（100ms 超时；读不到 = 终端不响应 VT）
-	// 使用 \x1b 转义（真实 ESC 字节进 Go 源码会被 staticcheck ST1018 拦截）
+	// 发 DSR（Device Status Report）查询终端是否支持 VT。
+	// 支持 VT 的终端会响应 ESC[row;colR（如 ^[[51;1R）；无响应 = 不支持。
 	if _, err := os.Stdout.Write([]byte("\x1b[6n")); err != nil {
 		return false
 	}
-	// os.Stdin 是 *os.File，支持 SetReadDeadline
+	// 读完整响应并**丢弃**（不消费会残留屏幕/污染后续输入）：
+	// 读到 ESC 前缀 + 直到 'R' 的整段序列，再清除 stdin deadline。
 	_ = f.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	defer func() { _ = f.SetReadDeadline(time.Time{}) }() // 清除 deadline
+	defer func() { _ = f.SetReadDeadline(time.Time{}) }()
+	var resp []byte
 	buf := make([]byte, 32)
-	n, err := f.Read(buf)
-	if err != nil || n == 0 {
-		return false
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			resp = append(resp, buf[:n]...)
+			if bytes.ContainsRune(resp, 'R') { // 完整响应含结束符 R
+				break
+			}
+		}
+		if err != nil {
+			break // 超时/EOF：终端未响应
+		}
 	}
-	// 响应形如 ESC [ row ; col R —— 首字节 ESC 即证明支持 VT
-	return buf[0] == 0x1b
+	// 响应存在且以 ESC 开头 → 支持 VT；否则不支持
+	return len(resp) > 0 && resp[0] == 0x1b
 }
 
 // isTTY 判断 writer 是否为字符设备（终端）。非终端（管道/重定向/测试 buffer）→ false，
