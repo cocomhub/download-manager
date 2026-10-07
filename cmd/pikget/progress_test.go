@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestMultiProgress_AddSetSummary 验证 addWorker/set/summary 基本行为。
@@ -91,4 +92,79 @@ func TestPad_FixedWidth(t *testing.T) {
 	if got := pad("abcde", 4); got != "abcd" {
 		t.Fatalf("pad truncate: %q", got)
 	}
+}
+
+// TestSpeedAccuracy 验证速率计算的准确性：模拟 sproxy 每 1MB 回调一次（恒定真实速率），
+// 断言 multiProgress 显示的速率接近真实值（误差 < 15%）。
+// 慢速（1MiB/s，回调间隔 1s）与高速（10MiB/s，回调间隔 100ms < 旧 500ms 门槛）两场景。
+func TestSpeedAccuracy_FastCallbacks(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, false)
+	p.addWorker("chunk-0", 256<<20, 0, "c0")
+	realRate := 10 << 20 // 10MiB/s → 每 1MB 回调间隔 100ms（快回调，旧门槛会漏算）
+	stop := make(chan struct{})
+	var done int64
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			time.Sleep(time.Duration(1<<20) * time.Second / time.Duration(realRate))
+			done += 1 << 20
+			if done >= 128<<20 {
+				done = 0
+			}
+			p.set("chunk-0", done, 256<<20)
+		}
+	}()
+	time.Sleep(2 * time.Second)
+	close(stop)
+	p.mu.Lock()
+	got := p.workers["chunk-0"].speed
+	p.mu.Unlock()
+	if got <= 0 || got > float64(realRate)*1.3 || got < float64(realRate)*0.7 {
+		t.Fatalf("fast speed = %.0f B/s, want ~%.0f B/s (±30%%), 偏差过大", got, float64(realRate))
+	}
+	t.Logf("fast displayed speed = %.2f MiB/s, real = 10.00 MiB/s", got/1048576)
+}
+func TestSpeedAccuracy(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, false) // 不渲染，只算速率
+	p.addWorker("chunk-0", 64<<20, 0, "c0")
+	// 模拟真实下载：1MB/次回调，间隔 = 1MB/1MBps = 1s（恒定 1MiB/s）
+	// 用真实 sleep 模拟 1MB 下载耗时
+	realRate := 1 << 20 // 1MiB/s
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var done int64
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// 每次 1MB，模拟下载耗时 = 1MB / rate
+			time.Sleep(time.Duration(1<<20) * time.Second / time.Duration(realRate))
+			done += 1 << 20
+			if done >= 32<<20 {
+				done = 0 // 循环模拟
+			}
+			p.set("chunk-0", done, 64<<20)
+		}
+	}()
+	// 等 2 秒让速率收敛
+	time.Sleep(2 * time.Second)
+	close(stop)
+	wg.Wait()
+	p.mu.Lock()
+	got := p.workers["chunk-0"].speed
+	p.mu.Unlock()
+	// 真实速率 1MiB/s，允许 15% 误差
+	if got <= 0 || got > float64(realRate)*1.15 || got < float64(realRate)*0.85 {
+		t.Fatalf("speed = %.0f B/s, want ~%.0f B/s (±15%%), got rate偏差过大", got, float64(realRate))
+	}
+	t.Logf("displayed speed = %.2f MiB/s, real = 1.00 MiB/s", got/1048576)
 }
