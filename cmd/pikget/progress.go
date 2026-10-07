@@ -128,15 +128,23 @@ func (p *multiProgress) set(id string, downloaded, total int64) {
 		w.total = total
 	}
 	if downloaded > w.done {
-		// 速率差分：窗口 ≥500ms 时用增量算速度（否则保留上次）
+		// 速率差分：**每次 set 都算**（不设 500ms 门槛——快下载时回调间隔 <500ms，
+		// 固定门槛导致速率永不刷新，显示陈旧/0 值）。用真实时间差算增量速度，
+		// 平滑：瞬时速度与上次速度加权（防单次抖动），渲染节流由 refreshLocked 控制。
 		nowMs := time.Now().UnixMilli()
-		if dt := nowMs - w.lastTm; dt >= 500 && w.lastTm > 0 {
-			w.speed = float64(downloaded-w.done) * 1000 / float64(dt)
-			w.lastTm = nowMs
+		if w.lastTm > 0 {
+			dt := nowMs - w.lastTm
+			if dt > 0 {
+				inst := float64(downloaded-w.done) * 1000 / float64(dt)
+				if w.speed <= 0 {
+					w.speed = inst
+				} else {
+					w.speed = w.speed*0.3 + inst*0.7 // 加权平滑
+				}
+			}
 		}
+		w.lastTm = nowMs
 		w.done = downloaded
-	} else {
-		w.lastTm = time.Now().UnixMilli()
 	}
 	p.refreshLocked()
 }
