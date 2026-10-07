@@ -37,7 +37,7 @@ func TestDownloadDirect_Success(t *testing.T) {
 	srv, _, _ := newTestFileServer(t, content)
 
 	dest := filepath.Join(t.TempDir(), "out.bin")
-	err := downloadDirect(t.Context(), srv.URL+"/test.bin", dest, httpOpts{}, nil)
+	err := downloadDirect(t.Context(), srv.URL+"/test.bin", dest, httpOpts{maxRetry: 3}, nil)
 	if err != nil {
 		t.Fatalf("downloadDirect: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestDownloadDirect_Progress0to100(t *testing.T) {
 	var maxP atomic.Int64
 	var calls atomic.Int64
 	err := downloadDirect(t.Context(), srv.URL+"/big.bin", filepath.Join(t.TempDir(), "out.bin"),
-		httpOpts{}, func(p float64, downloaded, total int64) {
+		httpOpts{maxRetry: 3}, func(p float64, downloaded, total int64) {
 			calls.Add(1)
 			if p > float64(maxP.Load()) {
 				maxP.Store(int64(p))
@@ -80,7 +80,7 @@ func TestDownloadDirect_ServerError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	err := downloadDirect(t.Context(), srv.URL+"/err.bin", filepath.Join(t.TempDir(), "out.bin"), httpOpts{}, nil)
+	err := downloadDirect(t.Context(), srv.URL+"/err.bin", filepath.Join(t.TempDir(), "out.bin"), httpOpts{maxRetry: 3}, nil)
 	if err == nil {
 		t.Fatal("expected error on 500")
 	}
@@ -98,7 +98,7 @@ func TestDownloadDirect_RangeResume(t *testing.T) {
 		t.Fatalf("write partial: %v", err)
 	}
 
-	err := downloadDirect(t.Context(), srv.URL+"/resume.bin", dest, httpOpts{}, nil)
+	err := downloadDirect(t.Context(), srv.URL+"/resume.bin", dest, httpOpts{maxRetry: 3}, nil)
 	if err != nil {
 		t.Fatalf("downloadDirect: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestDownloadDirect_UserAgentHeader(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	err := downloadDirect(t.Context(), srv.URL+"/ua.bin", filepath.Join(t.TempDir(), "out.bin"),
-		httpOpts{userAgent: "pikget-test/1.0"}, nil)
+		httpOpts{userAgent: "pikget-test/1.0", maxRetry: 3}, nil)
 	if err != nil {
 		t.Fatalf("downloadDirect: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestDownloadDirect_CtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- downloadDirect(ctx, srv.URL+"/hang.bin", filepath.Join(t.TempDir(), "out.bin"), httpOpts{}, nil)
+		done <- downloadDirect(ctx, srv.URL+"/hang.bin", filepath.Join(t.TempDir(), "out.bin"), httpOpts{maxRetry: 3}, nil)
 	}()
 	cancel()
 	if err := <-done; err == nil {
