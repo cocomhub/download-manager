@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/cocomhub/sproxy/pkg/downloader"
 	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
 
@@ -264,7 +265,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
 	// resumeBase 记入进度条（续传起始字节）——已完成 chunk 计入总进度，不从 0 重计。
 	pr.setBase(resumeBase)
-	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
+	res, err := downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
 		pr.setProgress(downloaded, total)
 	})
 	if ctxErr(ctx) {
@@ -278,6 +279,20 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr.set("total", fileSize(dest), fileSize(dest))
 	pr.finish(true)
+	// 完成摘要：校验 hash / 原始 hash / 最终保存路径（用户明示明确输出）
+	if !fl.quiet {
+		fmt.Fprintf(stdout, "pikget: 完成 %s\n", dest)
+		if res != nil {
+			if res.Integrity == downloader.ModeAuthority {
+				fmt.Fprintf(stdout, "  校验: GCID 权威命中（原始 hash 一致）\n")
+				fmt.Fprintf(stdout, "  原始 hash: %s\n", res.AuthorityHash)
+				fmt.Fprintf(stdout, "  本地 hash: %s\n", res.Checksum)
+			} else {
+				fmt.Fprintf(stdout, "  校验: 本地自洽（无权威 hash 比对）\n")
+				fmt.Fprintf(stdout, "  本地 hash: %s\n", res.Checksum)
+			}
+		}
+	}
 	return exitOK
 }
 

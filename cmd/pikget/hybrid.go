@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/cocomhub/sproxy/pkg/downloader"
 	syncpkg "github.com/cocomhub/sproxy/pkg/sync"
 	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
@@ -108,15 +109,16 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 
 // downloadHybrid 调用 sproxy HybridDownloader 下载分享 URL 到 dest 文件。
 // onProg 收到字节语义回调（downloaded, total），sproxy ProgressFunc 同款。
-func downloadHybrid(ctx context.Context, shareURL, dest string, o pikpakOpts, onProg func(downloaded, total int64)) error {
+func downloadHybrid(ctx context.Context, shareURL, dest string, o pikpakOpts, onProg func(downloaded, total int64)) (*downloader.Result, error) {
 	dl, err := newHybrid(o)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := dl.Download(ctx, shareURL, dest, onProg); err != nil {
-		return fmt.Errorf("pikget hybrid: %w", err)
+	res, err := dl.Download(ctx, shareURL, dest, onProg)
+	if err != nil {
+		return nil, fmt.Errorf("pikget hybrid: %w", err)
 	}
-	return nil
+	return res, nil
 }
 
 // sourceLabel 把 ChunkInfo.Source（share / acct:<name>）转为展示标签。
