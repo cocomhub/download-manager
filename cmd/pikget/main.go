@@ -71,7 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		retry      = fs.Int("retry", 3, "重试次数")
 		configPath = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
 		shareRatio = fs.Float64("share-ratio", 0.5, "PikPak 分享区比例（恒 ≤0.5）")
-		chunkSize  = fs.Int64("chunk-size", 64<<20, "PikPak 分片大小(字节)")
+		chunkSize  = fs.Int64("chunk-size", 32<<20, "PikPak 分片大小(字节)")
 		concur     = fs.Int("concurrency", 4, "并发数")
 		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
 		secretsDir = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")

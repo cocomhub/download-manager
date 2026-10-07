@@ -51,7 +51,7 @@ func defaultConfig() config {
 			},
 			Pikpak: pikpakCfg{
 				ShareRatio:  0.5,
-				ChunkSize:   64 << 20, // 64MiB
+				ChunkSize:   32 << 20, // 32MiB
 				Concurrency: 4,
 				// DisableAutoRemove 默认 false → hybrid AutoDelete=true（结束自动删转存）
 				DisableAutoRemove: false,

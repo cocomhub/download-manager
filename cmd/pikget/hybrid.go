@@ -63,6 +63,14 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	} else if err := checkDefaultCredential(); err != nil {
 		return nil, fmt.Errorf("pikget hybrid: 账号未登录：%v", err)
 	}
+	// **实际验证 token 有效**（未登录/已过期 → 立即报错）：用 API 轻量调用（List 根目录）
+	// 触发 ensureToken——凭据文件里 access_token 无效/过期时返回 ErrNotLoggedIn。
+	if o.secretsDir == "" {
+		api := pikpak.NewAPI(pikpak.APIConfig{}, nil)
+		if _, err := api.List(context.Background(), ""); err != nil {
+			return nil, fmt.Errorf("pikget hybrid: 账号未登录或 token 失效：%v（请重新 sproxy pikpak login）", err)
+		}
+	}
 
 	var pool *pikpak.AccountPool
 	if o.secretsDir != "" {
