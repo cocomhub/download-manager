@@ -62,11 +62,15 @@ func newMultiProgress(w io.Writer, enabled bool) *multiProgress {
 	}
 }
 
-// ansiCursorSupported 判断是否支持 ANSI 光标移动序列（\x1b[A）。
-// Windows：Windows Terminal（WT_SESSION 存在）→ 支持多行；经典 conhost（PowerShell 5.1）
-// 的 VT 支持不保证 → false（退化为单行汇总刷新）。非 Windows 终端默认支持。
+// ansiCursorSupported 判断是否支持 ANSI 光标移动序列（\x1b[A）等高级序列。
+// 保守策略：**默认禁用多行原地刷新**（不信任 \x1b[A），除非明确已知支持：
+//   - Windows Terminal（WT_SESSION 存在）→ 支持多行
+//   - Windows 经典 conhost / PowerShell / WSL 默认终端（TERM 空）→ 单行汇总原地刷新（不滚屏）
+//   - TERM=dumb → 不支持
+//
+// 非 Windows 且 TERM 非空：主流现代终端（xterm/macOS Terminal）支持 VT，放行多行。
 func ansiCursorSupported() bool {
-	if os.Getenv("TERM") == "dumb" {
+	if os.Getenv("TERM") == "dumb" || os.Getenv("TERM") == "" {
 		return false
 	}
 	if runtime.GOOS == "windows" {
@@ -147,10 +151,11 @@ func (p *multiProgress) refreshLocked() {
 }
 
 // render 清空并重绘全部行 + 汇总行。
-// ansi=false（经典 conhost / PowerShell 5.1）→ 单行汇总原地刷新（\r+\x1b[K），不滚屏。
+// ansi=false（经典 conhost / PowerShell 5.1 / WSL 默认终端等不支持 VT 光标移动的场景）
+// → **单行汇总原地刷新**（\r+\x1b[K），不滚屏、不换行堆积。
 func (p *multiProgress) render(now time.Time) {
 	if !p.ansi {
-		// 单行：\r 回车 + 清行尾 + 汇总
+		// 单行：\r 回车 + 清行尾 + 汇总（原地覆盖，无 \n）
 		fmt.Fprintf(p.w, "\r\x1b[K%s", p.summary(now))
 		return
 	}
