@@ -179,6 +179,7 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr := newProgress(stdout, fl.quiet)
 	pr.start(filepath.Base(dest))
+	pr.setBase(fileSize(dest)) // 续传：已有部分计入 ETA/速度
 	opts := httpOpts{
 		userAgent: fl.userAgent,
 		proxyURL:  fl.proxyURL,
