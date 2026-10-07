@@ -139,11 +139,13 @@ func (p *multiProgress) refreshLocked() {
 //
 // 每行固定 pad(100) 列 → 长度变化不残留（用户明示要求）。
 func (p *multiProgress) render(now time.Time) {
-	// ① 上移 workers 行 + 汇总行 = len(order)+1 行（首次无旧行，跳过）
+	// ① 上移回到第一行。**注意**：上次 render 结束后光标停在【汇总行】（无尾部 \n），
+	// 因此回到第一行 worker 只需上移 len(order) 行（worker 数）——多上移 1 行会把内容
+	// 推上去造成整体滚屏（对照 cheggaaa/pb：\033[%dA 上移 bars 数，无汇总行）。
 	if !p.renderedOnce {
 		p.renderedOnce = true
 	} else {
-		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order)+1)
+		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order))
 	}
 	// ② 每行：\r + 固定列宽 + \n
 	for _, id := range p.order {
