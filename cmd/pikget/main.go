@@ -284,12 +284,12 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		fmt.Fprintf(stdout, "pikget: 完成 %s\n", dest)
 		if res != nil {
 			if res.Integrity == downloader.ModeAuthority {
-				fmt.Fprintf(stdout, "  校验: GCID 权威命中（原始 hash 一致）\n")
-				fmt.Fprintf(stdout, "  原始 hash: %s\n", res.AuthorityHash)
-				fmt.Fprintf(stdout, "  本地 hash: %s\n", res.Checksum)
+				fmt.Fprintf(stdout, "  校验: GCID 权威命中（与原始 GCID 一致）\n")
+				fmt.Fprintf(stdout, "  原始 GCID: %s\n", res.AuthorityHash)
+				fmt.Fprintf(stdout, "  本地 SHA-256: %s\n", res.Checksum)
 			} else {
-				fmt.Fprintf(stdout, "  校验: 本地自洽（无权威 hash 比对）\n")
-				fmt.Fprintf(stdout, "  本地 hash: %s\n", res.Checksum)
+				fmt.Fprintf(stdout, "  校验: 本地自洽（无权威 GCID 比对）\n")
+				fmt.Fprintf(stdout, "  本地 SHA-256: %s\n", res.Checksum)
 			}
 		}
 	}
