@@ -9,9 +9,9 @@ import "strings"
 type kind int
 
 const (
-	kindDirect kind = iota // 普通 http(s) 直链
-	kindPikpak             // PikPak 分享链接（mypikpak/keepshare）
-	kindUnsupported        // 磁力/未知 scheme
+	kindDirect      kind = iota // 普通 http(s) 直链
+	kindPikpak                  // PikPak 分享链接（mypikpak/keepshare）
+	kindUnsupported             // 磁力/未知 scheme
 )
 
 // dispatch 按 URL 返回分发类型：
