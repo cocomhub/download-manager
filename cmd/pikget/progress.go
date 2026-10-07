@@ -38,13 +38,14 @@ type workerStat struct {
 //   - 非 ansi（经典 conhost / PowerShell 5.1）：退化为单行汇总原地刷新（\r+\x1b[K），
 //     避免滚屏——worker 明细由 -v 时 sproxy chunk 日志呈现
 type multiProgress struct {
-	w       io.Writer
-	mu      sync.Mutex // 保护 workers 快照与渲染
-	workers map[string]*workerStat
-	enabled bool     // 显示开关（TTY 或非 quiet 才画）
-	order   []string // id 稳定顺序（创建序）
-	widths  int      // 名称列宽（固定，避免长度抖动残留）
-	refresh time.Time
+	w            io.Writer
+	mu           sync.Mutex // 保护 workers 快照与渲染
+	workers      map[string]*workerStat
+	enabled      bool     // 显示开关（TTY 或非 quiet 才画）
+	order        []string // id 稳定顺序（创建序）
+	renderedOnce bool     // 是否已画过第一帧（后续刷新先上移）
+	widths       int      // 名称列宽（固定，避免长度抖动残留）
+	refresh      time.Time
 }
 
 // newMultiProgress 创建多执行者进度条。enabled=false 时 Update/Done 为 no-op。
@@ -129,13 +130,56 @@ func (p *multiProgress) refreshLocked() {
 	p.render(now)
 }
 
-// render 单行汇总原地刷新（wget 同款：\r + 空格填充，零 ANSI）。
+// render 多行原地刷新（docker pull / cheggaaa-pb pool_x 同款顺序）：
+//
+//	① 先 \x1b[N A 上移 N 行（回到第一行）——注意顺序：必须先上移再逐行写，
+//	   写 \n 前先上移，光标才不错位（此前顺序颠倒导致滚屏）。
+//	② 每行 \r + 固定列宽填充 + \n（空格覆盖旧内容，无需 \x1b[K，兼容性好）
+//	③ 汇总行 \r + 固定列宽填充（不换行，光标留在此行）
+//
+// 每行固定 pad(100) 列 → 长度变化不残留（用户明示要求）。
 func (p *multiProgress) render(now time.Time) {
-	// wget/docker 同款单行刷新: CR 回行首 + 空格填充覆盖. 零 ANSI.
+	// ① 上移 workers 行 + 汇总行 = len(order)+1 行（首次无旧行，跳过）
+	if !p.renderedOnce {
+		p.renderedOnce = true
+	} else {
+		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order)+1)
+	}
+	// ② 每行：\r + 固定列宽 + \n
+	for _, id := range p.order {
+		w := p.workers[id]
+		fmt.Fprintf(p.w, "\r%s\n", pad(p.line(w, now), 100))
+	}
+	// ③ 汇总行：\r + 固定列宽（不换行）
 	fmt.Fprintf(p.w, "\r%s", pad(p.summary(now), 100))
 }
 
 // speedOf 计算某执行者最近速度（窗口差分 ≥300ms，回退平均）。
+
+// line 渲染单执行者行：固定列宽 + 进度条 + % + 字节 + 速率 + ETA（完成移除速率/ETA）。
+func (p *multiProgress) line(w *workerStat, now time.Time) string {
+	eff := w.base + w.done
+	remain := w.total - eff
+	pct := float64(eff) / float64(w.total) * 100
+	if pct > 100 {
+		pct = 100
+	}
+	speed := p.totalSpeed()
+	name := pad(w.name, p.widths)
+	bar := progressBar(int(pct), 20)
+	if w.finish {
+		return fmt.Sprintf(" %s %s %5.1f%% %s %s %12s %6s %12s",
+			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))), "done", "", "")
+	}
+	eta := "--:--"
+	if speed > 0 && remain > 0 {
+		eta = formatETA(time.Duration(float64(remain)/speed) * time.Second)
+	}
+	return fmt.Sprintf(" %s %s %5.1f%% %s %s %12s %6s %12s",
+		name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))),
+		humanRate(speed), "", eta)
+}
+
 // summary 渲染汇总行：总进度条 + % + 字节 + 速率 + ETA。
 func (p *multiProgress) summary(now time.Time) string {
 	var totalDone, totalBase, totalSize int64
@@ -182,15 +226,21 @@ func (p *multiProgress) totalSpeed() float64 {
 	return sum
 }
 
-// finish 收尾：TTY 单行摘要（wget 同款：CR + 空格填充，零 ANSI）；非 TTY 静默。
+// finish 收尾：多行清理后输出最终摘要。
 func (p *multiProgress) finish(ok bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.enabled {
 		return
 	}
-	// wget 同款：\r + 空格填充覆盖 + 摘要（无 ANSI，任何终端正确）
-	if isTTY(p.w) && ok {
+	// 上移到第一行 + 清掉全部行（固定列宽空格覆盖），再打最终摘要
+	if p.renderedOnce {
+		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order)+1)
+		for range p.order {
+			fmt.Fprintf(p.w, "\r%s\n", pad("", 100))
+		}
+	}
+	if ok {
 		s := p.summary(time.Now())
 		fmt.Fprintf(p.w, "\r%s\n", pad(strings.TrimSpace(s), 100))
 	}
