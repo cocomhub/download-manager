@@ -188,18 +188,24 @@ func (p *multiProgress) line(w *workerStat, now time.Time) string {
 	if pct > 100 {
 		pct = 100
 	}
-	speed := p.totalSpeed()
+	speed := w.speed // 每 worker 独立速率（用户明示：不同 source 各自显示）
 	name := pad(w.name, p.widths)
 	bar := progressBar(int(pct), 20)
 	if w.finish {
-		return fmt.Sprintf(" %s %s %5.1f%% %s %s %12s %6s %12s",
+		return fmt.Sprintf(" %s %s %5.1f%% %s %s %10s %8s %8s",
 			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))), "done", "", "")
+	}
+	// 未下载（pending，done=0 且无速度）→ 不显示 ETA，速率占位 '--'
+	if w.done == 0 && speed <= 0 {
+		return fmt.Sprintf(" %s %s %5.1f%% %s %s %10s %8s %8s",
+			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))),
+			"--", "pending", "")
 	}
 	eta := "--:--"
 	if speed > 0 && remain > 0 {
 		eta = formatETA(time.Duration(float64(remain)/speed) * time.Second)
 	}
-	return fmt.Sprintf(" %s %s %5.1f%% %s %s %12s %6s %12s",
+	return fmt.Sprintf(" %s %s %5.1f%% %s %s %10s %8s %8s",
 		name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))),
 		humanRate(speed), "", eta)
 }
