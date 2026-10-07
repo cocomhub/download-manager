@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -62,21 +61,33 @@ func newMultiProgress(w io.Writer, enabled bool) *multiProgress {
 	}
 }
 
-// ansiCursorSupported 判断是否支持 ANSI 光标移动序列（\x1b[A）等高级序列。
-// 保守策略：**默认禁用多行原地刷新**（不信任 \x1b[A），除非明确已知支持：
-//   - Windows Terminal（WT_SESSION 存在）→ 支持多行
-//   - Windows 经典 conhost / PowerShell / WSL 默认终端（TERM 空）→ 单行汇总原地刷新（不滚屏）
-//   - TERM=dumb → 不支持
-//
-// 非 Windows 且 TERM 非空：主流现代终端（xterm/macOS Terminal）支持 VT，放行多行。
+// ansiCursorSupported 判断是否支持 ANSI 光标移动序列等高级序列。
+// 真实运行时探测（env 判定不可靠：WSL 里 TERM=xterm-256color 但 conhost 宿主
+// 不认 VT 光标移动，实测 DSR 查询无响应）：
+//   - 发 DSR（Device Status Report）到 stdout，若能在 100ms 内读到
+//     光标位置响应（ESC [ row ; col R）→ 终端确实支持 VT → 多行原地刷新；
+//   - 读不到（WSL/管道/ssh/conhost）→ 单行汇总原地刷新（CR + 清行，不滚屏）。
 func ansiCursorSupported() bool {
-	if os.Getenv("TERM") == "dumb" || os.Getenv("TERM") == "" {
+	// stdin 必须可读（终端才响应 DSR）；非 TTY 直接不支持
+	f := os.Stdin
+	if !term.IsTerminal(int(f.Fd())) {
 		return false
 	}
-	if runtime.GOOS == "windows" {
-		return os.Getenv("WT_SESSION") != "" // Windows Terminal 才信任 \x1b[A
+	// 发 DSR 查询，读 stdin 响应（100ms 超时；读不到 = 终端不响应 VT）
+	// 使用 \x1b 转义（真实 ESC 字节进 Go 源码会被 staticcheck ST1018 拦截）
+	if _, err := os.Stdout.Write([]byte("\x1b[6n")); err != nil {
+		return false
 	}
-	return true
+	// os.Stdin 是 *os.File，支持 SetReadDeadline
+	_ = f.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	defer func() { _ = f.SetReadDeadline(time.Time{}) }() // 清除 deadline
+	buf := make([]byte, 32)
+	n, err := f.Read(buf)
+	if err != nil || n == 0 {
+		return false
+	}
+	// 响应形如 ESC [ row ; col R —— 首字节 ESC 即证明支持 VT
+	return buf[0] == 0x1b
 }
 
 // isTTY 判断 writer 是否为字符设备（终端）。非终端（管道/重定向/测试 buffer）→ false，
