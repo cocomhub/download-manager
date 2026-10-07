@@ -396,6 +396,18 @@ git stash && go test -race -count=1 -run TestName ./pkg/ && git stash pop
 2. **引用处**是 `variableName` （无引号）而非 `"variableName"`
 3. 这种 bug 无法通过 `go build` 检测（裸值类型相同，编译无误）
 
+### 配置纪律（用户明示 2026-10-07，跨项目生效）
+
+1. **绝对禁止使用特化的配置行为**：配置字段必须表达「通用能力」，不为单一场景发明特殊开关。
+2. **bool 类型必须默认 false**、**string 类型默认空字符串**。
+3. **必须要有安全可靠的默认行为**：不要为了默认行为就出现默认 true——默认 true 意味着
+   「安全要靠配置才能获得」，是不安全设计。
+4. **原则：通过直接反转语义保证默认行为安全**。即：默认行为 = 字段零值（false/空串）时
+   的安全行为；若安全行为恰好是「做某事」，就把字段命名成它的反转（如 `disable_x` 而非
+   `enable_x`），让零值 = 安全默认。示例：删除临时副本默认要做（安全），字段命名
+   `disable_auto_remove`（默认 false = 自动删除），而不是 `auto_remove`（默认 true 才删）。
+5. 修改配置默认行为时，同步在 AGENTS.md 与 CLAUDE.md 两处镜像更新本纪律与示例。
+
 ### 新增配置字段 checklist
 新增 `config.Server` struct 字段后，必须同步检查：
 1. `config/config.go` — struct 字段 + yaml/json tag
@@ -405,131 +417,3 @@ git stash && go test -race -count=1 -run TestName ./pkg/ && git stash pop
 5. `config/global.go` — `init()` 默认值
 6. `grep` 全项目搜索旧字段名确认无遗漏引用点
 
-### Shell 脚本批量替换后运行 `bash -n` 语法检查
-`sed` 批量替换 `[` → `[[` 后可能产生 `[[ expr ]` 缺少闭合括号的语法错误。
-每次批量替换后运行：
-```bash
-bash -n scripts/*.sh  # 无输出 = 语法正确
-```
-
-## 执行偏好
-
-- **子代理开发**：多步骤实现计划优先使用 `subagent-driven-development` 技能，禁用 worktree，直接在当前分支开发。
-- **worktree**：除非用户明确要求，不使用 git worktree。
-
-## 测试规范
-
-### Go 1.26 测试最佳实践
-
-| 实践 | 要求 |
-|------|------|
-| `t.Context()` | 所有测试函数使用 `t.Context()` 替代 `context.Background()`（t.Cleanup 中除外） |
-| `b.Loop()` | 所有 benchmark 使用 `for b.Loop()` 替代 `for i := 0; i < b.N; i++` |
-| `t.Helper()` | 所有接收 `*testing.T` 的辅助函数第一行调用 `t.Helper()` |
-| `errors.Is` | 错误比较使用 `errors.Is(err, sentinelErr)`，不比较 `err.Error()` 字符串 |
-| table-driven + name | 每个表驱动用例必须有 `name` 字段 |
-| 无 `time.Sleep` 同步 | 使用 `testutil/assert.MustEventually` 轮询或 ready channel |
-
-### 测试轮询工具（testutil/assert）
-
-```go
-// 等待条件满足（3s 超时，50ms 间隔）
-assert.MustEventually(t, func() bool {
-    rr := doJSONGet(t, r, "/api/tasks/task-id")
-    return rr.Code == http.StatusOK
-}, 3*time.Second, 50*time.Millisecond, "descriptive message")
-```
-
-### CI 稳定性规则
-- 所有 cancel/retry/undo 操作必须用 `MustEventually` 轮询（cancel 与 resolve worker 存在时序竞争）
-- 测试不假设 task seed 在 `startAPIManager` 返回时完成，必须轮询数据就绪
-- 不预设固定的 `time.Sleep` 等待时间
-
-## Playwright E2E 测试
-
-浏览器 UI 自动化测试，覆盖 14 个核心场景。测试目录 `test/playwright/`（TypeScript），
-测试服务端 `cmd/playwright-server/`（Go，独立 go.mod，不污染主包）。
-
-```bash
-make playwright-test       # 全部 E2E 测试（CI 模式）
-make playwright-ui         # Playwright UI 交互模式（AI 辅助调试）
-make playwright-codegen    # 启动代码生成器，可录制 AI 操作
-```
-
-关键文件：
-- `test/playwright/helpers/server.ts` — Go server 子进程管理
-- `test/playwright/helpers/api.ts` — REST API 封装
-- `test/playwright/helpers/sse.ts` — SSE 事件拦截辅助
-- `test/playwright/specs/` — 14 个测试场景
-- `cmd/playwright-server/fixture/` — 测试数据集（4 个预置任务）
-
-## AI 交互式测试
-
-```bash
-make playwright-codegen    # 启动 Codegen 录制（AI 操作 -> 自动生成测试）
-```
-
-Playwright Codegen 与 Chrome DevTools MCP 结合，AI 可以用自然语言描述操作步骤，
-系统自动录制为测试脚本。关键 `data-testid` 锚点见 `test/playwright/CODEGEN.md`。
-
-设计文档：`docs/superpowers/specs/2026-06-14-browser-e2e-testing-design.md`
-
-### Playwright 测试经验规则
-
-1. **定位器优先级**：文本属性（`getByText`）→ `data-testid`（必须唯一）→ CSS class（最后选择）
-2. **断言必须可失败**：避免 `toBeGreaterThanOrEqual(0)` 等永真断言，每个断言应能真实检测回归
-3. **SSE 测试**：`addInitScript` 必须在 `page.goto()` 前注册，否则无法拦截 EventSource
-4. **端口参数化**：全部使用 `TEST_PORT` 环境变量，禁止硬编码 `localhost:19199`
-5. **视觉回归**：动态元素加 `mask` 排除，截图文件名全局唯一不冲突
-6. **fixture 与实际测试匹配**：确保描述的场景与实际加载的数据集一致
-7. **报告脚本**：路径要考虑 CI 中 `working-directory` 可能改变当前目录
-8. **截图快照跨平台**：`snapshotPathTemplate` 使用 `{projectName}` 而非 `{platform}`，避免 win32/linux 后缀不匹配
-9. **go:embed 修改后需重新构建**：改 `web/static/` 文件后需 `cd cmd/playwright-server && go build -o playwright-server .` 才能让测试使用新内容
-10. **axe-core 对比度调试**：遍历 `v.nodes[i].html` + `v.nodes[i].target` 定位颜色违规元素
-11. **按钮对比度标准**：`bg-white/text-blue-500`（2.8:1）不达标，需改为 `bg-blue-600/text-white`（4.6:1+）
-12. **JS 错误监控**：UI 重构后必须使用 `page.on('pageerror')` 监听未捕获的 JS 错误，选择所有 fixture 中的 task 类型做点击测试。Vue 的 `console.error` 不会导致页面崩溃，Playwright 默认不因 `console.error` 失败，必须显式断言。
-13. **Vue mixin 方法重命名**：`main.js` 中通过 `mixin` 注册的方法可被 `taskList.js`、`dashboard.js` 等模块通过 `this.xxx()` 调用。重命名/移除方法时，必须在所有 `register()` 调用处搜索 `this.xxx` 引用。
-
-<!-- superpowers-zh:begin (do not edit between these markers) -->
-# Superpowers-ZH 中文增强版
-
-本项目已安装 superpowers-zh 技能框架（20 个 skills）。
-
-## 核心规则
-
-1. **收到任务时，先检查是否有匹配的 skill** — 哪怕只有 1% 的可能性也要检查
-2. **设计先于编码** — 收到功能需求时，先用 brainstorming skill 做需求分析
-3. **测试先于实现** — 写代码前先写测试（TDD）
-4. **验证先于完成** — 声称完成前必须运行验证命令
-
-## 可用 Skills
-
-Skills 位于 `.Codex/skills/` 目录，每个 skill 有独立的 `SKILL.md` 文件。
-
-- **brainstorming**: 在任何创造性工作之前必须使用此技能——创建功能、构建组件、添加功能或修改行为。在实现之前先探索用户意图、需求和设计。
-- **chinese-code-review**: 中文 review 沟通参考——话术模板、分级标注（必须修复/建议修改/仅供参考）、国内团队常见反模式应对。仅在用户显式 /chinese-code-review 时调用，不要根据上下文自动触发。
-- **chinese-commit-conventions**: 中文 commit 与 changelog 配置参考——Conventional Commits 中文适配、commitlint/husky/commitizen 中文模板、conventional-changelog 中文配置。仅在用户显式 /chinese-commit-conventions 时调用，不要根据上下文自动触发。
-- **chinese-documentation**: 中文文档排版参考——中英文空格、全半角标点、术语保留、链接格式、中文文案排版指北约定。仅在用户显式 /chinese-documentation 时调用，不要根据上下文自动触发。
-- **chinese-git-workflow**: 国内 Git 平台配置参考——Gitee、Coding.net、极狐 GitLab、CNB 的 SSH/HTTPS/凭据/CI 接入差异与镜像同步配置。仅在用户显式 /chinese-git-workflow 时调用，不要根据上下文自动触发。
-- **dispatching-parallel-agents**: 当面对 2 个以上可以独立进行、无共享状态或顺序依赖的任务时使用
-- **executing-plans**: 当你有一份书面实现计划需要在单独的会话中执行，并设有审查检查点时使用
-- **finishing-a-development-branch**: 当实现完成、所有测试通过、需要决定如何集成工作时使用——通过提供合并、PR 或清理等结构化选项来引导开发工作的收尾
-- **mcp-builder**: MCP 服务器构建方法论 — 系统化构建生产级 MCP 工具，让 AI 助手连接外部能力
-- **receiving-code-review**: 收到代码审查反馈后、实施建议之前使用，尤其当反馈不明确或技术上有疑问时——需要技术严谨性和验证，而非敷衍附和或盲目执行
-- **requesting-code-review**: 完成任务、实现重要功能或合并前使用，用于验证工作成果是否符合要求
-- **subagent-driven-development**: 当在当前会话中执行包含独立任务的实现计划时使用
-- **systematic-debugging**: 遇到任何 bug、测试失败或异常行为时使用，在提出修复方案之前执行
-- **test-driven-development**: 在实现任何功能或修复 bug 时使用，在编写实现代码之前
-- **using-git-worktrees**: 当需要开始与当前工作区隔离的功能开发，或在执行实现计划之前使用——通过原生工具或 git worktree 回退机制确保隔离工作区存在
-- **using-superpowers**: 在开始任何对话时使用——确立如何查找和使用技能，要求在任何响应（包括澄清性问题）之前调用 Skill 工具
-- **verification-before-completion**: 在宣称工作完成、已修复或测试通过之前使用，在提交或创建 PR 之前——必须运行验证命令并确认输出后才能声称成功；始终用证据支撑断言
-- **workflow-runner**: 在 Codex / OpenClaw / Cursor 中直接运行 agency-orchestrator YAML 工作流——无需 API key，使用当前会话的 LLM 作为执行引擎。当用户提供 .yaml 工作流文件或要求多角色协作完成任务时触发。
-- **writing-plans**: 当你有规格说明或需求用于多步骤任务时使用，在动手写代码之前
-- **writing-skills**: 当创建新技能、编辑现有技能或在部署前验证技能是否有效时使用
-
-## 如何使用
-
-当任务匹配某个 skill 时，使用 `Skill` 工具加载对应 skill 并严格遵循其流程。绝不要用 Read 工具读取 SKILL.md 文件。
-
-如果你认为哪怕只有 1% 的可能性某个 skill 适用于你正在做的事情，你必须调用该 skill 检查。
-<!-- superpowers-zh:end -->

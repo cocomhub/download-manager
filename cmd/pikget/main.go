@@ -37,6 +37,7 @@ func main() {
 type cliFlags struct {
 	output     string
 	quiet      bool
+	noProgress bool // --no-progress：禁用多行进度条（默认开启）
 	verbose    bool
 	userAgent  string
 	proxyURL   string
@@ -58,6 +59,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		output     = fs.String("o", "", "输出文件路径或目录（默认：URL 文件名到当前目录）")
 		quiet      = fs.Bool("q", false, "静默模式（仅错误输出）")
+		noProgress = fs.Bool("no-progress", false, "禁用多行进度条（默认开启）")
 		verbose    = fs.Bool("v", false, "详细日志（debug 级）")
 		userAgent  = fs.String("user-agent", "", "直链 User-Agent")
 		proxyURL   = fs.String("proxy", "", "直链 HTTP 代理")
@@ -104,6 +106,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fl := cliFlags{
 		output:      *output,
 		quiet:       *quiet,
+		noProgress:  *noProgress,
 		verbose:     *verbose,
 		userAgent:   or(*userAgent, cfg.Downloader.HTTP.UserAgent),
 		proxyURL:    or(*proxyURL, cfg.Downloader.HTTP.Proxy),
@@ -112,8 +115,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		shareRatio:  *shareRatio,
 		chunkSize:   *chunkSize,
 		concurrency: *concur,
-		autoDelete:  !*autoDelete, // 默认删除；--disable-auto-remove 才保留
-		secretsDir:  *secretsDir,
+		// 配置纪律：flag --disable-auto-remove 默认 false；config.yaml 同名字段同步。
+		// 默认（两者皆未设）→ autoDelete=true（结束自动删转存，安全默认）。
+		autoDelete: !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
+		secretsDir: *secretsDir,
 	}
 	if len(cfg.Downloader.HTTP.Headers) > 0 {
 		fl.headers = append(fl.headers, cfg.Downloader.HTTP.Headers...)
@@ -169,6 +174,8 @@ func splitHeaders(s string) []string {
 }
 
 // runDirect 执行直链下载。
+// 直链后端 pkg/download 是单流（无分片），显示 1 行总进度（multiProgress 架构支持 N worker，
+// 待后端暴露 per-chunk 回调时自动多行）。
 func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.Writer) int {
 	dest, err := resolveDest(url, fl.output)
 	if err != nil {
@@ -178,10 +185,9 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	if !fl.quiet {
 		fmt.Fprintf(stdout, "pikget: 直链下载 %s -> %s\n", url, dest)
 	}
-	pr := newProgress(stdout, fl.quiet)
-	pr.start(filepath.Base(dest))
-	pr.setBase(fileSize(dest)) // 续传：已有部分计入 ETA/速度
-	// 直链进度：pkg/download 的 percent 已含 startOffset 基准（ProgressReader downloaded 初值 = offset）
+	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
+	pr.addWorker("main", 0, 0, filepath.Base(dest)) // total 未知，首次回调填充
+	// 直链进度：pkg/download 回调的 dl 含续传 base（ProgressReader downloaded 初值 = offset）
 	opts := httpOpts{
 		userAgent: fl.userAgent,
 		proxyURL:  fl.proxyURL,
@@ -189,24 +195,29 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		maxRetry:  fl.retry,
 	}
 	err = downloadDirect(ctx, url, dest, opts, func(p float64, dl, total int64) {
-		// 直链回调的 dl 是本次新下载字节（含 base 计入 percent 但 dl 参数不含 base）——
-		// 进度行显示有效进度（percent 已含续传基），字节用本次新下部分即可
-		pr.report(p, dl, total)
+		pr.set("main", dl, total)
 	})
 	if ctxErr(ctx) {
 		fmt.Fprintf(stderr, "pikget: 中断\n")
 		return exitInt
 	}
 	if err != nil {
-		pr.done(false, "")
+		pr.finish(false)
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
 		return exitFail
 	}
-	pr.done(true, fmt.Sprintf("%d bytes", fileSize(dest)))
+	pr.set("main", fileSize(dest), fileSize(dest))
+	pr.finish(true)
+	// 非 TTY：打印 wget 风格最终摘要（含 done 字样，测试断言锁定）
+	if !isTTY(stdout) && !fl.quiet {
+		fmt.Fprintf(stdout, "pikget: done %s (%d bytes)\n", filepath.Base(dest), fileSize(dest))
+	}
 	return exitOK
 }
 
 // runHybrid 执行 PikPak 分享混合下载。
+// hybrid 回调是聚合进度（sproxy 内部多分片并行，onProgress 只暴露总 downloaded/total），
+// 显示 1 行汇总；-v 时 sproxy chunk 级日志（hybrid chunk done）到 stderr 可见分片明细。
 func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.Writer) int {
 	dest, err := resolveDest(url, fl.output)
 	if err != nil {
@@ -216,9 +227,9 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	if !fl.quiet {
 		fmt.Fprintf(stdout, "pikget: PikPak 混合下载 %s -> %s\n", url, dest)
 	}
-	pr := newProgress(stdout, fl.quiet)
-	pr.start(filepath.Base(dest))
-	pr.setBase(hybridResumeBase(dest)) // 续传：读取 .hybrid manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
+	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
+	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
+	pr.addWorker("total", 0, hybridResumeBase(dest), filepath.Base(dest))
 	opts := pikpakOpts{
 		shareRatio:  fl.shareRatio,
 		chunkSize:   fl.chunkSize,
@@ -227,22 +238,19 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		secretsDir:  fl.secretsDir,
 	}
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
-		var pct float64
-		if total > 0 {
-			pct = float64(downloaded) * 100 / float64(total)
-		}
-		pr.report(pct, downloaded, total)
+		pr.set("total", downloaded, total)
 	})
 	if ctxErr(ctx) {
 		fmt.Fprintf(stderr, "pikget: 中断\n")
 		return exitInt
 	}
 	if err != nil {
-		pr.done(false, "")
+		pr.finish(false)
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
 		return exitFail
 	}
-	pr.done(true, fmt.Sprintf("%d bytes", fileSize(dest)))
+	pr.set("total", fileSize(dest), fileSize(dest))
+	pr.finish(true)
 	return exitOK
 }
 

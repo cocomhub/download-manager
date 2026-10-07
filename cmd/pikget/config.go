@@ -32,9 +32,12 @@ type pikpakCfg struct {
 	ShareRatio  float64 `yaml:"share_ratio"`
 	ChunkSize   int64   `yaml:"chunk_size"`
 	Concurrency int     `yaml:"concurrency"`
-	AutoDelete  bool    `yaml:"auto_delete"`
-	AccountsDir string  `yaml:"accounts_dir"`
-	SecretsDir  string  `yaml:"secrets_dir"`
+	// DisableAutoRemove 默认 false = 结束自动永久删除转存副本（安全默认）。
+	// 配置纪律：bool 必须默认 false——用**反转语义**（disable_auto_remove）表达
+	// 「默认安全行为」，而不是默认 true。
+	DisableAutoRemove bool   `yaml:"disable_auto_remove"`
+	AccountsDir       string `yaml:"accounts_dir"`
+	SecretsDir        string `yaml:"secrets_dir"`
 }
 
 // defaultConfig 返回默认配置。
@@ -50,6 +53,8 @@ func defaultConfig() config {
 				ShareRatio:  0.5,
 				ChunkSize:   64 << 20, // 64MiB
 				Concurrency: 4,
+				// DisableAutoRemove 默认 false → hybrid AutoDelete=true（结束自动删转存）
+				DisableAutoRemove: false,
 			},
 		},
 	}
