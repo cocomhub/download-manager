@@ -24,7 +24,6 @@ type workerStat struct {
 	finish bool   // 是否完成（移除速率/ETA）
 	// 速率滑动窗口（3s 环形缓冲）：采样 (时间ms, 已下字节)，速率 = 窗口增量/窗口时长。
 	// 空闲期自动衰减（突发不虚高，限速显示平均）——不用瞬时加权。
-	speed   float64      // 当前显示速率（B/s）
 	samples []rateSample // 滑动窗口采样点（环形，按时间升序）
 }
 
