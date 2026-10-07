@@ -22,9 +22,16 @@ type workerStat struct {
 	done   int64  // 已下字节（原子更新，加锁读快照）
 	base   int64  // 续传起始字节（manifest 累计）
 	finish bool   // 是否完成（移除速率/ETA）
-	// 速率窗口
-	speed  float64 // 最近速度（B/s）
-	lastTm int64   // 上次刷新时间戳（ms）
+	// 速率滑动窗口（3s 环形缓冲）：采样 (时间ms, 已下字节)，速率 = 窗口增量/窗口时长。
+	// 空闲期自动衰减（突发不虚高，限速显示平均）——不用瞬时加权。
+	speed   float64      // 当前显示速率（B/s）
+	samples []rateSample // 滑动窗口采样点（环形，按时间升序）
+}
+
+// rateSample 是速率滑动窗口的一个采样点。
+type rateSample struct {
+	ts  int64 // 时间戳（ms）
+	val int64 // 已下字节（绝对）
 }
 
 // multiProgress 是并发安全的多执行者进度条（docker pull 分层风格）。
@@ -94,7 +101,6 @@ func (p *multiProgress) addWorker(id string, total, base int64, name string) {
 	}
 	p.workers[id] = &workerStat{
 		id: id, name: name, total: total, base: base,
-		lastTm: time.Now().UnixMilli(),
 	}
 
 	p.order = append(p.order, id)
@@ -128,23 +134,20 @@ func (p *multiProgress) set(id string, downloaded, total int64) {
 		w.total = total
 	}
 	if downloaded > w.done {
-		// 速率差分：**每次 set 都算**（不设 500ms 门槛——快下载时回调间隔 <500ms，
-		// 固定门槛导致速率永不刷新，显示陈旧/0 值）。用真实时间差算增量速度，
-		// 平滑：瞬时速度与上次速度加权（防单次抖动），渲染节流由 refreshLocked 控制。
+		// 速率：**滑动窗口平均**（3s 环形缓冲）——限速/突发场景显示平均速率，
+		// 空闲期自动衰减（不虚高/不虚低）。每次 set 记录采样点，渲染时算窗口速率。
 		nowMs := time.Now().UnixMilli()
-		if w.lastTm > 0 {
-			dt := nowMs - w.lastTm
-			if dt > 0 {
-				inst := float64(downloaded-w.done) * 1000 / float64(dt)
-				if w.speed <= 0 {
-					w.speed = inst
-				} else {
-					w.speed = w.speed*0.3 + inst*0.7 // 加权平滑
-				}
+		w.done = downloaded
+		w.samples = append(w.samples, rateSample{ts: nowMs, val: downloaded})
+		// 裁剪窗口：只留最近 3s 采样
+		cutoff := nowMs - rateWindowMs
+		kept := w.samples[:0]
+		for _, s := range w.samples {
+			if s.ts >= cutoff {
+				kept = append(kept, s)
 			}
 		}
-		w.lastTm = nowMs
-		w.done = downloaded
+		w.samples = kept
 	}
 	p.refreshLocked()
 }
@@ -160,6 +163,29 @@ func (p *multiProgress) markDone(id string) {
 	w.finish = true
 	w.done = w.total
 	p.refreshLocked()
+}
+
+// rateWindowMs 是速率滑动窗口时长（3s：限速场景显示平均，突发不虚高）。
+const rateWindowMs = 3000
+
+// windowSpeed 计算某 worker 的滑动窗口速率（窗口内字节增量 / 窗口时长）。
+// 窗口内无采样或仅 1 点 → 0（未开始/刚起始）；空闲期窗口滑出 → 速率自然衰减到 0。
+func windowSpeed(w *workerStat, now time.Time) float64 {
+	if len(w.samples) < 2 {
+		return 0
+	}
+	first := w.samples[0]
+	last := w.samples[len(w.samples)-1]
+	dt := last.ts - first.ts
+	if dt <= 0 {
+		return 0
+	}
+	// 窗口真实时长：首点到当前（含空闲）—— 用 now 而非 last（空闲期也算，速率衰减）
+	realDt := now.UnixMilli() - first.ts
+	if realDt <= 0 {
+		realDt = dt
+	}
+	return float64(last.val-first.val) * 1000 / float64(realDt)
 }
 
 // refreshLocked 检查节流并渲染（调用方持锁）。
@@ -211,7 +237,7 @@ func (p *multiProgress) line(w *workerStat, now time.Time) string {
 	if pct > 100 {
 		pct = 100
 	}
-	speed := w.speed // 每 worker 独立速率（用户明示：不同 source 各自显示）
+	speed := windowSpeed(w, now) // 滑动窗口速率（限速场景平均，不虚高）
 	name := pad(w.name, p.widths)
 	bar := progressBar(int(pct), 20)
 	if w.finish {
@@ -272,10 +298,11 @@ func (p *multiProgress) summary(now time.Time) string {
 // totalSpeed 汇总速度：所有未完成 worker 最近速度之和（避免差分窗口混乱，用缓存 speed）。
 func (p *multiProgress) totalSpeed() float64 {
 	var sum float64
+	now := time.Now()
 	for _, id := range p.order {
 		w := p.workers[id]
 		if !w.finish {
-			sum += w.speed
+			sum += windowSpeed(w, now)
 		}
 	}
 	return sum

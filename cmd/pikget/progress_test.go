@@ -121,7 +121,7 @@ func TestSpeedAccuracy_FastCallbacks(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	close(stop)
 	p.mu.Lock()
-	got := p.workers["chunk-0"].speed
+	got := windowSpeed(p.workers["chunk-0"], time.Now())
 	p.mu.Unlock()
 	if got <= 0 || got > float64(realRate)*1.3 || got < float64(realRate)*0.7 {
 		t.Fatalf("fast speed = %.0f B/s, want ~%.0f B/s (±30%%), 偏差过大", got, float64(realRate))
@@ -160,11 +160,56 @@ func TestSpeedAccuracy(t *testing.T) {
 	close(stop)
 	wg.Wait()
 	p.mu.Lock()
-	got := p.workers["chunk-0"].speed
+	got := windowSpeed(p.workers["chunk-0"], time.Now())
 	p.mu.Unlock()
 	// 真实速率 1MiB/s，允许 15% 误差
 	if got <= 0 || got > float64(realRate)*1.15 || got < float64(realRate)*0.85 {
 		t.Fatalf("speed = %.0f B/s, want ~%.0f B/s (±15%%), got rate偏差过大", got, float64(realRate))
 	}
 	t.Logf("displayed speed = %.2f MiB/s, real = 1.00 MiB/s", got/1048576)
+}
+
+// TestSpeedAccuracy_ThrottledBurst 模拟限速+突发场景：真实平均 1MiB/s，
+// 但一秒内前 50ms 突发下载 1MiB（瞬时 20MiB/s），后 950ms 空闲。
+// 验证显示的速率是否【虚高】——瞬时速率 vs 平均速率的偏差。
+func TestSpeedAccuracy_ThrottledBurst(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, false)
+	p.addWorker("chunk-0", 64<<20, 0, "c0")
+	// 模拟：每 1 秒周期：50ms 内下载 1MiB（瞬时 20MiB/s），950ms 空闲
+	// 真实平均 = 1MiB/s
+	stop := make(chan struct{})
+	var done int64
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// 突发下载 1MiB（50ms 内，分 10 次每次 100KB @5ms）
+			for i := 0; i < 10; i++ {
+				time.Sleep(5 * time.Millisecond)
+				done += 100 << 10 // 100KB
+				p.set("chunk-0", done, 64<<20)
+			}
+			// 空闲 950ms
+			time.Sleep(950 * time.Millisecond)
+		}
+	}()
+	// 等 3 秒收敛
+	time.Sleep(3 * time.Second)
+	close(stop)
+	p.mu.Lock()
+	got := windowSpeed(p.workers["chunk-0"], time.Now())
+	p.mu.Unlock()
+	real := 1 << 20 // 真实平均 1MiB/s
+	t.Logf("burst displayed speed = %.2f MiB/s, real avg = 1.00 MiB/s, ratio=%.2f", got/1048576, got/float64(real))
+	// 用户怀疑：显示应接近平均；若显示 >1.5x 平均 = 虚高（限速场景误导）
+	if got > float64(real)*1.5 {
+		t.Logf("⚠️ 显示速率虚高 %.2fx 平均——限速场景误导", got/float64(real))
+	} else if got < float64(real)*0.5 {
+		t.Logf("⚠️ 显示速率虚低 %.2fx 平均", got/float64(real))
+	} else {
+		t.Logf("✅ 显示接近平均")
+	}
 }
