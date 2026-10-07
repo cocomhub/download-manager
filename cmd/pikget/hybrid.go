@@ -213,7 +213,7 @@ func slogForPikget(verbose bool, logFile string) *slog.Logger {
 	if verbose {
 		lvl = slog.LevelDebug
 	}
-	var w io.Writer = io.Discard
+	w := io.Writer(io.Discard)
 	if logFile != "" {
 		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			w = f
