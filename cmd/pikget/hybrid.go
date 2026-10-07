@@ -24,10 +24,11 @@ type pikpakOpts struct {
 	chunkSize   int64
 	concurrency int
 	autoDelete  bool
-	secretsDir  string // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
-	stateDir    string // 账号配额状态目录（默认 <UserConfigDir>/pikget/pikpak-account-state）
-	cliBinary   string // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
-	verbose     bool   // -v：slog 提为 Debug 级
+	secretsDir  string                 // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
+	stateDir    string                 // 账号配额状态目录（默认 <UserConfigDir>/pikget/pikpak-account-state）
+	cliBinary   string                 // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
+	verbose     bool                   // -v：slog 提为 Debug 级
+	chunkProg   func(pikpak.ChunkInfo) // per-chunk 进度回调（pikget 逐行显示分片）
 }
 
 // newHybrid 装配 sproxy HybridDownloader。
@@ -83,14 +84,15 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	}
 
 	return pikpak.NewHybridDownloader(pikpak.HybridConfig{
-		Resolver:    r,
-		API:         pikpak.NewAPI(pikpak.APIConfig{}, nil),
-		AccountPool: pool,
-		ChunkSize:   o.chunkSize,
-		ShareRatio:  o.shareRatio,
-		Concurrency: o.concurrency,
-		AutoDelete:  o.autoDelete,
-		Logger:      slogForPikget(o.verbose),
+		Resolver:      r,
+		API:           pikpak.NewAPI(pikpak.APIConfig{}, nil),
+		AccountPool:   pool,
+		ChunkSize:     o.chunkSize,
+		ShareRatio:    o.shareRatio,
+		Concurrency:   o.concurrency,
+		AutoDelete:    o.autoDelete,
+		Logger:        slogForPikget(o.verbose),
+		ChunkProgress: o.chunkProg,
 	})
 }
 
@@ -105,6 +107,20 @@ func downloadHybrid(ctx context.Context, shareURL, dest string, o pikpakOpts, on
 		return fmt.Errorf("pikget hybrid: %w", err)
 	}
 	return nil
+}
+
+// sourceLabel 把 ChunkInfo.Source（share / acct:<name>）转为展示标签。
+func sourceLabel(src string) string {
+	switch {
+	case src == "share":
+		return "share"
+	case strings.HasPrefix(src, "acct:"):
+		return src // acct:name
+	case src == "acct":
+		return "acct"
+	default:
+		return src
+	}
 }
 
 // defaultStateDir 返回账号配额状态默认目录。

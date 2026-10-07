@@ -20,6 +20,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+
+	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
 
 const (
@@ -230,6 +232,21 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
 	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
 	pr.addWorker("total", 0, hybridResumeBase(dest), filepath.Base(dest))
+	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done）。
+	// 来源链显示：share=匿名分享直链；acct=账号直链（多账号时含账号名）。
+	chunkProgress := func(info pikpak.ChunkInfo) {
+		id := fmt.Sprintf("chunk-%d", info.Index)
+		name := fmt.Sprintf("#%02d %s", info.Index, sourceLabel(info.Source))
+		switch info.Phase {
+		case "pending":
+			pr.addWorker(id, info.Length, 0, name) // 注册行（未下载）
+		case "downloading":
+			pr.set(id, info.Done, info.Length)
+		case "done":
+			pr.set(id, info.Length, info.Length)
+			pr.markDone(id)
+		}
+	}
 	opts := pikpakOpts{
 		shareRatio:  fl.shareRatio,
 		chunkSize:   fl.chunkSize,
@@ -237,6 +254,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		autoDelete:  fl.autoDelete,
 		secretsDir:  fl.secretsDir,
 		verbose:     fl.verbose,
+		chunkProg:   chunkProgress,
 	}
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
 		pr.set("total", downloaded, total)

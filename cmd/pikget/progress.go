@@ -117,6 +117,19 @@ func (p *multiProgress) set(id string, downloaded, total int64) {
 	p.refreshLocked()
 }
 
+// markDone 标记某 worker 完成（进度行移除速率/ETA，显示 done）。
+func (p *multiProgress) markDone(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	w, ok := p.workers[id]
+	if !ok {
+		return
+	}
+	w.finish = true
+	w.done = w.total
+	p.refreshLocked()
+}
+
 // refreshLocked 检查节流并渲染（调用方持锁）。
 func (p *multiProgress) refreshLocked() {
 	if !p.enabled {
