@@ -41,6 +41,7 @@ type cliFlags struct {
 	quiet      bool
 	noProgress bool // --no-progress：禁用多行进度条（默认开启）
 	verbose    bool
+	logFile    string // --log-file：hybrid 日志写文件（默认丢弃）
 	userAgent  string
 	proxyURL   string
 	headers    []string
@@ -74,6 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		concur     = fs.Int("concurrency", 4, "并发数")
 		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
 		secretsDir = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")
+		logFile    = fs.String("log-file", "", "hybrid 日志写文件（默认丢弃，不打断进度条）")
 		showVer    = fs.Bool("version", false, "显示版本")
 	)
 	fs.Usage = func() {
@@ -121,6 +123,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// 默认（两者皆未设）→ autoDelete=true（结束自动删转存，安全默认）。
 		autoDelete: !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
 		secretsDir: *secretsDir,
+		logFile:    *logFile,
 	}
 	if len(cfg.Downloader.HTTP.Headers) > 0 {
 		fl.headers = append(fl.headers, cfg.Downloader.HTTP.Headers...)
@@ -255,6 +258,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		secretsDir:  fl.secretsDir,
 		verbose:     fl.verbose,
 		chunkProg:   chunkProgress,
+		logFile:     fl.logFile,
 	}
 	err = downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
 		pr.set("total", downloaded, total)

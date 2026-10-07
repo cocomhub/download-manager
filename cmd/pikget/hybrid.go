@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ type pikpakOpts struct {
 	cliBinary   string                 // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
 	verbose     bool                   // -v：slog 提为 Debug 级
 	chunkProg   func(pikpak.ChunkInfo) // per-chunk 进度回调（pikget 逐行显示分片）
+	logFile     string                 // --log-file：hybrid 日志写文件（默认丢弃）
 }
 
 // newHybrid 装配 sproxy HybridDownloader。
@@ -91,7 +93,7 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 		ShareRatio:    o.shareRatio,
 		Concurrency:   o.concurrency,
 		AutoDelete:    o.autoDelete,
-		Logger:        slogForPikget(o.verbose),
+		Logger:        slogForPikget(o.verbose, o.logFile),
 		ChunkProgress: o.chunkProg,
 	})
 }
@@ -203,13 +205,21 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// slogForPikget 返回默认 slog logger（hybrid 内部日志到 stderr）。
-// 默认 LevelWarn：Info 级（hybrid download start/plan/chunks done）在带进度条时
-// 会打断进度行渲染——降噪为只报 Warn（分片失败/降级等真正异常），-v 时提为 Debug。
-func slogForPikget(verbose bool) *slog.Logger {
+// slogForPikget 返回 hybrid 内部日志 logger。
+// **默认丢弃**（io.Discard）——日志不写终端，绝不打断进度条渲染；
+// logFile 非空（--log-file）时写入文件；verbose（-v）控制文件级别 Debug（默认 Warn）。
+func slogForPikget(verbose bool, logFile string) *slog.Logger {
 	lvl := slog.LevelWarn
 	if verbose {
 		lvl = slog.LevelDebug
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
+	var w io.Writer = io.Discard
+	if logFile != "" {
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			w = f
+		} else {
+			w = os.Stderr // 打不开文件才回落 stderr（可观测）
+		}
+	}
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: lvl}))
 }
