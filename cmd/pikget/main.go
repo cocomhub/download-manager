@@ -249,9 +249,13 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
 		return exitFail
 	}
-	// 已存在文件检查（用户明示）：GCID 一致=已完成；不一致=冲突+推荐位置；--force 覆盖。
-	if !fl.force {
-		if code, done := checkExistingHybrid(ctx, url, dest, fl, stdout, stderr); done {
+	// 已存在文件检查（用户明示）：GCID 一致=已完成（无论是否 --force）；不一致=
+	// 冲突（默认不覆盖，--force 强制下载覆盖）。checkExistingHybrid 返回 done=true
+	// 表示已处理（完成/冲突拒绝）；force 且不一致 → 返回 (exitFail, false) 继续下载。
+	code, done, allowDownload := checkExistingHybrid(ctx, url, dest, fl, stdout, stderr)
+	if done {
+		// 一致完成/冲突拒绝 → 返回；冲突且 --force → allowDownload=true 继续下载
+		if !allowDownload {
 			return code
 		}
 	}
@@ -531,20 +535,20 @@ func sha256FileHex(path string) (string, error) {
 //   - 未命中权威（resolve 失败/无 hash）→ 提示已存在，返回 (exitOK, true)
 //
 // 返回 done=true 表示已处理（不再下载）。
-func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, stdout, stderr io.Writer) (int, bool) {
+func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, stdout, stderr io.Writer) (int, bool, bool) {
 	info, err := os.Stat(dest)
 	if err != nil || info.IsDir() {
-		return 0, false // 目标不存在或目录 → 正常下载
+		return 0, false, false // 目标不存在或目录 → 正常下载
 	}
 	if fl.quiet {
-		return exitOK, true
+		return exitOK, true, false
 	}
 	// resolve 分享拿预期 GCID（匿名链）
 	meta, rerr := resolveShareMeta(ctx, url)
 	if rerr != nil {
 		// resolve 失败（分享失效等）→ 仅提示已存在，不阻断（保守）
 		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（resolve 失败无法比对 GCID，未下载）\n", dest)
-		return exitOK, true
+		return exitOK, true, false
 	}
 	// ShareMeta.Files 是 ShareFile[]（含 Hash/DirectLink）—— 选最大视频
 	var target *pikpak.ShareFile
@@ -558,7 +562,7 @@ func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, std
 	}
 	if target == nil || target.Hash == "" {
 		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（分享无权威 GCID，未下载）\n", dest)
-		return exitOK, true
+		return exitOK, true, false
 	}
 	// 本地复算 dest GCID（候选分块全对比）
 	localGCIDs, gerr := integrity.RecomputeGCIDBlocked(dest)
@@ -567,19 +571,23 @@ func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, std
 			if strings.EqualFold(b.GCID, target.Hash) {
 				fmt.Fprintf(stdout, "pikget: 目标已存在且 GCID 一致 —— 已完成 %s\n", dest)
 				fmt.Fprintf(stdout, "  GCID: %s\n", target.Hash)
-				return exitOK, true
+				return exitOK, true, false
 			}
 		}
 	}
-	// 不一致 → 冲突 + 推荐位置
+	// 不一致 → 冲突：默认拒绝（推荐改名）；--force 强制下载覆盖
 	suggest := conflictName(dest)
-	fmt.Fprintf(stdout, "pikget: 文件冲突 %s —— GCID 与预期不一致，未覆盖\n", dest)
+	fmt.Fprintf(stdout, "pikget: 文件冲突 %s —— GCID 与预期不一致\n", dest)
 	fmt.Fprintf(stdout, "  预期 GCID: %s\n", target.Hash)
 	if gerr == nil {
 		fmt.Fprintf(stdout, "  本地 GCID: %s\n", localGCIDs[0].GCID)
 	}
 	fmt.Fprintf(stdout, "  推荐: 保存到 %s，或 --force 强制覆盖\n", suggest)
-	return exitOK, true
+	if fl.force {
+		fmt.Fprintf(stdout, "  --force: 强制下载覆盖\n")
+		return exitOK, true, true // done=true + allowDownload=true → 调用方继续下载
+	}
+	return exitOK, true, false
 }
 
 // conflictName 推荐冲突文件的替代位置（dest.N）。
