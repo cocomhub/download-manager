@@ -4,19 +4,17 @@ go 1.27
 
 require (
 	github.com/cavaliergopher/grab/v3 v3.0.1
-	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0
+	github.com/cocomhub/sproxy v0.0.0-20261008134855-8b2a42ff4439
+	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd0be
 	github.com/gofrs/flock v0.13.1
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.43.0
 	go.mongodb.org/mongo-driver/v2 v2.9.1
+	golang.org/x/term v0.46.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/cocomhub/sproxy/pkg/volume/ext/pikpak => ../sproxy-pikget-downloading/pkg/volume/ext/pikpak
-
-replace github.com/cocomhub/sproxy => ../sproxy-pikget-downloading
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -24,7 +22,6 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cocomhub/sproxy v0.0.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
@@ -74,6 +71,5 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )

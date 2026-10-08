@@ -12,6 +12,10 @@ github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK3
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+github.com/cocomhub/sproxy v0.0.0-20261008134855-8b2a42ff4439 h1:lbDhpz8qDJeFtG3ccgunXsOV92+p2pNNV/F+IpbuMuQ=
+github.com/cocomhub/sproxy v0.0.0-20261008134855-8b2a42ff4439/go.mod h1:K8N/2L4rIdIPge9pH52O0KRMQ4RgtHiTrLl8iH383lU=
+github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd0be h1:xAzpMJwpDxC4zD6i2kCARk+AvTPI5wZj8QzMPy8Eups=
+github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd0be/go.mod h1:hjgHEfJDESqxiwmnW+24m7mdnOWDoFwVf09PHrg8fxY=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=
 github.com/containerd/errdefs v1.0.0/go.mod h1:+YBYIdtsnF4Iw6nWZhJcqGSg/dwvV7tyJ/kCkyJ2k+M=
 github.com/containerd/errdefs/pkg v0.3.0 h1:9IKJ06FvyNlexW690DXuQNx2KA2cUJXx151Xdx3ZPPE=
