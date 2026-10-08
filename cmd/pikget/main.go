@@ -11,6 +11,9 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,8 +23,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/cocomhub/sproxy/pkg/downloader"
+	"github.com/cocomhub/sproxy/pkg/integrity"
+	"github.com/cocomhub/sproxy/pkg/units/sizex"
 	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
 
@@ -58,6 +64,10 @@ type cliFlags struct {
 
 // run 是命令入口（可测试：返回退出码，不直接 os.Exit）。
 func run(args []string, stdout, stderr io.Writer) int {
+	// hash 子命令：pikget hash <file1> [file2...] —— 人工校验用
+	if len(args) > 0 && args[0] == "hash" {
+		return runHash(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("pikget", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -188,8 +198,10 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
 		return exitFail
 	}
+	start := time.Now()
 	if !fl.quiet {
-		fmt.Fprintf(stdout, "pikget: 直链下载 %s -> %s\n", url, dest)
+		fmt.Fprintf(stdout, "--%s--  %s\n", start.Format("2006-01-02 15:04:05"), url)
+
 	}
 	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
 	pr.addWorker("main", 0, 0, filepath.Base(dest)) // total 未知，首次回调填充
@@ -214,15 +226,18 @@ func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr.set("main", fileSize(dest), fileSize(dest))
 	pr.finish(true)
-	// 非 TTY：打印 wget 风格最终摘要（含 done 字样，测试断言锁定）
-	if !isTTY(stdout) && !fl.quiet {
-		fmt.Fprintf(stdout, "pikget: done %s (%d bytes)\n", filepath.Base(dest), fileSize(dest))
+	// wget 风格完成行：<结束时间> (<整体速率>) - saved [<大小>]，含总耗时
+	if !fl.quiet {
+		sz := fileSize(dest)
+		el := time.Since(start)
+		rate := float64(sz) / el.Seconds()
+		fmt.Fprintf(stdout, "%s (%s) - %s saved [%d], 耗时 %s\n",
+			time.Now().Format("2006-01-02 15:04:05"), humanRate(rate),
+			filepath.Base(dest), sz, el.Round(time.Millisecond))
 	}
 	return exitOK
 }
 
-// runHybrid 执行 PikPak 分享混合下载。
-// hybrid 回调是聚合进度（sproxy 内部多分片并行，onProgress 只暴露总 downloaded/total），
 // 显示 1 行汇总；-v 时 sproxy chunk 级日志（hybrid chunk done）到 stderr 可见分片明细。
 func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.Writer) int {
 	dest, err := resolveDest(url, fl.output)
@@ -388,4 +403,113 @@ func indexAny(s string, chars string) int {
 		}
 	}
 	return -1
+}
+
+// runHash 实现 hash 子命令：每位置参数一个文件路径，输出该文件对应的
+// GCID（候选分块全输出）+ SHA-256 + MD5——人工校验下载产物与官方 hash 一致。
+func runHash(files []string, stdout, stderr io.Writer) int {
+	// --block 指定分块大小（ByteSize 格式：256KiB/1MiB 等）；空 = 默认按文件大小推荐块。
+	fs := flag.NewFlagSet("pikget hash", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	blockArg := fs.String("block", "", "指定分块大小（ByteSize 格式，如 256KiB/1MiB；默认按文件大小推荐）")
+	if err := fs.Parse(files); err != nil {
+		return exitUsage
+	}
+	paths := fs.Args()
+	if len(paths) == 0 {
+		fmt.Fprintln(stderr, "pikget hash: 需要至少一个文件路径参数")
+		return exitUsage
+	}
+	// 解析 --block（可选）
+	var forcedBlock int64
+	if *blockArg != "" {
+		b, err := sizex.ParseSize(*blockArg)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash: 分块大小 %q: %v\n", *blockArg, err)
+			return exitUsage
+		}
+		forcedBlock = b
+	}
+	for _, path := range paths {
+		if forcedBlock > 0 {
+			// 指定块：只算该块的 GCID
+			gcid, err := integrity.RecomputeGCIDBlock(path, forcedBlock)
+			if err != nil {
+				fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+				return exitFail
+			}
+			fmt.Fprintf(stdout, "%s\n", path)
+			fmt.Fprintf(stdout, "  GCID[%s]: %s\n", humanBlock(forcedBlock), gcid)
+		} else {
+			// 默认：按文件大小推荐块计算（大小引导，同下载校验算法）
+			blocks, err := integrity.RecomputeGCIDBlockedRecommended(path)
+			if err != nil {
+				fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+				return exitFail
+			}
+			fmt.Fprintf(stdout, "%s\n", path)
+			for _, b := range blocks {
+				fmt.Fprintf(stdout, "  GCID[%s]: %s\n", humanBlock(b.Block), b.GCID)
+			}
+		}
+		sha256, err := sha256FileHex(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+			return exitFail
+		}
+		md5hex, err := md5FileHex(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+			return exitFail
+		}
+		fmt.Fprintf(stdout, "  SHA-256: %s\n", sha256)
+		fmt.Fprintf(stdout, "  MD5   : %s\n", md5hex)
+	}
+	return exitOK
+}
+
+// humanBlock 把分块字节转为人类可读（256KiB/512KiB/1MiB/2MiB/4MiB）。
+func humanBlock(b int64) string {
+	switch b {
+	case 262144:
+		return "256KiB"
+	case 524288:
+		return "512KiB"
+	case 1048576:
+		return "1MiB"
+	case 2097152:
+		return "2MiB"
+	case 4194304:
+		return "4MiB"
+	default:
+		return fmt.Sprintf("%d", b)
+	}
+}
+
+// md5FileHex 计算文件 MD5（人工校验用；非安全用途）。
+func md5FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New() //nolint:gosec // G501: 人工校验非安全用途
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// sha256FileHex 计算文件 SHA-256。
+func sha256FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

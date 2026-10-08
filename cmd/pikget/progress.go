@@ -329,17 +329,18 @@ func (p *multiProgress) finish(ok bool) {
 	if !p.enabled {
 		return
 	}
-	// 上移到第一行 + 清掉全部行（固定列宽空格覆盖），再打最终摘要
+	// Finish B: keep all chunk progress lines showing done (no ANSI clearing).
 	if p.renderedOnce {
-		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order)+1)
-		for range p.order {
-			fmt.Fprintf(p.w, "\r%s\n", pad("", 100))
+		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order))
+		for _, id := range p.order {
+			w := p.workers[id]
+			w.finish = true
+			w.done = w.total
+			fmt.Fprintf(p.w, "\r%s\n", pad(p.line(w, time.Now()), 100))
 		}
+		fmt.Fprintf(p.w, "\r%s\n", pad(p.summary(time.Now()), 100))
 	}
-	if ok {
-		s := p.summary(time.Now())
-		fmt.Fprintf(p.w, "\r%s\n", pad(strings.TrimSpace(s), 100))
-	}
+	_ = ok
 }
 
 // pad 按固定宽度填充（右侧补空格，避免长度变化残留）。

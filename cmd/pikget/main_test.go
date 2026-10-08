@@ -67,8 +67,8 @@ func TestRun_DirectDownloadSuccess(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("code = %d, want %d; stderr=%s", code, exitOK, se)
 	}
-	if !bytes.Contains([]byte(so), []byte("done")) {
-		t.Fatalf("stdout = %q, want done", so)
+	if !bytes.Contains([]byte(so), []byte("saved")) {
+		t.Fatalf("stdout = %q, want saved (wget style)", so)
 	}
 	got, _ := os.ReadFile(dest)
 	if !bytes.Equal(got, content) {

@@ -4,10 +4,12 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -18,8 +20,15 @@ func TestNewHybrid_Minimal(t *testing.T) {
 	if exe == "" {
 		t.Skip("pikpak CLI 不存在，跳过（装配需 CLI 预检）")
 	}
+	if !hasValidCredential() {
+		t.Skip("无有效 pikpak 凭据（token 实际验证需真实登录态；本机 token 可能过期），跳过")
+	}
 	dl, err := newHybrid(pikpakOpts{cliBinary: exe})
 	if err != nil {
+		// 装配预检依赖真实登录态（token 实际验证）；环境无有效 token → 跳过
+		if strings.Contains(err.Error(), "未登录") || strings.Contains(err.Error(), "token 失效") {
+			t.Skipf("无有效 pikpak 登录态（装配预检依赖）：%v", err)
+		}
 		t.Fatalf("newHybrid: %v", err)
 	}
 	if dl == nil {
@@ -36,8 +45,14 @@ func TestNewHybrid_SupportsShareURL(t *testing.T) {
 	if exe == "" {
 		t.Skip("pikpak CLI 不存在，跳过")
 	}
+	if !hasValidCredential() {
+		t.Skip("无有效 pikpak 凭据（token 实际验证需真实登录态；本机 token 可能过期），跳过")
+	}
 	dl, err := newHybrid(pikpakOpts{cliBinary: exe})
 	if err != nil {
+		if strings.Contains(err.Error(), "未登录") || strings.Contains(err.Error(), "token 失效") {
+			t.Skipf("无有效 pikpak 登录态：%v", err)
+		}
 		t.Fatalf("newHybrid: %v", err)
 	}
 	if !dl.Supports("https://mypikpak.com/s/V1bzETjSE3NwdS") {
@@ -55,6 +70,9 @@ func TestNewHybrid_AccountPool(t *testing.T) {
 	if exe == "" {
 		t.Skip("pikpak CLI 不存在，跳过")
 	}
+	if !hasValidCredential() {
+		t.Skip("无有效 pikpak 凭据（token 实际验证需真实登录态；本机 token 可能过期），跳过")
+	}
 	secretsDir := t.TempDir()
 	// 预写一个账号凭据（满足登录预检），账号池装配验证
 	if err := os.WriteFile(filepath.Join(secretsDir, "pikpak-main.json"), []byte(`{"access_token":"tok"}`), 0600); err != nil {
@@ -66,6 +84,9 @@ func TestNewHybrid_AccountPool(t *testing.T) {
 		stateDir:   t.TempDir(),
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "未登录") || strings.Contains(err.Error(), "token 失效") {
+			t.Skipf("无有效 pikpak 登录态（装配预检依赖）：%v", err)
+		}
 		t.Fatalf("newHybrid with account pool: %v", err)
 	}
 	if dl == nil {
@@ -79,6 +100,9 @@ func TestNewHybrid_ConfigDefaults(t *testing.T) {
 	if exe == "" {
 		t.Skip("pikpak CLI 不存在，跳过")
 	}
+	if !hasValidCredential() {
+		t.Skip("无有效 pikpak 凭据（token 实际验证需真实登录态；本机 token 可能过期），跳过")
+	}
 	dl, err := newHybrid(pikpakOpts{
 		cliBinary:   exe,
 		shareRatio:  0.9, // 超上限，应由 sproxy 钳到 0.5
@@ -86,6 +110,9 @@ func TestNewHybrid_ConfigDefaults(t *testing.T) {
 		concurrency: 0,   // 0 = 默认 4
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "未登录") || strings.Contains(err.Error(), "token 失效") {
+			t.Skipf("无有效 pikpak 登录态：%v", err)
+		}
 		t.Fatalf("newHybrid: %v", err)
 	}
 	_ = dl // 钳制在 sproxy 内部发生；构造不报错即为通过
@@ -181,4 +208,23 @@ func TestCheckDefaultCredential_Token(t *testing.T) {
 	if err := checkDefaultCredential(); err != nil {
 		t.Fatalf("expected pass with token: %v", err)
 	}
+}
+
+// hasValidCredential 检测默认 pikpak 凭据可用（装配预检的 token 实际验证需要真实登录态）。
+func hasValidCredential() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".pikpak", ".credentials.json"))
+	if err != nil {
+		return false
+	}
+	var cred struct {
+		AccessToken string `json:"access_token"`
+	}
+	if json.Unmarshal(b, &cred) != nil || cred.AccessToken == "" {
+		return false
+	}
+	return true
 }
