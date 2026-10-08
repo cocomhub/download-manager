@@ -396,6 +396,18 @@ git stash && go test -race -count=1 -run TestName ./pkg/ && git stash pop
 2. **引用处**是 `variableName` （无引号）而非 `"variableName"`
 3. 这种 bug 无法通过 `go build` 检测（裸值类型相同，编译无误）
 
+### 配置纪律（用户明示 2026-10-07，跨项目生效）
+
+1. **绝对禁止使用特化的配置行为**：配置字段必须表达「通用能力」，不为单一场景发明特殊开关。
+2. **bool 类型必须默认 false**、**string 类型默认空字符串**。
+3. **必须要有安全可靠的默认行为**：不要为了默认行为就出现默认 true——默认 true 意味着
+   「安全要靠配置才能获得」，是不安全设计。
+4. **原则：通过直接反转语义保证默认行为安全**。即：默认行为 = 字段零值（false/空串）时
+   的安全行为；若安全行为恰好是「做某事」，就把字段命名成它的反转（如 `disable_x` 而非
+   `enable_x`），让零值 = 安全默认。示例：删除临时副本默认要做（安全），字段命名
+   `disable_auto_remove`（默认 false = 自动删除），而不是 `auto_remove`（默认 true 才删）。
+5. 修改配置默认行为时，同步在 AGENTS.md 与 CLAUDE.md 两处镜像更新本纪律与示例。
+
 ### 新增配置字段 checklist
 新增 `config.Server` struct 字段后，必须同步检查：
 1. `config/config.go` — struct 字段 + yaml/json tag

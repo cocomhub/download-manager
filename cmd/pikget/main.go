@@ -1,0 +1,608 @@
+// Copyright 2026 The Cocomhub Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// pikget 是一个类 wget 的下载器：
+//   - 普通 http(s) 直链 → download-manager pkg/download（Range 续传 / ETag / MD5）
+//   - PikPak 分享链接（mypikpak/keepshare）→ sproxy pikpak 混合下载（分享直链前段 + 账号流量后段）
+//   - 磁力 / 其它 scheme → 报「暂不支持」
+//
+// 退出码：0 成功 / 1 下载失败或不支持 / 2 参数错误 / 130 中断。
+package main
+
+import (
+	"context"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/cocomhub/sproxy/pkg/downloader"
+	"github.com/cocomhub/sproxy/pkg/integrity"
+	"github.com/cocomhub/sproxy/pkg/units/sizex"
+	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
+)
+
+const (
+	exitOK    = 0
+	exitFail  = 1
+	exitUsage = 2
+	exitInt   = 130
+)
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// cliFlags 是解析后的命令参数（flag 与 config 合并）。
+type cliFlags struct {
+	output     string
+	quiet      bool
+	noProgress bool // --no-progress：禁用多行进度条（默认开启）
+	force      bool // --force：覆盖已存在文件（跳过 GCID 一致性检查）
+	verbose    bool
+	logFile    string // --log-file：hybrid 日志写文件（默认丢弃）
+	userAgent  string
+	proxyURL   string
+	headers    []string
+	timeoutSec int
+	retry      int
+	// pikpak
+	shareRatio  float64
+	chunkSize   int64
+	concurrency int
+	autoDelete  bool
+	secretsDir  string
+}
+
+// run 是命令入口（可测试：返回退出码，不直接 os.Exit）。
+func run(args []string, stdout, stderr io.Writer) int {
+	// hash 子命令：pikget hash <file1> [file2...] —— 人工校验用
+	if len(args) > 0 && args[0] == "hash" {
+		return runHash(args[1:], stdout, stderr)
+	}
+	fs := flag.NewFlagSet("pikget", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var (
+		output     = fs.String("o", "", "输出文件路径或目录（默认：URL 文件名到当前目录）")
+		quiet      = fs.Bool("q", false, "静默模式（仅错误输出）")
+		noProgress = fs.Bool("no-progress", false, "禁用多行进度条（默认开启）")
+		force      = fs.Bool("force", false, "强制覆盖已存在文件（跳过 GCID 一致性检查）")
+		verbose    = fs.Bool("v", false, "详细日志（debug 级）")
+		userAgent  = fs.String("user-agent", "", "直链 User-Agent")
+		proxyURL   = fs.String("proxy", "", "直链 HTTP 代理")
+		headerArg  = fs.String("header", "", "自定义请求头 'K: V'（可重复/逗号分隔）")
+		timeout    = fs.Int("timeout", 300, "HTTP 超时(秒)")
+		retry      = fs.Int("retry", 3, "重试次数")
+		configPath = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
+		shareRatio = fs.Float64("share-ratio", 0.5, "PikPak 分享区比例（恒 ≤0.5）")
+		chunkSize  = fs.Int64("chunk-size", 32<<20, "PikPak 分片大小(字节)")
+		concur     = fs.Int("concurrency", 4, "并发数")
+		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
+		secretsDir = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")
+		logFile    = fs.String("log-file", "", "hybrid 日志写文件（默认丢弃，不打断进度条）")
+		showVer    = fs.Bool("version", false, "显示版本")
+	)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "用法: pikget [flags] <URL>\n\nFlags:\n")
+		fs.PrintDefaults()
+		fmt.Fprintf(stderr, "\n退出码: 0成功 1失败/不支持 2参数错误 130中断\n")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		return exitUsage
+	}
+	if *showVer {
+		fmt.Fprintf(stdout, "pikget %s\n", version)
+		return exitOK
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintf(stderr, "pikget: 需要恰好一个 <url> 参数\n")
+		fs.Usage()
+		return exitUsage
+	}
+
+	// 配置（flag 默认值与 config.yaml 合并；显式 flag 优先）
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "pikget: 加载配置: %v\n", err)
+		return exitFail
+	}
+	fl := cliFlags{
+		output:      *output,
+		quiet:       *quiet,
+		noProgress:  *noProgress,
+		force:       *force,
+		verbose:     *verbose,
+		userAgent:   or(*userAgent, cfg.Downloader.HTTP.UserAgent),
+		proxyURL:    or(*proxyURL, cfg.Downloader.HTTP.Proxy),
+		timeoutSec:  *timeout,
+		retry:       *retry,
+		shareRatio:  *shareRatio,
+		chunkSize:   *chunkSize,
+		concurrency: *concur,
+		// 配置纪律：flag --disable-auto-remove 默认 false；config.yaml 同名字段同步。
+		// 默认（两者皆未设）→ autoDelete=true（结束自动删转存，安全默认）。
+		autoDelete: !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
+		secretsDir: *secretsDir,
+		logFile:    *logFile,
+	}
+	if len(cfg.Downloader.HTTP.Headers) > 0 {
+		fl.headers = append(fl.headers, cfg.Downloader.HTTP.Headers...)
+	}
+	if *headerArg != "" {
+		fl.headers = append(fl.headers, splitHeaders(*headerArg)...)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	url := fs.Arg(0)
+	switch dispatch(url) {
+	case kindDirect:
+		return runDirect(ctx, url, fl, stdout, stderr)
+	case kindPikpak:
+		return runHybrid(ctx, url, fl, stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "pikget: 暂不支持该 URL: %s\n", url)
+		return exitFail
+	}
+}
+
+// or 返回第一个非空字符串。
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// splitHeaders 解析 'K: V; K2: V2' 形式的请求头。
+func splitHeaders(s string) []string {
+	var out []string
+	rest := s
+	for rest != "" {
+		rest = trimLeft(rest)
+		if rest == "" {
+			break
+		}
+		idx := indexAny(rest, ";")
+		var seg string
+		if idx < 0 {
+			seg, rest = rest, ""
+		} else {
+			seg, rest = rest[:idx], rest[idx+1:]
+		}
+		if seg != "" {
+			out = append(out, trimSpace(seg))
+		}
+	}
+	return out
+}
+
+// runDirect 执行直链下载。
+// 直链后端 pkg/download 是单流（无分片），显示 1 行总进度（multiProgress 架构支持 N worker，
+// 待后端暴露 per-chunk 回调时自动多行）。
+func runDirect(ctx context.Context, url string, fl cliFlags, stdout, stderr io.Writer) int {
+	dest, err := resolveDest(url, fl.output)
+	if err != nil {
+		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		return exitFail
+	}
+	start := time.Now()
+	if !fl.quiet {
+		fmt.Fprintf(stdout, "--%s--  %s\n", start.Format("2006-01-02 15:04:05"), url)
+
+	}
+	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
+	pr.addWorker("main", 0, 0, filepath.Base(dest)) // total 未知，首次回调填充
+	// 直链进度：pkg/download 回调的 dl 含续传 base（ProgressReader downloaded 初值 = offset）
+	opts := httpOpts{
+		userAgent: fl.userAgent,
+		proxyURL:  fl.proxyURL,
+		headers:   parseHeaders(fl.headers),
+		maxRetry:  fl.retry,
+	}
+	err = downloadDirect(ctx, url, dest, opts, func(p float64, dl, total int64) {
+		pr.set("main", dl, total)
+	})
+	if ctxErr(ctx) {
+		fmt.Fprintf(stderr, "pikget: 中断\n")
+		return exitInt
+	}
+	if err != nil {
+		pr.finish(false)
+		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		return exitFail
+	}
+	pr.set("main", fileSize(dest), fileSize(dest))
+	pr.finish(true)
+	// wget 风格完成行：<结束时间> (<整体速率>) - saved [<大小>]，含总耗时
+	if !fl.quiet {
+		sz := fileSize(dest)
+		el := time.Since(start)
+		rate := float64(sz) / el.Seconds()
+		fmt.Fprintf(stdout, "%s (%s) - %s saved [%d], 耗时 %s\n",
+			time.Now().Format("2006-01-02 15:04:05"), humanRate(rate),
+			filepath.Base(dest), sz, el.Round(time.Millisecond))
+	}
+	return exitOK
+}
+
+// 显示 1 行汇总；-v 时 sproxy chunk 级日志（hybrid chunk done）到 stderr 可见分片明细。
+func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.Writer) int {
+	dest, err := resolveDest(url, fl.output)
+	if err != nil {
+		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		return exitFail
+	}
+	// 已存在文件检查（用户明示）：GCID 一致=已完成（无论是否 --force）；不一致=
+	// 冲突（默认不覆盖，--force 强制下载覆盖）。checkExistingHybrid 返回 done=true
+	// 表示已处理（完成/冲突拒绝）；force 且不一致 → 返回 (exitFail, false) 继续下载。
+	code, done, allowDownload := checkExistingHybrid(ctx, url, dest, fl, stdout, stderr)
+	if done {
+		// 一致完成/冲突拒绝 → 返回；冲突且 --force → allowDownload=true 继续下载
+		if !allowDownload {
+			return code
+		}
+	}
+	if !fl.quiet {
+		fmt.Fprintf(stdout, "pikget: PikPak 混合下载 %s -> %s\n", url, dest)
+	}
+	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
+	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
+	resumeBase := hybridResumeBase(dest)
+	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done）。
+	// 来源链显示：share=匿名分享直链；acct=账号直链（多账号时含账号名）。
+	chunkProgress := func(info pikpak.ChunkInfo) {
+		id := fmt.Sprintf("chunk-%d", info.Index)
+		name := fmt.Sprintf("#%02d %s", info.Index, sourceLabel(info.Source))
+		switch info.Phase {
+		case "pending":
+			pr.addWorker(id, info.Length, 0, name) // 注册行（未下载）
+		case "downloading":
+			pr.set(id, info.Done, info.Length)
+		case "done":
+			pr.set(id, info.Length, info.Length)
+			pr.markDone(id)
+		}
+	}
+	opts := pikpakOpts{
+		shareRatio:  fl.shareRatio,
+		chunkSize:   fl.chunkSize,
+		concurrency: fl.concurrency,
+		autoDelete:  fl.autoDelete,
+		secretsDir:  fl.secretsDir,
+		verbose:     fl.verbose,
+		chunkProg:   chunkProgress,
+		logFile:     fl.logFile,
+	}
+	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
+	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
+	// resumeBase 记入进度条（续传起始字节）——已完成 chunk 计入总进度，不从 0 重计。
+	pr.setBase(resumeBase)
+	res, err := downloadHybrid(ctx, url, dest, opts, func(downloaded, total int64) {
+		pr.setProgress(downloaded, total)
+	})
+	if ctxErr(ctx) {
+		fmt.Fprintf(stderr, "pikget: 中断\n")
+		return exitInt
+	}
+	if err != nil {
+		pr.finish(false)
+		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		return exitFail
+	}
+	pr.set("total", fileSize(dest), fileSize(dest))
+	pr.finish(true)
+	// 完成摘要：校验 hash / 原始 hash / 最终保存路径（用户明示明确输出）
+	if !fl.quiet {
+		fmt.Fprintf(stdout, "pikget: 完成 %s\n", dest)
+		if res != nil {
+			if res.Integrity == downloader.ModeAuthority {
+				fmt.Fprintf(stdout, "  校验: GCID 权威命中（与原始 GCID 一致）\n")
+				fmt.Fprintf(stdout, "  原始 GCID: %s\n", res.AuthorityHash)
+				fmt.Fprintf(stdout, "  本地 SHA-256: %s\n", res.Checksum)
+			} else {
+				fmt.Fprintf(stdout, "  校验: 本地自洽（无权威 GCID 比对）\n")
+				fmt.Fprintf(stdout, "  本地 SHA-256: %s\n", res.Checksum)
+			}
+		}
+	}
+	return exitOK
+}
+
+// resolveDest 把 -o 参数解析为最终文件路径：
+// -o 是目录 → <dir>/<url 文件名>；-o 是文件 → 原样；空 → ./<url 文件名>。
+func resolveDest(url, output string) (string, error) {
+	name := filepath.Base(url)
+	if name == "" || name == "/" || name == "." {
+		name = "download.bin"
+	}
+	if output == "" {
+		return name, nil
+	}
+	if info, err := os.Stat(output); err == nil && info.IsDir() {
+		return filepath.Join(output, name), nil
+	}
+	return output, nil
+}
+
+// parseHeaders 把 'K: V' 字符串列表转为 map。
+func parseHeaders(pairs []string) map[string]string {
+	out := make(map[string]string)
+	for _, p := range pairs {
+		for i := 0; i < len(p); i++ {
+			if p[i] == ':' {
+				out[trimSpace(p[:i])] = trimSpace(p[i+1:])
+				break
+			}
+		}
+	}
+	return out
+}
+
+// hybridResumeBase 读取 dest+latestWatch".hybrid" manifest，累计已完成 chunk 字节作为续传基准。
+// 预分配文件本身就是 total（os.Truncate 全量），不能右文件大小当基准——只能用 manifest 已下 chunk 之和。
+func hybridResumeBase(dest string) int64 {
+	b, err := os.ReadFile(dest + ".hybrid")
+	if err != nil {
+		return 0
+	}
+	var m struct {
+		Chunks map[string]int64 `json:"chunks"` // offset → length
+	}
+	if json.Unmarshal(b, &m) != nil {
+		return 0
+	}
+	var base int64
+	for _, ln := range m.Chunks {
+		base += ln
+	}
+	return base
+}
+
+// fileSize 返回文件大小（不存在返回 0）。
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// ctxErr 判断是否因 ctx 取消而退出（Ctrl-C / SIGTERM）。
+func ctxErr(ctx context.Context) bool {
+	return ctx.Err() != nil
+}
+
+// 小型字符串工具（避免引入 strconv 等）：trimSpace/trimLeft/indexAny。
+func trimSpace(s string) string { return trimRight(trimLeft(s)) }
+
+func trimLeft(s string) string {
+	i := 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+	return s[i:]
+}
+
+func trimRight(s string) string {
+	i := len(s)
+	for i > 0 && (s[i-1] == ' ' || s[i-1] == '\t') {
+		i--
+	}
+	return s[:i]
+}
+
+func indexAny(s string, chars string) int {
+	for i := 0; i < len(s); i++ {
+		for j := 0; j < len(chars); j++ {
+			if s[i] == chars[j] {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// runHash 实现 hash 子命令：每位置参数一个文件路径，输出该文件对应的
+// GCID（候选分块全输出）+ SHA-256 + MD5——人工校验下载产物与官方 hash 一致。
+func runHash(files []string, stdout, stderr io.Writer) int {
+	// --block 指定分块大小（ByteSize 格式：256KiB/1MiB 等）；空 = 默认按文件大小推荐块。
+	fs := flag.NewFlagSet("pikget hash", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	blockArg := fs.String("block", "", "指定分块大小（ByteSize 格式，如 256KiB/1MiB；默认按文件大小推荐）")
+	if err := fs.Parse(files); err != nil {
+		return exitUsage
+	}
+	paths := fs.Args()
+	if len(paths) == 0 {
+		fmt.Fprintln(stderr, "pikget hash: 需要至少一个文件路径参数")
+		return exitUsage
+	}
+	// 解析 --block（可选）
+	var forcedBlock int64
+	if *blockArg != "" {
+		b, err := sizex.ParseSize(*blockArg)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash: 分块大小 %q: %v\n", *blockArg, err)
+			return exitUsage
+		}
+		forcedBlock = b
+	}
+	for _, path := range paths {
+		if forcedBlock > 0 {
+			// 指定块：只算该块的 GCID
+			gcid, err := integrity.RecomputeGCIDBlock(path, forcedBlock)
+			if err != nil {
+				fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+				return exitFail
+			}
+			fmt.Fprintf(stdout, "%s\n", path)
+			fmt.Fprintf(stdout, "  GCID[%s]: %s\n", humanBlock(forcedBlock), gcid)
+		} else {
+			// 默认：按文件大小推荐块计算（大小引导，同下载校验算法）
+			blocks, err := integrity.RecomputeGCIDBlockedRecommended(path)
+			if err != nil {
+				fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+				return exitFail
+			}
+			fmt.Fprintf(stdout, "%s\n", path)
+			for _, b := range blocks {
+				fmt.Fprintf(stdout, "  GCID[%s]: %s\n", humanBlock(b.Block), b.GCID)
+			}
+		}
+		sha256, err := sha256FileHex(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+			return exitFail
+		}
+		md5hex, err := md5FileHex(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "pikget hash %s: %v\n", path, err)
+			return exitFail
+		}
+		fmt.Fprintf(stdout, "  SHA-256: %s\n", sha256)
+		fmt.Fprintf(stdout, "  MD5   : %s\n", md5hex)
+	}
+	return exitOK
+}
+
+// humanBlock 把分块字节转为人类可读（256KiB/512KiB/1MiB/2MiB/4MiB）。
+func humanBlock(b int64) string {
+	switch b {
+	case 262144:
+		return "256KiB"
+	case 524288:
+		return "512KiB"
+	case 1048576:
+		return "1MiB"
+	case 2097152:
+		return "2MiB"
+	case 4194304:
+		return "4MiB"
+	default:
+		return fmt.Sprintf("%d", b)
+	}
+}
+
+// md5FileHex 计算文件 MD5（人工校验用；非安全用途）。
+func md5FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New() //nolint:gosec // G501: 人工校验非安全用途
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// sha256FileHex 计算文件 SHA-256。
+func sha256FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// checkExistingHybrid 目标文件已存在时校验 GCID：
+//   - resolve 分享拿预期 GCID → 本地复算 dest GCID
+//   - 一致 → 提示已完成，返回 (exitOK, true)
+//   - 不一致 → 提示冲突 + 推荐修改位置（dest.N），返回 (exitOK, true)（不覆盖）
+//   - 未命中权威（resolve 失败/无 hash）→ 提示已存在，返回 (exitOK, true)
+//
+// 返回 done=true 表示已处理（不再下载）。
+func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, stdout, stderr io.Writer) (int, bool, bool) {
+	info, err := os.Stat(dest)
+	if err != nil || info.IsDir() {
+		return 0, false, false // 目标不存在或目录 → 正常下载
+	}
+	if fl.quiet {
+		return exitOK, true, false
+	}
+	// resolve 分享拿预期 GCID（匿名链）
+	meta, rerr := resolveShareMeta(ctx, url)
+	if rerr != nil {
+		// resolve 失败（分享失效等）→ 仅提示已存在，不阻断（保守）
+		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（resolve 失败无法比对 GCID，未下载）\n", dest)
+		return exitOK, true, false
+	}
+	// ShareMeta.Files 是 ShareFile[]（含 Hash/DirectLink）—— 选最大视频
+	var target *pikpak.ShareFile
+	for i := range meta.Files {
+		f := &meta.Files[i]
+		if f.Kind == "drive#file" {
+			if target == nil || f.Size > target.Size {
+				target = f
+			}
+		}
+	}
+	if target == nil || target.Hash == "" {
+		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（分享无权威 GCID，未下载）\n", dest)
+		return exitOK, true, false
+	}
+	// 本地复算 dest GCID（候选分块全对比）
+	localGCIDs, gerr := integrity.RecomputeGCIDBlocked(dest)
+	if gerr == nil {
+		for _, b := range localGCIDs {
+			if strings.EqualFold(b.GCID, target.Hash) {
+				fmt.Fprintf(stdout, "pikget: 目标已存在且 GCID 一致 —— 已完成 %s\n", dest)
+				fmt.Fprintf(stdout, "  GCID: %s\n", target.Hash)
+				return exitOK, true, false
+			}
+		}
+	}
+	// 不一致 → 冲突：默认拒绝（推荐改名）；--force 强制下载覆盖
+	suggest := conflictName(dest)
+	fmt.Fprintf(stdout, "pikget: 文件冲突 %s —— GCID 与预期不一致\n", dest)
+	fmt.Fprintf(stdout, "  预期 GCID: %s\n", target.Hash)
+	if gerr == nil {
+		fmt.Fprintf(stdout, "  本地 GCID: %s\n", localGCIDs[0].GCID)
+	}
+	fmt.Fprintf(stdout, "  推荐: 保存到 %s，或 --force 强制覆盖\n", suggest)
+	if fl.force {
+		fmt.Fprintf(stdout, "  --force: 强制下载覆盖\n")
+		return exitOK, true, true // done=true + allowDownload=true → 调用方继续下载
+	}
+	return exitOK, true, false
+}
+
+// conflictName 推荐冲突文件的替代位置（dest.N）。
+func conflictName(dest string) string {
+	for i := 2; i < 100; i++ {
+		alt := fmt.Sprintf("%s.%d", dest, i)
+		if _, err := os.Stat(alt); err != nil {
+			return alt
+		}
+	}
+	return dest + ".conflict"
+}
+
+// resolveShareMeta 匿名解析分享 URL 拿元信息（预期 GCID）。
+func resolveShareMeta(ctx context.Context, url string) (*pikpak.ShareMeta, error) {
+	r := pikpak.NewShareResolver(pikpak.ShareResolverConfig{})
+	return r.Resolve(ctx, url)
+}
