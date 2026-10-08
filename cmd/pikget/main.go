@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -47,6 +48,7 @@ type cliFlags struct {
 	output     string
 	quiet      bool
 	noProgress bool // --no-progress：禁用多行进度条（默认开启）
+	force      bool // --force：覆盖已存在文件（跳过 GCID 一致性检查）
 	verbose    bool
 	logFile    string // --log-file：hybrid 日志写文件（默认丢弃）
 	userAgent  string
@@ -74,6 +76,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		output     = fs.String("o", "", "输出文件路径或目录（默认：URL 文件名到当前目录）")
 		quiet      = fs.Bool("q", false, "静默模式（仅错误输出）")
 		noProgress = fs.Bool("no-progress", false, "禁用多行进度条（默认开启）")
+		force      = fs.Bool("force", false, "强制覆盖已存在文件（跳过 GCID 一致性检查）")
 		verbose    = fs.Bool("v", false, "详细日志（debug 级）")
 		userAgent  = fs.String("user-agent", "", "直链 User-Agent")
 		proxyURL   = fs.String("proxy", "", "直链 HTTP 代理")
@@ -122,6 +125,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		output:      *output,
 		quiet:       *quiet,
 		noProgress:  *noProgress,
+		force:       *force,
 		verbose:     *verbose,
 		userAgent:   or(*userAgent, cfg.Downloader.HTTP.UserAgent),
 		proxyURL:    or(*proxyURL, cfg.Downloader.HTTP.Proxy),
@@ -244,6 +248,12 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	if err != nil {
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
 		return exitFail
+	}
+	// 已存在文件检查（用户明示）：GCID 一致=已完成；不一致=冲突+推荐位置；--force 覆盖。
+	if !fl.force {
+		if code, done := checkExistingHybrid(ctx, url, dest, fl, stdout, stderr); done {
+			return code
+		}
 	}
 	if !fl.quiet {
 		fmt.Fprintf(stdout, "pikget: PikPak 混合下载 %s -> %s\n", url, dest)
@@ -512,4 +522,79 @@ func sha256FileHex(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// checkExistingHybrid 目标文件已存在时校验 GCID：
+//   - resolve 分享拿预期 GCID → 本地复算 dest GCID
+//   - 一致 → 提示已完成，返回 (exitOK, true)
+//   - 不一致 → 提示冲突 + 推荐修改位置（dest.N），返回 (exitOK, true)（不覆盖）
+//   - 未命中权威（resolve 失败/无 hash）→ 提示已存在，返回 (exitOK, true)
+//
+// 返回 done=true 表示已处理（不再下载）。
+func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, stdout, stderr io.Writer) (int, bool) {
+	info, err := os.Stat(dest)
+	if err != nil || info.IsDir() {
+		return 0, false // 目标不存在或目录 → 正常下载
+	}
+	if fl.quiet {
+		return exitOK, true
+	}
+	// resolve 分享拿预期 GCID（匿名链）
+	meta, rerr := resolveShareMeta(ctx, url)
+	if rerr != nil {
+		// resolve 失败（分享失效等）→ 仅提示已存在，不阻断（保守）
+		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（resolve 失败无法比对 GCID，未下载）\n", dest)
+		return exitOK, true
+	}
+	// ShareMeta.Files 是 ShareFile[]（含 Hash/DirectLink）—— 选最大视频
+	var target *pikpak.ShareFile
+	for i := range meta.Files {
+		f := &meta.Files[i]
+		if f.Kind == "drive#file" {
+			if target == nil || f.Size > target.Size {
+				target = f
+			}
+		}
+	}
+	if target == nil || target.Hash == "" {
+		fmt.Fprintf(stdout, "pikget: 目标已存在 %s（分享无权威 GCID，未下载）\n", dest)
+		return exitOK, true
+	}
+	// 本地复算 dest GCID（候选分块全对比）
+	localGCIDs, gerr := integrity.RecomputeGCIDBlocked(dest)
+	if gerr == nil {
+		for _, b := range localGCIDs {
+			if strings.EqualFold(b.GCID, target.Hash) {
+				fmt.Fprintf(stdout, "pikget: 目标已存在且 GCID 一致 —— 已完成 %s\n", dest)
+				fmt.Fprintf(stdout, "  GCID: %s\n", target.Hash)
+				return exitOK, true
+			}
+		}
+	}
+	// 不一致 → 冲突 + 推荐位置
+	suggest := conflictName(dest)
+	fmt.Fprintf(stdout, "pikget: 文件冲突 %s —— GCID 与预期不一致，未覆盖\n", dest)
+	fmt.Fprintf(stdout, "  预期 GCID: %s\n", target.Hash)
+	if gerr == nil {
+		fmt.Fprintf(stdout, "  本地 GCID: %s\n", localGCIDs[0].GCID)
+	}
+	fmt.Fprintf(stdout, "  推荐: 保存到 %s，或 --force 强制覆盖\n", suggest)
+	return exitOK, true
+}
+
+// conflictName 推荐冲突文件的替代位置（dest.N）。
+func conflictName(dest string) string {
+	for i := 2; i < 100; i++ {
+		alt := fmt.Sprintf("%s.%d", dest, i)
+		if _, err := os.Stat(alt); err != nil {
+			return alt
+		}
+	}
+	return dest + ".conflict"
+}
+
+// resolveShareMeta 匿名解析分享 URL 拿元信息（预期 GCID）。
+func resolveShareMeta(ctx context.Context, url string) (*pikpak.ShareMeta, error) {
+	r := pikpak.NewShareResolver(pikpak.ShareResolverConfig{})
+	return r.Resolve(ctx, url)
 }
