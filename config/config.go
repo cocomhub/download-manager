@@ -161,6 +161,7 @@ type SproxyHybridConfig struct {
 	AccessKeySecret    string        `yaml:"access_key_secret" json:"access_key_secret"`
 	AccessKeyID        string        `yaml:"access_key_id" json:"access_key_id"`
 	TransferVolume     string        `yaml:"transfer_volume" json:"transfer_volume"`               // sproxy 转存目标卷（非空则提交时带 transfer）；留空 = 产物仅留 cloud 桶
+	TransferPath       string        `yaml:"transfer_path" json:"transfer_path"`                   // 转存目标路径（卷内相对路径，可含子目录，如 xxx/xxxx.mp4）；仅 TransferVolume 非空时生效
 	PullBackToSavePath bool          `yaml:"pull_back_to_save_path" json:"pull_back_to_save_path"` // 可选补拉回：完成后把原始文件拉到本地 SavePath（默认 false=只转存不下载）
 	PollEvery          time.Duration `yaml:"poll_every" json:"poll_every"`
 	Timeout            time.Duration `yaml:"timeout" json:"timeout"`

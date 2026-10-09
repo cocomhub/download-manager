@@ -4,6 +4,7 @@
 package downloader
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -88,7 +89,7 @@ func TestSproxyHybrid_PollShortCircuit(t *testing.T) {
 		Timeout:   3 * time.Hour, // 若未短路会空等 3h
 	})
 	start := time.Now()
-	err := d.poll("404")
+	err := d.poll(context.Background(), "404")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("poll should return error on consecutive 404")
@@ -114,7 +115,7 @@ func TestSproxyHybrid_SubmitHeaders(t *testing.T) {
 	defer srv.Close()
 
 	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{APIURL: srv.URL + "/api/cloud/download"})
-	taskID, err := d.submit("https://mypikpak.com/s/abc", "out.mp4", map[string]string{
+	taskID, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", map[string]string{
 		"Referer":    "https://mypikpak.com/",
 		"User-Agent": "test-agent",
 	})

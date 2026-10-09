@@ -29,7 +29,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"auth":                authConfigView(cfg.Server.Auth),
 		},
 		"task_scan":  cfg.TaskScan,
-		"downloader": cfg.Downloader,
+		"downloader": downloaderConfigView(cfg.Downloader),
 		"ui_defaults": map[string]any{
 			"default_save_dir":    cfg.Server.UIDefaults.DefaultSaveDir,
 			"window_width":        cfg.Server.UIDefaults.WindowWidth,
@@ -53,6 +53,40 @@ func authConfigView(auth config.AuthConfig) map[string]any {
 		"has_password": auth.Password != "",
 		"has_token":    auth.Token != "",
 	}
+}
+
+// downloaderConfigView 返回 downloader 配置的脱敏视图：机密字段（sproxy_hybrid 的
+// access_key_secret / api_token）只暴露「是否已配置」，不返回明文。
+//
+// 安全背景（对抗性评审 P0）：downloader 段原为整体 json 序列化，会把 SproxySig
+// AccessKeySecret（等价 sproxy 全权凭据）与旧 Bearer token 明文回给任何能访问
+// /api/config/server 的客户端（默认 auth 为空 = 不鉴权）。本视图与 authConfigView
+// 同思路脱敏。
+//
+// 回写安全：updateServerConfig 只逐字段更新 downloader（不含 SproxyHybrid 段），
+// 因此脱敏后的空值不会被 PUT 回写覆盖真实配置。
+func downloaderConfigView(dl config.Downloader) map[string]any {
+	m := map[string]any{}
+	b, err := json.Marshal(dl)
+	if err != nil {
+		return m
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return map[string]any{}
+	}
+	if sh, ok := m["sproxy_hybrid"].(map[string]any); ok {
+		redactStringField(sh, "access_key_secret", "has_access_key_secret")
+		redactStringField(sh, "api_token", "has_api_token")
+	}
+	return m
+}
+
+// redactStringField 把 m[key] 从明文替换为""，并在非空时置 m[hasFlag]=true。
+func redactStringField(m map[string]any, key, hasFlag string) {
+	if v, _ := m[key].(string); v != "" {
+		m[hasFlag] = true
+	}
+	m[key] = ""
 }
 
 // serverConfigUpdate 是 updateServerConfig 的 server 段请求体。

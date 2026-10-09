@@ -4,6 +4,7 @@
 package downloader
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -67,7 +68,7 @@ func TestSproxyHybrid_SigAuth_Submit(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	taskID, err := d.submit("https://mypikpak.com/s/abc", "out.mp4", nil)
+	taskID, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil)
 	if err != nil {
 		t.Fatalf("submit with sig auth: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestSproxyHybrid_SigAuth_Poll(t *testing.T) {
 		AccessKeyID:     skid,
 		PollEvery:       10,
 	})
-	if err := d.poll("task-sig"); err != nil {
+	if err := d.poll(context.Background(), "task-sig"); err != nil {
 		t.Fatalf("poll with sig auth: %v", err)
 	}
 	if !polled.Load() {
@@ -203,7 +204,7 @@ func TestSproxyHybrid_RenewRotation(t *testing.T) {
 		PollEvery:       10,
 	})
 	// 场景：poll 先遇 401（旧 SK 失效）→ 触发 renew → 热替换 → 重试成功
-	_, rerr := d.pollWithRotateResult("task-rot")
+	_, rerr := d.pollWithRotateResult(context.Background(), "task-rot")
 	if rerr != nil {
 		t.Fatalf("poll with rotate: %v", rerr)
 	}
@@ -255,16 +256,13 @@ func TestSproxyHybrid_BearerFallback(t *testing.T) {
 		APIURL:   srv.URL + "/api/cloud/download",
 		APIToken: "old-bearer-token",
 	})
-	if _, err := d.submit("https://mypikpak.com/s/abc", "out.mp4", nil); err != nil {
+	if _, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil); err != nil {
 		t.Fatalf("submit bearer: %v", err)
 	}
 	if gotAuth != "Bearer old-bearer-token" {
 		t.Fatalf("Authorization = %q, want Bearer fallback", gotAuth)
 	}
 }
-
-var _ = json.Marshal // 保持 json import（后续轮换测试用）
-var _ = model.DownloadObject{}
 
 // TestSproxyHybrid_RotationSchedule 验证主动轮换调度：凭证距到期 <24h 时
 // 提交前触发轮换（每小时限频）；到期>24h 时不轮换。
@@ -627,7 +625,7 @@ func TestSproxyHybrid_Poll500DoesNotRotate(t *testing.T) {
 		PollEvery:       10,
 	})
 	start := time.Now()
-	_, err := d.pollWithRotateResult("task-500")
+	_, err := d.pollWithRotateResult(context.Background(), "task-500")
 	if err == nil {
 		t.Fatal("poll should fail on 500")
 	}
@@ -681,7 +679,7 @@ func TestSproxyHybrid_Submit401LimitedRetry(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	_, sErr := d.submitSig("https://mypikpak.com/s/abc", "out.mp4", nil)
+	_, sErr := d.submitSig(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil)
 	if sErr == nil {
 		t.Fatal("submit should fail after 401 retries exhausted")
 	}

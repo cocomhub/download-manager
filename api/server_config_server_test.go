@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,63 @@ func TestAPI_ConfigServerGet_ServerSection(t *testing.T) {
 	}
 
 	_ = cfg
+	_ = done
+}
+
+// TestAPI_ConfigServerGet_DownloaderSecretsRedacted 验证 GET /api/config/server
+// 不回传 downloader 段的机密（SproxySig AccessKeySecret / Bearer api_token），
+// 只暴露 has_* 标记。
+//
+// 安全背景（对抗性评审 P0）：downloadloader 段原为整体 json 序列化，会把 SproxySig
+// AccessKeySecret（等价 sproxy 全权凭据）明文回给任何能访问 /api/config/server 的
+// 客户端（默认 auth 为空 = 不鉴权）。
+func TestAPI_ConfigServerGet_DownloaderSecretsRedacted(t *testing.T) {
+	const secret = "sk-very-secret-value-123"
+	const token = "bearer-token-value-456"
+	srv, cfg := newAPIServerWithMock(t, "mock-cfg-dl-secret", 1, false)
+	cfg.Downloader.SproxyHybrid.AccessKey = "ak-test"
+	cfg.Downloader.SproxyHybrid.AccessKeySecret = secret
+	cfg.Downloader.SproxyHybrid.APIToken = token
+	r := srv.Router()
+
+	done := startAPIManager(t, srv)
+	assert.MustEventually(t, func() bool {
+		rr := doJSONGet(t, r, "/api/config/server")
+		return rr.Code == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "wait for config endpoint ready")
+
+	rr := doJSONGet(t, r, "/api/config/server")
+	raw := rr.Body.String()
+	if strings.Contains(raw, secret) {
+		t.Fatal("access_key_secret leaked in /api/config/server response")
+	}
+	if strings.Contains(raw, token) {
+		t.Fatal("api_token leaked in /api/config/server response")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	dl, ok := body["downloader"].(map[string]any)
+	if !ok {
+		t.Fatalf("downloader section missing: %v", body)
+	}
+	sh, ok := dl["sproxy_hybrid"].(map[string]any)
+	if !ok {
+		t.Fatalf("downloader.sproxy_hybrid missing: %v", dl)
+	}
+	if sh["access_key_secret"] != "" {
+		t.Errorf("access_key_secret should be empty, got %v", sh["access_key_secret"])
+	}
+	if sh["api_token"] != "" {
+		t.Errorf("api_token should be empty, got %v", sh["api_token"])
+	}
+	if sh["has_access_key_secret"] != true {
+		t.Errorf("has_access_key_secret should be true, got %v", sh["has_access_key_secret"])
+	}
+	if sh["has_api_token"] != true {
+		t.Errorf("has_api_token should be true, got %v", sh["has_api_token"])
+	}
 	_ = done
 }
 
