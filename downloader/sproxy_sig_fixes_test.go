@@ -22,9 +22,9 @@ import (
 	"github.com/cocomhub/sproxy/pkg/client"
 )
 
-// TestSproxyHybrid_TransferPath 验证转存目标子路径/重命名透传（transfer.path，
+// TestSproxyCloud_TransferPath 验证转存目标子路径/重命名透传（transfer.path，
 // 支持形如 xxx/xxxx.mp4 的卷内子目录）。
-func TestSproxyHybrid_TransferPath(t *testing.T) {
+func TestSproxyCloud_TransferPath(t *testing.T) {
 	t.Parallel()
 	ak := "ak-tp"
 	sk := "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111"
@@ -49,7 +49,7 @@ func TestSproxyHybrid_TransferPath(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -57,6 +57,7 @@ func TestSproxyHybrid_TransferPath(t *testing.T) {
 		TransferVolume:  "vol",
 		TransferPath:    "xxx/xxxx.mp4",
 		PollEvery:       10,
+		CloudOnly:       true, // 只验 transfer 透传，不下载到本地
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
 	if err := d.Download(obj, nil); err != nil {
@@ -77,9 +78,9 @@ func TestSproxyHybrid_TransferPath(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_DefaultNoArtifactRecordsCoords 验证：默认（不转存不拉回）也记录
+// TestSproxyCloud_DefaultNoArtifactRecordsCoords 验证：默认（不转存不拉回）也记录
 // cloud 桶坐标，供上层取用（对抗性评审 P1-2：避免静默无产物且无线索）。
-func TestSproxyHybrid_DefaultNoArtifactRecordsCoords(t *testing.T) {
+func TestSproxyCloud_DefaultNoArtifactRecordsCoords(t *testing.T) {
 	t.Parallel()
 	ak := "ak-def"
 	sk := "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222"
@@ -95,12 +96,13 @@ func TestSproxyHybrid_DefaultNoArtifactRecordsCoords(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 		PollEvery:       10,
+		CloudOnly:       true, // 只验坐标落盘，不下载到本地
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 	if err := d.Download(obj, nil); err != nil {
@@ -115,9 +117,9 @@ func TestSproxyHybrid_DefaultNoArtifactRecordsCoords(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_PullBackWithoutSigFails 验证 Bearer 模式配 pull_back 时显式报错
+// TestSproxyCloud_PullBackWithoutSigFails 验证 Bearer 模式配 pull_back 时显式报错
 // （不静默成功——对抗性评审 P1-1）。
-func TestSproxyHybrid_PullBackWithoutSigFails(t *testing.T) {
+func TestSproxyCloud_PullBackWithoutSigFails(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -129,11 +131,10 @@ func TestSproxyHybrid_PullBackWithoutSigFails(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
-		APIURL:             srv.URL + "/api/cloud/download",
-		APIToken:           "bearer",
-		PullBackToSavePath: true,
-		PollEvery:          10,
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:    srv.URL + "/api/cloud/download",
+		APIToken:  "bearer",
+		PollEvery: 10,
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "o.mp4")}
 	if err := d.Download(obj, nil); err == nil {
@@ -141,8 +142,8 @@ func TestSproxyHybrid_PullBackWithoutSigFails(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_BearerTransfers 验证 Bearer 路径也透传 transfer（不静默丢弃）。
-func TestSproxyHybrid_BearerTransfers(t *testing.T) {
+// TestSproxyCloud_BearerTransfers 验证 Bearer 路径也透传 transfer（不静默丢弃）。
+func TestSproxyCloud_BearerTransfers(t *testing.T) {
 	t.Parallel()
 	var gotVol string
 	mux := http.NewServeMux()
@@ -160,11 +161,12 @@ func TestSproxyHybrid_BearerTransfers(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:         srv.URL + "/api/cloud/download",
 		APIToken:       "bearer",
 		TransferVolume: "vol2",
 		PollEvery:      10,
+		CloudOnly:      true, // 只验 transfer 透传，不下载到本地
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 	if err := d.Download(obj, nil); err != nil {
@@ -175,9 +177,9 @@ func TestSproxyHybrid_BearerTransfers(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_PollPersistent401RotationCapped 验证持久 401 下轮换次数有上限
+// TestSproxyCloud_PollPersistent401RotationCapped 验证持久 401 下轮换次数有上限
 // （防 renew 风暴——对抗性评审 P1-3）。
-func TestSproxyHybrid_PollPersistent401RotationCapped(t *testing.T) {
+func TestSproxyCloud_PollPersistent401RotationCapped(t *testing.T) {
 	t.Parallel()
 	ak := "ak-cap"
 	sk := "cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333"
@@ -210,7 +212,7 @@ func TestSproxyHybrid_PollPersistent401RotationCapped(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -231,9 +233,9 @@ func TestSproxyHybrid_PollPersistent401RotationCapped(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_RotateSingleFlight 验证并发轮换 single-flight：并发调用只真正
+// TestSproxyCloud_RotateSingleFlight 验证并发轮换 single-flight：并发调用只真正
 // renew 一次（防并发数据竞争/凭据风暴——对抗性评审 P1-4）。
-func TestSproxyHybrid_RotateSingleFlight(t *testing.T) {
+func TestSproxyCloud_RotateSingleFlight(t *testing.T) {
 	t.Parallel()
 	ak := "ak-sf"
 	sk := "eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555eeee5555"
@@ -263,7 +265,7 @@ func TestSproxyHybrid_RotateSingleFlight(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,

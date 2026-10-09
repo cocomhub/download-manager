@@ -66,7 +66,7 @@ sproxy 根 module（含 netutil/sizex/downloader 接口）会作为间接依赖�
 | `mypikpak.com/s/`、`mypikpak.net/s/`、`keepshare.org/`、`keepshare.cc/` 分享 | sproxy `HybridDownloader` | 混合下载 |
 | `magnet:`、`bt:` 或其它未知 scheme | 报错 `pikget: unsupported URL scheme` | 第一版不支持 |
 
-判定实现：参考 download-manager `downloader/sproxy_hybrid.go:isShareURL` 的 host 匹配
+判定实现：参考 download-manager `downloader/sproxy_cloud.go:isShareURL` 的 host 匹配
 （`strings.Contains(low, "mypikpak.com/s/")` 等），pikget 内自建 `dispatch(url) kind` 函数。
 
 ## 5. CLI 形态

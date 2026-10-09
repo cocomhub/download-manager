@@ -55,7 +55,7 @@ func authConfigView(auth config.AuthConfig) map[string]any {
 	}
 }
 
-// downloaderConfigView 返回 downloader 配置的脱敏视图：机密字段（sproxy_hybrid 的
+// downloaderConfigView 返回 downloader 配置的脱敏视图：机密字段（sproxy_cloud 的
 // access_key_secret / api_token）只暴露「是否已配置」，不返回明文。
 //
 // 安全背景（对抗性评审 P0）：downloader 段原为整体 json 序列化，会把 SproxySig
@@ -63,7 +63,7 @@ func authConfigView(auth config.AuthConfig) map[string]any {
 // /api/config/server 的客户端（默认 auth 为空 = 不鉴权）。本视图与 authConfigView
 // 同思路脱敏。
 //
-// 回写安全：updateServerConfig 只逐字段更新 downloader（不含 SproxyHybrid 段），
+// 回写安全：updateServerConfig 只逐字段更新 downloader（不含 SproxyCloud 段），
 // 因此脱敏后的空值不会被 PUT 回写覆盖真实配置。
 func downloaderConfigView(dl config.Downloader) map[string]any {
 	m := map[string]any{}
@@ -74,7 +74,7 @@ func downloaderConfigView(dl config.Downloader) map[string]any {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return map[string]any{}
 	}
-	if sh, ok := m["sproxy_hybrid"].(map[string]any); ok {
+	if sh, ok := m["sproxy_cloud"].(map[string]any); ok {
 		redactStringField(sh, "access_key_secret", "has_access_key_secret")
 		redactStringField(sh, "api_token", "has_api_token")
 	}

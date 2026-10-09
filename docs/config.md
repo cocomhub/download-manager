@@ -48,7 +48,7 @@ auth:
 
 | 字段 | 说明 |
 |------|------|
-| `type` | native / wget / gopeed / sproxy_hybrid |
+| `type` | native / wget / gopeed / sproxy_cloud |
 | `global_concurrent` | 全局并发 worker 数 |
 | `sequential` | true=每任务同时只下载 1 个对象（任务内串行，按返回顺序逐个），默认 false=保持并发 |
 | `max_retries` | 失败重试次数 |
@@ -64,10 +64,11 @@ auth:
 | `progress` | 进度回调：`min_percent_step` / `max_interval_seconds` |
 | `ffmpeg` | `path` / `extra_args` / `move_if_exists` / `external_hls_log` |
 
-### downloader.sproxy_hybrid
+### downloader.sproxy_cloud
 
-将 PikPak 分享 URL（keepshare / mypikpak）提交给 sproxy 云下载服务（hybrid 分片并行）；
-download-manager 只做任务解析/提交/轮询。认证优先 SproxySig（推荐），未配置时回落 Bearer。
+将 URL 提交给 sproxy 云端下载服务（sproxy 侧完成下载/转存；PikPak 分享链接走其 hybrid 策略）；
+download-manager 只做任务解析/提交/轮询。**通用**：任意 URL 均可交 sproxy（其按 URL 自动发现后端），
+PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优先 SproxySig（推荐），未配置时回落 Bearer。
 
 | 字段 | 说明 |
 |------|------|
@@ -78,7 +79,7 @@ download-manager 只做任务解析/提交/轮询。认证优先 SproxySig（推
 | `api_token` | 旧 Bearer token（未配 SproxySig 三件套时使用，向后兼容） |
 | `transfer_volume` | 转存目标卷（非空则下载完成后转存到该卷）；留空 = 产物仅留 cloud 桶 |
 | `transfer_path` | 转存目标路径（卷内相对路径，可含子目录，如 `xxx/xxxx.mp4`）；仅 `transfer_volume` 非空时生效 |
-| `pull_back_to_save_path` | true = 完成后把原始文件拉回本地 `SavePath`（需 SproxySig）；默认 false = 只转存不下载 |
+| `cloud_only` | `false`（默认）= 完成后把原始文件下载到本地 `SavePath`；`true` = 仅留云端不下载（只转存不拉回） |
 | `poll_every` | 任务轮询间隔（默认 5s） |
 | `timeout` | 单任务总超时（默认 3h） |
 | `client_timeout` | 显式覆盖单请求 HTTP 超时（默认沿用 sproxy 的 300s） |

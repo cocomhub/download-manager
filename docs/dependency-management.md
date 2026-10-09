@@ -14,7 +14,7 @@
 
 - `github.com/cocomhub/sproxy`（根 module）与 `github.com/cocomhub/sproxy/pkg/volume/ext/pikpak`（子 module）
   当前 pin 在 **pseudo-version**（`v0.0.0-<timestamp>-<commit>` 形态）。
-- 原因（2026-10 现状，sproxy_hybrid 功能依赖）：该功能需要 sproxy master 尚未发版的接口
+- 原因（2026-10 现状，sproxy_cloud 功能依赖）：该功能需要 sproxy master 尚未发版的接口
   （SproxySig v2 + `ErrUnauthorized` 哨兵 + `CloudDownload` 三行为 transfer/save/download_local +
   `DownloadKindCloudTask` 拉回），而最近正式 tag 不含这些能力，故按上条“上游未发布所需 tag、
   确有依赖需求”的例外一采用固定 commit 的 pseudo-version（非浮动分支，可复现）。

@@ -14,9 +14,9 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// TestSproxyHybrid_CancelInterruptsPoll 验证 Cancel(url) 能中断在途轮询
+// TestSproxyCloud_CancelInterruptsPoll 验证 Cancel(url) 能中断在途轮询
 // （对抗性评审 P1-1：取消后不得让 worker 槽位被占满整个 timeout）。
-func TestSproxyHybrid_CancelInterruptsPoll(t *testing.T) {
+func TestSproxyCloud_CancelInterruptsPoll(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +29,7 @@ func TestSproxyHybrid_CancelInterruptsPoll(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:    srv.URL + "/api/cloud/download",
 		APIToken:  "bearer",
 		PollEvery: 500 * time.Millisecond,
@@ -55,9 +55,9 @@ func TestSproxyHybrid_CancelInterruptsPoll(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_SetContextCancelStopsPoll 验证注入 ctx 取消（停机 drain 场景）
+// TestSproxyCloud_SetContextCancelStopsPoll 验证注入 ctx 取消（停机 drain 场景）
 // 也能中断轮询。
-func TestSproxyHybrid_SetContextCancelStopsPoll(t *testing.T) {
+func TestSproxyCloud_SetContextCancelStopsPoll(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func TestSproxyHybrid_SetContextCancelStopsPoll(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:    srv.URL + "/api/cloud/download",
 		APIToken:  "bearer",
 		PollEvery: 500 * time.Millisecond,

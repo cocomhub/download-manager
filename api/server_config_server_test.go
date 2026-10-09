@@ -97,9 +97,9 @@ func TestAPI_ConfigServerGet_DownloaderSecretsRedacted(t *testing.T) {
 	const secret = "sk-very-secret-value-123"
 	const token = "bearer-token-value-456"
 	srv, cfg := newAPIServerWithMock(t, "mock-cfg-dl-secret", 1, false)
-	cfg.Downloader.SproxyHybrid.AccessKey = "ak-test"
-	cfg.Downloader.SproxyHybrid.AccessKeySecret = secret
-	cfg.Downloader.SproxyHybrid.APIToken = token
+	cfg.Downloader.SproxyCloud.AccessKey = "ak-test"
+	cfg.Downloader.SproxyCloud.AccessKeySecret = secret
+	cfg.Downloader.SproxyCloud.APIToken = token
 	r := srv.Router()
 
 	done := startAPIManager(t, srv)
@@ -124,9 +124,9 @@ func TestAPI_ConfigServerGet_DownloaderSecretsRedacted(t *testing.T) {
 	if !ok {
 		t.Fatalf("downloader section missing: %v", body)
 	}
-	sh, ok := dl["sproxy_hybrid"].(map[string]any)
+	sh, ok := dl["sproxy_cloud"].(map[string]any)
 	if !ok {
-		t.Fatalf("downloader.sproxy_hybrid missing: %v", dl)
+		t.Fatalf("downloader.sproxy_cloud missing: %v", dl)
 	}
 	if sh["access_key_secret"] != "" {
 		t.Errorf("access_key_secret should be empty, got %v", sh["access_key_secret"])

@@ -17,17 +17,17 @@ import (
 	"github.com/cocomhub/download-manager/pkg/download"
 )
 
-// TestSproxyHybrid_StatusURL 验证任务详情 URL 构造不受主机名/路径含 "download" 影响。
-func TestSproxyHybrid_StatusURL(t *testing.T) {
+// TestSproxyCloud_StatusURL 验证任务详情 URL 构造不受主机名/路径含 "download" 影响。
+func TestSproxyCloud_StatusURL(t *testing.T) {
 	t.Parallel()
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{APIURL: "http://download.example.com/api/cloud/download"})
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{APIURL: "http://download.example.com/api/cloud/download"})
 	if got, want := d.statusURL("t1"), "http://download.example.com/api/cloud/tasks/t1"; got != want {
 		t.Fatalf("statusURL = %q, want %q", got, want)
 	}
 }
 
-// TestSproxyHybrid_ValidateSaveName 验证提交文件名校验。
-func TestSproxyHybrid_ValidateSaveName(t *testing.T) {
+// TestSproxyCloud_ValidateSaveName 验证提交文件名校验。
+func TestSproxyCloud_ValidateSaveName(t *testing.T) {
 	t.Parallel()
 	if err := validateSaveName("ok.mp4"); err != nil {
 		t.Fatalf("ok name rejected: %v", err)
@@ -42,10 +42,10 @@ func TestSproxyHybrid_ValidateSaveName(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_APIURLMissingFails 验证未配 api_url 时拒绝投递（不发给缺省地址）。
-func TestSproxyHybrid_APIURLMissingFails(t *testing.T) {
+// TestSproxyCloud_APIURLMissingFails 验证未配 api_url 时拒绝投递（不发给缺省地址）。
+func TestSproxyCloud_APIURLMissingFails(t *testing.T) {
 	t.Parallel()
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{APIToken: "t"})
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{APIToken: "t"})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 	err := d.Download(obj, nil)
 	if err == nil {
@@ -56,10 +56,10 @@ func TestSproxyHybrid_APIURLMissingFails(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_PartialCredFails 验证三件套部分配置时拒绝（不静默回落）。
-func TestSproxyHybrid_PartialCredFails(t *testing.T) {
+// TestSproxyCloud_PartialCredFails 验证三件套部分配置时拒绝（不静默回落）。
+func TestSproxyCloud_PartialCredFails(t *testing.T) {
 	t.Parallel()
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:    "http://127.0.0.1:1/api/cloud/download",
 		AccessKey: "ak-only", // 缺 secret/id → 半配置
 	})
@@ -73,8 +73,8 @@ func TestSproxyHybrid_PartialCredFails(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_CancelledStatusFails 验证服务端 cancelled 任务立即失败（不空转）。
-func TestSproxyHybrid_CancelledStatusFails(t *testing.T) {
+// TestSproxyCloud_CancelledStatusFails 验证服务端 cancelled 任务立即失败（不空转）。
+func TestSproxyCloud_CancelledStatusFails(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +86,7 @@ func TestSproxyHybrid_CancelledStatusFails(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10, Timeout: 10 * time.Second,
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
@@ -99,9 +99,9 @@ func TestSproxyHybrid_CancelledStatusFails(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_ReusesExistingTask 验证幂等：Extra 已有 cloud_task_id 时不再 submit
+// TestSproxyCloud_ReusesExistingTask 验证幂等：Extra 已有 cloud_task_id 时不再 submit
 // （避免 pullback 失败重试造成重复下载/转存）。
-func TestSproxyHybrid_ReusesExistingTask(t *testing.T) {
+func TestSproxyCloud_ReusesExistingTask(t *testing.T) {
 	t.Parallel()
 	var submitCalls atomic.Int64
 	mux := http.NewServeMux()
@@ -115,8 +115,8 @@ func TestSproxyHybrid_ReusesExistingTask(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
-		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10,
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10, CloudOnly: true,
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 	obj.Extra = map[string]any{"cloud_task_id": "task-pre"}
@@ -134,8 +134,8 @@ func TestSproxyHybrid_ReusesExistingTask(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_PullbackAtomic 验证 pullback 原子落盘：失败不留 .partial、不留假完成文件。
-func TestSproxyHybrid_PullbackAtomic(t *testing.T) {
+// TestSproxyCloud_PullbackAtomic 验证 pullback 原子落盘：失败不留 .partial、不留假完成文件。
+func TestSproxyCloud_PullbackAtomic(t *testing.T) {
 	t.Parallel()
 	ak := "ak-atomic"
 	sk := "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
@@ -159,9 +159,9 @@ func TestSproxyHybrid_PullbackAtomic(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL: srv.URL + "/api/cloud/download", AccessKey: ak, AccessKeySecret: sk, AccessKeyID: skid,
-		PullBackToSavePath: true, PollEvery: 10,
+		PollEvery: 10,
 	})
 	dir := t.TempDir()
 	savePath := filepath.Join(dir, "out.mp4")

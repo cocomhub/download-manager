@@ -23,10 +23,10 @@ import (
 	"github.com/cocomhub/sproxy/pkg/sproxysig"
 )
 
-// TestSproxyHybrid_SigAuth_Submit 验证 SproxySig 凭据配置时 submit 带合法签名头：
+// TestSproxyCloud_SigAuth_Submit 验证 SproxySig 凭据配置时 submit 带合法签名头：
 // mock 服务端用 sproxysig.ParseHeader + Verify 真实验签，签名无效 → 401/500。
 // 这是最严格的 TDD（走真实签名链路，非仅断言头形态）。
-func TestSproxyHybrid_SigAuth_Submit(t *testing.T) {
+func TestSproxyCloud_SigAuth_Submit(t *testing.T) {
 	t.Parallel()
 	// 凭据（mock 服务端持 skeyID→SK 表）
 	ak := "ak-test"
@@ -62,7 +62,7 @@ func TestSproxyHybrid_SigAuth_Submit(t *testing.T) {
 	defer srv.Close()
 	mockCredList(mux, "ak-test", "skey-1234567890ab")
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -77,8 +77,8 @@ func TestSproxyHybrid_SigAuth_Submit(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_SigAuth_Poll 验证轮询也带签名（GET 任务状态）。
-func TestSproxyHybrid_SigAuth_Poll(t *testing.T) {
+// TestSproxyCloud_SigAuth_Poll 验证轮询也带签名（GET 任务状态）。
+func TestSproxyCloud_SigAuth_Poll(t *testing.T) {
 	t.Parallel()
 	ak := "ak-test2"
 	sk := "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
@@ -108,7 +108,7 @@ func TestSproxyHybrid_SigAuth_Poll(t *testing.T) {
 	mockCredList(mux, "ak-test2", "skey-abcdef123456")
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -123,12 +123,12 @@ func TestSproxyHybrid_SigAuth_Poll(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_RenewRotation 验证 SK 轮换：服务端拒绝当前 SK（条目过期）→
+// TestSproxyCloud_RenewRotation 验证 SK 轮换：服务端拒绝当前 SK（条目过期）→
 // 客户端自动 RenewAccessKey（服务端返回新 SK 信封）→ 用新 SK 重试成功。
 //
 // 轮换策略（用户确认）：拿到凭证记录过期时间，提前 24h 开始每小时轮换直到成功。
 // 本测试验证核心链路：RenewAccessKey 调用 + 热替换后签名立即用新 SK。
-func TestSproxyHybrid_RenewRotation(t *testing.T) {
+func TestSproxyCloud_RenewRotation(t *testing.T) {
 	t.Parallel()
 	ak := "ak-rotate"
 	oldSK := "0000000000000000000000000000000000000000000000000000000000000001"
@@ -196,7 +196,7 @@ func TestSproxyHybrid_RenewRotation(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: oldSK,
@@ -240,8 +240,8 @@ func hexVal(c byte) byte {
 	return 0
 }
 
-// TestSproxyHybrid_BearerFallback 验证旧 Bearer 配置零回归（未配 SproxySig → 仍走 Bearer）。
-func TestSproxyHybrid_BearerFallback(t *testing.T) {
+// TestSproxyCloud_BearerFallback 验证旧 Bearer 配置零回归（未配 SproxySig → 仍走 Bearer）。
+func TestSproxyCloud_BearerFallback(t *testing.T) {
 	t.Parallel()
 	var gotAuth string
 	mux := http.NewServeMux()
@@ -252,7 +252,7 @@ func TestSproxyHybrid_BearerFallback(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:   srv.URL + "/api/cloud/download",
 		APIToken: "old-bearer-token",
 	})
@@ -264,9 +264,9 @@ func TestSproxyHybrid_BearerFallback(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_RotationSchedule 验证主动轮换调度：凭证距到期 <24h 时
+// TestSproxyCloud_RotationSchedule 验证主动轮换调度：凭证距到期 <24h 时
 // 提交前触发轮换（每小时限频）；到期>24h 时不轮换。
-func TestSproxyHybrid_RotationSchedule(t *testing.T) {
+func TestSproxyCloud_RotationSchedule(t *testing.T) {
 	t.Parallel()
 	ak := "ak-sched"
 	oldSK := "1111111111111111111111111111111111111111111111111111111111111111"
@@ -303,7 +303,7 @@ func TestSproxyHybrid_RotationSchedule(t *testing.T) {
 	defer srv.Close()
 	mockCredList(mux, "ak-sched", "skey-sched0001")
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: oldSK,
@@ -337,11 +337,11 @@ func TestSproxyHybrid_RotationSchedule(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_TransferAndPullback 验证默认转存 + 可选拉回：
+// TestSproxyCloud_TransferAndPullback 验证默认转存 + 可选拉回：
 //  1. TransferVolume 配置 → submit 带 transfer 选项（mock 收到 body. transfer.volume）
 //  2. 完成后 TransferURL 写入 obj.Extra[transfer_url]
-//  3. PullBackToSavePath=true → 拉回原始文件到 SavePath（kind=cloud_task 下载）
-func TestSproxyHybrid_TransferAndPullback(t *testing.T) {
+//  3. 默认（cloud_only=false）→ 拉回原始文件到 SavePath（kind=cloud_task 下载）
+func TestSproxyCloud_TransferAndPullback(t *testing.T) {
 	t.Parallel()
 	ak := "ak-transfer"
 	sk := "3333333333333333333333333333333333333333333333333333333333333333"
@@ -414,14 +414,13 @@ func TestSproxyHybrid_TransferAndPullback(t *testing.T) {
 	defer srv.Close()
 	mockCredList(mux, "ak-transfer", "skey-transfer01")
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
-		APIURL:             srv.URL + "/api/cloud/download",
-		AccessKey:          ak,
-		AccessKeySecret:    sk,
-		AccessKeyID:        skid,
-		TransferVolume:     "default",
-		PullBackToSavePath: true,
-		PollEvery:          10,
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+		TransferVolume:  "default",
+		PollEvery:       10,
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
 	if err := d.Download(obj, nil); err != nil {
@@ -450,9 +449,9 @@ func TestSproxyHybrid_TransferAndPullback(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_TransferDefaultNoPullback 默认（TransferVolume 配置但 PullBack=false）
+// TestSproxyCloud_CloudOnlyNoPullback cloud_only=true（转存但不下本地）
 // 只转存不拉回（SavePath 无文件，TransferURL 已存）。
-func TestSproxyHybrid_TransferDefaultNoPullback(t *testing.T) {
+func TestSproxyCloud_CloudOnlyNoPullback(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -470,13 +469,14 @@ func TestSproxyHybrid_TransferDefaultNoPullback(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       "ak-n",
 		AccessKeySecret: "4444444444444444444444444444444444444444444444444444444444444444",
 		AccessKeyID:     "skey-n000001",
 		TransferVolume:  "default",
 		PollEvery:       10,
+		CloudOnly:       true, // 只转存不拉回
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
 	if err := d.Download(obj, nil); err != nil {
@@ -508,9 +508,9 @@ func mockCredList(mux *http.ServeMux, ak, skid string) {
 	})
 }
 
-// TestSproxyHybrid_VerifyOnStartFail 验证：启动验证失败（ListAccessKeys 401）→ verified=false
+// TestSproxyCloud_VerifyOnStartFail 验证：启动验证失败（ListAccessKeys 401）→ verified=false
 // → Download 显式拒绝（用户要求：确认有效才能启动任务）。
-func TestSproxyHybrid_VerifyOnStartFail(t *testing.T) {
+func TestSproxyCloud_VerifyOnStartFail(t *testing.T) {
 	t.Parallel()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/credentials/ak-bad/sk", func(w http.ResponseWriter, r *http.Request) {
@@ -525,7 +525,7 @@ func TestSproxyHybrid_VerifyOnStartFail(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       "ak-bad",
 		AccessKeySecret: "5555555555555555555555555555555555555555555555555555555555555555",
@@ -540,9 +540,9 @@ func TestSproxyHybrid_VerifyOnStartFail(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_VerifyOnStartPrimesExpiry 验证：启动验证成功 → expireAt 预热（30d），
+// TestSproxyCloud_VerifyOnStartPrimesExpiry 验证：启动验证成功 → expireAt 预热（30d），
 // 进入提前 24h 窗口时 ensureRotatedBeforeSubmit 真正触发轮换。
-func TestSproxyHybrid_VerifyOnStartPrimesExpiry(t *testing.T) {
+func TestSproxyCloud_VerifyOnStartPrimesExpiry(t *testing.T) {
 	t.Parallel()
 	ak := "ak-prime"
 	sk := "6666666666666666666666666666666666666666666666666666666666666666"
@@ -575,7 +575,7 @@ func TestSproxyHybrid_VerifyOnStartPrimesExpiry(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -595,9 +595,9 @@ func TestSproxyHybrid_VerifyOnStartPrimesExpiry(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_Poll500DoesNotRotate 验证：poll 遇 500 不触发轮换（评审 P1-A/P1-2：
+// TestSproxyCloud_Poll500DoesNotRotate 验证：poll 遇 500 不触发轮换（评审 P1-A/P1-2：
 // 仅 401 轮换；5xx/网络错误只计数短路，不风暴）。
-func TestSproxyHybrid_Poll500DoesNotRotate(t *testing.T) {
+func TestSproxyCloud_Poll500DoesNotRotate(t *testing.T) {
 	t.Parallel()
 	ak := "ak-500"
 	sk := "7777777777777777777777777777777777777777777777777777777777777777"
@@ -617,7 +617,7 @@ func TestSproxyHybrid_Poll500DoesNotRotate(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,
@@ -637,9 +637,9 @@ func TestSproxyHybrid_Poll500DoesNotRotate(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_Submit401LimitedRetry 验证 submit 401 有限重试（评审 P1-1：无界递归
+// TestSproxyCloud_Submit401LimitedRetry 验证 submit 401 有限重试（评审 P1-1：无界递归
 // → DoS）：renew 后仍 401 → 最多重试 2 次后返回错误，不无限递归。
-func TestSproxyHybrid_Submit401LimitedRetry(t *testing.T) {
+func TestSproxyCloud_Submit401LimitedRetry(t *testing.T) {
 	t.Parallel()
 	ak := "ak-sub401"
 	sk := "8888888888888888888888888888888888888888888888888888888888888888"
@@ -673,7 +673,7 @@ func TestSproxyHybrid_Submit401LimitedRetry(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:          srv.URL + "/api/cloud/download",
 		AccessKey:       ak,
 		AccessKeySecret: sk,

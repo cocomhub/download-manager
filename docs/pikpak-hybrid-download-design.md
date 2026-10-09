@@ -1,5 +1,11 @@
 # PikPak 混合下载方案设计 v2（分享直链前段 + 账号流量后段，分片并行版）
 
+> **落地注记（2026-10）**：本设计描述的是 **sproxy 侧** 的 PikPak hybrid 下载策略（`pkg/volume/ext/pikpak`）。
+> dm 侧对接的下载器**已更名为 `sproxy_cloud`**（原 `sproxy_hybrid`）：
+> - 命名：dm 实际调用的是 **sproxy cloud download API**（服务维度），`hybrid` 只是 PikPak 这一后端的策略名，不应出现在 dm 侧；
+> - 能力：**通用**——任意 URL 均可提交（sproxy 按 URL 自动发现后端），PikPak 分享链接仅为特化优先来源，**并非只做 PikPak**；
+> - 产物：默认转存到目标卷 **并下载到本地**（`cloud_only: false` 默认；设 `true` 只留云端）。
+
 > 状态：v1 可行性已验证（真实账号实测）+ v2 吸收评审（纯 Go 确认、metrics、降级、删除、并行分片）
 > 版本：v2（设计稿，待评审）
 
@@ -203,12 +209,12 @@ chunk (offset, length, source=share|account)
 ## 4. download-manager 侧改造
 
 > **落地注记（2026-10）**：实际实现与本节初稿不同——最终采用「提交到 sproxy 服务端 cloud download」
-> 方案（`downloader/sproxy_hybrid.go` + 配置段 `downloader.sproxy_hybrid`），**不是**本节所写的
+> 方案（`downloader/sproxy_cloud.go` + 配置段 `downloader.sproxy_cloud`），**不是**本节所写的
 > 本地直接调用 `pkg/volume/ext/pikpak` 库（`downloader/pikpak_hybrid.go` / `downloader.pikpak:`）。
 > 原因：dm 只做任务解析/提交/轮询，hybrid 分片/账号池/转存都在 sproxy 侧；本地直调库的路径由
 > 独立 CLI `cmd/pikget` 承担。下文保留为设计演进记录。
 
-### 4.1 新增 `downloader/pikpak_hybrid.go`（初稿；最终为 `downloader/sproxy_hybrid.go`）
+### 4.1 新增 `downloader/pikpak_hybrid.go`（初稿；最终为 `downloader/sproxy_cloud.go`）
 - 复用 sproxy `pkg/volume/ext/pikpak`（require+replace）
 - 适配 core.Downloader（obj → shareURL → HybridDownloader.Download → obj.SavePath）
 - njavtv magnet_list 分流：keepshare 分享 → hybrid；纯磁力 → gopeed
