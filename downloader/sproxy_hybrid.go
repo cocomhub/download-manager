@@ -6,6 +6,7 @@ package downloader
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -559,7 +560,11 @@ func isUnauthorizedErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	// HTTP 401 特征：sproxy doJSONStatusError 文案固定为 "请求失败 (HTTP 401)"
+	// 优先哨兵：sproxy master 已导出 ErrUnauthorized（HTTP 401 → errors.Is 精确命中）。
+	if errors.Is(err, sproxyclient.ErrUnauthorized) {
+		return true
+	}
+	// 回退：旧版 sproxy 无哨兵时按 401 文案判断。
 	return strings.Contains(err.Error(), "(HTTP 401)")
 }
 
