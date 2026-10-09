@@ -137,9 +137,7 @@ func TestSpeedAccuracy(t *testing.T) {
 	realRate := 1 << 20 // 1MiB/s
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		var done int64
 		for {
 			select {
@@ -155,7 +153,7 @@ func TestSpeedAccuracy(t *testing.T) {
 			}
 			p.set("chunk-0", done, 64<<20)
 		}
-	}()
+	})
 	// 等 2 秒让速率收敛
 	time.Sleep(2 * time.Second)
 	close(stop)
@@ -188,7 +186,7 @@ func TestSpeedAccuracy_ThrottledBurst(t *testing.T) {
 			default:
 			}
 			// 突发下载 1MiB（50ms 内，分 10 次每次 100KB @5ms）
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				time.Sleep(5 * time.Millisecond)
 				done += 100 << 10 // 100KB
 				p.set("chunk-0", done, 64<<20)
@@ -236,7 +234,7 @@ func TestSummary_ResumeTotalSize(t *testing.T) {
 	// 续传：manifest 已完成 32MB（base），真实文件 1.7GB，剩余 52 个未完成 chunk 注册
 	p.setBase(32 << 20)
 	remainChunks := int64(52)
-	for i := int64(0); i < remainChunks; i++ {
+	for i := range remainChunks {
 		p.addWorker(fmt.Sprintf("chunk-%d", i), 32<<20, 0, "c")
 	}
 	// 聚合回调提供真实 total（1.7GB）
