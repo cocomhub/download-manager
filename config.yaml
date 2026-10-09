@@ -70,6 +70,18 @@ downloader:
   #   external_hls_log:
   #     enabled: false
   #   hls_auto_mark_as_fail: false
+  # sproxy_hybrid（type: sproxy_hybrid 时使用；把分享 URL 提交给 sproxy 云下载）：
+  #   api_url: http://127.0.0.1:8080/api/cloud/download   # 必填（不配则拒绝投递）
+  #   access_key: ""                  # SproxySig AccessKey
+  #   access_key_secret: ""           # SproxySig AccessKeySecret（仅本地签名，永不上线）
+  #   access_key_id: ""               # SproxySig skey-id（v2 必传）；三件套需同时配置
+  #   api_token: ""                   # 旧 Bearer token（未配 SproxySig 时使用）
+  #   transfer_volume: ""             # 转存目标卷（留空 = 仅留 cloud 桶）
+  #   transfer_path: ""               # 转存目标路径（可含子目录，如 xxx/xxxx.mp4）
+  #   pull_back_to_save_path: false   # true = 完成后拉回本地 SavePath（需 SproxySig）
+  #   poll_every: 5s
+  #   timeout: 3h
+  #   client_timeout: 0               # 0 = 沿用 sproxy 默认（300s）
 task_scan:
   disable: false
   interval: 10

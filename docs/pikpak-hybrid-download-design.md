@@ -202,7 +202,13 @@ chunk (offset, length, source=share|account)
 
 ## 4. download-manager 侧改造
 
-### 4.1 新增 `downloader/pikpak_hybrid.go`
+> **落地注记（2026-10）**：实际实现与本节初稿不同——最终采用「提交到 sproxy 服务端 cloud download」
+> 方案（`downloader/sproxy_hybrid.go` + 配置段 `downloader.sproxy_hybrid`），**不是**本节所写的
+> 本地直接调用 `pkg/volume/ext/pikpak` 库（`downloader/pikpak_hybrid.go` / `downloader.pikpak:`）。
+> 原因：dm 只做任务解析/提交/轮询，hybrid 分片/账号池/转存都在 sproxy 侧；本地直调库的路径由
+> 独立 CLI `cmd/pikget` 承担。下文保留为设计演进记录。
+
+### 4.1 新增 `downloader/pikpak_hybrid.go`（初稿；最终为 `downloader/sproxy_hybrid.go`）
 - 复用 sproxy `pkg/volume/ext/pikpak`（require+replace）
 - 适配 core.Downloader（obj → shareURL → HybridDownloader.Download → obj.SavePath）
 - njavtv magnet_list 分流：keepshare 分享 → hybrid；纯磁力 → gopeed

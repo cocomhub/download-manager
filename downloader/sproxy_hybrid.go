@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 
 	sproxyclient "github.com/cocomhub/sproxy/pkg/client"
@@ -49,12 +52,16 @@ type SproxyHybridDownloader struct {
 	transferPath string // 转存目标路径（卷内相对路径，可含子目录，如 xxx/xxxx.mp4）
 	pullBack     bool   // 可选补拉回 SavePath（默认 false=只转存不下载）
 	// 主动 SK 轮换调度（提前 24h 每小时直到成功）：
-	now        func() time.Time // 时钟注入（测试可控）
-	rotateMu   sync.Mutex
-	rotating   bool      // single-flight：仅允许一个进行中的 RenewAccessKey
-	expireAt   time.Time // 当前 SK 过期时间（RenewAccessKey/启动验证 记录）
-	lastRotate time.Time // 上次轮换时刻（每小时限频）
-	verified   bool      // 启动验证通过（签名链路有效才启用 SproxySig 路径；否则 degraded）
+	now         func() time.Time // 时钟注入（测试可控）
+	rotateMu    sync.Mutex
+	expireAt    time.Time // 当前 SK 过期时间（RenewAccessKey/启动验证 记录）
+	lastRotate  time.Time // 上次轮换时刻（每小时限频）
+	verified    bool      // 启动验证通过（签名链路有效才启用 SproxySig 路径；否则 degraded）
+	apiURLSet   bool      // api_url 是否显式配置（未配则拒绝投递，避免发往缺省地址）
+	partialCred bool      // SproxySig 三件套是否部分配置（非全有/全空→配置错误）
+	// 启动验证懒重验限频（sproxy 晚于 dm 启动 / 瞬时不可用后自愈）。
+	verifyMu      sync.Mutex
+	lastVerifyTry time.Time
 	// 下载上下文（manager 经 ContextInjecter 注入；用于取消/停止传播）。
 	ctxMu sync.Mutex
 	dlCtx context.Context
@@ -114,6 +121,8 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		transferPath: cfg.TransferPath,
 		pullBack:     cfg.PullBackToSavePath,
 		now:          time.Now,
+		apiURLSet:    cfg.APIURL != "",
+		partialCred:  (cfg.AccessKey != "" || cfg.AccessKeySecret != "" || cfg.AccessKeyID != "") && !sigEnabled,
 	}
 	// 用户要求：启动时立刻确认签名链路有效才启用——同步带外验证（ListAccessKeys 200），
 	// 失败仅 Warn + 标记 degraded（Download 显式报错，不静默降级）；成功则预热 expireAt
@@ -122,6 +131,23 @@ func NewSproxyHybridDownloader(cfg config.SproxyHybridConfig) *SproxyHybridDownl
 		d.verifyOnStart()
 	}
 	return d
+}
+
+// tryReverify 限频（1min）重试启动验证；返回当前 verified 状态。
+// 用于 sproxy 晚于 dm 启动或瞬时不可用后的自愈（对抗性评审 P2-5）。
+func (d *SproxyHybridDownloader) tryReverify() bool {
+	d.verifyMu.Lock()
+	if time.Since(d.lastVerifyTry) < time.Minute {
+		v := d.verified
+		d.verifyMu.Unlock()
+		return v
+	}
+	d.lastVerifyTry = time.Now()
+	d.verifyMu.Unlock()
+	d.verifyOnStart()
+	d.verifyMu.Lock()
+	defer d.verifyMu.Unlock()
+	return d.verified
 }
 
 // verifyTimeout 是启动验证（verifyOnStart）的超时：独立且较短，避免 sproxy
@@ -138,26 +164,35 @@ func (d *SproxyHybridDownloader) verifyOnStart() {
 	if err != nil {
 		slog.Error("sproxy sig verify-on-start failed: 签名链路不可用，SproxySig 路径停用（任务将显式失败）",
 			"err", err, "ak", d.ak)
+		d.verifyMu.Lock()
 		d.verified = false
+		d.verifyMu.Unlock()
 		return
 	}
+	d.verifyMu.Lock()
 	d.verified = true
-	// 预热 expireAt：找当前 skeyID 条目过期；找不到取最晚过期（服务端多 SK 共存）
-	var latest time.Time
+	d.verifyMu.Unlock()
+	// 预热 expireAt：找当前 skeyID 条目过期；找不到取最晚过期（服务端多 SK 共存）。
+	// expireAt 由 rotateMu 保护（与 rotateOnce/ensureRotatedBeforeSubmit 对称）。
+	var expireAt, latest time.Time
 	for _, info := range infos {
 		if info.SKID == d.skid {
-			d.expireAt = info.Expires
+			expireAt = info.Expires
 			break
 		}
 		if info.Expires.After(latest) {
 			latest = info.Expires
 		}
 	}
-	if d.expireAt.IsZero() {
-		d.expireAt = latest
+	if expireAt.IsZero() {
+		expireAt = latest
 	}
-	d.lastRotate = d.now()
-	slog.Info("sproxy sig verified on start", "ak", d.ak, "expire_at", d.expireAt.Format(time.RFC3339))
+	d.rotateMu.Lock()
+	d.expireAt = expireAt
+	d.rotateMu.Unlock()
+	// 注意：不设 lastRotate——verifyOnStart 并未真正轮换 SK；若设了，会使紧接着
+	// 的 401 应急轮换被“1h 限频”误判为已轮换而跳过（真实缺陷）。
+	slog.Info("sproxy sig verified on start", "ak", d.ak, "expire_at", expireAt.Format(time.RFC3339))
 }
 
 // 主动 SK 轮换调度（用户确认策略：拿到凭证记录过期时间，提前 24h 开始每小时轮换直到成功）。
@@ -176,6 +211,40 @@ func clientTimeout(ct time.Duration) time.Duration {
 
 // Name 返回下载器名称。
 func (d *SproxyHybridDownloader) Name() string { return "sproxy_hybrid" }
+
+// statusURL 构造任务详情 URL（<base>/api/cloud/tasks/<id>）。
+// 用 url.Parse 取 scheme+host 后拼固定路径，避免 api_url 的主机名/路径含 “download”
+// 时 strings.Replace 误切 URL（对抗性评审 P2-1）。
+func (d *SproxyHybridDownloader) statusURL(taskID string) string {
+	if u, err := url.Parse(d.apiURL); err == nil && u.Host != "" {
+		return u.Scheme + "://" + u.Host + "/api/cloud/tasks/" + url.PathEscape(taskID)
+	}
+	base := strings.TrimSuffix(strings.TrimRight(d.apiURL, "/"), "/api/cloud/download")
+	return base + "/api/cloud/tasks/" + url.PathEscape(taskID)
+}
+
+// validateSaveName 校验提交给服务端的文件名（sproxy cloudfilename 仅接受单文件名：
+// 含路径分隔符会被 400 拒绝；超长/纯点号也不合法）。空名 = 由服务端按 URL 推导。
+func validateSaveName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("filename 不能含路径分隔符: %q", name)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("filename 非法: %q", name)
+	}
+	if len(name) > 200 {
+		return fmt.Errorf("filename 过长（%d 字节）", len(name))
+	}
+	return nil
+}
+
+// SetMetadataFlusher 实现 manager 的可选接口：本下载器不产 ETag/checksum 元数据，
+// 空实现以避免 manager 对每个对象打“Metadata flush not supported”误导 Warn
+// （对抗性评审 P2-6）。
+func (d *SproxyHybridDownloader) SetMetadataFlusher(_ func()) {}
 
 // Ensure SproxyHybridDownloader implements core.Downloader
 var _ core.Downloader = &SproxyHybridDownloader{}
@@ -241,13 +310,22 @@ func (d *SproxyHybridDownloader) unregisterCancel(url string) {
 //  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
 //  3. obj.URL 本身是分享链接
 func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
-	// 用户要求：启动验证失败（签名链路不可用）→ 显式拒绝任务，不静默降级
-	if d.sigEnabled && !d.verified {
-		return fmt.Errorf("sproxy_hybrid: SproxySig 启动验证失败（签名链路不可用），任务拒绝；请检查 access_key/access_key_secret/access_key_id 配置")
+	// 配置校验（fail-closed，对抗性评审 P2-2/P2-3）：避免把分享 URL 投递给缺省地址
+	// 或半配置凭据静默全失败。
+	if !d.apiURLSet {
+		return fmt.Errorf("%w: sproxy_hybrid api_url 未配置（拒绝投递到缺省地址）", download.ErrNoTry)
+	}
+	if d.partialCred {
+		return fmt.Errorf("%w: sproxy_hybrid SproxySig 三件套需同时配置（access_key/access_key_secret/access_key_id 部分缺失）", download.ErrNoTry)
+	}
+	// 启动验证失败（且懒重验仍失败）→ 显式拒绝任务，不静默降级；
+	// 但允许限频重验（sproxy 晚于 dm 启动/瞬时抖动可自愈）。
+	if d.sigEnabled && !d.verified && !d.tryReverify() {
+		return fmt.Errorf("%w: sproxy_hybrid SproxySig 启动验证失败（签名链路不可用）；请检查 access_key/access_key_secret/access_key_id 配置", download.ErrNoTry)
 	}
 	shareURL := d.pickShareURL(obj)
 	if shareURL == "" {
-		return fmt.Errorf("sproxy_hybrid: no share url for %s", obj.URL)
+		return fmt.Errorf("%w: sproxy_hybrid no share url for %s", download.ErrNoTry, obj.URL)
 	}
 
 	// 1. 提交前：SproxySig 凭证到期前 24h 窗口内先主动轮换（每小时限频，失败不阻塞提交）
@@ -261,12 +339,20 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 	d.registerCancel(obj.URL, cancel)
 	defer d.unregisterCancel(obj.URL)
 
-	// 1. 提交任务（透传 headers；纯 magnet 候选 hybrid 用不了，submit 已只接受分享 URL）
-	taskID, err := d.submit(ctx, shareURL, obj.SavePath, headers)
-	if err != nil {
-		return fmt.Errorf("sproxy_hybrid submit %s: %w", shareURL, err)
+	// 1. 提交任务；若上次已提交（Extra 有 cloud_task_id）则复用，避免重试（如 pullback
+	// 失败）时重复 submit 造成重复下载/转存（对抗性评审 P2-9：服务端仅对在途任务去重）。
+	taskID := extraString(obj, "cloud_task_id")
+	if taskID != "" {
+		slog.Info("Sproxy hybrid reuse existing cloud task", "task_id", taskID, logutil.LogKeyURL, shareURL)
+	} else {
+		tid, serr := d.submit(ctx, shareURL, obj.SavePath, headers)
+		if serr != nil {
+			return fmt.Errorf("sproxy_hybrid submit %s: %w", shareURL, serr)
+		}
+		taskID = tid
+		slog.Info("Sproxy hybrid task submitted", "task_id", taskID, logutil.LogKeyURL, shareURL)
+		setExtra(obj, "cloud_task_id", taskID) // 提交即落坐标，供重试复用
 	}
-	slog.Info("Sproxy hybrid task submitted", "task_id", taskID, logutil.LogKeyURL, shareURL)
 
 	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
 	task, err := d.pollResult(ctx, taskID)
@@ -278,20 +364,15 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 	// 3. 记录产物取用坐标（转存 URL + cloud 桶任务坐标）——无论走哪条路径，
 	// 都让上层/人工有据可取（对抗性评审 P1-2：默认无产物时也要有线索）。
 	if task != nil {
-		obj.Lock()
-		if obj.Extra == nil {
-			obj.Extra = make(map[string]any)
-		}
 		if task.TransferURL != "" {
-			obj.Extra["transfer_url"] = task.TransferURL
+			setExtra(obj, "transfer_url", task.TransferURL)
 		}
 		if task.ID != "" {
-			obj.Extra["cloud_task_id"] = task.ID
+			setExtra(obj, "cloud_task_id", task.ID)
 		}
 		if task.Filename != "" {
-			obj.Extra["cloud_task_filename"] = task.Filename
+			setExtra(obj, "cloud_task_filename", task.Filename)
 		}
-		obj.Unlock()
 	}
 	// 4. 可选补拉回：PullBackToSavePath=true → 用 kind=cloud_task 下载原始文件到 SavePath。
 	// 无法执行时显式报错（对抗性评审 P1-1：静默跳过会让对象标 completed 但本地无产物）。
@@ -314,9 +395,20 @@ func (d *SproxyHybridDownloader) Download(obj *model.DownloadObject, headers map
 
 // pullBackToSavePath 用 FileClient 以 kind=cloud_task 下载任务原始文件到本地 SavePath。
 func (d *SproxyHybridDownloader) pullBackToSavePath(ctx context.Context, task *sproxyclient.CloudTask, savePath string) error {
+	// 原子落盘：先写 .partial，成功后 rename 到 savePath。直接写 savePath 时，进程被强杀/
+	// 中断会留下“尺寸像完成、内容却是零/混合”的假完成文件（对抗性评审 P2-5）。
+	tmp := savePath + ".partial"
 	// 服务端 cloud_task 下载 filename=<taskID>/<file>（resolveCloudTaskPath 契约）
-	return d.sig.ChunkedDownload(ctx, task.ID+"/"+task.Filename, savePath,
-		sproxyclient.WithChunkedKind(sproxyclient.DownloadKindCloudTask))
+	if err := d.sig.ChunkedDownload(ctx, task.ID+"/"+task.Filename, tmp,
+		sproxyclient.WithChunkedKind(sproxyclient.DownloadKindCloudTask)); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, savePath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("pullback rename %s: %w", savePath, err)
+	}
+	return nil
 }
 
 // pickShareURL 从 obj 提取分享 URL（按优先级，与 gopeed collectPikPakCandidates 对齐）：
@@ -409,7 +501,11 @@ func (d *SproxyHybridDownloader) submit(ctx context.Context, shareURL, savePath 
 	}
 	body := map[string]any{"url": shareURL}
 	if savePath != "" {
-		body["filename"] = baseName(savePath)
+		name := baseName(savePath)
+		if err := validateSaveName(name); err != nil {
+			return "", err
+		}
+		body["filename"] = name
 	}
 	if tr := d.transferSpec(); tr != nil {
 		body["transfer"] = tr
@@ -459,7 +555,11 @@ func (d *SproxyHybridDownloader) submitSig(ctx context.Context, shareURL, savePa
 	for attempt := 0; attempt <= maxSubmitRetry; attempt++ {
 		body := map[string]any{"url": shareURL}
 		if savePath != "" {
-			body["filename"] = baseName(savePath)
+			name := baseName(savePath)
+			if err := validateSaveName(name); err != nil {
+				return "", err
+			}
+			body["filename"] = name
 		}
 		if tr := d.transferSpec(); tr != nil {
 			body["transfer"] = tr
@@ -511,6 +611,24 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// extraString 读 obj.Extra 字符串字段（加锁）。
+func extraString(obj *model.DownloadObject, key string) string {
+	obj.RLock()
+	defer obj.RUnlock()
+	s, _ := obj.Extra[key].(string)
+	return s
+}
+
+// setExtra 写 obj.Extra 字段（加锁，惰性初始化 map）。
+func setExtra(obj *model.DownloadObject, key string, value any) {
+	obj.Lock()
+	if obj.Extra == nil {
+		obj.Extra = make(map[string]any)
+	}
+	obj.Extra[key] = value
+	obj.Unlock()
+}
+
 // transferSpec 构造转存请求体（volume 必填；path 可选，支持卷内子目录/重命名，
 // 如 xxx/xxxx.mp4）。返回 nil = 不转存。
 func (d *SproxyHybridDownloader) transferSpec() map[string]any {
@@ -526,43 +644,33 @@ func (d *SproxyHybridDownloader) transferSpec() map[string]any {
 
 // rotateOnce 调用一次 RenewAccessKey（热替换新 SK；失败 Warn 下轮重试）。
 // 成功后记录新 SK 的过期时间（供提前 24h 主动轮换调度）。
-// single-flight：并发任务同时在 24h 窗口/同时 401 时，仅一个真正 renew，
-// 其余直接返回（避免并发轮换竞争与凭据风暴——对抗性评审 P1-4）。
+//
+// single-flight：持锁跨整个 renew——并发调用（多任务同日进入 24h 窗口/同时 401）
+// 中先到者真正 renew，其余阻塞到其完成；完成后因 lastRotate 已刷新（<1h）而直接
+// 返回成功（此时会话已是新 SK，语义正确），既无并发重复 renew（对抗性评审 P1-4），
+// 也不会让等待者拿旧 SK 白消耗重试次数（对抗性评审 P2-4）。
 func (d *SproxyHybridDownloader) rotateOnce() error {
 	if d.sig == nil {
 		return fmt.Errorf("sproxy sig client not initialized")
 	}
 	d.rotateMu.Lock()
-	if d.rotating {
-		d.rotateMu.Unlock()
-		return nil // 另一 goroutine 正在轮换，视为已处理
+	defer d.rotateMu.Unlock()
+	now := d.now()
+	// 近期已轮换（1h 内）→ 复用结果，不重复 renew（并发等待者在此路径返回）。
+	if !d.lastRotate.IsZero() && now.Sub(d.lastRotate) < rotateIntervalGap {
+		return nil
 	}
-	d.rotating = true
-	d.rotateMu.Unlock()
-	defer func() {
-		d.rotateMu.Lock()
-		d.rotating = false
-		d.rotateMu.Unlock()
-	}()
 	res, err := d.sig.RenewAccessKey(d.reqCtx())
 	if err != nil {
 		slog.Warn("sproxy sig renew failed", "err", err)
 		return err
 	}
 	slog.Info("sproxy sig key rotated", "sk_id", res.SKID, "expires", res.ExpiresAt)
-	d.recordRotate(res)
-	return nil
-}
-
-// recordRotate 记录轮换结果：新 SK 过期时间 + 本次轮换时刻（限频基准）。
-func (d *SproxyHybridDownloader) recordRotate(res *sproxyclient.RenewResult) {
-	now := d.now()
-	d.rotateMu.Lock()
 	if !res.ExpiresAt.IsZero() {
 		d.expireAt = res.ExpiresAt
 	}
 	d.lastRotate = now
-	d.rotateMu.Unlock()
+	return nil
 }
 
 // ensureRotatedBeforeSubmit 提交前检查：若凭证进入「到期前 24h 窗口」且距上次轮换
@@ -610,7 +718,7 @@ func (d *SproxyHybridDownloader) pollResult(ctx context.Context, taskID string) 
 	}
 	const maxConsecutiveErr = 3
 	deadline := time.Now().Add(d.timeout)
-	statusURL := strings.Replace(d.apiURL, "/download", "/tasks/"+taskID, 1)
+	statusURL := d.statusURL(taskID)
 	consecErr := 0
 	for {
 		if time.Now().After(deadline) {

@@ -12,8 +12,17 @@
 
 当前状态：
 
-- `github.com/cocomhub/sproxy` 已固定为正式版 `v0.18.0`（`go.mod` 直接 require），不再依赖 pseudo-version 或本地 replace 参与构建。
-- 依赖变更后运行 `go mod tidy` 并提交 `go.mod` + `go.sum`。
+- `github.com/cocomhub/sproxy`（根 module）与 `github.com/cocomhub/sproxy/pkg/volume/ext/pikpak`（子 module）
+  当前 pin 在 **pseudo-version**（`v0.0.0-<timestamp>-<commit>` 形态）。
+- 原因（2026-10 现状，sproxy_hybrid 功能依赖）：该功能需要 sproxy master 尚未发版的接口
+  （SproxySig v2 + `ErrUnauthorized` 哨兵 + `CloudDownload` 三行为 transfer/save/download_local +
+  `DownloadKindCloudTask` 拉回），而最近正式 tag 不含这些能力，故按上条“上游未发布所需 tag、
+  确有依赖需求”的例外一采用固定 commit 的 pseudo-version（非浮动分支，可复现）。
+- 待 sproxy 发布包含上述能力的正式版本后，应升级为正式 tag（对齐上条首选策略）。
+- 两个 module（根 + pikpak 子 module）需 pin 到相容提交：子 module 自身 go.mod 已声明其对根
+  module 的 require（当前指向同一提交），升级时一并核对。
+- 依赖变更后运行 `go mod tidy`（根 module 与 `cmd/playwright-server` 子 module 均需）并提交
+  `go.mod` + `go.sum`。
 
 ## 私有 module 访问
 
@@ -95,5 +104,7 @@ go env -w GONOSUMDB=github.com/cocomhub/*
 
 注意：
 
-- sproxy 的升级必须等待其正式版本发布（见上「固定版本策略」），不要引用其分支或 pseudo-version。
+- sproxy 升级优先等其**正式版本发布**；当所需能力仅存在于未发版 master 时，允许按
+  「固定版本策略」的例外条款 pin 具体 commit 的 pseudo-version（不得用浮动分支），并在本文件
+  “当前状态”记录理由与待转正式的跟踪项。
 - 批量升级多个依赖时，如某个依赖引入破坏性变更，拆分为独立 PR 以便回滚定位。
