@@ -520,7 +520,10 @@ func (d *SproxyCloudDownloader) submitOrReuse(ctx context.Context, obj *model.Do
 // clearStaleTaskID 清除已失效的任务坐标（终态失败 / 任务不存在），使重试重新提交
 // （否则重试永远复用死任务直到永久失败）。
 func (d *SproxyCloudDownloader) clearStaleTaskID(obj *model.DownloadObject, err error) {
-	if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) {
+	// SproxySig 路径的 404 由 sproxy 客户端映射为 ErrNotFound（非本地 errCloudTaskGone），
+	// 两者都要清，否则「重试永远复用死任务」在推荐路径上依然存在。
+	if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) ||
+		errors.Is(err, sproxyclient.ErrNotFound) {
 		clearExtra(obj, extraKeyCloudTaskID)
 	}
 }

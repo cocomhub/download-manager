@@ -711,7 +711,11 @@
       },
       viewConfigDiff: function() {
         var self = this
-        AppAPI.get('/api/config/diff?left=' + encodeURIComponent(this.diffForm.left) + '&right=' + encodeURIComponent(this.diffForm.right))
+        var q = '?left=' + encodeURIComponent(this.diffForm.left) + '&right=' + encodeURIComponent(this.diffForm.right)
+        var o = this.diffOptions || {}
+        if (o.ignoreWs) q += '&ignore_ws=1'
+        if (o.ignoreComments) q += '&ignore_comments=1'
+        AppAPI.get('/api/config/diff' + q)
           .then(function(data) { self.configDiff = data; self.lineDiff = (data && data.lineDiff) || []; self.collapsedLineDiff = (data && data.collapsedLineDiff) || [] })
           .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
       },
@@ -726,7 +730,7 @@
       },
       confirmRollback: function() {
         var self = this
-        AppAPI.post('/api/config/rollback', { target: this.rollbackTarget })
+        AppAPI.post('/api/config/rollback', { filename: this.rollbackTarget })
           .then(function(res) { if (!res.ok) throw new Error('回滚失败'); UiHelpers.showToast('配置已回滚', 'success'); self.showRollbackConfirm = false; self.fetchTasks() })
           .catch(function(e) { UiHelpers.showToast('回滚失败: ' + e.message, 'error') })
       },
@@ -734,7 +738,7 @@
         var tag = prompt('输入标签名称:')
         if (!tag || !tag.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/tag', { tag: tag.trim() })
+        AppAPI.post('/api/config/tag', { filename: filename, tag: tag.trim() })
           .then(function() { UiHelpers.showToast('标签已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
       },
@@ -742,28 +746,28 @@
         var note = prompt('输入记录内容:')
         if (!note || !note.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/note', { message: note.trim() })
+        AppAPI.post('/api/config/note', { filename: filename, message: note.trim() })
           .then(function() { UiHelpers.showToast('记录已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
       },
       deleteConfigBackupRow: function(filename) {
         if (!confirm('确定要删除备份 ' + filename + ' 吗？')) return
         var self = this
-        AppAPI.del('/api/config/backup/' + encodeURIComponent(filename))
+        AppAPI.post('/api/config/delete', { filename: filename })
           .then(function() { UiHelpers.showToast('备份已删除', 'success'); self.fetchTasks() })
           .catch(function(e) { UiHelpers.showToast('删除失败: ' + e.message, 'error') })
       },
       addConfigTag: function() {
         if (!this.tagForm.tag || !this.tagForm.tag.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/tag', { tag: this.tagForm.tag.trim() })
+        AppAPI.post('/api/config/tag', { filename: this.diffForm.right, tag: this.tagForm.tag.trim() })
           .then(function() { self.tagForm.tag = ''; self.tagForm.message = '标签已添加'; UiHelpers.showToast('标签已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
       },
       addConfigNote: function() {
         if (!this.noteForm.message || !this.noteForm.message.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/note', { message: this.noteForm.message.trim(), author: this.noteForm.author || '' })
+        AppAPI.post('/api/config/note', { filename: this.diffForm.right, message: this.noteForm.message.trim(), author: this.noteForm.author || '' })
           .then(function() { self.noteForm.message = ''; self.noteForm.messageText = '记录已添加'; UiHelpers.showToast('记录已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
       },

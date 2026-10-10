@@ -295,3 +295,38 @@ func TestSproxyCloud_PullbackFailureKeepsProgressBelow100(t *testing.T) {
 		t.Fatalf("失败时不应置 100%%, got %d", p)
 	}
 }
+
+// TestSproxyCloud_SigTaskGoneClearsTaskID 验证 SproxySig 路径下 404（sproxy 客户端映射为
+// ErrNotFound，而非本地 errCloudTaskGone）同样清除失效坐标。
+func TestSproxyCloud_SigTaskGoneClearsTaskID(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-404sig", "skey-404sig0001"
+	sk := strings.Repeat("5", 64)
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("GET /api/cloud/tasks/task-404sig", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+		PollEvery:       10,
+		CloudOnly:       true,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
+	obj.Extra = map[string]any{"cloud_task_id": "task-404sig"}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("sig 路径 404 应返回错误")
+	}
+	obj.RLock()
+	_, still := obj.Extra["cloud_task_id"]
+	obj.RUnlock()
+	if still {
+		t.Fatal("sig 路径任务 404 后应清除 cloud_task_id")
+	}
+}

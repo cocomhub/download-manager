@@ -1232,16 +1232,16 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Domain Limits (host=max, one per line)</label>
-                                <textarea v-model="configForm.domain_limits_text" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="example.com=2&#10;cdn.example.com=4"></textarea>
+                                <textarea v-model="configForm.domain_limits_text" disabled title="暂未支持通过本表单编辑（请直接改配置文件）" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="example.com=2&#10;cdn.example.com=4"></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Controls per-host concurrent downloads to avoid congestion.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Scan Interval (seconds)</label>
-                                <input type="number" v-model.number="configForm.scan_interval" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <input type="number" v-model.number="configForm.task_scan.interval" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Global Concurrent Downloads</label>
-                                <input type="number" v-model.number="configForm.global_concurrent" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
+                                <input type="number" v-model.number="configForm.downloader.global_concurrent" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
                                 <p class="text-xs text-gray-500 mt-1">Total simultaneous downloads across all tasks.</p>
                             </div>
                         </div>
@@ -1263,7 +1263,7 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Log File Path</label>
-                                <input type="text" v-model="configForm.log_filename" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./logs/app.log">
+                                <input type="text" v-model="configForm.log_filename" disabled title="暂未支持通过本表单编辑（请直接改配置文件）" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./logs/app.log">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Size (MB)</label>
@@ -1279,11 +1279,11 @@
                             </div>
                             <div class="flex items-center gap-3">
                                 <label class="text-sm font-medium text-gray-700">Compress</label>
-                                <input type="checkbox" v-model="configForm.log_compress" class="accent-blue-600">
+                                <input type="checkbox" v-model="configForm.log_compress" disabled title="暂未支持通过本表单编辑（请直接改配置文件）" class="accent-blue-600">
                             </div>
                             <div class="flex items-center gap-3">
                                 <label class="text-sm font-medium text-gray-700">Console Output</label>
-                                <input type="checkbox" v-model="configForm.log_console" class="accent-blue-600">
+                                <input type="checkbox" v-model="configForm.log_console" disabled title="暂未支持通过本表单编辑（请直接改配置文件）" class="accent-blue-600">
                             </div>
                         </div>
                         <p class="text-xs text-gray-500 mt-2">敏感配置（端口、数据库连接等）不在此界面显示与修改。</p>
@@ -1293,7 +1293,7 @@
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Status Style</label>
-                                <select v-model="configForm.status_style" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <select v-model="configForm.ui_defaults.status_style" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="pill">pill</option>
                                         <option value="dot">dot</option>
                                         <option value="overlay">overlay</option>

@@ -184,8 +184,12 @@ func TestRedactDiffChanges_MasksContextsAndExtra(t *testing.T) {
 	t.Parallel()
 	res := map[string]any{
 		"changes": []config.Change{
-			{Path: "contexts", A: map[string]any{
-				"storage": map[string]any{"config": map[string]string{"uri": "mongodb://root:root123@db:27017"}},
+			// 真实生产形状：map[string]config.Context（此前测试用 map[string]any → 假绿）
+			{Path: "contexts", A: map[string]config.Context{
+				"ctx1": {Storage: config.StorageConfig{
+					Type:   "mongo",
+					Config: map[string]string{"uri": "mongodb://root:root123@db:27017"},
+				}},
 			}},
 			{Path: "tasks.t1.extra", A: map[string]any{
 				"headers": map[string]any{"Cookie": "session=abc", "User-Agent": "ua"},

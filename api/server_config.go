@@ -188,8 +188,23 @@ func maskSecretsDeep(v any) any {
 			out[k] = maskSecretsDeep(e)
 		}
 		return out
+	case nil:
+		return nil
+	default:
+		// 结构体 / 命名 map 类型（config.Context、StorageConfig、map[string]Context、
+		// map[string]TaskTypeDefault 等）：动态类型不匹配上面的分支，若直接返回会把
+		// 内联凭据（如 contexts.*.storage.config.uri 的 mongo 密码）原样回泄。
+		// 先 JSON 往返成通用形状，再递归掩码。
+		b, err := json.Marshal(v)
+		if err != nil {
+			return v
+		}
+		var generic any
+		if err := json.Unmarshal(b, &generic); err != nil {
+			return v
+		}
+		return maskSecretsDeep(generic)
 	}
-	return v
 }
 
 // mergeRedactedProxies 合并请求回传的代理列表与当前配置：

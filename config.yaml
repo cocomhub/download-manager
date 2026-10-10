@@ -70,7 +70,7 @@ downloader:
   #   external_hls_log:
   #     enabled: false
   #   hls_auto_mark_as_fail: false
-  # sproxy_cloud（type: sproxy_cloud 时使用；把 URL 提交给 sproxy 云端下载/转存）：
+  # sproxy_cloud（配了 api_url 即启用云端下载后端；下载项级 cloud_download 决定哪些对象走它）：
   #   通用：任意 URL 都可交 sproxy（其 downloaderFor 按 URL 自动发现后端）；
   #   PikPak 分享链接（keepshare/mypikpak）为特化优先来源。
   #   api_url: http://127.0.0.1:8080/api/cloud/download   # 必填（不配则拒绝投递）
