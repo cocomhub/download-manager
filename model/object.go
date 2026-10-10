@@ -22,7 +22,9 @@ type DownloadObject struct {
 	// CloudDownload 该下载项经 sproxy 云端下载（转存到后端卷，可选是否下载本地）。
 	// 由任务在创建/解析对象时设置（任务自行决定是否启用该选项）；Manager 据此路由到
 	// sproxy_cloud 下载器（未配置时回落默认下载器并告警）。
-	CloudDownload bool `json:"cloud_download,omitempty" bson:"cloud_download,omitempty"`
+	// 注：bson 不能用 omitempty——MongoStorage.Update 以 Snapshot 作为 $set 唯一来源，
+	// 省略 false 会使旧值（true）残留，导致开关无法关闭。
+	CloudDownload bool `json:"cloud_download,omitempty" bson:"cloud_download"`
 	// Version 对象数据结构版本（ObjectVersioner 升级机制用）：version < 任务 LatestVersion
 	// 的对象在启动标准化时被自动逐级升级到最新结构。缺省 0 视为旧数据。
 	Version int64 `json:"version,omitempty" bson:"version,omitempty"`

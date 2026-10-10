@@ -6,7 +6,35 @@ package model
 import (
 	"reflect"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
+
+// TestSnapshot_BSONKeepsFalseCloudDownload 防止 bson omitempty 使「关闭开关」无法落库：
+// MongoStorage.Update 以 Snapshot 作为 $set 唯一来源，字段被省略时旧值（true）会残留。
+func TestSnapshot_BSONKeepsFalseCloudDownload(t *testing.T) {
+	t.Parallel()
+	snap := (&DownloadObject{URL: "u"}).Snapshot()
+	raw, err := bson.Marshal(snap)
+	if err != nil {
+		t.Fatalf("bson.Marshal: %v", err)
+	}
+	var m bson.M
+	if err := bson.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("bson.Unmarshal: %v", err)
+	}
+	if _, ok := m["cloud_download"]; !ok {
+		t.Fatalf("bson 缺 cloud_download（omitempty）→ mongo $set 无法把开关关回去；keys=%v", bsonKeys(m))
+	}
+}
+
+func bsonKeys(m bson.M) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
 
 // TestSnapshot_CoversAllExportedFields 防止 Snapshot() 漏拷字段。
 // 背景：曾漏拷 CloudDownload → MongoStorage.Update 用 Snapshot 作为 $set 唯一来源，
