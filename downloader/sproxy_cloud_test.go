@@ -89,7 +89,7 @@ func TestSproxyCloud_PollShortCircuit(t *testing.T) {
 		Timeout:   3 * time.Hour, // 若未短路会空等 3h
 	})
 	start := time.Now()
-	err := d.poll(context.Background(), "404")
+	_, err := d.pollResult(t.Context(), "task-short-circuit")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("poll should return error on consecutive 404")

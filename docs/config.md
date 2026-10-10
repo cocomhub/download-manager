@@ -82,7 +82,7 @@ PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优�
 | `cloud_only` | `false`（默认）= 完成后把原始文件下载到本地 `SavePath`；`true` = 仅留云端不下载（只转存不拉回） |
 | `poll_every` | 任务轮询间隔（默认 5s） |
 | `timeout` | 单任务总超时（默认 3h） |
-| `client_timeout` | 显式覆盖单请求 HTTP 超时（默认沿用 sproxy 的 300s） |
+| `client_timeout` | 显式覆盖单请求 HTTP 超时。默认：SproxySig 路径沿用 sproxy FileClient 的 300s；Bearer 路径为 30s |
 
 #### 下载项级「云端下载」选项
 

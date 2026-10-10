@@ -82,9 +82,19 @@ func TestMergeRedactedProxies(t *testing.T) {
 	if got[1] != "http://new:9@9.9.9.9:3128" {
 		t.Fatalf("新增项应原样采用, got %v", got)
 	}
-	// 空请求 → 不动当前配置
+	// nil（字段未提供）→ 不动当前配置
 	if got := mergeRedactedProxies(nil, current); len(got) != len(current) {
-		t.Fatalf("空请求不应清空, got %v", got)
+		t.Fatalf("nil 不应清空, got %v", got)
+	}
+	// 显式空切片 → 清空
+	if got := mergeRedactedProxies([]string{}, current); len(got) != 0 {
+		t.Fatalf("显式空列表应清空, got %v", got)
+	}
+	// 同脱敏视图重复项 → 不回填（避免凭据错配）
+	dup := []string{"http://u1:p1@h:8080", "http://u2:p2@h:8080"}
+	gotDup := mergeRedactedProxies([]string{"http://h:8080", "http://h:8080"}, dup)
+	if gotDup[0] != "http://h:8080" || gotDup[1] != "http://h:8080" {
+		t.Fatalf("重复脱敏视图不应回填凭据, got %v", gotDup)
 	}
 }
 
@@ -139,5 +149,60 @@ func TestAPI_DiffConfig_RejectsTraversal(t *testing.T) {
 	// 必须是被路径校验拒绝（而非「文件不存在」等其它原因）
 	if !strings.Contains(rr.Body.String(), "invalid backup ref") {
 		t.Fatalf("应以 invalid backup ref 拒绝, got %s", rr.Body.String())
+	}
+}
+
+// TestAPI_ConfigBackupEndpoints_RejectTraversal 验证备份类端点统一拒绝目录穿越
+// （此前只有 diff 校验，delete/rollback/tag/note 仍可越界读写删）。
+func TestAPI_ConfigBackupEndpoints_RejectTraversal(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-backup-ref", 1, true)
+	r := srv.Router()
+	const evil = "../../evil"
+	for _, ep := range []struct {
+		url  string
+		body map[string]any
+	}{
+		{"/api/config/delete", map[string]any{"filename": evil}},
+		{"/api/config/rollback", map[string]any{"filename": evil}},
+		{"/api/config/tag", map[string]any{"filename": evil, "tag": "t"}},
+		{"/api/config/note", map[string]any{"filename": evil, "message": "m"}},
+	} {
+		rr := doJSONPost(t, r, ep.url, ep.body)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("%s 应拒绝穿越 ref, got %d body=%s", ep.url, rr.Code, rr.Body.String())
+			continue
+		}
+		if !strings.Contains(rr.Body.String(), "invalid backup ref") {
+			t.Errorf("%s 应以 invalid backup ref 拒绝, got %s", ep.url, rr.Body.String())
+		}
+	}
+}
+
+// TestRedactDiffChanges_MasksContextsAndExtra 验证结构化 changes 的递归掩码覆盖
+// contexts（mongo uri 内联凭据）与 tasks extra（headers.Cookie）。
+func TestRedactDiffChanges_MasksContextsAndExtra(t *testing.T) {
+	t.Parallel()
+	res := map[string]any{
+		"changes": []config.Change{
+			{Path: "contexts", A: map[string]any{
+				"storage": map[string]any{"config": map[string]string{"uri": "mongodb://root:root123@db:27017"}},
+			}},
+			{Path: "tasks.t1.extra", A: map[string]any{
+				"headers": map[string]any{"Cookie": "session=abc", "User-Agent": "ua"},
+			}},
+		},
+	}
+	redactDiffChanges(res)
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, leak := range []string{"root123", "session=abc"} {
+		if strings.Contains(string(b), leak) {
+			t.Fatalf("changes 未掩码 %q: %s", leak, b)
+		}
+	}
+	if !strings.Contains(string(b), "db:27017") || !strings.Contains(string(b), "User-Agent") {
+		t.Fatalf("非机密内容应保留: %s", b)
 	}
 }

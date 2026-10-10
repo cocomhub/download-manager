@@ -4,10 +4,12 @@
 package downloader
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -228,5 +230,68 @@ func TestSproxyCloud_TaskGoneClearsTaskID(t *testing.T) {
 	obj.RUnlock()
 	if still {
 		t.Fatal("任务 404 后应清除 cloud_task_id（否则重试永远复用死任务）")
+	}
+}
+
+// TestSproxyCloud_BearerRequiresCloudOnly 验证 Bearer 模式（无 SproxySig）配
+// cloud_only=false 时提交前即拒绝（此前会白跑一次服务端下载/转存后才失败）。
+func TestSproxyCloud_BearerRequiresCloudOnly(t *testing.T) {
+	t.Parallel()
+	submitCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		submitCalls++
+		writeJSONResp(w, map[string]any{"id": "t", "status": "running"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "bearer", PollEvery: 10,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "o.bin")}
+	err := d.Download(obj, nil)
+	if err == nil {
+		t.Fatal("Bearer + cloud_only=false 应拒绝")
+	}
+	if !errors.Is(err, download.ErrNoTry) {
+		t.Fatalf("应为 ErrNoTry（不重试）, got %v", err)
+	}
+	if submitCalls != 0 {
+		t.Fatalf("应提交前拒绝, 但发生了 %d 次 submit", submitCalls)
+	}
+}
+
+// TestSproxyCloud_PullbackFailureKeepsProgressBelow100 验证本地下载失败时不置 100%
+// （否则 UI 显示「满进度 + failed」）。
+func TestSproxyCloud_PullbackFailureKeepsProgressBelow100(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-pb", "skey-pb00000001"
+	sk := strings.Repeat("9", 64)
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("GET /api/cloud/tasks/task-pb", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-pb", "status": "completed", "filename": "m.mp4"})
+	})
+	mux.HandleFunc("GET /download/chunk", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+		PollEvery:       10,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "o.bin")}
+	obj.Extra = map[string]any{"cloud_task_id": "task-pb"}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("本地下载失败应返回错误")
+	}
+	if p := obj.GetProgress(); p >= 100 {
+		t.Fatalf("失败时不应置 100%%, got %d", p)
 	}
 }

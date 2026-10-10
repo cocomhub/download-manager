@@ -115,7 +115,7 @@ func TestSproxyCloud_SigAuth_Poll(t *testing.T) {
 		AccessKeyID:     skid,
 		PollEvery:       10,
 	})
-	if err := d.poll(context.Background(), "task-sig"); err != nil {
+	if _, err := d.pollResult(t.Context(), "task-sig"); err != nil {
 		t.Fatalf("poll with sig auth: %v", err)
 	}
 	if !polled.Load() {

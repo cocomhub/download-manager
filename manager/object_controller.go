@@ -201,7 +201,12 @@ func (oc *ObjectController) SetObjectCloudDownload(taskID, url string, enabled b
 	}
 	// mongo 等后端的存储对象是解码副本：同步运行时实例，避免开关要等重启才生效
 	if syncer, ok := t.(core.ObjectOptionSyncer); ok {
-		syncer.SyncObjectOption(url, model.ObjectOption{CloudDownload: &enabled})
+		if !syncer.SyncObjectOption(url, model.ObjectOption{CloudDownload: &enabled}) {
+			// 存储已置位但运行时列表无该 URL（mongo 等后端副本场景）→ 需可观测，
+			// 否则「API 成功但下次下载仍走默认下载器」无从发现。
+			slog.Warn("cloud download option persisted but runtime object not found",
+				logutil.LogKeyTaskID, taskID, logutil.LogKeyURL, url)
+		}
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})

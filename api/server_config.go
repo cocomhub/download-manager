@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -107,8 +108,16 @@ func redactProxyList(m map[string]any, key string) {
 
 // yamlSecretKeyRe 匹配 YAML 中的机密键（值替换为空串）。
 // 前置分隔符（行首/空白/花括号/逗号）避免误伤 has_api_token 之类前缀；支持引号键与流式映射。
-var yamlSecretKeyRe = regexp.MustCompile(`(?m)(^|[\s{,])("?[']?(?:access_key_secret|api_token|password|secret|token|scraper_tunnel_key)[']?"?\s*:\s*)([^
-,}]+)`)
+var yamlSecretKeyRe = regexp.MustCompile(`(?m)(^|[\s{,])("?[']?(?:access_key_secret|api_token|password|secret|token|cookie|set-cookie|authorization|proxy-authorization|x-api-key|scraper_tunnel_key)[']?"?\s*:\s*)(.*)$`)
+
+// yamlBlockSecretRe 匹配「机密键 + 块标量（| / >）」：其缩进正文整体置空。
+var yamlBlockSecretRe = regexp.MustCompile(`(?m)^([ 	]*["']?(?:access_key_secret|api_token|password|secret|token|cookie|set-cookie|authorization|proxy-authorization|x-api-key|scraper_tunnel_key)["']?[ 	]*:[ 	]*[|>][-+]?[ 	]*
+)((?:[ 	]+[^
+]*
+?)*)`)
+
+// secretKeyNameRe 判断 map 键名是否为凭据（用于结构化 changes 的递归掩码）。
+var secretKeyNameRe = regexp.MustCompile(`(?i)^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|api[-_]?key|token|password|secret|access_key_secret)$`)
 
 // proxyUserinfoRe 匹配 URL 中的 userinfo（user:pass@）。
 var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@`)
@@ -119,6 +128,8 @@ func redactYAMLSecrets(text string) string {
 		return text
 	}
 	out := yamlSecretKeyRe.ReplaceAllString(text, `${1}${2}""`)
+	out = yamlBlockSecretRe.ReplaceAllString(out, `${1}  ""
+`)
 	return proxyUserinfoRe.ReplaceAllString(out, `${1}`)
 }
 
@@ -130,32 +141,50 @@ func redactDiffChanges(res map[string]any) {
 		return
 	}
 	for i := range changes {
-		switch changes[i].Path {
-		case "downloader.proxies", "downloader.proxy.list":
-			changes[i].A = redactProxyValue(changes[i].A)
-			changes[i].B = redactProxyValue(changes[i].B)
-		}
+		// 全量递归掩码：字符串走 userinfo 剥离，机密键名的值置空。
+		// 覆盖 downloader.proxies/proxy.list、contexts（mongo uri）、tasks.<id>.extra
+		// （headers.Cookie/Authorization）等所有结构化路径。
+		changes[i].A = maskSecretsDeep(changes[i].A)
+		changes[i].B = maskSecretsDeep(changes[i].B)
 	}
 	res["changes"] = changes
 }
 
-// redactProxyValue 对 []string / []any 形式的代理列表逐项去掉 userinfo。
-func redactProxyValue(v any) any {
-	switch list := v.(type) {
+// maskSecretsDeep 递归掩掉值中的凭据：字符串剥离 URL userinfo，机密键名的值置空。
+func maskSecretsDeep(v any) any {
+	switch t := v.(type) {
+	case string:
+		return redactURLUserinfo(t)
 	case []string:
-		out := make([]string, 0, len(list))
-		for _, p := range list {
-			out = append(out, redactURLUserinfo(p))
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			out = append(out, redactURLUserinfo(e))
 		}
 		return out
 	case []any:
-		out := make([]any, 0, len(list))
-		for _, raw := range list {
-			if str, ok := raw.(string); ok {
-				out = append(out, redactURLUserinfo(str))
+		out := make([]any, 0, len(t))
+		for _, e := range t {
+			out = append(out, maskSecretsDeep(e))
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(t))
+		for k, e := range t {
+			if secretKeyNameRe.MatchString(k) {
+				out[k] = ""
 				continue
 			}
-			out = append(out, raw)
+			out[k] = redactURLUserinfo(e)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			if secretKeyNameRe.MatchString(k) {
+				out[k] = ""
+				continue
+			}
+			out[k] = maskSecretsDeep(e)
 		}
 		return out
 	}
@@ -166,18 +195,25 @@ func redactProxyValue(v any) any {
 // 请求项若与「当前项的脱敏视图」相同，说明用户未改动该条 → 保留当前项（含凭据）；
 // 否则视为用户新增/修改 → 采用请求值。避免脱敏视图回写时静默抹掉代理凭据。
 func mergeRedactedProxies(incoming, current []string) []string {
-	if len(incoming) == 0 {
-		return current
+	if incoming == nil {
+		return current // 字段未提供 → 不动当前配置
 	}
-	// 当前配置的脱敏视图 → 原值（用于逐条找回凭据）
-	byRedacted := make(map[string]string, len(current))
+	if len(incoming) == 0 {
+		return []string{} // 显式清空
+	}
+	counts := make(map[string]int, len(current))
+	orig := make(map[string]string, len(current))
 	for _, p := range current {
-		byRedacted[redactURLUserinfo(p)] = p
+		red := redactURLUserinfo(p)
+		counts[red]++
+		orig[red] = p
 	}
 	out := make([]string, 0, len(incoming))
 	for _, p := range incoming {
-		if orig, ok := byRedacted[p]; ok {
-			out = append(out, orig)
+		// 仅当该脱敏视图唯一时回填原值；重复视图（同 host 多凭据）不回填，
+		// 避免把 A 条目的凭据错贴到 B 条目。
+		if counts[p] == 1 {
+			out = append(out, orig[p])
 			continue
 		}
 		out = append(out, p)
@@ -348,6 +384,10 @@ func (s *Server) rollbackConfig(w http.ResponseWriter, r *http.Request) {
 		Source:  coalesce(req.AuditSource, "api/config/rollback"),
 		Message: coalesce(req.AuditMessage, fmt.Sprintf("rollback to %s", req.Filename)),
 	}); err != nil {
+		if errors.Is(err, manager.ErrInvalidBackupRef) {
+			writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "rollback_failed", fmt.Sprintf("Failed to rollback config: %v", err))
 		return
 	}

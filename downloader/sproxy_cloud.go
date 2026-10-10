@@ -75,6 +75,18 @@ type SproxyCloudDownloader struct {
 	taskIDs map[string]string
 }
 
+// sproxy API 路径常量（避免同文件重复字面量）。
+const (
+	cloudDownloadPath  = "/api/cloud/download"
+	cloudTasksPath     = "/api/cloud/tasks/"
+	cloudTaskCancelSfx = "/cancel"
+)
+
+// apiBase 返回 sproxy 服务基地址（apiURL 去掉 /api/cloud/download 后缀）。
+func (d *SproxyCloudDownloader) apiBase() string {
+	return strings.TrimSuffix(strings.TrimRight(d.apiURL, "/"), cloudDownloadPath)
+}
+
 // Extra 键名常量（避免同文件重复字面量）。
 const extraKeyCloudTaskID = "cloud_task_id"
 
@@ -83,7 +95,7 @@ const extraKeyCloudTaskID = "cloud_task_id"
 func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownloader {
 	apiURL := cfg.APIURL
 	if apiURL == "" {
-		apiURL = "http://127.0.0.1:8080/api/cloud/download"
+		apiURL = "http://127.0.0.1:8080" + cloudDownloadPath
 	}
 	pollEvery := cfg.PollEvery
 	if pollEvery <= 0 {
@@ -99,7 +111,7 @@ func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownload
 	sigEnabled := cfg.AccessKey != "" && cfg.AccessKeySecret != "" && cfg.AccessKeyID != ""
 	var sig *sproxyclient.FileClient
 	if sigEnabled {
-		baseURL := strings.TrimSuffix(headerOK, "/api/cloud/download")
+		baseURL := strings.TrimSuffix(headerOK, cloudDownloadPath)
 		if baseURL == "" {
 			baseURL = "http://127.0.0.1:8080"
 		}
@@ -227,7 +239,7 @@ func (d *SproxyCloudDownloader) statusURL(taskID string) string {
 	if u, err := url.Parse(d.apiURL); err == nil && u.Host != "" {
 		return u.Scheme + "://" + u.Host + "/api/cloud/tasks/" + url.PathEscape(taskID)
 	}
-	base := strings.TrimSuffix(strings.TrimRight(d.apiURL, "/"), "/api/cloud/download")
+	base := d.apiBase()
 	return base + "/api/cloud/tasks/" + url.PathEscape(taskID)
 }
 
@@ -328,6 +340,37 @@ func (d *SproxyCloudDownloader) clearContextFor(url string) {
 	d.ctxMu.Unlock()
 }
 
+// cancelRemoteTask 尽力取消 sproxy 侧任务：SproxySig 走 FileClient，Bearer 走 HTTP。
+func (d *SproxyCloudDownloader) cancelRemoteTask(taskID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), cancelRemoteTimeout)
+	defer cancel()
+	if d.sig != nil {
+		if err := d.sig.CancelCloudTask(ctx, taskID); err != nil {
+			slog.Warn("sproxy cloud task cancel failed", "task_id", taskID, "err", err)
+		}
+		return
+	}
+	if d.apiToken == "" {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		d.apiBase()+cloudTasksPath+url.PathEscape(taskID)+cloudTaskCancelSfx, nil)
+	if err != nil {
+		slog.Warn("sproxy cloud task cancel request build failed", "task_id", taskID, "err", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		slog.Warn("sproxy cloud task cancel failed", "task_id", taskID, "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("sproxy cloud task cancel failed", "task_id", taskID, "status", resp.StatusCode)
+	}
+}
+
 // registerTaskID / unregisterTaskID / takeTaskID 维护 url→sproxy 任务 id 映射。
 func (d *SproxyCloudDownloader) registerTaskID(url, taskID string) {
 	if url == "" || taskID == "" {
@@ -356,14 +399,8 @@ func (d *SproxyCloudDownloader) Cancel(url string) error {
 	d.cancelMu.Unlock()
 	// 连带取消 sproxy 侧任务（best-effort，异步不阻塞调用方；失败仅记日志）——
 	// 否则本地已取消但服务端仍会继续下载/转存（占用服务端资源与配额）。
-	if taskID != "" && d.sig != nil {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), cancelRemoteTimeout)
-			defer cancel()
-			if err := d.sig.CancelCloudTask(ctx, taskID); err != nil {
-				slog.Warn("sproxy cloud task cancel failed", "task_id", taskID, "err", err)
-			}
-		}()
+	if taskID != "" {
+		go d.cancelRemoteTask(taskID)
 	}
 	if cf != nil {
 		cf()
@@ -433,10 +470,14 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 		d.clearStaleTaskID(obj, err)
 		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
 	}
-	// 完成：置进度 100（否则 SSE/UI 恒 0%，对抗性评审 P2-7）。
-	obj.SetProgress(100)
 	d.recordArtifacts(obj, task)
-	return d.localDownload(ctx, obj, task)
+	if err := d.localDownload(ctx, obj, task); err != nil {
+		return err
+	}
+	// 全部成功才置进度 100（否则 SSE/UI 恒 0%，对抗性评审 P2-7）；
+	// 失败路径不置 100，避免 UI 显示「满进度 + failed」。
+	obj.SetProgress(100)
+	return nil
 }
 
 // validateConfig 提交前的 fail-closed 校验（对抗性评审 P2-2/P2-3）：避免把 URL 投递给
@@ -447,6 +488,10 @@ func (d *SproxyCloudDownloader) validateConfig() error {
 	}
 	if d.partialCred {
 		return fmt.Errorf("%w: sproxy_cloud SproxySig 三件套需同时配置（access_key/access_key_secret/access_key_id 部分缺失）", download.ErrNoTry)
+	}
+	// Bearer 模式无 FileClient，无法拉回本地：提前拒绝，避免服务端白跑一次下载/转存。
+	if !d.cloudOnly && d.sig == nil {
+		return fmt.Errorf("%w: sproxy_cloud Bearer 模式不支持本地下载（cloud_only=false）；请配置 SproxySig 三件套，或设 cloud_only: true", download.ErrNoTry)
 	}
 	// 启动验证失败（且懒重验仍失败）→ 显式拒绝任务，不静默降级；
 	// 但允许限频重验（sproxy 晚于 dm 启动/瞬时抖动可自愈）。
@@ -694,7 +739,7 @@ func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePat
 			}
 			hdr.Set(k, v)
 		}
-		resp, err := d.sig.RequestRaw(ctx, http.MethodPost, "/api/cloud/download", strings.NewReader(string(b)), hdr)
+		resp, err := d.sig.RequestRaw(ctx, http.MethodPost, cloudDownloadPath, strings.NewReader(string(b)), hdr)
 		if err != nil {
 			return "", err
 		}
@@ -845,11 +890,6 @@ func (d *SproxyCloudDownloader) ensureRotatedBeforeSubmit() error {
 // 非 2xx 且非 timeout 的错误（404 任务不存在/服务端异常）连续失败 N 次短路返回，
 // 避免无限 sleep 到总超时（默认 3h）空等。
 // SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
-func (d *SproxyCloudDownloader) poll(ctx context.Context, taskID string) error {
-	_, err := d.pollResult(ctx, taskID)
-	return err
-}
-
 // pollResult 轮询直到完成，返回最终 CloudTask（含 transfer_url / filename 供转存记录与拉回）。
 // SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
 func (d *SproxyCloudDownloader) pollResult(ctx context.Context, taskID string) (*sproxyclient.CloudTask, error) {

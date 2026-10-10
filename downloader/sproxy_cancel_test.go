@@ -42,6 +42,7 @@ func TestSproxyCloud_CancelInterruptsPoll(t *testing.T) {
 		APIToken:  "bearer",
 		PollEvery: 500 * time.Millisecond,
 		Timeout:   30 * time.Second, // 远大于测试窗口：只有 Cancel 能让它提前返回
+		CloudOnly: true,             // Bearer 模式不支持本地下载
 	})
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 
@@ -120,6 +121,7 @@ func TestSproxyCloud_SetContextCancelStopsPoll(t *testing.T) {
 		APIToken:  "bearer",
 		PollEvery: 500 * time.Millisecond,
 		Timeout:   30 * time.Second,
+		CloudOnly: true, // Bearer 模式不支持本地下载
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	d.SetContext(ctx)

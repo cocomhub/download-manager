@@ -16,7 +16,10 @@
   - mock：测试用模拟任务（fixture/Playwright e2e）
   - 其余站点任务（tktube/hanime/vikacg/njavtv/mxs）已外迁至 **sdserver**（`github.com/cocomhub/sdserver`）
 - 下载执行
-  - 支持原生 HTTP 下载与 wget 下载器切换
+  - 支持原生 HTTP、wget、gopeed、sproxy_cloud 下载器切换
+  - **下载项级「云端下载」选项**（`DownloadObject.cloud_download`）：任务自行管理或经 API/UI 设置，
+    置位的对象由 Manager 路由到 sproxy 云端下载（转存到后端卷 + 可选下载本地）；未配置
+    `downloader.sproxy_cloud.api_url` 时回落默认下载器并在 `/api/runtime` 能力位置灰
   - 支持域名限流、进度回调、取消、重试、复合文件下载
   - 支持 m3u8/HLS 与 ffmpeg 处理链路
 - 状态管理
@@ -49,7 +52,7 @@
   - `manager/runtime_mgr.go`：运行时并发与刷新间隔更新
   - `manager/task_loader.go`：任务与存储装载、共享注册表与下载器注入
 - 下载执行
-  - `downloader/`：原生下载器、wget 下载器、抓取辅助
+  - `downloader/`：原生下载器、wget 下载器、抓取辅助、`sproxy_cloud.go`（sproxy 云端下载适配器）
   - `pkg/dlcore/`：HTTP 下载、HLS/ffmpeg、文件系统封装
 - 存储
   - `storage/`：memory/file/mongo 三类实现

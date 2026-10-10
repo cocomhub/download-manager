@@ -238,7 +238,15 @@ func (m *Manager) cancelObjectDownload(url string) {
 	if url == "" {
 		return
 	}
+	seen := make(map[core.Downloader]struct{}, 2)
 	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+		if dl == nil {
+			continue
+		}
+		if _, dup := seen[dl]; dup {
+			continue // type=sproxy_cloud 时两者是同一实例，避免重复取消/关连接
+		}
+		seen[dl] = struct{}{}
 		if c, ok := dl.(interface{ Cancel(url string) error }); ok {
 			_ = c.Cancel(url)
 		}
@@ -247,7 +255,15 @@ func (m *Manager) cancelObjectDownload(url string) {
 
 // closeIdleConnections 关闭默认与云端下载器的空闲连接（停机/热更新）。
 func (m *Manager) closeIdleConnections() {
+	seen := make(map[core.Downloader]struct{}, 2)
 	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+		if dl == nil {
+			continue
+		}
+		if _, dup := seen[dl]; dup {
+			continue // 同一实例不重复关闭
+		}
+		seen[dl] = struct{}{}
 		if c, ok := dl.(interface{ CloseIdleConnections() }); ok {
 			c.CloseIdleConnections()
 		}
