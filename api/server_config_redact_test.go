@@ -53,7 +53,7 @@ func TestRedactYAMLSecrets(t *testing.T) {
 	t.Parallel()
 	in := "downloader:\n  access_key_secret: sup3r-s3cret\n  api_token: bearer-xyz\n  proxies:\n    - http://u:p@1.2.3.4:8080\n"
 	out := redactYAMLSecrets(in)
-	for _, leak := range []string{"sup3r-s3cret", "bearer-xyz", "u:p@"} {
+	for _, leak := range []string{"sup3r-s3cret", "bearer-xyz", "tok-abc", "u:p@"} {
 		if strings.Contains(out, leak) {
 			t.Fatalf("YAML 未掩码 %q: %s", leak, out)
 		}
@@ -63,17 +63,50 @@ func TestRedactYAMLSecrets(t *testing.T) {
 	}
 }
 
-// TestSameRedactedProxies 验证「原样回传脱敏视图」被识别为未修改（保留已存凭据）。
-func TestSameRedactedProxies(t *testing.T) {
+// TestMergeRedactedProxies 验证脱敏视图回写时逐条保留已存凭据（含混合编辑场景）。
+func TestMergeRedactedProxies(t *testing.T) {
 	t.Parallel()
-	current := []string{"http://u:p@1.2.3.4:8080"}
-	if !sameRedactedProxies([]string{"http://1.2.3.4:8080"}, current) {
-		t.Fatal("回传脱敏视图应判定为未修改")
+	current := []string{"http://u:p@1.2.3.4:8080", "socks5://1.1.1.1:1080"}
+
+	// 原样回传脱敏视图 → 全部保留凭据
+	got := mergeRedactedProxies([]string{"http://1.2.3.4:8080", "socks5://1.1.1.1:1080"}, current)
+	if got[0] != current[0] || got[1] != current[1] {
+		t.Fatalf("原样回传应保留凭据, got %v", got)
 	}
-	if sameRedactedProxies([]string{"http://other:9@1.2.3.4:8080"}, current) {
-		t.Fatal("显式修改应判定为已修改")
+	// 混合编辑：保留原代理 + 新增一条 → 原代理凭据不丢
+	got = mergeRedactedProxies([]string{"http://1.2.3.4:8080", "http://new:9@9.9.9.9:3128"}, current)
+	if got[0] != current[0] {
+		t.Fatalf("已存代理凭据应保留, got %v", got)
 	}
-	if sameRedactedProxies(nil, current) {
-		t.Fatal("长度不同应判定为已修改")
+	if got[1] != "http://new:9@9.9.9.9:3128" {
+		t.Fatalf("新增项应原样采用, got %v", got)
+	}
+	// 空请求 → 不动当前配置
+	if got := mergeRedactedProxies(nil, current); len(got) != len(current) {
+		t.Fatalf("空请求不应清空, got %v", got)
+	}
+}
+
+// TestRedactDiffChanges 验证 diff 结构化 changes 中的代理列表也被脱敏（此前是旁路）。
+func TestRedactDiffChanges(t *testing.T) {
+	t.Parallel()
+	res := map[string]any{
+		"changes": []config.Change{
+			{Path: "downloader.proxies", A: []string{"http://u:p@1.2.3.4:8080"}, B: []string{"http://v:q@5.6.7.8:8080"}},
+			{Path: "downloader.type", A: "native", B: "wget"},
+		},
+	}
+	redactDiffChanges(res)
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, leak := range []string{"u:p@", "v:q@"} {
+		if strings.Contains(string(b), leak) {
+			t.Fatalf("changes 未脱敏 %q: %s", leak, b)
+		}
+	}
+	if !strings.Contains(string(b), "1.2.3.4:8080") {
+		t.Fatalf("主机应保留: %s", b)
 	}
 }

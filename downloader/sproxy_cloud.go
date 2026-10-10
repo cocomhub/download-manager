@@ -262,9 +262,6 @@ func (d *SproxyCloudDownloader) CloseIdleConnections() {
 // Ensure SproxyCloudDownloader implements core.Downloader
 var _ core.Downloader = &SproxyCloudDownloader{}
 
-// Ensure SproxyCloudDownloader implements core.Downloader / ContextInjecterFor / 连接清理。
-var _ core.Downloader = (*SproxyCloudDownloader)(nil)
-
 // Ensure SproxyCloudDownloader implements core.ContextInjecterFor（按 URL 隔离的取消/停止传播）。
 var _ core.ContextInjecterFor = &SproxyCloudDownloader{}
 
@@ -414,7 +411,7 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
 	task, err := d.pollResult(ctx, taskID)
 	if err != nil {
-		if errors.Is(err, errCloudTaskTerminal) {
+		if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) {
 			// 失效坐标：清掉以便重试时重新提交（否则重试永远复用死任务直到永久失败）
 			clearExtra(obj, extraKeyCloudTaskID)
 		}
@@ -674,6 +671,10 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // 该 cloud_task_id 已失效，重试必须重新提交而非复用。
 var errCloudTaskTerminal = errors.New("cloud task terminal status")
 
+// errCloudTaskGone 表示 sproxy 侧任务已不存在（404，如服务重启/清理）：
+// 该 cloud_task_id 同样已失效，重试必须重新提交。
+var errCloudTaskGone = errors.New("cloud task gone")
+
 // clearExtra 删除 obj.Extra 字段（加锁）。
 func clearExtra(obj *model.DownloadObject, key string) {
 	obj.Lock()
@@ -913,6 +914,10 @@ func (d *SproxyCloudDownloader) getJSON(ctx context.Context, url string, out any
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusNotFound {
+			// 任务已不存在（sproxy 重启/清理）→ 该 cloud_task_id 已失效
+			return fmt.Errorf("%w: %s", errCloudTaskGone, truncate(string(b), 200))
+		}
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(b), 200))
 	}
 	return json.NewDecoder(resp.Body).Decode(out)

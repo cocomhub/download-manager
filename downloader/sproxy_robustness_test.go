@@ -203,3 +203,30 @@ func TestSproxyCloud_TerminalFailureClearsTaskID(t *testing.T) {
 		t.Fatal("终态失败后应清除 cloud_task_id（否则重试永远复用死任务）")
 	}
 }
+
+// TestSproxyCloud_TaskGoneClearsTaskID 验证 sproxy 侧任务 404（已清理/重启）后清除
+// cloud_task_id，使重试重新提交（否则重试持续打同一 404 id 直到永久失败）。
+func TestSproxyCloud_TaskGoneClearsTaskID(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cloud/tasks/task-404", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10, CloudOnly: true,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
+	obj.Extra = map[string]any{"cloud_task_id": "task-404"}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("404 应返回错误")
+	}
+	obj.RLock()
+	_, still := obj.Extra["cloud_task_id"]
+	obj.RUnlock()
+	if still {
+		t.Fatal("任务 404 后应清除 cloud_task_id（否则重试永远复用死任务）")
+	}
+}

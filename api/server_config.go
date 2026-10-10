@@ -106,7 +106,7 @@ func redactProxyList(m map[string]any, key string) {
 }
 
 // yamlSecretKeyRe 匹配 YAML 中的机密键（值替换为空串）。
-var yamlSecretKeyRe = regexp.MustCompile(`(?m)^(\s*(?:access_key_secret|api_token|password|secret|scraper_tunnel_key)\s*:\s*)(\S.*)$`)
+var yamlSecretKeyRe = regexp.MustCompile(`(?m)^(\s*(?:access_key_secret|api_token|password|secret|token|scraper_tunnel_key)\s*:\s*)(\S.*)$`)
 
 // proxyUserinfoRe 匹配 URL 中的 userinfo（user:pass@）。
 var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@`)
@@ -120,22 +120,67 @@ func redactYAMLSecrets(text string) string {
 	return proxyUserinfoRe.ReplaceAllString(out, `${1}`)
 }
 
-// sameRedactedProxies 判断请求回传的代理列表是否与「当前配置的脱敏视图」一致
-// （一致 = 用户未修改代理，应保留已存凭据）。
-func sameRedactedProxies(incoming, current []string) bool {
-	red := make([]string, 0, len(current))
-	for _, p := range current {
-		red = append(red, redactURLUserinfo(p))
+// redactDiffChanges 掩掉 diff 结构化结果中代理列表条目的 user:pass
+// （否则 changes 会成为 /api/config/diff 的凭据旁路）。
+func redactDiffChanges(res map[string]any) {
+	changes, ok := res["changes"].([]config.Change)
+	if !ok {
+		return
 	}
-	if len(incoming) != len(red) {
-		return false
-	}
-	for i := range incoming {
-		if incoming[i] != red[i] {
-			return false
+	for i := range changes {
+		switch changes[i].Path {
+		case "downloader.proxies", "downloader.proxy.list":
+			changes[i].A = redactProxyValue(changes[i].A)
+			changes[i].B = redactProxyValue(changes[i].B)
 		}
 	}
-	return true
+	res["changes"] = changes
+}
+
+// redactProxyValue 对 []string / []any 形式的代理列表逐项去掉 userinfo。
+func redactProxyValue(v any) any {
+	switch list := v.(type) {
+	case []string:
+		out := make([]string, 0, len(list))
+		for _, p := range list {
+			out = append(out, redactURLUserinfo(p))
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(list))
+		for _, raw := range list {
+			if str, ok := raw.(string); ok {
+				out = append(out, redactURLUserinfo(str))
+				continue
+			}
+			out = append(out, raw)
+		}
+		return out
+	}
+	return v
+}
+
+// mergeRedactedProxies 合并请求回传的代理列表与当前配置：
+// 请求项若与「当前项的脱敏视图」相同，说明用户未改动该条 → 保留当前项（含凭据）；
+// 否则视为用户新增/修改 → 采用请求值。避免脱敏视图回写时静默抹掉代理凭据。
+func mergeRedactedProxies(incoming, current []string) []string {
+	if len(incoming) == 0 {
+		return current
+	}
+	// 当前配置的脱敏视图 → 原值（用于逐条找回凭据）
+	byRedacted := make(map[string]string, len(current))
+	for _, p := range current {
+		byRedacted[redactURLUserinfo(p)] = p
+	}
+	out := make([]string, 0, len(incoming))
+	for _, p := range incoming {
+		if orig, ok := byRedacted[p]; ok {
+			out = append(out, orig)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // redactURLUserinfo 返回去掉 user:pass 的 URL；解析失败或本无 userinfo 时原样返回。
@@ -201,18 +246,14 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	cc.Downloader.ForceProxy = req.Downloader.ForceProxy
 	// 脱敏回写保护：GET 视图返回的是去掉 user:pass 的代理列表；请求若原样回传该视图，
 	// 视为「未修改」并保留已存凭据（否则保存配置会静默抹掉代理凭据）。
-	if !sameRedactedProxies(req.Downloader.Proxies, cc.Downloader.Proxies) {
-		cc.Downloader.Proxies = req.Downloader.Proxies
-	}
+	cc.Downloader.Proxies = mergeRedactedProxies(req.Downloader.Proxies, cc.Downloader.Proxies)
 	cc.Downloader.DomainLimits = req.Downloader.DomainLimits
 	// New sub-structures
 	cc.Downloader.Filesystem = req.Downloader.Filesystem
 	if req.Downloader.HTTP.TimeoutSeconds > 0 {
 		cc.Downloader.HTTP = req.Downloader.HTTP
 	}
-	if sameRedactedProxies(req.Downloader.Proxy.List, cc.Downloader.Proxy.List) {
-		req.Downloader.Proxy.List = cc.Downloader.Proxy.List
-	}
+	req.Downloader.Proxy.List = mergeRedactedProxies(req.Downloader.Proxy.List, cc.Downloader.Proxy.List)
 	cc.Downloader.Proxy = req.Downloader.Proxy
 	cc.Downloader.Progress = req.Downloader.Progress
 	cc.Downloader.FFmpeg = req.Downloader.FFmpeg
@@ -336,6 +377,7 @@ func (s *Server) diffConfig(w http.ResponseWriter, r *http.Request) {
 			res[k] = redactYAMLSecrets(v)
 		}
 	}
+	redactDiffChanges(res)
 	json.NewEncoder(w).Encode(res)
 }
 
