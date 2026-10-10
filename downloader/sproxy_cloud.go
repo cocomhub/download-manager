@@ -64,10 +64,16 @@ type SproxyCloudDownloader struct {
 	// 下载上下文（manager 经 ContextInjecter 注入；用于取消/停止传播）。
 	ctxMu sync.Mutex
 	dlCtx context.Context
+	// urlCtx 按 URL 注入的下载上下文（core.ContextInjecterFor）：共享单实例并发
+	// 下载时避免单字段 dlCtx 被兄弟下载覆盖导致的误取消。
+	urlCtx map[string]context.Context
 	// per-URL 取消注册表（manager 单对象取消/删除经 Cancel 触发）。
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
 }
+
+// Extra 键名常量（避免同文件重复字面量）。
+const extraKeyCloudTaskID = "cloud_task_id"
 
 // NewSproxyCloudDownloader 创建 sproxy 云端下载器。
 // 配置了 access_key/access_key_secret → 用 FileClient（SproxySig 签名认证）；否则旧 Bearer。
@@ -245,6 +251,13 @@ func validateSaveName(name string) error {
 // （对抗性评审 P2-6）。
 func (d *SproxyCloudDownloader) SetMetadataFlusher(_ func()) {}
 
+// CloseIdleConnections 关闭底层 HTTP 客户端的空闲连接（停机 / 配置热更新时调用）。
+func (d *SproxyCloudDownloader) CloseIdleConnections() {
+	if d.httpClient != nil {
+		d.httpClient.CloseIdleConnections()
+	}
+}
+
 // Ensure SproxyCloudDownloader implements core.Downloader
 var _ core.Downloader = &SproxyCloudDownloader{}
 
@@ -269,6 +282,40 @@ func (d *SproxyCloudDownloader) reqCtx() context.Context {
 		return d.dlCtx
 	}
 	return context.Background()
+}
+
+// SetContextFor 按 URL 注入下载上下文（实现 core.ContextInjecterFor）：
+// 共享单实例并发下载时，避免单字段 SetContext 被兄弟下载覆盖导致的误取消。
+func (d *SproxyCloudDownloader) SetContextFor(url string, ctx context.Context) {
+	if url == "" {
+		return
+	}
+	d.ctxMu.Lock()
+	if d.urlCtx == nil {
+		d.urlCtx = make(map[string]context.Context)
+	}
+	d.urlCtx[url] = ctx
+	d.ctxMu.Unlock()
+}
+
+// reqCtxFor 返回该 URL 的下载上下文：优先按 URL 注入，否则回落进程级注入。
+func (d *SproxyCloudDownloader) reqCtxFor(url string) context.Context {
+	d.ctxMu.Lock()
+	defer d.ctxMu.Unlock()
+	if c, ok := d.urlCtx[url]; ok && c != nil {
+		return c
+	}
+	if d.dlCtx != nil {
+		return d.dlCtx
+	}
+	return context.Background()
+}
+
+// clearContextFor 清理该 URL 的注入上下文（Download 结束时）。
+func (d *SproxyCloudDownloader) clearContextFor(url string) {
+	d.ctxMu.Lock()
+	delete(d.urlCtx, url)
+	d.ctxMu.Unlock()
 }
 
 // Cancel 取消指定 URL 的进行中下载（manager 单对象取消/删除时经类型断言调用）。
@@ -300,14 +347,14 @@ func (d *SproxyCloudDownloader) unregisterCancel(url string) {
 	d.cancelMu.Unlock()
 }
 
-// Download 把 obj 的分享 URL 提交到 sproxy cloud download，轮询完成后移动产物。
+// Download 把 obj 的 URL 提交到 sproxy cloud download，轮询完成后转存/下载产物。
 //
 // headers 透传给 submit（sproxy 若需 Referer/UA 等下载头，不丢失）。
 //
-// 分享 URL 来源（按优先级）：
+// URL 来源（见 pickURL，按优先级）：
 //  1. obj.Extra.magnet_list 里的 keepshare 分享链接（与 gopeed collectPikPakCandidates 对齐）
 //  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
-//  3. obj.URL 本身是分享链接
+//  3. obj.URL 本身（**通用回落**：任意 URL 均可交给 sproxy，由其按 URL 自动发现后端）
 func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
 	// 配置校验（fail-closed，对抗性评审 P2-2/P2-3）：避免把分享 URL 投递给缺省地址
 	// 或半配置凭据静默全失败。
@@ -332,15 +379,16 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 		_ = d.ensureRotatedBeforeSubmit()
 	}
 	// 派生 per-URL 下载上下文：使 manager 的单对象取消（Cancel(url)）与
-	// 停机（SetContext 注入的 dlCtx）都能中断 submit/poll/pullback。
-	ctx, cancel := context.WithCancel(d.reqCtx())
+	// 停机（SetContext/SetContextFor 注入的 ctx）都能中断 submit/poll/pullback。
+	ctx, cancel := context.WithCancel(d.reqCtxFor(obj.URL))
 	defer cancel()
 	d.registerCancel(obj.URL, cancel)
 	defer d.unregisterCancel(obj.URL)
+	defer d.clearContextFor(obj.URL)
 
 	// 1. 提交任务；若上次已提交（Extra 有 cloud_task_id）则复用，避免重试（如 pullback
 	// 失败）时重复 submit 造成重复下载/转存（对抗性评审 P2-9：服务端仅对在途任务去重）。
-	taskID := extraString(obj, "cloud_task_id")
+	taskID := extraString(obj, extraKeyCloudTaskID)
 	if taskID != "" {
 		slog.Info("Sproxy cloud reuse existing task", "task_id", taskID, logutil.LogKeyURL, shareURL)
 	} else {
@@ -350,7 +398,7 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 		}
 		taskID = tid
 		slog.Info("Sproxy cloud task submitted", "task_id", taskID, logutil.LogKeyURL, shareURL)
-		setExtra(obj, "cloud_task_id", taskID) // 提交即落坐标，供重试复用
+		setExtra(obj, extraKeyCloudTaskID, taskID) // 提交即落坐标，供重试复用
 	}
 
 	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
@@ -367,7 +415,7 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 			setExtra(obj, "transfer_url", task.TransferURL)
 		}
 		if task.ID != "" {
-			setExtra(obj, "cloud_task_id", task.ID)
+			setExtra(obj, extraKeyCloudTaskID, task.ID)
 		}
 		if task.Filename != "" {
 			setExtra(obj, "cloud_task_filename", task.Filename)

@@ -30,6 +30,11 @@ func New(cfg config.Downloader) core.Downloader {
 		return NewGopeedDownloader(cfg)
 	case "sproxy_cloud":
 		return NewSproxyCloudDownloader(cfg.SproxyCloud)
+	case "sproxy_hybrid":
+		// 旧名（2026-10 更名）：hybrid 是 sproxy 侧 PikPak 策略名，不应出现在 dm 侧。
+		// 显式告警并映射到 sproxy_cloud，避免旧配置静默回落 native。
+		slog.Warn("downloader type sproxy_hybrid is renamed to sproxy_cloud; please update config")
+		return NewSproxyCloudDownloader(cfg.SproxyCloud)
 	default:
 		return newDownloaderFromConfig(cfg)
 	}

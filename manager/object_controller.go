@@ -46,11 +46,7 @@ func (oc *ObjectController) CancelTask(taskID string) error {
 		m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 		m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 		if _, active := m.downloadingObj.Load(obj.URL); active {
-			if c, ok := m.getDownloader().(interface {
-				Cancel(url string) error
-			}); ok {
-				_ = c.Cancel(obj.URL)
-			}
+			m.cancelObjectDownload(obj.URL)
 			m.downloadingObj.Delete(obj.URL)
 			m.mu.Lock()
 			if m.activeDownloads[taskID] > 0 {
@@ -101,11 +97,7 @@ func (oc *ObjectController) CancelObject(taskID, url string) error {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 	if _, active := m.downloadingObj.Load(obj.URL); active {
-		if c, ok := m.getDownloader().(interface {
-			Cancel(url string) error
-		}); ok {
-			_ = c.Cancel(obj.URL)
-		}
+		m.cancelObjectDownload(obj.URL)
 		m.downloadingObj.Delete(obj.URL)
 		m.mu.Lock()
 		if m.activeDownloads[taskID] > 0 {
@@ -378,11 +370,7 @@ func (oc *ObjectController) cancelActiveDownload(taskID, url string) {
 	if _, active := m.downloadingObj.Load(url); !active {
 		return
 	}
-	if c, ok := m.getDownloader().(interface {
-		Cancel(url string) error
-	}); ok {
-		_ = c.Cancel(url)
-	}
+	m.cancelObjectDownload(url)
 	m.downloadingObj.Delete(url)
 	m.mu.Lock()
 	if m.activeDownloads[taskID] > 0 {

@@ -115,6 +115,13 @@ type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
+// ContextInjecterFor 可选增强：按 URL 注入下载上下文。
+// 共享单实例的下载器在并发多对象下载时，单字段 SetContext 会被后启动的下载覆盖
+// （先启动者可能被「兄弟对象完成」误取消）；实现本接口可按对象隔离上下文。
+type ContextInjecterFor interface {
+	SetContextFor(url string, ctx context.Context)
+}
+
 // DomainLimiter 表示支持域名并发限制的下载器。
 type DomainLimiter interface {
 	ApplyDomainLimits(limits map[string]int)

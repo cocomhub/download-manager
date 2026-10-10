@@ -187,9 +187,13 @@ func (m *Manager) setCloudDownloader(dl core.Downloader) {
 	m.downloaderMu.Unlock()
 }
 
-// newCloudDownloader 按 sproxy_cloud 配置构建云端下载器；未配置 api_url 时返回 nil
-// （即不启用云端下载，避免无谓的启动验证开销）。
-func newCloudDownloader(cfg config.Downloader) core.Downloader {
+// newCloudDownloader 返回云端下载器；未启用时为 nil（避免无谓的启动验证开销）。
+// 当 cfg.Type 已是 sproxy_cloud 时，默认下载器本身就是云端实例 → 复用同一实例，
+// 避免同进程构造两个 SproxyCloudDownloader（双份 verifyOnStart/轮换/取消表）。
+func newCloudDownloader(cfg config.Downloader, def core.Downloader) core.Downloader {
+	if cfg.Type == "sproxy_cloud" {
+		return def
+	}
 	if cfg.SproxyCloud.APIURL == "" {
 		return nil
 	}
@@ -209,6 +213,29 @@ func (m *Manager) selectDownloader(obj *model.DownloadObject) core.Downloader {
 	return m.getDownloader()
 }
 
+// cancelObjectDownload 向可能正在处理该 URL 的下载器传播取消。
+// 按项路由后同一 URL 可能由默认下载器或云端下载器处理；对不持有该 URL 的实例
+// 调 Cancel 是安全 no-op（各自的 per-URL 取消表互不影响）。
+func (m *Manager) cancelObjectDownload(url string) {
+	if url == "" {
+		return
+	}
+	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+		if c, ok := dl.(interface{ Cancel(url string) error }); ok {
+			_ = c.Cancel(url)
+		}
+	}
+}
+
+// closeIdleConnections 关闭默认与云端下载器的空闲连接（停机/热更新）。
+func (m *Manager) closeIdleConnections() {
+	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+		if c, ok := dl.(interface{ CloseIdleConnections() }); ok {
+			c.CloseIdleConnections()
+		}
+	}
+}
+
 func NewManager(cfg *config.Config) *Manager {
 	// Initialize Mongo Clients if configured
 	var mongoConfigs []struct{ Name, URI string }
@@ -226,12 +253,13 @@ func NewManager(cfg *config.Config) *Manager {
 		globalLimit = 5 // Default
 	}
 
+	defDownloader := downloader.New(cfg.Downloader)
 	mgr := &Manager{
 		cfg:             cfg,
 		configSvc:       NewConfigService(cfg),
 		aggSvc:          NewAggregationService(nil, nil, nil, nil),
-		downloader:      downloader.New(cfg.Downloader),
-		cloudDownloader: newCloudDownloader(cfg.Downloader),
+		downloader:      defDownloader,
+		cloudDownloader: newCloudDownloader(cfg.Downloader, defDownloader),
 		stopChan:        make(chan struct{}),
 		workerStop:      make(chan struct{}, 256),
 		schedulerSignal: make(chan struct{}, 1),
@@ -668,8 +696,9 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Apply in-memory config
 	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
-	m.setDownloader(downloader.New(cfgCopy.Downloader))
-	m.setCloudDownloader(newCloudDownloader(cfgCopy.Downloader))
+	defDownloader := downloader.New(cfgCopy.Downloader)
+	m.setDownloader(defDownloader)
+	m.setCloudDownloader(newCloudDownloader(cfgCopy.Downloader, defDownloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
 	// 先清理旧配置中已移除的域名
 	cfg := m.currentCfg()

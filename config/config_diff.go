@@ -290,7 +290,7 @@ func diffFFmpegFields(c, b Config) []Change {
 		c.Downloader.Retry.BatchSize != b.Downloader.Retry.BatchSize {
 		changes = append(changes, Change{Path: "downloader.retry", A: c.Downloader.Retry, B: b.Downloader.Retry})
 	}
-	if shDiffHasChange(c.Downloader.SproxyCloud, b.Downloader.SproxyCloud) {
+	if sproxyCloudDiffHasChange(c.Downloader.SproxyCloud, b.Downloader.SproxyCloud) {
 		changes = append(changes, Change{
 			Path: "downloader.sproxy_cloud",
 			A:    sproxyCloudDiffView(c.Downloader.SproxyCloud),
@@ -300,9 +300,9 @@ func diffFFmpegFields(c, b Config) []Change {
 	return changes
 }
 
-// shDiffHasChange 判断 sproxy_cloud 配置是否发生可告警变化（含 secret 的「是否已配置」）。
+// sproxyCloudDiffHasChange 判断 sproxy_cloud 配置是否发生可告警变化（含 secret 的「是否已配置」）。
 // 不直接比较结构体：secret 字段只比较「是否非空」，避免把明文带进比较/展示。
-func shDiffHasChange(a, b SproxyCloudConfig) bool {
+func sproxyCloudDiffHasChange(a, b SproxyCloudConfig) bool {
 	return a.APIURL != b.APIURL ||
 		(a.APIToken != "") != (b.APIToken != "") ||
 		a.AccessKey != b.AccessKey ||
@@ -319,19 +319,19 @@ func shDiffHasChange(a, b SproxyCloudConfig) bool {
 // sproxyCloudDiffView 返回可安全写入 diff 的副本：AccessKeySecret/APIToken 不保留
 // 明文（置空），仅通过 has_access_key_secret/has_api_token 表达「是否已配置」的变更，
 // 避免配置 diff API/UI 回泄机密。
-func sproxyCloudDiffView(sh SproxyCloudConfig) map[string]any {
+func sproxyCloudDiffView(sc SproxyCloudConfig) map[string]any {
 	return map[string]any{
-		"api_url":               sh.APIURL,
-		"has_api_token":         sh.APIToken != "",
-		"access_key":            sh.AccessKey,
-		"has_access_key_secret": sh.AccessKeySecret != "",
-		"access_key_id":         sh.AccessKeyID,
-		"transfer_volume":       sh.TransferVolume,
-		"transfer_path":         sh.TransferPath,
-		"cloud_only":            sh.CloudOnly,
-		"poll_every":            sh.PollEvery,
-		"timeout":               sh.Timeout,
-		"client_timeout":        sh.ClientTimeout,
+		"api_url":               sc.APIURL,
+		"has_api_token":         sc.APIToken != "",
+		"access_key":            sc.AccessKey,
+		"has_access_key_secret": sc.AccessKeySecret != "",
+		"access_key_id":         sc.AccessKeyID,
+		"transfer_volume":       sc.TransferVolume,
+		"transfer_path":         sc.TransferPath,
+		"cloud_only":            sc.CloudOnly,
+		"poll_every":            sc.PollEvery,
+		"timeout":               sc.Timeout,
+		"client_timeout":        sc.ClientTimeout,
 	}
 }
 

@@ -14,26 +14,28 @@ import (
 
 const cloudDLObjectURL = "http://mock-download/file-0.bin"
 
-// readObjectCloudDownload 读取任务下指定 URL 的 cloud_download 标志（未找到返回 false）。
-func readObjectCloudDownload(t *testing.T, r http.Handler, taskID, objURL string) bool {
+// readObjectCloudDownload 读取任务下指定 URL 的 cloud_download 标志。
+// 返回 (found, enabled)：found=false 表示任务/对象尚未就绪（供轮询重试），
+// 避免「服务端出错 → 返回 false」使「关闭」断言假绿。
+func readObjectCloudDownload(t *testing.T, r http.Handler, taskID, objURL string) (bool, bool) {
 	t.Helper()
 	rr := doJSONGet(t, r, "/api/tasks/"+taskID)
 	if rr.Code != http.StatusOK {
-		return false
+		return false, false
 	}
 	var result map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
-		return false
+		return false, false
 	}
 	objects, _ := result["objects"].([]any)
 	for _, raw := range objects {
 		obj, _ := raw.(map[string]any)
 		if obj["url"] == objURL {
 			v, _ := obj["cloud_download"].(bool)
-			return v
+			return true, v
 		}
 	}
-	return false
+	return false, false
 }
 
 // TestAPI_SetObjectCloudDownload 验证下载项「云端下载」选项开关与回读（POST /api/tasks/{id}/object/cloud_download）。
@@ -58,12 +60,14 @@ func TestAPI_SetObjectCloudDownload(t *testing.T) {
 
 	post(true)
 	assert.MustEventually(t, func() bool {
-		return readObjectCloudDownload(t, r, taskID, cloudDLObjectURL)
+		found, enabled := readObjectCloudDownload(t, r, taskID, cloudDLObjectURL)
+		return found && enabled
 	}, 3*time.Second, 50*time.Millisecond, "cloud_download should become true")
 
 	post(false)
 	assert.MustEventually(t, func() bool {
-		return !readObjectCloudDownload(t, r, taskID, cloudDLObjectURL)
+		found, enabled := readObjectCloudDownload(t, r, taskID, cloudDLObjectURL)
+		return found && !enabled
 	}, 3*time.Second, 50*time.Millisecond, "cloud_download should become false")
 }
 

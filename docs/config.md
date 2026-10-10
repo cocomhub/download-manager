@@ -72,7 +72,7 @@ PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优�
 
 | 字段 | 说明 |
 |------|------|
-| `api_url` | sproxy cloud download API（默认 `http://127.0.0.1:8080/api/cloud/download`） |
+| `api_url` | sproxy cloud download API（**必填**；未配置则拒绝投递，不会发给缺省地址） |
 | `access_key` | SproxySig AccessKey |
 | `access_key_secret` | SproxySig AccessKeySecret（仅本地算签名，永不上线） |
 | `access_key_id` | SproxySig SK 条目 ID（`skey-id`，v2 必传） |

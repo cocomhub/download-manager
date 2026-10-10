@@ -336,16 +336,22 @@
       }).catch(function (e) { UiHelpers.showToast('撤销失败: ' + e.message, 'error') })
   }
 
+  // cloudToggleInFlight 防止并发点击导致的语义漂移（快速双击会两次都按「开」提交）。
+  var cloudToggleInFlight = {}
+
   function toggleObjectCloudDownload (state, obj) {
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     if (!state.selectedTaskId || !obj || !obj.url) return
+    if (cloudToggleInFlight[obj.url]) return
     var enabled = !obj.cloud_download
+    cloudToggleInFlight[obj.url] = true
     return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/cloud_download', { url: obj.url, enabled: enabled })
       .then(function (res) {
         if (!res.ok) throw new Error('设置失败')
         obj.cloud_download = enabled
         UiHelpers.showToast(enabled ? '已启用云端下载' : '已关闭云端下载', 'success')
       }).catch(function (e) { UiHelpers.showToast('设置云端下载失败: ' + e.message, 'error') })
+      .then(function () { delete cloudToggleInFlight[obj.url] })
   }
 
   function toggleTaskConfigPanel (state) {

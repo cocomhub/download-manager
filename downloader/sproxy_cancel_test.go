@@ -18,8 +18,14 @@ import (
 // （对抗性评审 P1-1：取消后不得让 worker 槽位被占满整个 timeout）。
 func TestSproxyCloud_CancelInterruptsPoll(t *testing.T) {
 	t.Parallel()
+	submitted := make(chan struct{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-submitted:
+		default:
+			close(submitted)
+		}
 		writeJSONResp(w, map[string]any{"id": "task-cancel", "status": "running", "filename": "m.mp4"})
 	})
 	// 任务恒 running（永不完成）→ 只有 Cancel 能终止 Download
@@ -40,8 +46,12 @@ func TestSproxyCloud_CancelInterruptsPoll(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- d.Download(obj, nil) }()
 
-	// 等 submit + 至少一次轮询发生
-	time.Sleep(300 * time.Millisecond)
+	// 等 submit 真正发生（之后 registerCancel 已登记），避免用 sleep 造成 flake
+	select {
+	case <-submitted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("submit did not happen")
+	}
 	if err := d.Cancel(obj.URL); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
@@ -55,12 +65,46 @@ func TestSproxyCloud_CancelInterruptsPoll(t *testing.T) {
 	}
 }
 
+// TestSproxyCloud_PerURLCtxIsolation 验证按 URL 注入的 ctx 互不覆盖：
+// 兄弟下载（共享实例）取消自己的 ctx 不得影响本对象的在途下载。
+func TestSproxyCloud_PerURLCtxIsolation(t *testing.T) {
+	t.Parallel()
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{APIURL: "http://127.0.0.1:1/x", APIToken: "t"})
+	ctxA, cancelA := context.WithCancel(t.Context())
+	ctxB, cancelB := context.WithCancel(t.Context())
+	defer cancelB()
+
+	// 模拟：兄弟下载已把共享字段覆盖为 A 的 ctx，而 B 按 URL 注入自己的 ctx
+	d.SetContext(ctxA)
+	d.SetContextFor("http://b", ctxB)
+	cancelA() // A 的下载结束 → 其 dlCancel 触发
+
+	if err := d.reqCtxFor("http://b").Err(); err != nil {
+		t.Fatalf("B 应使用按 URL 注入的 ctx，不应被 A 的取消影响: %v", err)
+	}
+	// 未按 URL 注入的 URL 回落进程级 ctx（已取消）
+	if err := d.reqCtxFor("http://c").Err(); err == nil {
+		t.Fatal("未注入 URL 应回落进程级 ctx（此时已取消）")
+	}
+	// 清理后回落
+	d.clearContextFor("http://b")
+	if err := d.reqCtxFor("http://b").Err(); err == nil {
+		t.Fatal("clearContextFor 后应回落进程级 ctx")
+	}
+}
+
 // TestSproxyCloud_SetContextCancelStopsPoll 验证注入 ctx 取消（停机 drain 场景）
 // 也能中断轮询。
 func TestSproxyCloud_SetContextCancelStopsPoll(t *testing.T) {
 	t.Parallel()
+	submitted := make(chan struct{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-submitted:
+		default:
+			close(submitted)
+		}
 		writeJSONResp(w, map[string]any{"id": "task-ctx", "status": "running", "filename": "m.mp4"})
 	})
 	mux.HandleFunc("GET /api/cloud/tasks/task-ctx", func(w http.ResponseWriter, r *http.Request) {
@@ -75,13 +119,17 @@ func TestSproxyCloud_SetContextCancelStopsPoll(t *testing.T) {
 		PollEvery: 500 * time.Millisecond,
 		Timeout:   30 * time.Second,
 	})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	d.SetContext(ctx)
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
 
 	done := make(chan error, 1)
 	go func() { done <- d.Download(obj, nil) }()
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-submitted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("submit did not happen")
+	}
 	cancel() // 模拟停机 drain
 
 	select {

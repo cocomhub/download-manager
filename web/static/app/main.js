@@ -539,7 +539,7 @@
           }
           if (this.selectedTask && this.selectedTask.objects) {
             var currentObj = this.selectedTask.objects.find(function (o) { return o.url === obj.url })
-            if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata }
+            if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata; if (obj.cloud_download !== undefined) currentObj.cloud_download = obj.cloud_download }
           }
           if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
             var objType = (obj && typeof obj.type === 'string') ? obj.type : null

@@ -4,9 +4,11 @@
 package manager
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
+	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/storage"
 )
@@ -98,6 +100,86 @@ func TestSetObjectCloudDownload_Manager(t *testing.T) {
 	}
 	if got2.IsCloudDownload() {
 		t.Fatal("cloud_download 应已关闭")
+	}
+}
+
+// TestNewCloudDownloader_Gating 验证云端下载器构建门控与实例复用。
+func TestNewCloudDownloader_Gating(t *testing.T) {
+	t.Parallel()
+	def := &namedDL{name: "default"}
+
+	t.Run("type_sproxy_cloud_复用默认实例", func(t *testing.T) {
+		t.Parallel()
+		got := newCloudDownloader(config.Downloader{Type: "sproxy_cloud"}, def)
+		if got != core.Downloader(def) {
+			t.Fatal("type=sproxy_cloud 时应复用默认下载器实例（避免双实例）")
+		}
+	})
+	t.Run("未配置api_url_返回nil", func(t *testing.T) {
+		t.Parallel()
+		if got := newCloudDownloader(config.Downloader{}, def); got != nil {
+			t.Fatal("未配置 api_url 应为 nil（不启用云端下载）")
+		}
+	})
+	t.Run("配置api_url_新建实例", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.Downloader{SproxyCloud: config.SproxyCloudConfig{APIURL: "http://127.0.0.1:8080/api/cloud/download"}}
+		got := newCloudDownloader(cfg, def)
+		if got == nil || got == core.Downloader(def) {
+			t.Fatal("配置 api_url 应新建云端下载器实例")
+		}
+	})
+}
+
+// cancelRecDL 记录 Cancel 调用的假下载器。
+type cancelRecDL struct {
+	name string
+	mu   sync.Mutex
+	got  []string
+}
+
+func (d *cancelRecDL) Download(*model.DownloadObject, map[string]string) error { return nil }
+func (d *cancelRecDL) Name() string                                            { return d.name }
+func (d *cancelRecDL) Cancel(url string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.got = append(d.got, url)
+	return nil
+}
+func (d *cancelRecDL) cancelled() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.got...)
+}
+
+// TestCancelObject_RoutesToCloudDownloader 验证按项路由后取消/删除能传到云端下载器
+// （否则云端 poll/pullback 持续到 timeout，worker 槽位被占）。
+func TestCancelObject_RoutesToCloudDownloader(t *testing.T) {
+	t.Parallel()
+	ms, err := storage.NewMemoryStorage(nil)
+	if err != nil {
+		t.Fatalf("NewMemoryStorage: %v", err)
+	}
+	obj := &model.DownloadObject{TaskID: "t-cc", URL: "http://example.com/cc"}
+	obj.SetStatus(model.StatusDownloading)
+	obj.SetCloudDownload(true)
+	if err := ms.Update(obj); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	m := NewManager(&config.Config{})
+	m.tasks.Store("t-cc", &mockTaskWithStorage{id: "t-cc", typ: "mock", st: ms})
+	def := &cancelRecDL{name: "default"}
+	cloud := &cancelRecDL{name: "cloud"}
+	m.setDownloader(def)
+	m.setCloudDownloader(cloud)
+	m.downloadingObj.Store(obj.URL, struct{}{})
+
+	if err := m.CancelObject("t-cc", obj.URL); err != nil {
+		t.Fatalf("CancelObject: %v", err)
+	}
+	if got := cloud.cancelled(); len(got) != 1 || got[0] != obj.URL {
+		t.Fatalf("云端下载器未收到 Cancel: %v", got)
 	}
 }
 

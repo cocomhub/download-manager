@@ -77,3 +77,24 @@ test('toggleObjectCloudDownload: 服务端失败 → 不置位并提示错误', 
   assert.strictEqual(obj.cloud_download, undefined)
   assert.ok(calls.some(function (c) { return c[0] === 'toast' && c[2] === 'error' }))
 })
+
+test('toggleObjectCloudDownload: 并发点击只提交一次（in-flight 防重）', async () => {
+  calls.length = 0
+  let resolvePost = null
+  const origPost = global.AppAPI.post
+  global.AppAPI.post = function (url, body) {
+    calls.push(['post', url, body])
+    return new Promise(function (resolve) {
+      resolvePost = function () { resolve({ ok: true, json: function () { return Promise.resolve({}) } }) }
+    })
+  }
+  const obj = { url: 'http://x/5' }
+  const st = newState(obj)
+  const p1 = UiTaskList.toggleObjectCloudDownload(st, obj)
+  const p2 = UiTaskList.toggleObjectCloudDownload(st, obj)
+  assert.strictEqual(calls.filter(function (c) { return c[0] === 'post' }).length, 1)
+  resolvePost()
+  await Promise.all([p1, p2])
+  global.AppAPI.post = origPost
+  assert.strictEqual(obj.cloud_download, true)
+})

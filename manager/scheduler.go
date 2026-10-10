@@ -135,10 +135,8 @@ func (m *Manager) Stop(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
-	// 2. Close idle connections on the transport
-	if dl, ok := m.getDownloader().(interface{ CloseIdleConnections() }); ok {
-		dl.CloseIdleConnections()
-	}
+	// 2. Close idle connections on the transports（默认 + 云端）
+	m.closeIdleConnections()
 
 	// 3. Wait for workers and force-downloads with context deadline
 	done := make(chan struct{})

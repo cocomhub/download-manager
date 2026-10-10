@@ -151,13 +151,14 @@ func (o *DownloadObject) Snapshot() *DownloadObject {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	snap := &DownloadObject{
-		TaskID:   o.TaskID,
-		URL:      o.URL,
-		ID:       o.ID,
-		SavePath: o.SavePath,
-		Status:   o.Status,
-		Progress: o.Progress,
-		Version:  o.Version,
+		TaskID:        o.TaskID,
+		URL:           o.URL,
+		ID:            o.ID,
+		SavePath:      o.SavePath,
+		Status:        o.Status,
+		Progress:      o.Progress,
+		Version:       o.Version,
+		CloudDownload: o.CloudDownload,
 	}
 	if o.Metadata != nil {
 		snap.Metadata = maps.Clone(o.Metadata)
