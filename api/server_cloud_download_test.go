@@ -45,9 +45,12 @@ func TestAPI_SetObjectCloudDownload(t *testing.T) {
 	startAPIManager(t, srv)
 
 	const taskID = "mock-cloud-dl"
+	// 必须轮询到「目标对象已就绪」：任务端点 200 不代表对象已 seed 完成
+	// （AGENTS：测试不假设 seed 在 startAPIManager 返回时完成）。
 	assert.MustEventually(t, func() bool {
-		return doJSONGet(t, r, "/api/tasks/"+taskID).Code == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "wait for task objects to be ready")
+		found, _ := readObjectCloudDownload(t, r, taskID, cloudDLObjectURL)
+		return found
+	}, 5*time.Second, 50*time.Millisecond, "wait for target object to be seeded")
 
 	post := func(enabled bool) {
 		t.Helper()
