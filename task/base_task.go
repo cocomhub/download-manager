@@ -164,11 +164,17 @@ func (b *BaseTask) persistObject(obj *model.DownloadObject) error {
 	if !ok {
 		return b.store.Update(obj)
 	}
-	err := updater.UpdateFields(obj.URL, map[string]any{
-		"status":   obj.GetStatus(),
-		"progress": obj.GetProgress(),
-		"metadata": obj.Metadata,
-		"extra":    obj.Extra,
+	// 必须经 Snapshot：BSON 编码会迭代 Metadata/Extra，直接传活引用会与并发写方
+	// （applySharedState / SetMedia 等）触发 "concurrent map iteration and map write"
+	// —— 这正是 MongoStorage.Update 使用 Snapshot 的原因。Snapshot 在 RLock 下深拷贝。
+	// 同时带上 version：否则版本升级结果在 mongo 上不落库（永不收敛）。
+	snap := obj.Snapshot()
+	err := updater.UpdateFields(snap.URL, map[string]any{
+		"status":   snap.Status,
+		"progress": snap.Progress,
+		"metadata": snap.Metadata,
+		"extra":    snap.Extra,
+		"version":  snap.Version,
 	})
 	if errors.Is(err, core.ErrObjectNotFound) {
 		return b.store.Update(obj)

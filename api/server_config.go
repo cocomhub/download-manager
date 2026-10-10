@@ -241,7 +241,7 @@ func mergeRedactedProxies(incoming, current []string) []string {
 // redactUserinfoFallback 处理 url.Parse 不识别 userinfo 的形态（如无 scheme 的
 // "user:pass@host:8080"）：按第一个 @ 前的最后一段作为密码掩码。
 func redactUserinfoFallback(raw string) string {
-	i := strings.Index(raw, "@")
+	i := strings.LastIndex(raw, "@") // 与 url.Parse 取最后 userinfo 的语义一致
 	if i <= 0 {
 		return raw
 	}

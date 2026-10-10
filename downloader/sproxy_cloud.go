@@ -252,7 +252,9 @@ func (d *SproxyCloudDownloader) Name() string { return "sproxy_cloud" }
 // 时 strings.Replace 误切 URL（对抗性评审 P2-1）。
 func (d *SproxyCloudDownloader) statusURL(taskID string) string {
 	if u, err := url.Parse(d.apiURL); err == nil && u.Host != "" {
-		return u.Scheme + "://" + u.Host + cloudTasksPath + url.PathEscape(taskID)
+		// 保留反代路径前缀（api_url 可能形如 https://host/sproxy/api/cloud/download）
+		prefix := strings.TrimSuffix(u.Path, cloudDownloadPath)
+		return u.Scheme + "://" + u.Host + prefix + cloudTasksPath + url.PathEscape(taskID)
 	}
 	base := d.apiBase()
 	return base + cloudTasksPath + url.PathEscape(taskID)
@@ -796,6 +798,10 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// errRotateRateLimited 表示主动轮换被 1h 限频挡住（未真正换 SK）。401 应急路径据此
+// 放弃「用旧 SK 继续重试」，避免白耗有限重试次数后仍失败。
+var errRotateRateLimited = errors.New("rotate rate limited")
+
 // errCloudTaskTerminal 表示 sproxy 侧任务进入终态失败（failed/error/cancelled）：
 // 该 cloud_task_id 已失效，重试必须重新提交而非复用。
 var errCloudTaskTerminal = errors.New("cloud task terminal status")
@@ -861,7 +867,7 @@ func (d *SproxyCloudDownloader) rotateOnce() error {
 	now := d.now()
 	// 近期已轮换（1h 内）→ 复用结果，不重复 renew（并发等待者在此路径返回）。
 	if !d.lastRotate.IsZero() && now.Sub(d.lastRotate) < rotateIntervalGap {
-		return nil
+		return errRotateRateLimited
 	}
 	res, err := d.sig.RenewAccessKey(d.reqCtx())
 	if err != nil {

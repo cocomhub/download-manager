@@ -113,14 +113,18 @@ func TestNewCloudDownloader_Gating(t *testing.T) {
 
 	t.Run("type_sproxy_cloud_复用默认实例", func(t *testing.T) {
 		t.Parallel()
-		got := newCloudDownloader(config.Downloader{Type: "sproxy_cloud"}, def)
+		cfg := config.Downloader{Type: "sproxy_cloud"}
+		cfg.SproxyCloud.APIURL = "http://127.0.0.1:8080/api/cloud/download"
+		got := newCloudDownloader(cfg, def)
 		if got != core.Downloader(def) {
 			t.Fatal("type=sproxy_cloud 时应复用默认下载器实例（避免双实例）")
 		}
 	})
 	t.Run("legacy别名_sproxy_hybrid_也复用默认实例", func(t *testing.T) {
 		t.Parallel()
-		got := newCloudDownloader(config.Downloader{Type: "sproxy_hybrid"}, def)
+		cfg := config.Downloader{Type: "sproxy_hybrid"}
+		cfg.SproxyCloud.APIURL = "http://127.0.0.1:8080/api/cloud/download"
+		got := newCloudDownloader(cfg, def)
 		if got != core.Downloader(def) {
 			t.Fatal("legacy 别名应同样复用默认实例（否则仍构造两个云端实例）")
 		}
@@ -129,6 +133,10 @@ func TestNewCloudDownloader_Gating(t *testing.T) {
 		t.Parallel()
 		if got := newCloudDownloader(config.Downloader{}, def); got != nil {
 			t.Fatal("未配置 api_url 应为 nil（不启用云端下载）")
+		}
+		// type=sproxy_cloud 但未配 api_url：能力位不得谎报可用（投递必被拒）
+		if got := newCloudDownloader(config.Downloader{Type: "sproxy_cloud"}, def); got != nil {
+			t.Fatal("type=sproxy_cloud 且未配 api_url 也应为 nil")
 		}
 	})
 	t.Run("配置api_url_新建实例", func(t *testing.T) {

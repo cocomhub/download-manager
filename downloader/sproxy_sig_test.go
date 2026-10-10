@@ -682,8 +682,8 @@ func TestSproxyCloud_Submit401LimitedRetry(t *testing.T) {
 	if sErr == nil {
 		t.Fatal("submit should fail after 401 retries exhausted")
 	}
-	// renew 最多 maxSubmitRetry 次（2），不无限递归
-	if renewCount.Load() > 2 {
-		t.Fatalf("renew called = %d, want <=2 (limited retry)", renewCount.Load())
+	// renew 至少 1 次（真的尝试过轮换）、最多 maxSubmitRetry 次（2），不无限递归
+	if n := renewCount.Load(); n < 1 || n > 2 {
+		t.Fatalf("renew called = %d, want 1..2 (limited retry)", n)
 	}
 }

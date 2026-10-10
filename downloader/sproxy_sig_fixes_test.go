@@ -227,8 +227,9 @@ func TestSproxyCloud_PollPersistent401RotationCapped(t *testing.T) {
 	if time.Since(start) > 5*time.Second {
 		t.Fatalf("poll took too long: %v", time.Since(start))
 	}
-	if renewCount.Load() > 3 {
-		t.Fatalf("renew called = %d, want capped (<=3) to avoid credential storm", renewCount.Load())
+	// 至少 1 次（真的尝试过轮换）、最多 3 次（避免凭据风暴）
+	if n := renewCount.Load(); n < 1 || n > 3 {
+		t.Fatalf("renew called = %d, want 1..3 (capped to avoid credential storm)", n)
 	}
 }
 

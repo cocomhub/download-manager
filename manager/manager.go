@@ -217,11 +217,12 @@ func (m *Manager) setDownloaders(def, cloud core.Downloader) {
 // 当 cfg.Type 已是 sproxy_cloud 时，默认下载器本身就是云端实例 → 复用同一实例，
 // 避免同进程构造两个 SproxyCloudDownloader（双份 verifyOnStart/轮换/取消表）。
 func newCloudDownloader(cfg config.Downloader, def core.Downloader) core.Downloader {
+	if cfg.SproxyCloud.APIURL == "" {
+		// 未配 api_url：无论 type 为何都不算「云端可用」（否则能力位谎报、UI 可点但投递必被拒）
+		return nil
+	}
 	if downloader.IsCloudType(cfg.Type) {
 		return def
-	}
-	if cfg.SproxyCloud.APIURL == "" {
-		return nil
 	}
 	return downloader.NewSproxyCloudDownloader(cfg.SproxyCloud)
 }
