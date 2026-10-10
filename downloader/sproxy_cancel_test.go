@@ -252,14 +252,16 @@ func TestSproxyCloud_TryReverifyConcurrentWaitsForInflight(t *testing.T) {
 	const ak, skid = "ak-wait", "skey-wait000001"
 	sk := strings.Repeat("4", 64)
 	var calls atomic.Int64
+	entered := make(chan struct{}) // 验证请求已进入 handler
+	gate := make(chan struct{})    // 由测试放行，制造确定性重叠窗口（不用 sleep）
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/credentials/"+ak+"/sk", func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
 			http.Error(w, "down", http.StatusInternalServerError) // 构造期启动验证失败
 			return
 		}
-		// 拉长窗口以制造并发重叠（断言仍是确定的）
-		time.Sleep(150 * time.Millisecond)
+		close(entered)
+		<-gate
 		writeJSONResp(w, map[string]any{
 			"ak": ak, "total": 1, "admin": false,
 			"sk": []map[string]any{{
@@ -281,14 +283,22 @@ func TestSproxyCloud_TryReverifyConcurrentWaitsForInflight(t *testing.T) {
 	if d.verified.Load() {
 		t.Fatal("构造期验证应失败")
 	}
+
 	res := make([]bool, 4)
 	var wg sync.WaitGroup
-	for i := range res {
-		wg.Go(func() {
-			res[i] = d.tryReverify()
-		})
+	wg.Go(func() { res[0] = d.tryReverify() }) // leader：进入 verifyOnStart 后阻塞在 gate
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("验证请求未进入 handler")
 	}
+	// 其余调用落在「验证在途」窗口内：应等待而非返回陈旧 false
+	for i := 1; i < len(res); i++ {
+		wg.Go(func() { res[i] = d.tryReverify() })
+	}
+	close(gate)
 	wg.Wait()
+
 	for i, v := range res {
 		if !v {
 			t.Fatalf("并发懒重验应返回最新结果 true, res[%d]=false", i)

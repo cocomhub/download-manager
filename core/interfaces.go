@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/model"
@@ -115,12 +116,23 @@ type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
+// ErrObjectNotFound 表示局部更新未命中任何文档（对象尚未落库或已被删除）。
+// 调用方可据此回落到整对象 Update（upsert）。
+var ErrObjectNotFound = errors.New("object not found")
+
 // ObjectFieldUpdater 可选：只更新指定字段，避免「读最新 → 整文档 $set」的读-改-写窗口
 // （mongo 下该窗口会用陈旧快照覆盖下载器并发写入的 status/progress）。
 // 未实现该接口的存储回落为整对象 Update。
 type ObjectFieldUpdater interface {
-	// UpdateFields 按键值对局部更新（键为存储字段名，如 cloud_download）。
+	// UpdateFields 按键值对局部更新（键须在白名单内，见 AllowedUpdateFields）。
+	// 未命中文档时返回 ErrObjectNotFound（调用方回落整对象 Update 以完成首次写入）。
 	UpdateFields(id string, fields map[string]any) error
+}
+
+// AllowedUpdateFields 是局部更新的字段白名单：避免 $ / . 等键注入或误写非预期字段。
+var AllowedUpdateFields = map[string]bool{
+	"status": true, "progress": true, "metadata": true, "extra": true,
+	"cloud_download": true, "version": true,
 }
 
 // ObjectOptionSyncer 可选：把存储层的下载项选项变更同步到任务运行时对象。

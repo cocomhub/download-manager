@@ -146,10 +146,21 @@ func (s *MongoStorage) UpdateFields(id string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
 	}
+	for k := range fields {
+		if !core.AllowedUpdateFields[k] {
+			return fmt.Errorf("UpdateFields: field %q not allowed", k)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := s.collection.UpdateOne(ctx, bson.M{"url": id}, bson.M{"$set": fields})
-	return err
+	res, err := s.collection.UpdateOne(ctx, bson.M{"url": id}, bson.M{"$set": fields})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("%w: %s", core.ErrObjectNotFound, id)
+	}
+	return nil
 }
 
 func (s *MongoStorage) Delete(id string) error {

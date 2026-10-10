@@ -57,6 +57,10 @@ func mongoTestStorage(t *testing.T, collection string) *MongoStorage {
 	if err != nil {
 		t.Fatalf("failed to create mongo storage: %v", err)
 	}
+	// 复用外部容器时清理本用例的库，避免累积 dm_it_*
+	t.Cleanup(func() {
+		_ = st.collection.Database().Drop(context.Background())
+	})
 	return st
 }
 
@@ -359,6 +363,42 @@ func TestMongoStorage_UpdateFieldsPartial(t *testing.T) {
 	}
 	if got.GetStatus() != "downloading" || got.GetProgress() != 42 {
 		t.Fatalf("局部更新覆盖了其它字段: status=%s progress=%d", got.GetStatus(), got.GetProgress())
+	}
+}
+
+// TestMongoStorage_StatusPartialUpdateKeepsOption 验证「状态局部更新」不会回退 per-object 选项
+// （根治：BaseTask.persistObject 对实现 ObjectFieldUpdater 的存储改走局部更新，
+// 陈旧运行时副本不再整文档覆盖 cloud_download）。
+func TestMongoStorage_StatusPartialUpdateKeepsOption(t *testing.T) {
+	st := mongoTestStorage(t, "stale_opt")
+	const u = "http://example.com/stale"
+
+	obj := &model.DownloadObject{TaskID: "t-stale", URL: u, SavePath: "/tmp/stale", Status: "pending"}
+	if err := st.Update(obj); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := st.UpdateFields(u, map[string]any{"cloud_download": true}); err != nil {
+		t.Fatalf("UpdateFields(cloud_download): %v", err)
+	}
+
+	// 模拟陈旧运行时副本的状态写入（只写状态字段）
+	if err := st.UpdateFields(u, map[string]any{"status": "downloading", "progress": 7}); err != nil {
+		t.Fatalf("UpdateFields(status): %v", err)
+	}
+	got, err := st.Get(u)
+	if err != nil || got == nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.IsCloudDownload() {
+		t.Fatal("状态局部更新回退了 per-object 选项")
+	}
+	if got.GetStatus() != "downloading" || got.GetProgress() != 7 {
+		t.Fatalf("状态未写入: status=%s progress=%d", got.GetStatus(), got.GetProgress())
+	}
+
+	// 白名单校验：非白名单字段必须被拒绝
+	if err := st.UpdateFields(u, map[string]any{"not_allowed": 1}); err == nil {
+		t.Fatal("非白名单字段应被拒绝")
 	}
 }
 

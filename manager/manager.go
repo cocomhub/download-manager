@@ -452,14 +452,19 @@ func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*m
 
 // forEachObjectBatch 以固定批大小（默认 200）流式遍历任务对象，逐批执行 fn，
 // 不一次性收集全量（避免大任务启动/查询内存峰值）。
+//
+// 分页策略：始终取第 0 页（而非递增 offset）。调用方（ID 回填 / 版本升级）的谓词随处理
+// 收敛——处理过的对象离开结果集，递增 offset 会因结果集左移而**跳过**未处理对象；
+// 恒取第 0 页则自然收敛。用 seen 集合兜底：某轮无新对象（谓词未收敛，如升级失败）即退出，
+// 避免死循环。
 func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batchSize int64, fn func(*model.DownloadObject) error) error {
 	if batchSize <= 0 {
 		batchSize = 200
 	}
-	var offset int64
+	seen := make(map[string]struct{})
 	for {
 		pageQuery := cloneStorageQuery(query)
-		pageQuery.Offset = offset
+		pageQuery.Offset = 0
 		pageQuery.Limit = batchSize
 		chunk, err := m.searchTaskObjects(t, pageQuery)
 		if err != nil {
@@ -468,15 +473,21 @@ func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batc
 		if len(chunk) == 0 {
 			return nil
 		}
+		progressed := false
 		for _, o := range chunk {
+			if _, ok := seen[o.URL]; ok {
+				continue
+			}
+			seen[o.URL] = struct{}{}
+			progressed = true
 			if err := fn(o); err != nil {
 				return err
 			}
 		}
-		if int64(len(chunk)) < batchSize {
+		if !progressed {
+			// 结果集未收敛（对象仍满足谓词）→ 结束，避免无限循环
 			return nil
 		}
-		offset += int64(len(chunk))
 	}
 }
 

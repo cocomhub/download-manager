@@ -5,6 +5,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -156,6 +157,25 @@ func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err er
 	return b.updateStatusLocked(obj, status, err)
 }
 
+// persistObject 持久化对象：优先局部更新状态字段（避免用陈旧副本整文档覆盖
+// per-object 选项，如云端下载开关）；首次写入（尚未落库）时回落整对象 upsert。
+func (b *BaseTask) persistObject(obj *model.DownloadObject) error {
+	updater, ok := b.store.(core.ObjectFieldUpdater)
+	if !ok {
+		return b.store.Update(obj)
+	}
+	err := updater.UpdateFields(obj.URL, map[string]any{
+		"status":   obj.GetStatus(),
+		"progress": obj.GetProgress(),
+		"metadata": obj.Metadata,
+		"extra":    obj.Extra,
+	})
+	if errors.Is(err, core.ErrObjectNotFound) {
+		return b.store.Update(obj)
+	}
+	return err
+}
+
 // updateStatusLocked 是 UpdateStatus 的内部实现，调用者必须持有 b.mu。
 func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, err error) error {
 	obj.SetStatus(status)
@@ -168,7 +188,7 @@ func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, 
 
 	var storeErr error
 	if b.store != nil {
-		storeErr = b.store.Update(obj)
+		storeErr = b.persistObject(obj)
 		if storeErr != nil {
 			b.logger.Error("Failed to update storage", logutil.LogKeyError, storeErr)
 		}

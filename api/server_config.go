@@ -238,6 +238,24 @@ func mergeRedactedProxies(incoming, current []string) []string {
 	return out
 }
 
+// redactUserinfoFallback 处理 url.Parse 不识别 userinfo 的形态（如无 scheme 的
+// "user:pass@host:8080"）：按第一个 @ 前的最后一段作为密码掩码。
+func redactUserinfoFallback(raw string) string {
+	i := strings.Index(raw, "@")
+	if i <= 0 {
+		return raw
+	}
+	head := raw[:i]
+	if strings.ContainsAny(head, "/?#") {
+		return raw // @ 出现在路径里，不是 userinfo
+	}
+	j := strings.LastIndex(head, ":")
+	if j < 0 {
+		return raw
+	}
+	return head[:j+1] + redactedPassword + raw[i:]
+}
+
 // redactedPassword 是脱敏视图中密码的占位符。
 const redactedPassword = "***"
 
@@ -246,8 +264,11 @@ const redactedPassword = "***"
 // 同 host 不同用户名的条目也因用户名不同而不会互相错配。解析失败/无 userinfo 时原样返回。
 func redactURLUserinfo(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
+	if err != nil {
+		return redactUserinfoFallback(raw)
+	}
+	if u.User == nil {
+		return redactUserinfoFallback(raw)
 	}
 	user := u.User.Username()
 	u.User = nil

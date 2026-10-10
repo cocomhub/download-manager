@@ -5,6 +5,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -88,7 +89,7 @@ func (oc *ObjectController) CancelObject(taskID, url string) error {
 		return err
 	}
 	if obj == nil {
-		return fmt.Errorf("object not found")
+		return fmt.Errorf("%w", errObjectNotFound)
 	}
 	if obj.GetStatus() == model.StatusCompleted {
 		return fmt.Errorf("object already completed, use delete to remove it")
@@ -125,7 +126,7 @@ func (oc *ObjectController) UndoCancelObject(taskID, url string) error {
 		return err
 	}
 	if obj == nil {
-		return fmt.Errorf("object not found")
+		return fmt.Errorf("%w", errObjectNotFound)
 	}
 	if obj.GetStatus() != model.StatusCancelled {
 		return fmt.Errorf("object status is not cancelled")
@@ -193,13 +194,18 @@ func (oc *ObjectController) SetObjectCloudDownload(taskID, url string, enabled b
 		return err
 	}
 	if obj == nil {
-		return fmt.Errorf("object not found")
+		return fmt.Errorf("%w", errObjectNotFound)
 	}
 	obj.SetCloudDownload(enabled)
 	if updater, ok := t.Storage().(core.ObjectFieldUpdater); ok {
 		// 局部更新：避免整文档 $set 的读-改-写窗口覆盖并发写入的状态
-		if err := updater.UpdateFields(url, map[string]any{"cloud_download": enabled}); err != nil {
+		if err := updater.UpdateFields(url, map[string]any{"cloud_download": enabled}); err != nil &&
+			!errors.Is(err, core.ErrObjectNotFound) {
 			return err
+		} else if errors.Is(err, core.ErrObjectNotFound) {
+			if err := t.Storage().Update(obj); err != nil {
+				return err
+			}
 		}
 	} else if err := t.Storage().Update(obj); err != nil {
 		return err
@@ -249,7 +255,7 @@ func (oc *ObjectController) RetryObject(taskID, url string) error {
 		m.getOrCreateMetrics(t.ID()).retried.Add(1)
 		return nil
 	}
-	return fmt.Errorf("object not found")
+	return fmt.Errorf("%w", errObjectNotFound)
 }
 
 // RetryAllFailed resets all failed objects in a task。

@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -628,7 +629,12 @@ func (s *Server) setObjectCloudDownload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.mgr.SetObjectCloudDownload(id, req.URL, req.Enabled); err != nil {
-		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
+		// 任务/对象不存在属客户端错误；存储故障（mongo 不可用等）应回 5xx 以便区分
+		if errors.Is(err, manager.ErrTaskNotFound) || errors.Is(err, manager.ErrObjectNotFound) {
+			writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
 		return
 	}
 	w.WriteHeader(http.StatusOK)

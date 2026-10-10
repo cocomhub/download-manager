@@ -5,6 +5,10 @@
 
 import { test, expect } from '@playwright/test';
 
+// 本文件的用例都会改写**共享运行服务**的配置（保存即重建下载器）。文件内串行执行，
+// 且每个用例开始前用 openConfigModal 归位弹窗状态，避免相互干扰。
+test.describe.configure({ mode: 'serial' })
+
 test.describe('Config Management', () => {
   // openConfigModal 确保弹窗先关闭再打开（避免相邻用例残留的打开状态使 click 变成关闭）。
   async function openConfigModal(page: import('@playwright/test').Page) {
