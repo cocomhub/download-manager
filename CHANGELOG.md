@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.7.0](https://github.com/cocomhub/download-manager/compare/v0.6.0...v0.7.0) (2026-10-10)
+
+
+### Added
+
+* **cli:** pikget 类 wget 下载器——URL 自动分发/直链+PikPak 混合下载/GCID 校验/进度/续传 ([#172](https://github.com/cocomhub/download-manager/issues/172)) ([54666b9](https://github.com/cocomhub/download-manager/commit/54666b913effb1f14916b2f4dac65b885b980f8b))
+* **downloader:** gopeed 下载器 + PikPak 免登录直链 + 状态持久化 ([04adde4](https://github.com/cocomhub/download-manager/commit/04adde4a463e7400c12049ee99d08bfde59532b8))
+* **downloader:** gopeed 下载器后端支持磁力/直链 ([#163](https://github.com/cocomhub/download-manager/issues/163)) ([ec861ee](https://github.com/cocomhub/download-manager/commit/ec861ee0793d5559b7be14b15a98d696a6843f10))
+* **downloader:** gopeed 支持 PikPak 分享免登录直链下载 ([#164](https://github.com/cocomhub/download-manager/issues/164)) ([93950a2](https://github.com/cocomhub/download-manager/commit/93950a2c4274d874e6219f62b5ab20a180a77b3b))
+* **downloader:** sproxy_cloud 云端下载后端——下载项级云端选项 + SproxySig 认证 + mongo 验证 ([#171](https://github.com/cocomhub/download-manager/issues/171)) ([8b392d4](https://github.com/cocomhub/download-manager/commit/8b392d46dd9c67e64bfc51e1438162240175718d))
+* **downloader:** sproxy_hybrid 混合下载后端——分享 URL 提交 sproxy 混合下载 ([#170](https://github.com/cocomhub/download-manager/issues/170)) ([3bb5de8](https://github.com/cocomhub/download-manager/commit/3bb5de861403f3d8dcd2dc974b54c4bba31e8027))
+* **m3u8d:** 下载后默认校验分片，两致对接重发保证可靠性 ([#160](https://github.com/cocomhub/download-manager/issues/160)) ([277e05e](https://github.com/cocomhub/download-manager/commit/277e05e1cedebdd14d3102b5d78e62b6bde5a9f9))
+* **manager:** 下载顺序化（任务内串行）配置开关 ([#169](https://github.com/cocomhub/download-manager/issues/169)) ([5dc9351](https://github.com/cocomhub/download-manager/commit/5dc935146e083c919304db03d740e2758723fafe))
+
+
+### Fixed
+
+* **downloader:** gopeed 磁力候选按大小降序尝试 + 唯一文件兜底 ([#168](https://github.com/cocomhub/download-manager/issues/168)) ([5e10c3a](https://github.com/cocomhub/download-manager/commit/5e10c3a807117d9d865997919e27dec863dcf2d8))
+* **downloader:** gopeed 非磁力/非 PikPak URL 明确报错，不下页面 ([#166](https://github.com/cocomhub/download-manager/issues/166)) ([ca511f1](https://github.com/cocomhub/download-manager/commit/ca511f129b4b519dcdd84ab7a0d0b72c45533fbd))
+* **download:** MD5 无法比较时重复下载至两份一致，保证文件可靠 ([#167](https://github.com/cocomhub/download-manager/issues/167)) ([cb33c72](https://github.com/cocomhub/download-manager/commit/cb33c726dfe4bf988f2a13e1ed3a85c649820baa))
+* **manager:** 版本升级写回前合并最新状态，进度/状态不被旧快照覆盖 ([#162](https://github.com/cocomhub/download-manager/issues/162)) ([70518c2](https://github.com/cocomhub/download-manager/commit/70518c27c7c1a42e436f726e9bfdfed110e521ce))
+
 ## [0.6.0](https://github.com/cocomhub/download-manager/compare/v0.5.0...v0.6.0) (2026-09-29)
 
 
