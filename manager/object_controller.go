@@ -173,7 +173,13 @@ func (oc *ObjectController) UpdateObjectTags(taskType string, id int64, tags []s
 		return fmt.Errorf("object not found by type %q and id %d", taskType, id)
 	}
 	obj.SetTags(tags)
-	if err := task.Storage().Update(obj); err != nil {
+	if updater, ok := task.Storage().(core.ObjectFieldUpdater); ok {
+		// 局部更新 metadata（标签存于其中）：避免整文档 $set 用陈旧副本回退 per-object 选项
+		if err := updater.UpdateFields(obj.URL, map[string]any{"metadata": obj.Metadata}); err != nil &&
+			!errors.Is(err, core.ErrObjectNotFound) {
+			return err
+		}
+	} else if err := task.Storage().Update(obj); err != nil {
 		return err
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})

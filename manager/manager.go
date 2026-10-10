@@ -264,6 +264,21 @@ func (m *Manager) cancelObjectDownload(url string) {
 	}
 }
 
+// cancelActiveDownloads 取消当前所有在途下载（停机时调用）：对云端对象而言，
+// Cancel 会连带取消 sproxy 侧任务，避免进程退出后服务端继续下载/转存。
+func (m *Manager) cancelActiveDownloads() {
+	var urls []string
+	m.downloadingObj.Range(func(k, _ any) bool {
+		if u, ok := k.(string); ok && u != "" {
+			urls = append(urls, u)
+		}
+		return true
+	})
+	for _, u := range urls {
+		m.cancelObjectDownload(u)
+	}
+}
+
 // closeIdleConnections 关闭默认与云端下载器的空闲连接（停机/热更新）。
 func (m *Manager) closeIdleConnections() {
 	def, cloud := m.snapshotDownloaders()
@@ -464,10 +479,9 @@ func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batc
 	}
 	seen := make(map[string]struct{})
 	for {
-		pageQuery := cloneStorageQuery(query)
-		pageQuery.Offset = 0
-		pageQuery.Limit = batchSize
-		chunk, err := m.searchTaskObjects(t, pageQuery)
+		// 找一页含未处理对象的批次：从第 0 页起（谓词收敛时第 0 页即有新对象）；
+		// 若整页皆已见（未收敛对象连片），继续向后翻页，避免提前收口漏处理。
+		chunk, err := m.nextBatchWithFresh(t, query, batchSize, seen)
 		if err != nil {
 			return err
 		}
@@ -486,8 +500,36 @@ func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batc
 			}
 		}
 		if !progressed {
-			// 结果集未收敛（对象仍满足谓词）→ 结束，避免无限循环
+			// 结果集未收敛且无新对象可推进 → 结束，避免无限循环
 			return nil
+		}
+	}
+}
+
+// nextBatchWithFresh 从第 0 页起按确定性顺序（url 升序）翻页，返回第一个含未处理对象的批次；
+// 全部页都已被处理过则返回空。
+func (m *Manager) nextBatchWithFresh(t core.Task, query *core.StorageQuery, batchSize int64, seen map[string]struct{}) ([]*model.DownloadObject, error) {
+	for offset := int64(0); ; offset += batchSize {
+		pageQuery := cloneStorageQuery(query)
+		// 确定性排序：无排序时 file/memory 的 map 遍历顺序不定、mongo 用自然序，
+		// 翻页结果可能重复/漂移（见 AGENTS「MemoryStorage.Search 不保证有序」）。
+		pageQuery.Sort = []core.StorageSort{{Field: "url"}}
+		pageQuery.Offset = offset
+		pageQuery.Limit = batchSize
+		chunk, err := m.searchTaskObjects(t, pageQuery)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return nil, nil
+		}
+		for _, o := range chunk {
+			if _, ok := seen[o.URL]; !ok {
+				return chunk, nil
+			}
+		}
+		if int64(len(chunk)) < batchSize {
+			return nil, nil // 已到最后一页且全为已见
 		}
 	}
 }

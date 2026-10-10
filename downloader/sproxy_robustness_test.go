@@ -4,6 +4,7 @@
 package downloader
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -328,5 +329,92 @@ func TestSproxyCloud_SigTaskGoneClearsTaskID(t *testing.T) {
 	obj.RUnlock()
 	if still {
 		t.Fatal("sig 路径任务 404 后应清除 cloud_task_id")
+	}
+}
+
+// TestValidateSaveName_AlignsWithSproxySafe 验证文件名校验与 sproxy cloudfilename.Safe 完全一致
+// （此前 dm 自实现比服务端宽松 → 含 ? : < > | " * 等会被服务端 400）。
+func TestValidateSaveName_AlignsWithSproxySafe(t *testing.T) {
+	t.Parallel()
+	valid := []string{"", "movie.mp4", "中文 名.mp4", "a_b-c.d.mp4"}
+	for _, n := range valid {
+		if err := validateSaveName(n); err != nil {
+			t.Errorf("合法名 %q 应通过: %v", n, err)
+		}
+	}
+	invalid := []string{"a?b.mp4", "a:b.mp4", "a<b.mp4", "a|b.mp4", "a*b.mp4", "a\tb.mp4", "a/b.mp4", "a" + string(rune(92)) + "b.mp4", ".hidden.", "CON", "a.mp4 "}
+	for _, n := range invalid {
+		if err := validateSaveName(n); err == nil {
+			t.Errorf("非法名 %q 应被拒绝（Safe 会改写它）", n)
+		}
+	}
+}
+
+// TestSproxyCloud_NonHTTPURLRejected 验证非 http(s) URL 早退为永久失败（服务端只收 http/https）。
+func TestSproxyCloud_NonHTTPURLRejected(t *testing.T) {
+	t.Parallel()
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: "http://127.0.0.1:1/api/cloud/download", APIToken: "t", CloudOnly: true,
+	})
+	for _, u := range []string{"magnet:?xt=urn:btih:abc", "bt://x", "ftp://host/f"} {
+		obj := &model.DownloadObject{URL: u}
+		err := d.Download(obj, nil)
+		if err == nil || !errors.Is(err, download.ErrNoTry) {
+			t.Errorf("%q 应为 ErrNoTry, got %v", u, err)
+		}
+	}
+}
+
+// TestSproxyCloud_SubmitDeclaresProducePolicy 验证提交体显式声明 save/download_local
+// （不依赖服务端默认：save=false 会在完成后删除 cloud 桶副本，使本地拉回失败）。
+func TestSproxyCloud_SubmitDeclaresProducePolicy(t *testing.T) {
+	t.Parallel()
+	var got map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		writeJSONResp(w, map[string]any{"id": "t1", "status": "running"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", CloudOnly: true,
+	})
+	if _, err := d.submit(t.Context(), "https://example.com/a.mp4", "", nil); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got["save"] != true {
+		t.Fatalf("save 应显式为 true, got %v", got["save"])
+	}
+	if got["download_local"] != false { // CloudOnly=true → 不拉回本地
+		t.Fatalf("download_local 应显式为 false, got %v", got["download_local"])
+	}
+}
+
+// TestSproxyCloud_DamagedIntegrityFails 验证 integrity_status=damaged 不当作成功。
+func TestSproxyCloud_DamagedIntegrityFails(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cloud/tasks/task-dmg", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-dmg", "status": "completed", "filename": "m.mp4", "integrity_status": "damaged"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10, CloudOnly: true,
+	})
+	obj := &model.DownloadObject{URL: "https://example.com/a.mp4"}
+	obj.Extra = map[string]any{"cloud_task_id": "task-dmg"}
+	err := d.Download(obj, nil)
+	if err == nil || !strings.Contains(err.Error(), "damaged") {
+		t.Fatalf("damaged 应失败, got %v", err)
+	}
+	obj.RLock()
+	_, still := obj.Extra["cloud_task_id"]
+	obj.RUnlock()
+	if still {
+		t.Fatal("damaged 后应清坐标以便换源重试")
 	}
 }

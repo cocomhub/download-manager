@@ -25,6 +25,7 @@ import (
 	"github.com/cocomhub/download-manager/pkg/logutil"
 
 	sproxyclient "github.com/cocomhub/sproxy/pkg/client"
+	sproxyfilename "github.com/cocomhub/sproxy/pkg/cloudfilename"
 )
 
 // SproxyCloudDownloader 经 sproxy cloud download API 提交 URL 到云端下载/转存。
@@ -260,20 +261,33 @@ func (d *SproxyCloudDownloader) statusURL(taskID string) string {
 	return base + cloudTasksPath + url.PathEscape(taskID)
 }
 
-// validateSaveName 校验提交给服务端的文件名（sproxy cloudfilename 仅接受单文件名：
-// 含路径分隔符会被 400 拒绝；超长/纯点号也不合法）。空名 = 由服务端按 URL 推导。
+// isHTTPURL 判断 URL 是否为 http/https（sproxy 云端下载仅接受这两类 scheme）。
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+// applyProducePolicy 在提交体里显式声明产出策略，避免依赖服务端默认值：
+//   - save=true：保留 cloud 桶副本（本地拉回依赖它；服务端 save=false 会在完成后删除）；
+//   - download_local=!cloudOnly：告知服务端客户端是否会链式拉回本地（影响服务端清理决策）。
+func (d *SproxyCloudDownloader) applyProducePolicy(body map[string]any) {
+	body["save"] = true
+	body["download_local"] = !d.cloudOnly
+}
+
+// validateSaveName 校验提交给服务端的文件名：直接复用 sproxy 的 cloudfilename.Safe
+// 规则（服务端要求 Safe(name)==name，否则 400）。此前 dm 自实现的校验比服务端宽松
+// （未覆盖 ? : < > | " * 	、首尾空白/点、Windows 设备名、254B 截断）→ 双端规则漂移。
+// 空名 = 由服务端按 URL 推导。
 func validateSaveName(name string) error {
 	if name == "" {
 		return nil
 	}
-	if strings.ContainsAny(name, `/\`) {
-		return fmt.Errorf("filename 不能含路径分隔符: %q", name)
-	}
-	if name == "." || name == ".." {
-		return fmt.Errorf("filename 非法: %q", name)
-	}
-	if len(name) > 200 {
-		return fmt.Errorf("filename 过长（%d 字节）", len(name))
+	if name != sproxyfilename.Safe(name) {
+		return fmt.Errorf("filename 不符合 sproxy cloudfilename.Safe 规则（含非法字符/首尾点空白/设备名/超长）: %q", name)
 	}
 	return nil
 }
@@ -462,6 +476,10 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	if shareURL == "" {
 		return fmt.Errorf("%w: sproxy_cloud 无可提交的 URL（obj.URL 为空）", download.ErrNoTry)
 	}
+	if !isHTTPURL(shareURL) {
+		// 服务端 ValidateEntry 只接受 http/https（纯 magnet:/bt: 会被 400）→ 早退为永久失败
+		return fmt.Errorf("%w: sproxy_cloud 仅支持 http(s) URL: %s", download.ErrNoTry, truncate(shareURL, 80))
+	}
 	// 提交前：SproxySig 凭证到期前 24h 窗口内先主动轮换（每小时限频，失败不阻塞提交）
 	if d.sigEnabled {
 		_ = d.ensureRotatedBeforeSubmit()
@@ -486,6 +504,12 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	if err != nil {
 		d.clearStaleTaskID(obj, err)
 		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+	}
+	if task != nil && strings.EqualFold(task.IntegrityStatus, "damaged") {
+		// 服务端默认放行并标记 damaged：completed+damaged 不是可靠成功（拉回会拿到损坏文件）。
+		// 清坐标以便重试换源重新提交。
+		clearExtra(obj, extraKeyCloudTaskID)
+		return fmt.Errorf("sproxy_cloud: 源文件完整性校验未通过（integrity_status=damaged）")
 	}
 	d.recordArtifacts(obj, task)
 	if err := d.localDownload(ctx, obj, task); err != nil {
@@ -540,7 +564,8 @@ func (d *SproxyCloudDownloader) clearStaleTaskID(obj *model.DownloadObject, err 
 	// SproxySig 路径的 404 由 sproxy 客户端映射为 ErrNotFound（非本地 errCloudTaskGone），
 	// 两者都要清，否则「重试永远复用死任务」在推荐路径上依然存在。
 	if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) ||
-		errors.Is(err, sproxyclient.ErrNotFound) {
+		errors.Is(err, sproxyclient.ErrNotFound) || errors.Is(err, context.DeadlineExceeded) {
+		// 含超时：复用同一任务再轮询只会再等一个 timeout（放大 worker 占用），故一并清坐标
 		clearExtra(obj, extraKeyCloudTaskID)
 	}
 }
@@ -680,13 +705,16 @@ func isShareURL(u string) bool {
 }
 
 // submit POST 到 sproxy cloud download，返回 task id。
-// headers 透传给请求（sproxy 若需 Referer/UA 等下载头不丢失）。
+// headers 只加在**调用 sproxy 的 API 请求**上（便于前置网关鉴权/追踪）；
+// 注意：pinned 版 sproxy 的 POST /api/cloud/download 请求体**不含**下载头字段，
+// 服务端不消费这些头，因此它们不会传给源站（此处不做能力声明）。
 // SproxySig 路径用 FileClient（RequestRaw 透传 headers + 签名）；Bearer 路径走 HTTP 直连。
 func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath string, headers map[string]string) (string, error) {
 	if d.sigEnabled && d.sig != nil {
 		return d.submitSig(ctx, shareURL, savePath, headers)
 	}
 	body := map[string]any{"url": shareURL}
+	d.applyProducePolicy(body) // save / download_local 显式声明
 	if savePath != "" {
 		name := baseName(savePath)
 		if err := validateSaveName(name); err != nil {
@@ -741,6 +769,7 @@ func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePat
 	const maxSubmitRetry = 2
 	for attempt := 0; attempt <= maxSubmitRetry; attempt++ {
 		body := map[string]any{"url": shareURL}
+		d.applyProducePolicy(body) // save / download_local 显式声明
 		if savePath != "" {
 			name := baseName(savePath)
 			if err := validateSaveName(name); err != nil {
@@ -929,9 +958,10 @@ func (d *SproxyCloudDownloader) pollResult(ctx context.Context, taskID string) (
 			return nil, fmt.Errorf("timed out after %s", d.timeout)
 		}
 		var out struct {
-			Status      string `json:"status"`
-			TransferURL string `json:"transfer_url"`
-			Filename    string `json:"filename"`
+			Status          string `json:"status"`
+			TransferURL     string `json:"transfer_url"`
+			Filename        string `json:"filename"`
+			IntegrityStatus string `json:"integrity_status"`
 		}
 		if err := d.getJSON(ctx, statusURL, &out); err != nil {
 			// 轮询失败（404 任务不存在/服务端异常）——连续失败 N 次短路返回，避免 3h 空等
@@ -947,7 +977,10 @@ func (d *SproxyCloudDownloader) pollResult(ctx context.Context, taskID string) (
 		consecErr = 0
 		switch out.Status {
 		case "completed", "done":
-			return &sproxyclient.CloudTask{ID: taskID, Status: out.Status, TransferURL: out.TransferURL, Filename: out.Filename}, nil
+			return &sproxyclient.CloudTask{
+				ID: taskID, Status: out.Status, TransferURL: out.TransferURL,
+				Filename: out.Filename, IntegrityStatus: out.IntegrityStatus,
+			}, nil
 		case "failed", "error", "cancelled":
 			return nil, fmt.Errorf("%w: %q", errCloudTaskTerminal, out.Status)
 		}
