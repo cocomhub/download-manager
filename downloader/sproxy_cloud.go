@@ -261,6 +261,9 @@ func (d *SproxyCloudDownloader) CloseIdleConnections() {
 // Ensure SproxyCloudDownloader implements core.Downloader
 var _ core.Downloader = &SproxyCloudDownloader{}
 
+// Ensure SproxyCloudDownloader implements core.ContextInjecterFor（按 URL 隔离的取消/停止传播）。
+var _ core.ContextInjecterFor = &SproxyCloudDownloader{}
+
 // Ensure SproxyCloudDownloader implements core.ContextInjecter（取消/停止传播）。
 var _ core.ContextInjecter = &SproxyCloudDownloader{}
 
@@ -356,6 +359,10 @@ func (d *SproxyCloudDownloader) unregisterCancel(url string) {
 //  2. obj.Extra.files 里的 keepshare/mypikpak 分享链接
 //  3. obj.URL 本身（**通用回落**：任意 URL 均可交给 sproxy，由其按 URL 自动发现后端）
 func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[string]string) error {
+	// 注入的按 URL 上下文在 Download 结束时清理（含所有早退路径）
+	if obj != nil {
+		defer d.clearContextFor(obj.URL)
+	}
 	// 配置校验（fail-closed，对抗性评审 P2-2/P2-3）：避免把分享 URL 投递给缺省地址
 	// 或半配置凭据静默全失败。
 	if !d.apiURLSet {
@@ -384,7 +391,6 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	defer cancel()
 	d.registerCancel(obj.URL, cancel)
 	defer d.unregisterCancel(obj.URL)
-	defer d.clearContextFor(obj.URL)
 
 	// 1. 提交任务；若上次已提交（Extra 有 cloud_task_id）则复用，避免重试（如 pullback
 	// 失败）时重复 submit 造成重复下载/转存（对抗性评审 P2-9：服务端仅对在途任务去重）。

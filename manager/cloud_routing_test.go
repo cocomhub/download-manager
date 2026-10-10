@@ -115,6 +115,13 @@ func TestNewCloudDownloader_Gating(t *testing.T) {
 			t.Fatal("type=sproxy_cloud 时应复用默认下载器实例（避免双实例）")
 		}
 	})
+	t.Run("legacy别名_sproxy_hybrid_也复用默认实例", func(t *testing.T) {
+		t.Parallel()
+		got := newCloudDownloader(config.Downloader{Type: "sproxy_hybrid"}, def)
+		if got != core.Downloader(def) {
+			t.Fatal("legacy 别名应同样复用默认实例（否则仍构造两个云端实例）")
+		}
+	})
 	t.Run("未配置api_url_返回nil", func(t *testing.T) {
 		t.Parallel()
 		if got := newCloudDownloader(config.Downloader{}, def); got != nil {

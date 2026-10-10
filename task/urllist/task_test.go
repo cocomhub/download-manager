@@ -98,3 +98,38 @@ func TestTask_UpdateStatusAndClose(t *testing.T) {
 
 	_ = task.Close()
 }
+
+// TestInitDownloadObject_PreservesCloudDownload 验证「重启/重建对象」时保留下载项级
+// 云端下载选项（否则 urllist 任务重启即静默丢失该标志）。
+func TestInitDownloadObject_PreservesCloudDownload(t *testing.T) {
+	t.Parallel()
+	const u = "https://example.com/keep-cloud.dat"
+	tk, err := task.NewTask(&config.Task{
+		ID:      "cd-keep",
+		Type:    TaskType,
+		SaveDir: t.TempDir(),
+		Storage: config.StorageConfig{Type: "memory"},
+		Extra:   map[string]any{"urls": []string{u}},
+	})
+	if err != nil {
+		t.Fatalf("new task err: %s", err)
+	}
+	tt := tk.(*Task)
+	objs := tt.GetAllObjects(true)
+	if len(objs) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(objs))
+	}
+	objs[0].SetCloudDownload(true)
+	if err := tt.Storage().Update(objs[0]); err != nil {
+		t.Fatalf("update: %s", err)
+	}
+
+	// 模拟重启：用存储中的既有对象重建
+	if err := tt.initDownloadObject(u, 0, map[string]bool{}); err != nil {
+		t.Fatalf("initDownloadObject: %s", err)
+	}
+	stored := tt.GetCachedObject(u)
+	if stored == nil || !stored.IsCloudDownload() {
+		t.Fatal("cloud_download 未在重建对象时保留")
+	}
+}

@@ -76,6 +76,7 @@ func TestWriteGuardUIMode(t *testing.T) {
 		"/api/tasks/t1/object/retry_batch",
 		"/api/tasks/t1/object/delete_batch",
 		"/api/tasks/t1/object/reorder_batch",
+		"/api/tasks/t1/object/cloud_download",
 
 		// Task reorder & config
 		"/api/tasks/t1/reorder",

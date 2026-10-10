@@ -15,6 +15,15 @@ import (
 // DefaultUserAgent 默认浏览器 UA（原定义于已退役的 pkg/dlcore 时代的 native.go）。
 var DefaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
+// IsCloudType 判定是否为 sproxy 云端下载器类型（含 legacy 别名 sproxy_hybrid）。
+// 供 manager 判断「默认下载器本身即云端实例」，避免重复构造第二个实例。
+func IsCloudType(t string) bool {
+	return t == "sproxy_cloud" || t == legacyCloudType
+}
+
+// legacyCloudType 旧名（2026-10 更名；hybrid 是 sproxy 侧 PikPak 策略名）。
+const legacyCloudType = "sproxy_hybrid"
+
 // New 创建 core.Downloader 实例。
 // 根据 config.Type 选择后端：
 //   - "wget": 使用旧的 WgetDownloader（已废弃）
@@ -30,8 +39,7 @@ func New(cfg config.Downloader) core.Downloader {
 		return NewGopeedDownloader(cfg)
 	case "sproxy_cloud":
 		return NewSproxyCloudDownloader(cfg.SproxyCloud)
-	case "sproxy_hybrid":
-		// 旧名（2026-10 更名）：hybrid 是 sproxy 侧 PikPak 策略名，不应出现在 dm 侧。
+	case legacyCloudType:
 		// 显式告警并映射到 sproxy_cloud，避免旧配置静默回落 native。
 		slog.Warn("downloader type sproxy_hybrid is renamed to sproxy_cloud; please update config")
 		return NewSproxyCloudDownloader(cfg.SproxyCloud)
