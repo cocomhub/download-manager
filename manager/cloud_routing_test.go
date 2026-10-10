@@ -238,7 +238,7 @@ type syncRecTask struct {
 	got []string
 }
 
-func (t *syncRecTask) SyncCloudDownload(url string, enabled bool) bool {
+func (t *syncRecTask) SyncObjectOption(url string, opt model.ObjectOption) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.got = append(t.got, url)

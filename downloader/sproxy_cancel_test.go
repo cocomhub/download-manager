@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -139,5 +141,71 @@ func TestSproxyCloud_SetContextCancelStopsPoll(t *testing.T) {
 		}
 	case <-time.After(1200 * time.Millisecond):
 		t.Fatal("ctx cancel did not interrupt in-flight poll")
+	}
+}
+
+// TestSproxyCloud_CancelCancelsRemoteTask 验证 Cancel 会连带取消 sproxy 侧任务
+// （否则本地已取消，但服务端仍继续下载/转存，占用服务端资源与配额）。
+func TestSproxyCloud_CancelCancelsRemoteTask(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-cancel", "skey-cancel0001"
+	sk := strings.Repeat("7", 64)
+	remote := make(chan struct{}, 1)
+	mux := http.NewServeMux()
+	mockCredList(mux, ak, skid)
+	mux.HandleFunc("POST /api/cloud/tasks/task-rc/cancel", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case remote <- struct{}{}:
+		default:
+		}
+		writeJSONResp(w, map[string]any{})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	d.registerTaskID("https://mypikpak.com/s/abc", "task-rc")
+	if err := d.Cancel("https://mypikpak.com/s/abc"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	select {
+	case <-remote:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Cancel 未连带取消 sproxy 侧任务")
+	}
+}
+
+// TestSproxyCloud_TryReverifyConcurrent 并发懒重验不产生数据竞争（配合 -race 守门）。
+func TestSproxyCloud_TryReverifyConcurrent(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-rv", "skey-rv00000001"
+	sk := strings.Repeat("8", 64)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/credentials/"+ak+"/sk", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_ = d.tryReverify()
+		})
+	}
+	wg.Wait()
+	if d.verified.Load() {
+		t.Fatal("凭据列表失败时 verified 应为 false")
 	}
 }

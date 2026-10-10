@@ -64,14 +64,24 @@ func TestSnapshot_CoversAllExportedFields(t *testing.T) {
 	typ := sv.Type()
 	for i := range typ.NumField() {
 		f := typ.Field(i)
-		if !f.IsExported() {
+		if !f.IsExported() || snapshotExcludedFields[f.Name] {
 			continue
 		}
 		if sv.Field(i).IsZero() {
 			t.Errorf("Snapshot 漏拷字段 %s（源值为 %v）", f.Name, dv.Field(i).Interface())
 		}
 	}
+	// 排除清单不得残留已不存在的字段名（否则会静默掩盖新字段漏拷）
+	for name := range snapshotExcludedFields {
+		if _, ok := typ.FieldByName(name); !ok {
+			t.Errorf("snapshotExcludedFields 含不存在的字段 %s", name)
+		}
+	}
 }
+
+// snapshotExcludedFields 列出「有意不写入 Snapshot」的导出字段（当前为空）。
+// 新增此类字段时须显式登记，避免测试以「合法零值」误报或静默放过漏拷。
+var snapshotExcludedFields = map[string]bool{}
 
 // TestSnapshot_IsolatesMaps 验证 Snapshot 深拷贝 Metadata/Extra（并发安全前提）。
 func TestSnapshot_IsolatesMaps(t *testing.T) {

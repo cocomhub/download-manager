@@ -106,7 +106,9 @@ func redactProxyList(m map[string]any, key string) {
 }
 
 // yamlSecretKeyRe 匹配 YAML 中的机密键（值替换为空串）。
-var yamlSecretKeyRe = regexp.MustCompile(`(?m)^(\s*(?:access_key_secret|api_token|password|secret|token|scraper_tunnel_key)\s*:\s*)(\S.*)$`)
+// 前置分隔符（行首/空白/花括号/逗号）避免误伤 has_api_token 之类前缀；支持引号键与流式映射。
+var yamlSecretKeyRe = regexp.MustCompile(`(?m)(^|[\s{,])("?[']?(?:access_key_secret|api_token|password|secret|token|scraper_tunnel_key)[']?"?\s*:\s*)([^
+,}]+)`)
 
 // proxyUserinfoRe 匹配 URL 中的 userinfo（user:pass@）。
 var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@`)
@@ -116,7 +118,7 @@ func redactYAMLSecrets(text string) string {
 	if text == "" {
 		return text
 	}
-	out := yamlSecretKeyRe.ReplaceAllString(text, `${1}""`)
+	out := yamlSecretKeyRe.ReplaceAllString(text, `${1}${2}""`)
 	return proxyUserinfoRe.ReplaceAllString(out, `${1}`)
 }
 

@@ -190,6 +190,21 @@ func (m *Manager) setCloudDownloader(dl core.Downloader) {
 	m.downloaderMu.Unlock()
 }
 
+// setDownloaders 单次持锁原子替换默认与云端下载器：避免热更新时「默认已换、云端仍旧」
+// 的窗口内出现能力位/取消路由短暂不一致（窗口内启动的下载会落到即将被替换的实例）。
+func (m *Manager) setDownloaders(def, cloud core.Downloader) {
+	m.downloaderMu.Lock()
+	if old, ok := m.downloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
+	if old, ok := m.cloudDownloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
+	m.downloader = def
+	m.cloudDownloader = cloud
+	m.downloaderMu.Unlock()
+}
+
 // newCloudDownloader 返回云端下载器；未启用时为 nil（避免无谓的启动验证开销）。
 // 当 cfg.Type 已是 sproxy_cloud 时，默认下载器本身就是云端实例 → 复用同一实例，
 // 避免同进程构造两个 SproxyCloudDownloader（双份 verifyOnStart/轮换/取消表）。
@@ -704,8 +719,7 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
 	defDownloader := downloader.New(cfgCopy.Downloader)
-	m.setDownloader(defDownloader)
-	m.setCloudDownloader(newCloudDownloader(cfgCopy.Downloader, defDownloader))
+	m.setDownloaders(defDownloader, newCloudDownloader(cfgCopy.Downloader, defDownloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
 	// 先清理旧配置中已移除的域名
 	cfg := m.currentCfg()

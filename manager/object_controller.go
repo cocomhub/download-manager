@@ -201,7 +201,7 @@ func (oc *ObjectController) SetObjectCloudDownload(taskID, url string, enabled b
 	}
 	// mongo 等后端的存储对象是解码副本：同步运行时实例，避免开关要等重启才生效
 	if syncer, ok := t.(core.ObjectOptionSyncer); ok {
-		syncer.SyncCloudDownload(url, enabled)
+		syncer.SyncObjectOption(url, model.ObjectOption{CloudDownload: &enabled})
 	}
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})

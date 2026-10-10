@@ -71,6 +71,8 @@ type SproxyCloudDownloader struct {
 	// per-URL 取消注册表（manager 单对象取消/删除经 Cancel 触发）。
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
+	// taskIDs 记录 url→sproxy 任务 id，供 Cancel 连带取消服务端任务（best-effort）。
+	taskIDs map[string]string
 }
 
 // Extra 键名常量（避免同文件重复字面量）。
@@ -253,6 +255,8 @@ func validateSaveName(name string) error {
 func (d *SproxyCloudDownloader) SetMetadataFlusher(_ func()) {}
 
 // CloseIdleConnections 关闭底层 HTTP 客户端的空闲连接（停机 / 配置热更新时调用）。
+// 注：SproxySig 的 FileClient（d.sig）未暴露关闭接口（上游无 CloseIdleConnections），
+// 其连接池依赖 IdleConnTimeout 自然回收。
 func (d *SproxyCloudDownloader) CloseIdleConnections() {
 	if d.httpClient != nil {
 		d.httpClient.CloseIdleConnections()
@@ -316,10 +320,31 @@ func (d *SproxyCloudDownloader) reqCtxFor(url string) context.Context {
 }
 
 // clearContextFor 清理该 URL 的注入上下文（Download 结束时）。
+// 依赖不变量「同一 URL 不会并发下载」（由 manager 的 downloadingObj 去重保证）；
+// 若同 URL 重叠下载，先结束者会删掉后者的上下文。
 func (d *SproxyCloudDownloader) clearContextFor(url string) {
 	d.ctxMu.Lock()
 	delete(d.urlCtx, url)
 	d.ctxMu.Unlock()
+}
+
+// registerTaskID / unregisterTaskID / takeTaskID 维护 url→sproxy 任务 id 映射。
+func (d *SproxyCloudDownloader) registerTaskID(url, taskID string) {
+	if url == "" || taskID == "" {
+		return
+	}
+	d.cancelMu.Lock()
+	if d.taskIDs == nil {
+		d.taskIDs = make(map[string]string)
+	}
+	d.taskIDs[url] = taskID
+	d.cancelMu.Unlock()
+}
+
+func (d *SproxyCloudDownloader) unregisterTaskID(url string) {
+	d.cancelMu.Lock()
+	delete(d.taskIDs, url)
+	d.cancelMu.Unlock()
 }
 
 // Cancel 取消指定 URL 的进行中下载（manager 单对象取消/删除时经类型断言调用）。
@@ -327,7 +352,19 @@ func (d *SproxyCloudDownloader) clearContextFor(url string) {
 func (d *SproxyCloudDownloader) Cancel(url string) error {
 	d.cancelMu.Lock()
 	cf := d.cancels[url]
+	taskID := d.taskIDs[url]
 	d.cancelMu.Unlock()
+	// 连带取消 sproxy 侧任务（best-effort，异步不阻塞调用方；失败仅记日志）——
+	// 否则本地已取消但服务端仍会继续下载/转存（占用服务端资源与配额）。
+	if taskID != "" && d.sig != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), cancelRemoteTimeout)
+			defer cancel()
+			if err := d.sig.CancelCloudTask(ctx, taskID); err != nil {
+				slog.Warn("sproxy cloud task cancel failed", "task_id", taskID, "err", err)
+			}
+		}()
+	}
 	if cf != nil {
 		cf()
 	}
@@ -364,8 +401,47 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	if obj != nil {
 		defer d.clearContextFor(obj.URL)
 	}
-	// 配置校验（fail-closed，对抗性评审 P2-2/P2-3）：避免把分享 URL 投递给缺省地址
-	// 或半配置凭据静默全失败。
+	if err := d.validateConfig(); err != nil {
+		return err
+	}
+	shareURL := d.pickURL(obj)
+	if shareURL == "" {
+		return fmt.Errorf("%w: sproxy_cloud 无可提交的 URL（obj.URL 为空）", download.ErrNoTry)
+	}
+	// 提交前：SproxySig 凭证到期前 24h 窗口内先主动轮换（每小时限频，失败不阻塞提交）
+	if d.sigEnabled {
+		_ = d.ensureRotatedBeforeSubmit()
+	}
+	// 派生 per-URL 下载上下文：使 manager 的单对象取消（Cancel(url)）与
+	// 停机（SetContext/SetContextFor 注入的 ctx）都能中断 submit/poll/pullback。
+	ctx, cancel := context.WithCancel(d.reqCtxFor(obj.URL))
+	defer cancel()
+	d.registerCancel(obj.URL, cancel)
+	defer d.unregisterCancel(obj.URL)
+
+	taskID, err := d.submitOrReuse(ctx, obj, shareURL, headers)
+	if err != nil {
+		return err
+	}
+	// 记录 url→taskID，供 Cancel 时连带取消 sproxy 侧任务（best-effort）
+	d.registerTaskID(obj.URL, taskID)
+	defer d.unregisterTaskID(obj.URL)
+
+	// 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/本地下载）
+	task, err := d.pollResult(ctx, taskID)
+	if err != nil {
+		d.clearStaleTaskID(obj, err)
+		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+	}
+	// 完成：置进度 100（否则 SSE/UI 恒 0%，对抗性评审 P2-7）。
+	obj.SetProgress(100)
+	d.recordArtifacts(obj, task)
+	return d.localDownload(ctx, obj, task)
+}
+
+// validateConfig 提交前的 fail-closed 校验（对抗性评审 P2-2/P2-3）：避免把 URL 投递给
+// 缺省地址，或半配置凭据造成「看似配好、实则全任务失败」的静默失效。
+func (d *SproxyCloudDownloader) validateConfig() error {
 	if !d.apiURLSet {
 		return fmt.Errorf("%w: sproxy_cloud api_url 未配置（拒绝投递到缺省地址）", download.ErrNoTry)
 	}
@@ -377,76 +453,67 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	if d.sigEnabled && !d.verified.Load() && !d.tryReverify() {
 		return fmt.Errorf("%w: sproxy_cloud SproxySig 启动验证失败（签名链路不可用）；请检查 access_key/access_key_secret/access_key_id 配置", download.ErrNoTry)
 	}
-	shareURL := d.pickURL(obj)
-	if shareURL == "" {
-		return fmt.Errorf("%w: sproxy_cloud 无可提交的 URL（obj.URL 为空）", download.ErrNoTry)
-	}
+	return nil
+}
 
-	// 1. 提交前：SproxySig 凭证到期前 24h 窗口内先主动轮换（每小时限频，失败不阻塞提交）
-	if d.sigEnabled {
-		_ = d.ensureRotatedBeforeSubmit()
-	}
-	// 派生 per-URL 下载上下文：使 manager 的单对象取消（Cancel(url)）与
-	// 停机（SetContext/SetContextFor 注入的 ctx）都能中断 submit/poll/pullback。
-	ctx, cancel := context.WithCancel(d.reqCtxFor(obj.URL))
-	defer cancel()
-	d.registerCancel(obj.URL, cancel)
-	defer d.unregisterCancel(obj.URL)
-
-	// 1. 提交任务；若上次已提交（Extra 有 cloud_task_id）则复用，避免重试（如 pullback
-	// 失败）时重复 submit 造成重复下载/转存（对抗性评审 P2-9：服务端仅对在途任务去重）。
-	taskID := extraString(obj, extraKeyCloudTaskID)
-	if taskID != "" {
+// submitOrReuse 提交任务；Extra 已有 cloud_task_id 时复用，避免重试（如本地下载失败）时
+// 重复 submit 造成重复下载/转存（对抗性评审 P2-9：服务端仅对在途任务去重）。
+func (d *SproxyCloudDownloader) submitOrReuse(ctx context.Context, obj *model.DownloadObject, shareURL string, headers map[string]string) (string, error) {
+	if taskID := extraString(obj, extraKeyCloudTaskID); taskID != "" {
 		slog.Info("Sproxy cloud reuse existing task", "task_id", taskID, logutil.LogKeyURL, shareURL)
-	} else {
-		tid, serr := d.submit(ctx, shareURL, obj.SavePath, headers)
-		if serr != nil {
-			return fmt.Errorf("sproxy_cloud submit %s: %w", shareURL, serr)
-		}
-		taskID = tid
-		slog.Info("Sproxy cloud task submitted", "task_id", taskID, logutil.LogKeyURL, shareURL)
-		setExtra(obj, extraKeyCloudTaskID, taskID) // 提交即落坐标，供重试复用
+		return taskID, nil
 	}
-
-	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
-	task, err := d.pollResult(ctx, taskID)
+	tid, err := d.submit(ctx, shareURL, obj.SavePath, headers)
 	if err != nil {
-		if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) {
-			// 失效坐标：清掉以便重试时重新提交（否则重试永远复用死任务直到永久失败）
-			clearExtra(obj, extraKeyCloudTaskID)
-		}
-		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+		return "", fmt.Errorf("sproxy_cloud submit %s: %w", shareURL, err)
 	}
-	// 完成：置进度 100（否则 SSE/UI 恒 0%，对抗性评审 P2-7）。
-	obj.SetProgress(100)
-	// 3. 记录产物取用坐标（转存 URL + cloud 桶任务坐标）——无论走哪条路径，
-	// 都让上层/人工有据可取（对抗性评审 P1-2：默认无产物时也要有线索）。
-	if task != nil {
-		if task.TransferURL != "" {
-			setExtra(obj, "transfer_url", task.TransferURL)
-		}
-		if task.ID != "" {
-			setExtra(obj, extraKeyCloudTaskID, task.ID)
-		}
-		if task.Filename != "" {
-			setExtra(obj, "cloud_task_filename", task.Filename)
-		}
+	slog.Info("Sproxy cloud task submitted", "task_id", tid, logutil.LogKeyURL, shareURL)
+	setExtra(obj, extraKeyCloudTaskID, tid) // 提交即落坐标，供重试复用
+	return tid, nil
+}
+
+// clearStaleTaskID 清除已失效的任务坐标（终态失败 / 任务不存在），使重试重新提交
+// （否则重试永远复用死任务直到永久失败）。
+func (d *SproxyCloudDownloader) clearStaleTaskID(obj *model.DownloadObject, err error) {
+	if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) {
+		clearExtra(obj, extraKeyCloudTaskID)
 	}
-	// 4. 本地下载（默认）：cloud_only=false 时用 kind=cloud_task 把原始文件拉到 SavePath。
-	// 无法执行时显式报错（对抗性评审 P1-1：静默跳过会让对象标 completed 但本地无产物）。
-	if !d.cloudOnly {
-		if d.sig == nil {
-			return fmt.Errorf("sproxy_cloud: 本地下载需要 SproxySig 凭据（access_key/access_key_secret/access_key_id）；或设 cloud_only: true 只留云端")
-		}
-		if obj.SavePath == "" {
-			return fmt.Errorf("sproxy_cloud: 本地下载需要对象 SavePath（为空无法落盘）；或设 cloud_only: true 只留云端")
-		}
-		if task == nil || task.Filename == "" {
-			return fmt.Errorf("sproxy_cloud: pullback 缺少任务产物坐标（task/filename 为空）")
-		}
-		if perr := d.pullBackToSavePath(ctx, task, obj.SavePath); perr != nil {
-			return fmt.Errorf("sproxy_cloud pullback %s: %w", task.ID, perr)
-		}
+}
+
+// recordArtifacts 记录产物取用坐标（转存 URL + cloud 桶任务坐标）：无论走哪条路径，
+// 都让上层/人工有据可取（对抗性评审 P1-2：默认无产物时也要有线索）。
+func (d *SproxyCloudDownloader) recordArtifacts(obj *model.DownloadObject, task *sproxyclient.CloudTask) {
+	if task == nil {
+		return
+	}
+	if task.TransferURL != "" {
+		setExtra(obj, "transfer_url", task.TransferURL)
+	}
+	if task.ID != "" {
+		setExtra(obj, extraKeyCloudTaskID, task.ID)
+	}
+	if task.Filename != "" {
+		setExtra(obj, "cloud_task_filename", task.Filename)
+	}
+}
+
+// localDownload 默认路径：cloud_only=false 时用 kind=cloud_task 把原始文件拉到本地
+// SavePath。无法执行时显式报错（静默跳过会让对象标 completed 但本地无产物）。
+func (d *SproxyCloudDownloader) localDownload(ctx context.Context, obj *model.DownloadObject, task *sproxyclient.CloudTask) error {
+	if d.cloudOnly {
+		return nil
+	}
+	if d.sig == nil {
+		return fmt.Errorf("sproxy_cloud: 本地下载需要 SproxySig 凭据（access_key/access_key_secret/access_key_id）；或设 cloud_only: true 只留云端")
+	}
+	if obj.SavePath == "" {
+		return fmt.Errorf("sproxy_cloud: 本地下载需要对象 SavePath（为空无法落盘）；或设 cloud_only: true 只留云端")
+	}
+	if task == nil || task.Filename == "" {
+		return fmt.Errorf("sproxy_cloud: pullback 缺少任务产物坐标（task/filename 为空）")
+	}
+	if err := d.pullBackToSavePath(ctx, task, obj.SavePath); err != nil {
+		return fmt.Errorf("sproxy_cloud pullback %s: %w", task.ID, err)
 	}
 	return nil
 }
@@ -469,7 +536,6 @@ func (d *SproxyCloudDownloader) pullBackToSavePath(ctx context.Context, task *sp
 	return nil
 }
 
-// pickURL 从 obj 选择提交给 sproxy 的 URL（PikPak 分享优先，否则 obj.URL）：
 // pickURL 选择提交给 sproxy 云端下载的 URL：
 //  1. PikPak 分享链接优先（magnet_list[].keepshare → files[].url → obj.URL 若为分享链接）
 //  2. 否则回落到 obj.URL——**通用**：任意 URL 都可交给 sproxy cloud download，
@@ -670,6 +736,9 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // errCloudTaskTerminal 表示 sproxy 侧任务进入终态失败（failed/error/cancelled）：
 // 该 cloud_task_id 已失效，重试必须重新提交而非复用。
 var errCloudTaskTerminal = errors.New("cloud task terminal status")
+
+// cancelRemoteTimeout 是 Cancel 连带取消 sproxy 侧任务的超时（best-effort）。
+const cancelRemoteTimeout = 10 * time.Second
 
 // errCloudTaskGone 表示 sproxy 侧任务已不存在（404，如服务重启/清理）：
 // 该 cloud_task_id 同样已失效，重试必须重新提交。
@@ -897,7 +966,6 @@ func isUnauthorizedErr(err error) bool {
 	return strings.Contains(err.Error(), "(HTTP 401)")
 }
 
-// apiBase 返回 sproxy 服务基地址（apiURL 去掉 /api/cloud/download）。
 // getJSON GET 请求并解析 JSON。
 func (d *SproxyCloudDownloader) getJSON(ctx context.Context, url string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

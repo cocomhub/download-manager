@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -108,5 +109,35 @@ func TestRedactDiffChanges(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "1.2.3.4:8080") {
 		t.Fatalf("主机应保留: %s", b)
+	}
+}
+
+// TestRedactYAMLSecrets_QuotedAndFlow 验证引号键与流式映射中的机密也被掩码，
+// 且不误伤 has_* 前缀键。
+func TestRedactYAMLSecrets_QuotedAndFlow(t *testing.T) {
+	t.Parallel()
+	in := "downloader:\n  \"api_token\": \"bearer-q\"\n  proxy: {token: flow-tok}\n  sproxy_cloud:\n    has_api_token: true\n"
+	out := redactYAMLSecrets(in)
+	for _, leak := range []string{"bearer-q", "flow-tok"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("未掩码 %q: %s", leak, out)
+		}
+	}
+	if !strings.Contains(out, "has_api_token: true") {
+		t.Fatalf("has_* 前缀键不应被误伤: %s", out)
+	}
+}
+
+// TestAPI_DiffConfig_RejectsTraversal 验证 /api/config/diff 拒绝逃出 config_backups 的 ref。
+func TestAPI_DiffConfig_RejectsTraversal(t *testing.T) {
+	srv, _ := newAPIServerWithMock(t, "mock-diff", 1, true)
+	r := srv.Router()
+	rr := doJSONGet(t, r, "/api/config/diff?left=../../../etc/passwd&right=current")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("目录穿越 ref 应 400, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	// 必须是被路径校验拒绝（而非「文件不存在」等其它原因）
+	if !strings.Contains(rr.Body.String(), "invalid backup ref") {
+		t.Fatalf("应以 invalid backup ref 拒绝, got %s", rr.Body.String())
 	}
 }

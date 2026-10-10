@@ -134,8 +134,8 @@ func TestInitDownloadObject_PreservesCloudDownload(t *testing.T) {
 	}
 }
 
-// TestSyncCloudDownload_UpdatesRuntimeObject 验证运行时对象按 URL 同步「云端下载」选项。
-func TestSyncCloudDownload_UpdatesRuntimeObject(t *testing.T) {
+// TestSyncObjectOption_UpdatesRuntimeObject 验证运行时对象按 URL 同步「云端下载」选项。
+func TestSyncObjectOption_UpdatesRuntimeObject(t *testing.T) {
 	t.Parallel()
 	const u = "https://example.com/sync-cloud.dat"
 	tk, err := task.NewTask(&config.Task{
@@ -149,10 +149,23 @@ func TestSyncCloudDownload_UpdatesRuntimeObject(t *testing.T) {
 		t.Fatalf("new task err: %s", err)
 	}
 	tt := tk.(*Task)
-	if tt.SyncCloudDownload("https://example.com/unknown", true) {
+	on := true
+	if tt.SyncObjectOption("https://example.com/unknown", model.ObjectOption{CloudDownload: &on}) {
 		t.Fatal("未知 URL 不应命中")
 	}
-	if !tt.SyncCloudDownload(u, true) {
+	// 零值选项（nil 字段）= 不同步任何项，但仍应命中 URL
+	if !tt.SyncObjectOption(u, model.ObjectOption{CloudDownload: &on}) {
+		t.Fatal("已知 URL 应命中")
+	}
+	if !tt.SyncObjectOption(u, model.ObjectOption{}) {
+		t.Fatal("已知 URL 应命中")
+	}
+	for _, o := range tt.GetAllObjects(true) {
+		if o.URL == u && !o.IsCloudDownload() {
+			t.Fatal("零值选项不应把已置位的字段改回")
+		}
+	}
+	if !tt.SyncObjectOption(u, model.ObjectOption{CloudDownload: &on}) {
 		t.Fatal("已知 URL 应命中")
 	}
 	for _, o := range tt.GetAllObjects(true) {

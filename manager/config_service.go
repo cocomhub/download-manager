@@ -170,7 +170,12 @@ func (cs *ConfigService) readDiffSide(ref string) (*config.Config, []byte, error
 			return nil, nil, fmt.Errorf("parse current config failed: %w", err)
 		}
 	} else {
-		p := filepath.Join(config.GetWorkDir(), "config_backups", ref)
+		base := filepath.Join(config.GetWorkDir(), "config_backups")
+		p := filepath.Join(base, ref)
+		// 防目录穿越：ref 必须落在 config_backups 内（如 ../.. 逃逸读取任意文件）。
+		if !strings.HasPrefix(filepath.Clean(p), filepath.Clean(base)+string(os.PathSeparator)) {
+			return nil, nil, fmt.Errorf("invalid backup ref %q", ref)
+		}
 		yml, err = os.ReadFile(p)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read backup failed: %w", err)

@@ -33,6 +33,12 @@ type DownloadObject struct {
 	mu sync.RWMutex `json:"-" bson:"-"`
 }
 
+// ObjectOption 描述可同步到任务运行时对象的下载项选项（nil 字段 = 不同步该项）。
+// 以指针表达「是否提供」，便于新增选项而无需扩展接口签名。
+type ObjectOption struct {
+	CloudDownload *bool `json:"cloud_download,omitempty"`
+}
+
 func (o *DownloadObject) GetID() int64 {
 	if o == nil {
 		return 0
