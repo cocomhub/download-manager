@@ -61,7 +61,7 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 		t.Fatalf("UpdateConfig failed: %v", err)
 	}
 
-	// IMPORTANT: UpdateConfig internally calls m.setDownloader(downloader.New(cfgCopy.Downloader)),
+	// IMPORTANT: UpdateConfig internally calls m.setDownloaders(downloader.New(cfgCopy.Downloader)),
 	// which creates a REAL downloader (not a mock). We must override it back to a mock so that
 	// pending objects can complete in the test environment without a real HTTP server.
 	mgr.setDownloader(mockdl.New(mockdl.ModeAlwaysSuccess))

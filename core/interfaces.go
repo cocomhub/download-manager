@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/cocomhub/download-manager/model"
@@ -113,6 +114,41 @@ type Downloader interface {
 // ContextInjecter 表示支持上下文注入的下载器。
 type ContextInjecter interface {
 	SetContext(ctx context.Context)
+}
+
+// ErrObjectNotFound 表示局部更新未命中任何文档（对象尚未落库或已被删除）。
+// 调用方可据此回落到整对象 Update（upsert）。
+var ErrObjectNotFound = errors.New("object not found")
+
+// ObjectFieldUpdater 可选：只更新指定字段，避免「读最新 → 整文档 $set」的读-改-写窗口
+// （mongo 下该窗口会用陈旧快照覆盖下载器并发写入的 status/progress）。
+// 未实现该接口的存储回落为整对象 Update。
+type ObjectFieldUpdater interface {
+	// UpdateFields 按键值对局部更新（键须在白名单内，见 AllowedUpdateFields）。
+	// 未命中文档时返回 ErrObjectNotFound（调用方回落整对象 Update 以完成首次写入）。
+	UpdateFields(id string, fields map[string]any) error
+}
+
+// AllowedUpdateFields 是局部更新的字段白名单：避免 $ / . 等键注入或误写非预期字段。
+var AllowedUpdateFields = map[string]bool{
+	"status": true, "progress": true, "metadata": true, "extra": true,
+	"cloud_download": true, "version": true,
+}
+
+// ObjectOptionSyncer 可选：把存储层的下载项选项变更同步到任务运行时对象。
+// 背景：mongo 等后端的 Search 返回解码副本，运行时实例与存储对象不是同一指针，
+// 仅落库不会影响调度所用的运行时对象（导致开关要等重启才生效）。
+// 选项以 model.ObjectOption 表达（零值字段 = 不同步），新增 per-object 选项无需扩接口。
+type ObjectOptionSyncer interface {
+	// SyncObjectOption 按 URL 更新运行时对象的选项；返回是否命中。
+	SyncObjectOption(url string, opt model.ObjectOption) bool
+}
+
+// ContextInjecterFor 可选增强：按 URL 注入下载上下文。
+// 共享单实例的下载器在并发多对象下载时，单字段 SetContext 会被后启动的下载覆盖
+// （先启动者可能被「兄弟对象完成」误取消）；实现本接口可按对象隔离上下文。
+type ContextInjecterFor interface {
+	SetContextFor(url string, ctx context.Context)
 }
 
 // DomainLimiter 表示支持域名并发限制的下载器。

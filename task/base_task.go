@@ -5,6 +5,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -156,6 +157,31 @@ func (b *BaseTask) UpdateStatus(obj *model.DownloadObject, status string, err er
 	return b.updateStatusLocked(obj, status, err)
 }
 
+// persistObject 持久化对象：优先局部更新状态字段（避免用陈旧副本整文档覆盖
+// per-object 选项，如云端下载开关）；首次写入（尚未落库）时回落整对象 upsert。
+func (b *BaseTask) persistObject(obj *model.DownloadObject) error {
+	updater, ok := b.store.(core.ObjectFieldUpdater)
+	if !ok {
+		return b.store.Update(obj)
+	}
+	// 必须经 Snapshot：BSON 编码会迭代 Metadata/Extra，直接传活引用会与并发写方
+	// （applySharedState / SetMedia 等）触发 "concurrent map iteration and map write"
+	// —— 这正是 MongoStorage.Update 使用 Snapshot 的原因。Snapshot 在 RLock 下深拷贝。
+	// 同时带上 version：否则版本升级结果在 mongo 上不落库（永不收敛）。
+	snap := obj.Snapshot()
+	err := updater.UpdateFields(snap.URL, map[string]any{
+		"status":   snap.Status,
+		"progress": snap.Progress,
+		"metadata": snap.Metadata,
+		"extra":    snap.Extra,
+		"version":  snap.Version,
+	})
+	if errors.Is(err, core.ErrObjectNotFound) {
+		return b.store.Update(obj)
+	}
+	return err
+}
+
 // updateStatusLocked 是 UpdateStatus 的内部实现，调用者必须持有 b.mu。
 func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, err error) error {
 	obj.SetStatus(status)
@@ -168,7 +194,7 @@ func (b *BaseTask) updateStatusLocked(obj *model.DownloadObject, status string, 
 
 	var storeErr error
 	if b.store != nil {
-		storeErr = b.store.Update(obj)
+		storeErr = b.persistObject(obj)
 		if storeErr != nil {
 			b.logger.Error("Failed to update storage", logutil.LogKeyError, storeErr)
 		}
@@ -206,9 +232,34 @@ func (b *BaseTask) SetSharedRegistry(reg core.SharedRegistry) {
 	b.shared = reg
 }
 
-// SetDownloader is a no-op by default. Override in embedding task if needed.
+// SetDownloader stores the downloader handed in by the manager. Note that per-object
+// routing (e.g. the sproxy 云端下载 option) is decided by the manager before Download is
+// invoked; a task calling Downloader() to download directly bypasses that routing.
 func (b *BaseTask) SetDownloader(dl core.Downloader) {
 	b.dl = dl
+}
+
+// Ensure BaseTask implements core.ObjectOptionSyncer（运行时对象选项同步）。
+var _ core.ObjectOptionSyncer = (*BaseTask)(nil)
+
+// SyncObjectOption 按 URL 把下载项选项同步到运行时对象（实现 core.ObjectOptionSyncer）。
+// mongo 等后端的存储对象是解码副本，仅落库不会影响调度所用的运行时实例。
+func (b *BaseTask) SyncObjectOption(url string, opt model.ObjectOption) bool {
+	if url == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, obj := range b.objects {
+		if obj == nil || obj.URL != url {
+			continue
+		}
+		if opt.CloudDownload != nil {
+			obj.SetCloudDownload(*opt.CloudDownload)
+		}
+		return true
+	}
+	return false
 }
 
 // SetPathStrategy sets the path strategy. Only takes effect if not already set.

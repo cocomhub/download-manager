@@ -119,6 +119,9 @@ func (m *Manager) Stop(ctx context.Context) {
 
 	// 1. Signal workers to stop first — no new downloads
 	close(m.stopChan)
+	// 连带取消在途下载：云端下载的 Cancel 会同时取消 sproxy 侧任务
+	// （否则进程退出后服务端仍继续下载/转存，白占服务端配额）。
+	m.cancelActiveDownloads()
 	m.StopResolveWorkers()
 	m.StopSmallObjectWorkers()
 
@@ -135,10 +138,8 @@ func (m *Manager) Stop(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
-	// 2. Close idle connections on the transport
-	if dl, ok := m.getDownloader().(interface{ CloseIdleConnections() }); ok {
-		dl.CloseIdleConnections()
-	}
+	// 2. Close idle connections on the transports（默认 + 云端）
+	m.closeIdleConnections()
 
 	// 3. Wait for workers and force-downloads with context deadline
 	done := make(chan struct{})

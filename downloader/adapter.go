@@ -32,6 +32,7 @@ type DownloaderAdapter struct {
 	mu              sync.Mutex
 	dl              *download.Downloader
 	dlCtx           context.Context //nolint:containedctx
+	urlCtx          map[string]context.Context
 	transport       download.Transport
 	cancels         sync.Map // map[string]context.CancelFunc
 	metrics         *download.MetricRegistry
@@ -87,14 +88,38 @@ func (a *DownloaderAdapter) getMetadataFlusher() func() {
 	return a.metadataFlusher
 }
 
+// Ensure DownloaderAdapter implements core.ContextInjecterFor（按 URL 隔离上下文）。
+var _ core.ContextInjecterFor = (*DownloaderAdapter)(nil)
+
 // Name 返回适配器名称。
 func (a *DownloaderAdapter) Name() string { return "native_http" }
 
-// SetContext 设置下载上下文。
+// SetContext 设置进程级下载上下文。
 func (a *DownloaderAdapter) SetContext(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.dlCtx = ctx
+}
+
+// SetContextFor 按 URL 设置下载上下文（实现 core.ContextInjecterFor）。
+// 共享单实例并发下载时，避免单字段 SetContext 被兄弟下载覆盖导致的误取消。
+func (a *DownloaderAdapter) SetContextFor(url string, ctx context.Context) {
+	if url == "" {
+		return
+	}
+	a.mu.Lock()
+	if a.urlCtx == nil {
+		a.urlCtx = make(map[string]context.Context)
+	}
+	a.urlCtx[url] = ctx
+	a.mu.Unlock()
+}
+
+// clearContextFor 清理该 URL 的注入上下文（Download 结束时）。
+func (a *DownloaderAdapter) clearContextFor(url string) {
+	a.mu.Lock()
+	delete(a.urlCtx, url)
+	a.mu.Unlock()
 }
 
 // ApplyDomainLimits 设置域名并发限制（通过 StdlibTransport）。
@@ -121,10 +146,13 @@ func (a *DownloaderAdapter) MetricsRegistry() any {
 	return a.metrics
 }
 
-// getCtx 返回当前上下文（线程安全）。
-func (a *DownloaderAdapter) getCtx() context.Context {
+// getCtxFor 返回该 URL 的上下文：优先按 URL 注入，否则回落进程级注入（线程安全）。
+func (a *DownloaderAdapter) getCtxFor(url string) context.Context {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if c, ok := a.urlCtx[url]; ok && c != nil {
+		return c
+	}
 	if a.dlCtx != nil {
 		return a.dlCtx
 	}
@@ -191,7 +219,11 @@ func writeResultToMetadata(obj *model.DownloadObject, req *download.Request) {
 // Download 实现 core.Downloader 接口。
 // 将 model.DownloadObject + headers 映射为 download.Request 并执行下载。
 func (a *DownloaderAdapter) Download(obj *model.DownloadObject, headers map[string]string) error {
-	ctx := a.getCtx()
+	// 注入的按 URL 上下文在 Download 结束时清理（含所有早退路径）
+	if obj != nil {
+		defer a.clearContextFor(obj.URL)
+	}
+	ctx := a.getCtxFor(obj.URL)
 
 	if headers == nil {
 		headers = make(map[string]string)

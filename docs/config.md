@@ -48,8 +48,8 @@ auth:
 
 | 字段 | 说明 |
 |------|------|
-| `type` | native / wget |
-| `global_concurrent` | 全局并发 worker 数 |
+| `type` | native / wget / gopeed / sproxy_cloud |
+| `global_concurrent` | 全局并发 worker 数（未配置时钳为 **1**；注意云端下载项在轮询期间整程占用 worker） |
 | `sequential` | true=每任务同时只下载 1 个对象（任务内串行，按返回顺序逐个），默认 false=保持并发 |
 | `max_retries` | 失败重试次数 |
 | `log_dir` | 下载器日志目录 |
@@ -63,6 +63,40 @@ auth:
 | `proxy` | 代理决策：`force` / `list` / `decision_cache_ttl_secs` / `direct_probe_timeout_secs` / `bandwidth_path_suffix` |
 | `progress` | 进度回调：`min_percent_step` / `max_interval_seconds` |
 | `ffmpeg` | `path` / `extra_args` / `move_if_exists` / `external_hls_log` |
+
+### downloader.sproxy_cloud
+
+将 URL 提交给 sproxy 云端下载服务（sproxy 侧完成下载/转存；PikPak 分享链接走其 hybrid 策略）；
+download-manager 只做任务解析/提交/轮询。**通用**：任意 URL 均可交 sproxy（其按 URL 自动发现后端），
+PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优先 SproxySig（推荐），未配置时回落 Bearer。
+
+| 字段 | 说明 |
+|------|------|
+| `api_url` | sproxy cloud download API（**必填**；未配置则拒绝投递，不会发给缺省地址） |
+| `access_key` | SproxySig AccessKey |
+| `access_key_secret` | SproxySig AccessKeySecret（仅本地算签名，永不上线） |
+| `access_key_id` | SproxySig SK 条目 ID（`skey-id`，v2 必传） |
+| `api_token` | 旧 Bearer token（未配 SproxySig 三件套时使用，向后兼容） |
+| `transfer_volume` | 转存目标卷（非空则下载完成后转存到该卷）；留空 = 产物仅留 cloud 桶 |
+| `transfer_path` | 转存目标路径（卷内相对路径，可含子目录，如 `xxx/xxxx.mp4`）；仅 `transfer_volume` 非空时生效 |
+| `cloud_only` | `false`（默认）= 完成后把原始文件下载到本地 `SavePath`；`true` = 仅留云端不下载（只转存不拉回） |
+| `poll_every` | 任务轮询间隔（默认 5s） |
+| `timeout` | 单任务总超时（默认 3h）。注意：云端下载项在轮询期间**整程占用全局 worker 槽**（`global_concurrent`，未配置时为 1），多个云端对象可能挤占本地下载配额——建议按需下调本值 |
+| `client_timeout` | 显式覆盖单请求 HTTP 超时。默认：SproxySig 路径沿用 sproxy FileClient 的 300s；Bearer 路径为 30s |
+
+#### 下载项级「云端下载」选项
+
+是否走云端下载由**每个下载项**控制（而非全局下载器类型）：`DownloadObject.cloud_download`（bool）。
+任务可自行决定是否置位；当前对外入口为 API 与 Web UI（服务端未配置 `api_url` 时开关会被路由回落为
+默认下载器并告警，UI 会置灰）。切换方式：
+
+- API：`POST /api/tasks/{id}/object/cloud_download`，body `{"url": "...", "enabled": true}`
+- Web UI：对象列表的「云端」按钮（写入受 `uiMode` / 写保护约束）
+
+说明：
+- SproxySig 三件套（`access_key` / `access_key_secret` / `access_key_id`）需同时配置；启动时会带外验证签名链路，失败则该后端拒绝任务（fail-closed）。
+- 转存成功后产物引用写入对象 `Extra`：`transfer_url`（`sproxy://<卷>/<路径>`）、`cloud_task_id`、`cloud_task_filename`。
+- 对象取消/服务停机通过 `Cancel` / 注入上下文中断在途轮询。
 
 ## tasks
 

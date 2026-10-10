@@ -48,6 +48,7 @@ type Manager struct {
 	schedSvc        *SchedulerService
 	tasks           sync.Map
 	downloader      core.Downloader
+	cloudDownloader core.Downloader // sproxy 云端下载器（未配置 sproxy_cloud 时为 nil）
 	downloaderMu    sync.Mutex
 	stopChan        chan struct{}
 	workerStop      chan struct{}
@@ -149,6 +150,9 @@ type taskMetrics struct {
 type RuntimeFeatures struct {
 	Scheduler bool `json:"scheduler"`
 	Workers   bool `json:"workers"`
+	// CloudDownload 是否配置了 sproxy 云端下载后端（未配置时下载项级「云端下载」开关
+	// 会被路由回落为默认下载器，UI 据此置灰以避免「假成功」）。
+	CloudDownload bool `json:"cloud_download"`
 }
 
 // getDownloader returns the current downloader under read lock.
@@ -169,6 +173,130 @@ func (m *Manager) setDownloader(dl core.Downloader) {
 	m.downloaderMu.Unlock()
 }
 
+// getCloudDownloader 返回云端下载器（未配置时为 nil）。
+func (m *Manager) getCloudDownloader() core.Downloader {
+	m.downloaderMu.Lock()
+	defer m.downloaderMu.Unlock()
+	return m.cloudDownloader
+}
+
+// setCloudDownloader 替换云端下载器（nil = 未配置）。
+func (m *Manager) setCloudDownloader(dl core.Downloader) {
+	m.downloaderMu.Lock()
+	if old, ok := m.cloudDownloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
+	m.cloudDownloader = dl
+	m.downloaderMu.Unlock()
+}
+
+// setDownloaders 单次持锁原子替换默认与云端下载器：避免热更新时「默认已换、云端仍旧」
+// 的窗口内出现能力位/取消路由短暂不一致（窗口内启动的下载会落到即将被替换的实例）。
+// snapshotDownloaders 单锁返回「默认 + 云端」下载器对：热更新期间读取方不会看到
+// 「默认已换、云端仍旧」的撕裂状态。
+func (m *Manager) snapshotDownloaders() (core.Downloader, core.Downloader) {
+	m.downloaderMu.Lock()
+	defer m.downloaderMu.Unlock()
+	return m.downloader, m.cloudDownloader
+}
+
+func (m *Manager) setDownloaders(def, cloud core.Downloader) {
+	m.downloaderMu.Lock()
+	if old, ok := m.downloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
+	if old, ok := m.cloudDownloader.(interface{ CloseIdleConnections() }); ok {
+		old.CloseIdleConnections()
+	}
+	m.downloader = def
+	m.cloudDownloader = cloud
+	m.downloaderMu.Unlock()
+}
+
+// newCloudDownloader 返回云端下载器；未启用时为 nil（避免无谓的启动验证开销）。
+// 当 cfg.Type 已是 sproxy_cloud 时，默认下载器本身就是云端实例 → 复用同一实例，
+// 避免同进程构造两个 SproxyCloudDownloader（双份 verifyOnStart/轮换/取消表）。
+func newCloudDownloader(cfg config.Downloader, def core.Downloader) core.Downloader {
+	if cfg.SproxyCloud.APIURL == "" {
+		// 未配 api_url：无论 type 为何都不算「云端可用」（否则能力位谎报、UI 可点但投递必被拒）
+		return nil
+	}
+	if downloader.IsCloudType(cfg.Type) {
+		return def
+	}
+	return downloader.NewSproxyCloudDownloader(cfg.SproxyCloud)
+}
+
+// selectDownloader 依据下载项选项选择下载器：对象标记云端下载（obj.SetCloudDownload(true)，
+// 由任务自行管理）且云端下载器已配置时用云端下载器，否则用默认下载器。
+func (m *Manager) selectDownloader(obj *model.DownloadObject) core.Downloader {
+	def, cloud := m.snapshotDownloaders()
+	if obj.IsCloudDownload() {
+		if cloud != nil {
+			return cloud
+		}
+		slog.Warn("cloud download requested but sproxy_cloud not configured; falling back to default downloader",
+			logutil.LogKeyURL, obj.URL)
+	}
+	return def
+}
+
+// cancelObjectDownload 向可能正在处理该 URL 的下载器传播取消。
+// 按项路由后同一 URL 可能由默认下载器或云端下载器处理；对不持有该 URL 的实例
+// 调 Cancel 是安全 no-op（各自的 per-URL 取消表互不影响）。
+func (m *Manager) cancelObjectDownload(url string) {
+	if url == "" {
+		return
+	}
+	def, cloud := m.snapshotDownloaders()
+	seen := make(map[core.Downloader]struct{}, 2)
+	for _, dl := range []core.Downloader{def, cloud} {
+		if dl == nil {
+			continue
+		}
+		if _, dup := seen[dl]; dup {
+			continue // type=sproxy_cloud 时两者是同一实例，避免重复取消/关连接
+		}
+		seen[dl] = struct{}{}
+		if c, ok := dl.(interface{ Cancel(url string) error }); ok {
+			_ = c.Cancel(url)
+		}
+	}
+}
+
+// cancelActiveDownloads 取消当前所有在途下载（停机时调用）：对云端对象而言，
+// Cancel 会连带取消 sproxy 侧任务，避免进程退出后服务端继续下载/转存。
+func (m *Manager) cancelActiveDownloads() {
+	var urls []string
+	m.downloadingObj.Range(func(k, _ any) bool {
+		if u, ok := k.(string); ok && u != "" {
+			urls = append(urls, u)
+		}
+		return true
+	})
+	for _, u := range urls {
+		m.cancelObjectDownload(u)
+	}
+}
+
+// closeIdleConnections 关闭默认与云端下载器的空闲连接（停机/热更新）。
+func (m *Manager) closeIdleConnections() {
+	def, cloud := m.snapshotDownloaders()
+	seen := make(map[core.Downloader]struct{}, 2)
+	for _, dl := range []core.Downloader{def, cloud} {
+		if dl == nil {
+			continue
+		}
+		if _, dup := seen[dl]; dup {
+			continue // 同一实例不重复关闭
+		}
+		seen[dl] = struct{}{}
+		if c, ok := dl.(interface{ CloseIdleConnections() }); ok {
+			c.CloseIdleConnections()
+		}
+	}
+}
+
 func NewManager(cfg *config.Config) *Manager {
 	// Initialize Mongo Clients if configured
 	var mongoConfigs []struct{ Name, URI string }
@@ -186,11 +314,13 @@ func NewManager(cfg *config.Config) *Manager {
 		globalLimit = 5 // Default
 	}
 
+	defDownloader := downloader.New(cfg.Downloader)
 	mgr := &Manager{
 		cfg:             cfg,
 		configSvc:       NewConfigService(cfg),
 		aggSvc:          NewAggregationService(nil, nil, nil, nil),
-		downloader:      downloader.New(cfg.Downloader),
+		downloader:      defDownloader,
+		cloudDownloader: newCloudDownloader(cfg.Downloader, defDownloader),
 		stopChan:        make(chan struct{}),
 		workerStop:      make(chan struct{}, 256),
 		schedulerSignal: make(chan struct{}, 1),
@@ -228,7 +358,11 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 func (m *Manager) FeaturesStatus() RuntimeFeatures {
-	return RuntimeFeatures{Scheduler: m.schedulerEnabled.Load(), Workers: m.workersEnabled.Load()}
+	return RuntimeFeatures{
+		Scheduler:     m.schedulerEnabled.Load(),
+		Workers:       m.workersEnabled.Load(),
+		CloudDownload: m.getCloudDownloader() != nil,
+	}
 }
 
 // getAllTasks returns all registered tasks as a flat slice.
@@ -334,31 +468,69 @@ func (m *Manager) searchTaskObjects(t core.Task, query *core.StorageQuery) ([]*m
 
 // forEachObjectBatch 以固定批大小（默认 200）流式遍历任务对象，逐批执行 fn，
 // 不一次性收集全量（避免大任务启动/查询内存峰值）。
+//
+// 分页策略：始终取第 0 页（而非递增 offset）。调用方（ID 回填 / 版本升级）的谓词随处理
+// 收敛——处理过的对象离开结果集，递增 offset 会因结果集左移而**跳过**未处理对象；
+// 恒取第 0 页则自然收敛。用 seen 集合兜底：某轮无新对象（谓词未收敛，如升级失败）即退出，
+// 避免死循环。
 func (m *Manager) forEachObjectBatch(t core.Task, query *core.StorageQuery, batchSize int64, fn func(*model.DownloadObject) error) error {
 	if batchSize <= 0 {
 		batchSize = 200
 	}
-	var offset int64
+	seen := make(map[string]struct{})
 	for {
-		pageQuery := cloneStorageQuery(query)
-		pageQuery.Offset = offset
-		pageQuery.Limit = batchSize
-		chunk, err := m.searchTaskObjects(t, pageQuery)
+		// 找一页含未处理对象的批次：从第 0 页起（谓词收敛时第 0 页即有新对象）；
+		// 若整页皆已见（未收敛对象连片），继续向后翻页，避免提前收口漏处理。
+		chunk, err := m.nextBatchWithFresh(t, query, batchSize, seen)
 		if err != nil {
 			return err
 		}
 		if len(chunk) == 0 {
 			return nil
 		}
+		progressed := false
 		for _, o := range chunk {
+			if _, ok := seen[o.URL]; ok {
+				continue
+			}
+			seen[o.URL] = struct{}{}
+			progressed = true
 			if err := fn(o); err != nil {
 				return err
 			}
 		}
-		if int64(len(chunk)) < batchSize {
+		if !progressed {
+			// 结果集未收敛且无新对象可推进 → 结束，避免无限循环
 			return nil
 		}
-		offset += int64(len(chunk))
+	}
+}
+
+// nextBatchWithFresh 从第 0 页起按确定性顺序（url 升序）翻页，返回第一个含未处理对象的批次；
+// 全部页都已被处理过则返回空。
+func (m *Manager) nextBatchWithFresh(t core.Task, query *core.StorageQuery, batchSize int64, seen map[string]struct{}) ([]*model.DownloadObject, error) {
+	for offset := int64(0); ; offset += batchSize {
+		pageQuery := cloneStorageQuery(query)
+		// 确定性排序：无排序时 file/memory 的 map 遍历顺序不定、mongo 用自然序，
+		// 翻页结果可能重复/漂移（见 AGENTS「MemoryStorage.Search 不保证有序」）。
+		pageQuery.Sort = []core.StorageSort{{Field: "url"}}
+		pageQuery.Offset = offset
+		pageQuery.Limit = batchSize
+		chunk, err := m.searchTaskObjects(t, pageQuery)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return nil, nil
+		}
+		for _, o := range chunk {
+			if _, ok := seen[o.URL]; !ok {
+				return chunk, nil
+			}
+		}
+		if int64(len(chunk)) < batchSize {
+			return nil, nil // 已到最后一页且全为已见
+		}
 	}
 }
 
@@ -627,7 +799,8 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 	// Apply in-memory config
 	m.configSvc.StoreConfig(cfgCopy)
 	// Reload components
-	m.setDownloader(downloader.New(cfgCopy.Downloader))
+	defDownloader := downloader.New(cfgCopy.Downloader)
+	m.setDownloaders(defDownloader, newCloudDownloader(cfgCopy.Downloader, defDownloader))
 	// Apply domain limits to new downloader (consistent with NewManager)
 	// 先清理旧配置中已移除的域名
 	cfg := m.currentCfg()

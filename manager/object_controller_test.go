@@ -27,23 +27,24 @@ func TestObjectController_CancelUndoRetry(t *testing.T) {
 	objs, _ := task.Storage().Search(nil)
 	url := objs[0].URL
 
-	// Cancel
+	// Cancel（cancel 与 resolve worker 存在时序竞争，必须轮询确认——AGENTS 测试规范：
+	// 任何 cancel 操作不能直接断言）。
 	if err := mgr.CancelObject(task.ID(), url); err != nil {
 		t.Fatalf("CancelObject: %v", err)
 	}
-	obj, _ := task.Storage().Get(url)
-	if obj.GetStatus() != "cancelled" {
-		t.Errorf("expected cancelled, got %s", obj.GetStatus())
-	}
+	assert.MustEventually(t, func() bool {
+		obj, _ := task.Storage().Get(url)
+		return obj != nil && obj.GetStatus() == "cancelled"
+	}, 3*time.Second, 50*time.Millisecond, "expected cancelled after CancelObject")
 
-	// Undo
+	// Undo（同样异步收敛，轮询确认回到 pending）
 	if err := mgr.UndoCancelObject(task.ID(), url); err != nil {
 		t.Fatalf("UndoCancelObject: %v", err)
 	}
-	obj, _ = task.Storage().Get(url)
-	if obj.GetStatus() != "pending" {
-		t.Errorf("expected pending after undo, got %s", obj.GetStatus())
-	}
+	assert.MustEventually(t, func() bool {
+		obj, _ := task.Storage().Get(url)
+		return obj != nil && obj.GetStatus() == "pending"
+	}, 3*time.Second, 50*time.Millisecond, "expected pending after UndoCancelObject")
 
 	// Retry（对象为 pending 可重试）
 	if err := mgr.RetryObject(task.ID(), url); err != nil {

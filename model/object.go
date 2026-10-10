@@ -19,11 +19,45 @@ type DownloadObject struct {
 	Extra    map[string]any    `json:"extra" bson:"extra"`
 	Status   string            `json:"status" bson:"status"`
 	Progress int               `json:"progress" bson:"progress"`
+	// CloudDownload 该下载项经 sproxy 云端下载（转存到后端卷，可选是否下载本地）。
+	// 由任务自行管理或经 API/UI（POST /api/tasks/{id}/object/cloud_download）设置；
+	// Manager 据此路由到
+	// sproxy_cloud 下载器（未配置时回落默认下载器并告警）。
+	// 注：bson 不能用 omitempty——MongoStorage.Update 以 Snapshot 作为 $set 唯一来源，
+	// 省略 false 会使旧值（true）残留，导致开关无法关闭。
+	CloudDownload bool `json:"cloud_download" bson:"cloud_download"`
 	// Version 对象数据结构版本（ObjectVersioner 升级机制用）：version < 任务 LatestVersion
 	// 的对象在启动标准化时被自动逐级升级到最新结构。缺省 0 视为旧数据。
 	Version int64 `json:"version,omitempty" bson:"version,omitempty"`
 
 	mu sync.RWMutex `json:"-" bson:"-"`
+}
+
+// copyObjectOptionsLocked 在调用方已持有 src.mu 读锁时使用（如 Snapshot 内）。
+// 不能在此再走 src 的加锁访问器：Go RWMutex 的递归读锁在有写者等待时会死锁。
+func copyObjectOptionsLocked(dst, src *DownloadObject) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.CloudDownload = src.CloudDownload
+}
+
+// CopyObjectOptions 把下载项级选项从 src 复制到 dst（自行加锁）。集中一处，避免各拷贝点
+// （Snapshot 深拷贝、聚合代表对象、任务重建对象）漏字段——曾因 urllist 重建漏拷
+// CloudDownload 丢标志。新增 per-object 选项时只需改这里（Snapshot 走 locked 变体）。
+func CopyObjectOptions(dst, src *DownloadObject) {
+	if dst == nil || src == nil {
+		return
+	}
+	src.mu.RLock()
+	defer src.mu.RUnlock()
+	copyObjectOptionsLocked(dst, src)
+}
+
+// ObjectOption 描述可同步到任务运行时对象的下载项选项（nil 字段 = 不同步该项）。
+// 以指针表达「是否提供」，便于新增选项而无需扩展接口签名。
+type ObjectOption struct {
+	CloudDownload *bool `json:"cloud_download,omitempty"`
 }
 
 func (o *DownloadObject) GetID() int64 {
@@ -42,6 +76,26 @@ func (o *DownloadObject) SetID(id int64) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.ID = id
+}
+
+// IsCloudDownload 返回该对象是否要求经 sproxy 云端下载（并发安全）。
+func (o *DownloadObject) IsCloudDownload() bool {
+	if o == nil {
+		return false
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.CloudDownload
+}
+
+// SetCloudDownload 设置该对象的云端下载选项（并发安全）。
+func (o *DownloadObject) SetCloudDownload(v bool) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.CloudDownload = v
 }
 
 func (o *DownloadObject) GetProgress() int {
@@ -135,6 +189,7 @@ func (o *DownloadObject) Snapshot() *DownloadObject {
 		Progress: o.Progress,
 		Version:  o.Version,
 	}
+	copyObjectOptionsLocked(snap, o) // 已持读锁：不能再走加锁访问器（递归读锁死锁）
 	if o.Metadata != nil {
 		snap.Metadata = maps.Clone(o.Metadata)
 	}

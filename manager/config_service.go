@@ -6,6 +6,7 @@ package manager
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -99,9 +100,24 @@ func (cs *ConfigService) ListConfigBackups() ([]map[string]string, error) {
 	return res, nil
 }
 
+// ErrInvalidBackupRef 表示备份文件名逃出 config_backups（API 层应映射为 400 客户端错误）。
+var ErrInvalidBackupRef = errors.New("invalid backup ref")
+
+// validateBackupRef 校验备份文件名不逃出 config_backups（防目录穿越读写/删除任意文件）。
+func validateBackupRef(dir, name string) (string, error) {
+	p := filepath.Join(dir, name)
+	if !strings.HasPrefix(filepath.Clean(p), filepath.Clean(dir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w %q", ErrInvalidBackupRef, name)
+	}
+	return p, nil
+}
+
 func (cs *ConfigService) DeleteConfigBackup(filename string) error {
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	path := filepath.Join(dir, filename)
+	path, err := validateBackupRef(dir, filename)
+	if err != nil {
+		return err
+	}
 	meta := path + metaJSONSuffix
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("failed to delete backup: %w", err)
@@ -112,7 +128,10 @@ func (cs *ConfigService) DeleteConfigBackup(filename string) error {
 
 func (cs *ConfigService) RollbackLoad(filename string) (*config.Config, error) {
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	path := filepath.Join(dir, filename)
+	path, err := validateBackupRef(dir, filename)
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read backup: %w", err)
@@ -170,7 +189,10 @@ func (cs *ConfigService) readDiffSide(ref string) (*config.Config, []byte, error
 			return nil, nil, fmt.Errorf("parse current config failed: %w", err)
 		}
 	} else {
-		p := filepath.Join(config.GetWorkDir(), "config_backups", ref)
+		p, verr := validateBackupRef(filepath.Join(config.GetWorkDir(), "config_backups"), ref)
+		if verr != nil {
+			return nil, nil, verr
+		}
 		yml, err = os.ReadFile(p)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read backup failed: %w", err)
@@ -208,7 +230,11 @@ func (cs *ConfigService) AddConfigTag(filename, tag string) error {
 		return fmt.Errorf("tag is empty")
 	}
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+metaJSONSuffix)
+	base, err := validateBackupRef(dir, filename+metaJSONSuffix)
+	if err != nil {
+		return err
+	}
+	meta := base
 	var obj struct {
 		Tags  []string `json:"tags"`
 		Notes []struct {
@@ -236,7 +262,11 @@ func (cs *ConfigService) AddConfigNote(filename, message, author string) error {
 		return fmt.Errorf("message is empty")
 	}
 	dir := filepath.Join(config.GetWorkDir(), "config_backups")
-	meta := filepath.Join(dir, filename+metaJSONSuffix)
+	base, err := validateBackupRef(dir, filename+metaJSONSuffix)
+	if err != nil {
+		return err
+	}
+	meta := base
 	var obj struct {
 		Tags  []string `json:"tags"`
 		Notes []struct {

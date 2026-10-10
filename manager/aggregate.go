@@ -131,13 +131,18 @@ func metadataDate(obj *model.DownloadObject) string {
 
 // copyRepresentative creates a shallow copy of rep and attaches the group_size extra field.
 func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.DownloadObject {
+	// 全程持读锁：Metadata/Extra 的读必须与写方（applySharedState/下载器）互斥；
+	// 选项字段直接取值（不能再走加锁访问器——递归读锁在有写者等待时会死锁）。
+	rep.RLock()
+	defer rep.RUnlock()
 	c := &model.DownloadObject{
-		TaskID:   rep.TaskID,
-		URL:      rep.URL,
-		SavePath: rep.SavePath,
-		Status:   rep.GetStatus(),
-		Progress: rep.GetProgress(),
-		Version:  rep.GetVersion(),
+		TaskID:        rep.TaskID,
+		URL:           rep.URL,
+		SavePath:      rep.SavePath,
+		Status:        rep.Status,
+		Progress:      rep.Progress,
+		Version:       rep.Version,
+		CloudDownload: rep.CloudDownload,
 	}
 	if rep.Metadata != nil {
 		c.Metadata = make(map[string]string, len(rep.Metadata))

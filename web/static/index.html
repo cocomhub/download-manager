@@ -871,6 +871,9 @@
                                     <button v-if="uiMode === 'manage' && obj.status === 'cancelled'" @click.stop="undoCancelObject(obj)" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" :data-testid="'btn-undo-' + obj.url" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition disabled:opacity-50">
                                         撤销取消
                                     </button>
+                                    <button v-if="uiMode === 'manage'" @click.stop="toggleObjectCloudDownload(obj)" :disabled="isWriteDisabled || !cloudDownloadAvailable" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : (!cloudDownloadAvailable ? '未配置 sproxy 云端下载后端（downloader.sproxy_cloud.api_url）' : (obj.cloud_download ? '已启用云端下载（点击关闭）' : '点击启用云端下载（经 sproxy 转存到后端存储）'))" :data-testid="'btn-cloud-' + obj.url" class="text-xs px-2 py-1 rounded transition disabled:opacity-50" :class="obj.cloud_download ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'">
+                                        云端
+                                    </button>
                                     <button v-if="uiMode === 'manage' && obj.status === 'failed'" @click.stop="retryObject(obj)" :disabled="isWriteDisabled" :title="isWriteDisabled ? 'UI-Only 模式下已禁用' : ''" class="text-xs px-2 py-1 rounded bg-white text-red-600 hover:bg-red-50 transition disabled:opacity-50">
                                         重试
                                     </button>
@@ -1224,21 +1227,21 @@
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">HTTP Proxies (One per line)</label>
-                                <textarea v-model="configForm.proxies" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="http://127.0.0.1:7890"></textarea>
+                                <textarea v-model="proxiesText" data-testid="input-proxies" class="w-full border border-gray-300 rounded-md p-2 h-32 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="http://127.0.0.1:7890"></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Leave empty for direct connection. Multiple proxies will be load balanced.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Domain Limits (host=max, one per line)</label>
-                                <textarea v-model="configForm.domain_limits_text" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="example.com=2&#10;cdn.example.com=4"></textarea>
+                                <textarea v-model="domainLimitsText" data-testid="input-domain-limits" class="w-full border border-gray-300 rounded-md p-2 h-24 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="example.com=2&#10;cdn.example.com=4"></textarea>
                                 <p class="text-xs text-gray-500 mt-1">Controls per-host concurrent downloads to avoid congestion.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Scan Interval (seconds)</label>
-                                <input type="number" v-model.number="configForm.scan_interval" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <input type="number" v-model.number="configForm.task_scan.interval" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Global Concurrent Downloads</label>
-                                <input type="number" v-model.number="configForm.global_concurrent" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
+                                <input type="number" v-model.number="configForm.downloader.global_concurrent" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
                                 <p class="text-xs text-gray-500 mt-1">Total simultaneous downloads across all tasks.</p>
                             </div>
                         </div>
@@ -1256,31 +1259,31 @@
                                     <option value="error">error</option>
                                     <option value="">off</option>
                                 </select>
-                                <p class="text-xs text-gray-500 mt-1">Controls both server-side and frontend (browser console) log output.</p>
+                                <p class="text-xs text-gray-500 mt-1">Frontend (browser console) log level. Server-side level is the Logging 段 <code>log.level</code>.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Log File Path</label>
-                                <input type="text" v-model="configForm.log_filename" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./logs/app.log">
+                                <input type="text" v-model="configForm.log.filename" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="./logs/app.log">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Size (MB)</label>
-                                <input type="number" v-model.number="configForm.log_max_size" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
+                                <input type="number" v-model.number="configForm.log.max_size" data-testid="input-log-max-size" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Backups</label>
-                                <input type="number" v-model.number="configForm.log_max_backups" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                                <input type="number" v-model.number="configForm.log.max_backups" data-testid="input-log-max-backups" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Age (days)</label>
-                                <input type="number" v-model.number="configForm.log_max_age" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                                <input type="number" v-model.number="configForm.log.max_age" data-testid="input-log-max-age" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
                             </div>
                             <div class="flex items-center gap-3">
                                 <label class="text-sm font-medium text-gray-700">Compress</label>
-                                <input type="checkbox" v-model="configForm.log_compress" class="accent-blue-600">
+                                <input type="checkbox" v-model="configForm.log.compress" class="accent-blue-600">
                             </div>
                             <div class="flex items-center gap-3">
                                 <label class="text-sm font-medium text-gray-700">Console Output</label>
-                                <input type="checkbox" v-model="configForm.log_console" class="accent-blue-600">
+                                <input type="checkbox" v-model="configForm.log.console" class="accent-blue-600">
                             </div>
                         </div>
                         <p class="text-xs text-gray-500 mt-2">敏感配置（端口、数据库连接等）不在此界面显示与修改。</p>
@@ -1290,7 +1293,7 @@
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Status Style</label>
-                                <select v-model="configForm.status_style" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <select v-model="configForm.ui_defaults.status_style" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="pill">pill</option>
                                         <option value="dot">dot</option>
                                         <option value="overlay">overlay</option>

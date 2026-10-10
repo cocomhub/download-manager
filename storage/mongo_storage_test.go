@@ -437,18 +437,43 @@ func TestBuildMongoFilter_VersionLT(t *testing.T) {
 	filter := buildMongoFilter(&core.StorageQuery{
 		Filter: core.StorageFilter{VersionLT: 2},
 	})
-	lt, ok := filter["version"].(bson.M)
+	// mongo 上 version=0 的旧文档字段不存在，{$lt:N} 不匹配 ⇒ 必须 $exists:false 兜底，
+	// 否则旧数据永不被版本升级（与 file/memory 语义分叉）。
+	conds, ok := filter["$and"].(bson.A)
 	if !ok {
-		t.Fatalf("expected version filter, got %T %+v", filter["version"], filter["version"])
+		t.Fatalf("expected $and conditions, got %T %+v", filter["$and"], filter["$and"])
 	}
-	if lt["$lt"] != int64(2) {
-		t.Errorf("version $lt = %v, want 2", lt["$lt"])
+	var verCond bson.M
+	for _, c := range conds {
+		m, ok := c.(bson.M)
+		if !ok {
+			continue
+		}
+		if _, has := m["$or"]; has {
+			verCond = m
+			break
+		}
+	}
+	if verCond == nil {
+		t.Fatalf("expected version $or condition, got %+v", conds)
+	}
+	ors, _ := verCond["$or"].(bson.A)
+	if len(ors) != 2 {
+		t.Fatalf("expected 2 alternatives (missing / $lt), got %+v", verCond["$or"])
+	}
+	missing, _ := ors[0].(bson.M)
+	ltDoc, _ := ors[1].(bson.M)
+	if _, has := missing["version"].(bson.M)["$exists"]; !has {
+		t.Errorf("first alternative should check version $exists:false, got %+v", missing)
+	}
+	if lt, _ := ltDoc["version"].(bson.M); lt["$lt"] != int64(2) {
+		t.Errorf("second alternative version $lt = %v, want 2", lt["$lt"])
 	}
 
 	// VersionLT==0 → 不过滤
 	filter0 := buildMongoFilter(&core.StorageQuery{Filter: core.StorageFilter{VersionLT: 0}})
-	if _, ok := filter0["version"]; ok {
-		t.Errorf("unexpected version filter when VersionLT==0: %+v", filter0["version"])
+	if _, ok := filter0["$and"]; ok {
+		t.Errorf("unexpected $and filter when VersionLT==0: %+v", filter0["$and"])
 	}
 }
 

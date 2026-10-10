@@ -17,10 +17,10 @@ import (
 	"github.com/cocomhub/download-manager/model"
 )
 
-// TestSproxyHybrid_PickShareURL 验证分享 URL 提取。
+// TestSproxyCloud_PickShareURL 验证分享 URL 提取。
 // 优先级：magnet_list[].keepshare（与 gopeed collectPikPakCandidates 对齐）→ files[] → obj.URL。
-func TestSproxyHybrid_PickShareURL(t *testing.T) {
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{})
+func TestSproxyCloud_PickShareURL(t *testing.T) {
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{})
 
 	// ① magnet_list[].keepshare 优先（keepshare 镜像 = HTTP 形态，hybrid 可用）
 	obj := &model.DownloadObject{
@@ -31,7 +31,7 @@ func TestSproxyHybrid_PickShareURL(t *testing.T) {
 			},
 		},
 	}
-	if got := d.pickShareURL(obj); !strings.Contains(got, "keepshare.org") {
+	if got := d.pickURL(obj); !strings.Contains(got, "keepshare.org") {
 		t.Fatalf("magnet_list keepshare = %q, want keepshare", got)
 	}
 
@@ -43,7 +43,7 @@ func TestSproxyHybrid_PickShareURL(t *testing.T) {
 			},
 		},
 	}
-	if got := d.pickShareURL(objML); got != "" {
+	if got := d.pickURL(objML); got != "" {
 		t.Fatalf("pure magnet should be empty (hybrid can't use), got %q", got)
 	}
 
@@ -55,25 +55,25 @@ func TestSproxyHybrid_PickShareURL(t *testing.T) {
 			},
 		},
 	}
-	if got := d.pickShareURL(obj3); !strings.Contains(got, "keepshare.org") {
+	if got := d.pickURL(obj3); !strings.Contains(got, "keepshare.org") {
 		t.Fatalf("files keepshare = %q, want keepshare", got)
 	}
 
 	// ③ obj.URL 本身是分享
 	obj4 := &model.DownloadObject{URL: "https://mypikpak.com/s/abc123"}
-	if got := d.pickShareURL(obj4); got != obj4.URL {
-		t.Fatalf("pickShareURL direct = %q, want %q", got, obj4.URL)
+	if got := d.pickURL(obj4); got != obj4.URL {
+		t.Fatalf("pickURL direct = %q, want %q", got, obj4.URL)
 	}
 
-	// 非分享 URL → 空
+	// 非分享 URL → 通用回落为 obj.URL（不再是只做 PikPak；任意 URL 均可交 sproxy）
 	obj5 := &model.DownloadObject{URL: "https://example.com/x.mp4"}
-	if got := d.pickShareURL(obj5); got != "" {
-		t.Fatalf("non-share URL should be empty, got %q", got)
+	if got := d.pickURL(obj5); got != obj5.URL {
+		t.Fatalf("non-share URL should fall back to obj.URL, got %q", got)
 	}
 }
 
-// TestSproxyHybrid_PollShortCircuit 验证 poll 对连续非 2xx 错误短路返回（避免 3h 空等）。
-func TestSproxyHybrid_PollShortCircuit(t *testing.T) {
+// TestSproxyCloud_PollShortCircuit 验证 poll 对连续非 2xx 错误短路返回（避免 3h 空等）。
+func TestSproxyCloud_PollShortCircuit(t *testing.T) {
 	mux := http.NewServeMux()
 	// 任务详情恒 404
 	mux.HandleFunc("GET /api/cloud/tasks/task-404", func(w http.ResponseWriter, r *http.Request) {
@@ -82,13 +82,13 @@ func TestSproxyHybrid_PollShortCircuit(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:    srv.URL + "/api/cloud/download",
 		PollEvery: 10 * time.Millisecond,
 		Timeout:   3 * time.Hour, // 若未短路会空等 3h
 	})
 	start := time.Now()
-	err := d.poll("404")
+	_, err := d.pollResult(t.Context(), "task-short-circuit")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("poll should return error on consecutive 404")
@@ -101,8 +101,8 @@ func TestSproxyHybrid_PollShortCircuit(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_SubmitHeaders 验证 submit 透传 headers。
-func TestSproxyHybrid_SubmitHeaders(t *testing.T) {
+// TestSproxyCloud_SubmitHeaders 验证 submit 透传 headers。
+func TestSproxyCloud_SubmitHeaders(t *testing.T) {
 	var gotReferer, gotUA string
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
@@ -113,8 +113,8 @@ func TestSproxyHybrid_SubmitHeaders(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{APIURL: srv.URL + "/api/cloud/download"})
-	taskID, err := d.submit("https://mypikpak.com/s/abc", "out.mp4", map[string]string{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{APIURL: srv.URL + "/api/cloud/download"})
+	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", map[string]string{
 		"Referer":    "https://mypikpak.com/",
 		"User-Agent": "test-agent",
 	})
@@ -132,10 +132,9 @@ func TestSproxyHybrid_SubmitHeaders(t *testing.T) {
 	}
 }
 
-// TestSproxyHybrid_Download 端到端：提交 → 轮询 → 完成（fake sproxy API）。
-func TestSproxyHybrid_Download(t *testing.T) {
+// TestSproxyCloud_Download 端到端：提交 → 轮询 → 完成（fake sproxy API）。
+func TestSproxyCloud_Download(t *testing.T) {
 	var submitted atomic.Bool
-	done := make(chan struct{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
 		submitted.Store(true)
@@ -148,14 +147,14 @@ func TestSproxyHybrid_Download(t *testing.T) {
 	})
 	mux.HandleFunc("GET /api/cloud/tasks/task-1", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResp(w, map[string]any{"id": "task-1", "status": "completed"})
-		close(done)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	d := NewSproxyHybridDownloader(config.SproxyHybridConfig{
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL:    srv.URL + "/api/cloud/download",
 		PollEvery: 100,
+		CloudOnly: true, // 只验提交/轮询链路，不下载到本地
 	})
 	obj := &model.DownloadObject{
 		URL:      "https://njavtv.com/dm102/ja/mism-099",

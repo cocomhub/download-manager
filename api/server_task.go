@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,19 +29,21 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"mode": "full",
 			"features": map[string]bool{
-				"download":  true,
-				"scheduler": true,
+				"download":       true,
+				"scheduler":      true,
+				"cloud_download": s.mgr.FeaturesStatus().CloudDownload,
 			},
 			"download_root": s.mgr.GetDownloadRootDir(),
-			"log_level":     cfg.Runtime.LogLevel,
+			"log_level":     "",
 		})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"mode": cfg.Runtime.Mode,
 		"features": map[string]bool{
-			"download":  cfg.Runtime.Download.Enabled,
-			"scheduler": cfg.Runtime.Scheduler.Enabled,
+			"download":       cfg.Runtime.Download.Enabled,
+			"scheduler":      cfg.Runtime.Scheduler.Enabled,
+			"cloud_download": s.mgr.FeaturesStatus().CloudDownload,
 		},
 		"download_root": s.mgr.GetDownloadRootDir(),
 		"log_level":     cfg.Runtime.LogLevel,
@@ -134,6 +137,12 @@ type ObjectURLRequest struct {
 
 type ObjectURLsRequest struct {
 	URLs []string `json:"urls"`
+}
+
+// ObjectCloudDownloadRequest 设置下载项的「云端下载」选项。
+type ObjectCloudDownloadRequest struct {
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
 }
 
 // cancelTask cancels a task by ID.
@@ -608,6 +617,27 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // ObjectTagsPayload 标签更新请求体
 type ObjectTagsPayload struct {
 	Tags []string `json:"tags"`
+}
+
+// setObjectCloudDownload 设置单个下载项的「云端下载」选项（任务自行管理的下载项级开关）。
+// POST /api/tasks/{id}/object/cloud_download
+func (s *Server) setObjectCloudDownload(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var req ObjectCloudDownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "url is required")
+		return
+	}
+	if err := s.mgr.SetObjectCloudDownload(id, req.URL, req.Enabled); err != nil {
+		// 任务/对象不存在属客户端错误；存储故障（mongo 不可用等）应回 5xx 以便区分
+		if errors.Is(err, manager.ErrTaskNotFound) || errors.Is(err, manager.ErrObjectNotFound) {
+			writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // updateObjectTags 更新指定下载对象的标签。

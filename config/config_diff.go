@@ -290,7 +290,49 @@ func diffFFmpegFields(c, b Config) []Change {
 		c.Downloader.Retry.BatchSize != b.Downloader.Retry.BatchSize {
 		changes = append(changes, Change{Path: "downloader.retry", A: c.Downloader.Retry, B: b.Downloader.Retry})
 	}
+	if sproxyCloudDiffHasChange(c.Downloader.SproxyCloud, b.Downloader.SproxyCloud) {
+		changes = append(changes, Change{
+			Path: "downloader.sproxy_cloud",
+			A:    sproxyCloudDiffView(c.Downloader.SproxyCloud),
+			B:    sproxyCloudDiffView(b.Downloader.SproxyCloud),
+		})
+	}
 	return changes
+}
+
+// sproxyCloudDiffHasChange 判断 sproxy_cloud 配置是否发生可告警变化（含 secret 的「是否已配置」）。
+// 不直接比较结构体：secret 字段只比较「是否非空」，避免把明文带进比较/展示。
+func sproxyCloudDiffHasChange(a, b SproxyCloudConfig) bool {
+	return a.APIURL != b.APIURL ||
+		(a.APIToken != "") != (b.APIToken != "") ||
+		a.AccessKey != b.AccessKey ||
+		(a.AccessKeySecret != "") != (b.AccessKeySecret != "") ||
+		a.AccessKeyID != b.AccessKeyID ||
+		a.TransferVolume != b.TransferVolume ||
+		a.TransferPath != b.TransferPath ||
+		a.CloudOnly != b.CloudOnly ||
+		a.PollEvery != b.PollEvery ||
+		a.Timeout != b.Timeout ||
+		a.ClientTimeout != b.ClientTimeout
+}
+
+// sproxyCloudDiffView 返回可安全写入 diff 的副本：AccessKeySecret/APIToken 不保留
+// 明文（置空），仅通过 has_access_key_secret/has_api_token 表达「是否已配置」的变更，
+// 避免配置 diff API/UI 回泄机密。
+func sproxyCloudDiffView(sc SproxyCloudConfig) map[string]any {
+	return map[string]any{
+		"api_url":               sc.APIURL,
+		"has_api_token":         sc.APIToken != "",
+		"access_key":            sc.AccessKey,
+		"has_access_key_secret": sc.AccessKeySecret != "",
+		"access_key_id":         sc.AccessKeyID,
+		"transfer_volume":       sc.TransferVolume,
+		"transfer_path":         sc.TransferPath,
+		"cloud_only":            sc.CloudOnly,
+		"poll_every":            sc.PollEvery,
+		"timeout":               sc.Timeout,
+		"client_timeout":        sc.ClientTimeout,
+	}
 }
 
 func diffTaskScanFields(c, b Config) []Change {

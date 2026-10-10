@@ -120,7 +120,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
-	dl := m.getDownloader()
+	dl := m.selectDownloader(obj)
 
 	// Create per-download context tied to manager lifecycle for cancellation
 	dlCtx, dlCancel := context.WithCancel(context.Background())
@@ -138,8 +138,11 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	defer close(heartbeatStop)
 	go m.heartbeatLoop(heartbeatStop, dlCtx)
 
-	// Propagate context to downloader if supported
-	if nd, ok := dl.(core.ContextInjecter); ok {
+	// Propagate context to downloader if supported（优先按 URL 注入，避免共享实例
+	// 并发下载时上下文互相覆盖）
+	if nd, ok := dl.(core.ContextInjecterFor); ok {
+		nd.SetContextFor(obj.URL, dlCtx)
+	} else if nd, ok := dl.(core.ContextInjecter); ok {
 		nd.SetContext(dlCtx)
 	}
 

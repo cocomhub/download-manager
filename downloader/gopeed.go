@@ -802,11 +802,12 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+// truncate 截断字符串到 mx 字节（参数名不遮蔽内置 max，避免 go:S978）。
+func truncate(s string, mx int) string {
+	if len(s) <= mx {
 		return s
 	}
-	return s[:max]
+	return s[:mx]
 }
 
 // firstPikPakFromFiles 从 obj.Extra.files 中找第一个 keepshare/magnet 下载源。

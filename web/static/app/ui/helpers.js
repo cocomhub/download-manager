@@ -324,6 +324,70 @@
 
   // ---- Config panel ----
 
+  // formatProxiesText：把 downloader.proxies 数组渲染为「一行一个」文本（配置表单用）。
+  function formatProxiesText (list) {
+    if (!Array.isArray(list)) return ''
+    return list.filter(function (x) { return typeof x === 'string' && x !== '' }).join('\n')
+  }
+
+  // parseProxiesText：把多行文本解析为代理数组（忽略空行与首尾空白）。
+  function parseProxiesText (text) {
+    if (typeof text !== 'string') return []
+    return text.split('\n').map(function (l) { return l.trim() }).filter(function (l) { return l !== '' })
+  }
+
+  // formatDomainLimits：把 downloader.domain_limits（{host: n}）渲染为「一行一个 host=n」。
+  function formatDomainLimits (m) {
+    if (!m || typeof m !== 'object') return ''
+    return Object.keys(m).map(function (k) { return k + '=' + m[k] }).join('\n')
+  }
+
+  // parseDomainLimits：把「host=n」多行文本解析为 map（忽略空行/注释/非法行）。
+  function parseDomainLimits (text) {
+    var out = {}
+    if (typeof text !== 'string') return out
+    text.split('\n').forEach(function (line) {
+      var l = line.trim()
+      if (l === '' || l.charAt(0) === '#') return
+      var i = l.lastIndexOf('=')
+      if (i <= 0) return
+      var host = l.slice(0, i).trim()
+      var n = parseInt(l.slice(i + 1).trim(), 10)
+      if (host === '' || !isFinite(n) || n <= 0) return
+      out[host] = n
+    })
+    return out
+  }
+
+  // get/setConfigDomainLimits：读写 configForm.downloader.domain_limits（嵌套路径）。
+  function getConfigDomainLimits (state) {
+    var form = state.configForm || {}
+    return formatDomainLimits((form.downloader || {}).domain_limits)
+  }
+
+  function setConfigDomainLimits (state, text) {
+    var form = state.configForm || {}
+    if (!form.downloader) form.downloader = {}
+    form.downloader.domain_limits = parseDomainLimits(text)
+    state.configForm = form
+  }
+
+  // setConfigProxies：把文本写回 configForm.downloader.proxies（GET 返回的是嵌套结构，
+  // 此前绑定顶层 configForm.proxies → 编辑被静默丢弃）。
+  function setConfigProxies (state, text) {
+    var form = state.configForm || {}
+    if (!form.downloader) form.downloader = {}
+    form.downloader.proxies = parseProxiesText(text)
+    state.configForm = form
+  }
+
+  // getConfigProxies：从 configForm.downloader.proxies 读取文本。
+  function getConfigProxies (state) {
+    var form = state.configForm || {}
+    var dl = form.downloader || {}
+    return formatProxiesText(dl.proxies)
+  }
+
   function openConfig (state) {
     Log.info('openConfig')
     state.showConfigModal = true
@@ -339,6 +403,8 @@
       showToast('配置已保存', 'success')
       state.showConfigModal = false
       initUiDefaults(state)
+      // 配置变更可能重建云端下载器 → 刷新 runtime 能力位，避免按钮状态陈旧
+      initRuntime(state)
       if (state.configForm.log_level !== undefined && typeof Log !== 'undefined' && Log.setLevel) {
         Log.setLevel(state.configForm.log_level)
       }
@@ -432,6 +498,14 @@
     // State init
     initTypeFromURL: initTypeFromURL,
     initRuntime: initRuntime,
+    formatProxiesText: formatProxiesText,
+    formatDomainLimits: formatDomainLimits,
+    parseDomainLimits: parseDomainLimits,
+    getConfigDomainLimits: getConfigDomainLimits,
+    setConfigDomainLimits: setConfigDomainLimits,
+    parseProxiesText: parseProxiesText,
+    getConfigProxies: getConfigProxies,
+    setConfigProxies: setConfigProxies,
     initUiDefaults: initUiDefaults,
 
     // Display helpers (pure, no state)

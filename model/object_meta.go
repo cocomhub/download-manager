@@ -531,3 +531,18 @@ func (o *DownloadObject) EnsureTaskType(taskType string) {
 	}
 	o.Metadata["task_type"] = taskType
 }
+
+// GetTransferURL 返回 sproxy 转存产物引用（形如 sproxy://<卷>/<路径>）；空 = 未转存。
+// 由 downloader/sproxy_cloud 在任务完成后写入 Extra["transfer_url"]。
+func (o *DownloadObject) GetTransferURL() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.Extra == nil {
+		return ""
+	}
+	s, _ := o.Extra["transfer_url"].(string)
+	return s
+}

@@ -49,11 +49,14 @@
         uiDefaults: null,
         showEditTaskModal: false,
         editTask: null,
+        // 与 GET /api/config/server 的嵌套结构一致（openConfig 会整体覆盖，
+        // 这里只保证首帧渲染不读到 undefined）
         configForm: {
-          proxies: '', scan_interval: 10, global_concurrent: 5,
-          log_level: 'info', log_filename: '', log_max_size: 100,
-          log_max_backups: 3, log_max_age: 7, log_compress: false, log_console: true,
-          domain_limits_text: '', status_style: 'pill'
+          log_level: 'info',
+          log: { filename: '', max_size: 100, max_backups: 3, max_age: 7, compress: false, console: true },
+          downloader: { global_concurrent: 5, proxies: [], domain_limits: {} },
+          task_scan: { interval: 10 },
+          ui_defaults: { status_style: 'pill' }
         },
         newTask: {
           id: '', type: 'url_list', save_dir: './downloads', save_sub_dir: '', scrape_enabled: true, download_enabled: true,
@@ -164,6 +167,23 @@
         var rt = this.runtime || {}
         var f = rt.features || {}
         return rt.mode === 'ui' || (!f.download && !f.scheduler)
+      },
+      // cloudDownloadAvailable：服务端是否配置了 sproxy 云端下载后端（未配置时开关会被
+      // 路由回落为默认下载器 → UI 置灰，避免「假成功」）。
+      // proxiesText：配置表单的代理多行文本 ↔ configForm.downloader.proxies 数组
+      // （后端 GET 返回嵌套结构；此前直接绑定 configForm.proxies 导致编辑被丢弃）。
+      proxiesText: {
+        get: function () { return UiHelpers.getConfigProxies(this) },
+        set: function (v) { UiHelpers.setConfigProxies(this, v) }
+      },
+      // domainLimitsText：域名限流文本 ↔ configForm.downloader.domain_limits
+      domainLimitsText: {
+        get: function () { return UiHelpers.getConfigDomainLimits(this) },
+        set: function (v) { UiHelpers.setConfigDomainLimits(this, v) }
+      },
+      cloudDownloadAvailable: function () {
+        var f = (this.runtime || {}).features || {}
+        return f.cloud_download !== false
       },
       volumeIcon: function () {
         if (this.isMuted || this.volume === 0) return 'fa-volume-mute'
@@ -433,6 +453,7 @@
       undoCancelSelectAllObjects: function() { UiTaskList.undoCancelSelectAllObjects(this) },
       cancelObject: function(obj) { UiTaskList.cancelObject(this, obj) },
       undoCancelObject: function(obj) { UiTaskList.undoCancelObject(this, obj) },
+      toggleObjectCloudDownload: function(obj) { UiTaskList.toggleObjectCloudDownload(this, obj) },
       hasOnClick: function(obj) { return UiHelpers.hasOnClick(obj) },
       saveConfig: function() { UiHelpers.saveConfig(this) },
       openConfigHistory: function() { UiHelpers.openConfigHistory(this) },
@@ -538,7 +559,7 @@
           }
           if (this.selectedTask && this.selectedTask.objects) {
             var currentObj = this.selectedTask.objects.find(function (o) { return o.url === obj.url })
-            if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata }
+            if (currentObj) { currentObj.status = obj.status; currentObj.progress = obj.progress; if (obj.metadata) currentObj.metadata = obj.metadata; if (obj.cloud_download !== undefined) currentObj.cloud_download = obj.cloud_download }
           }
           if (this.viewMode === 'aggregate' && Array.isArray(this.aggObjects) && this.aggObjects.length > 0) {
             var objType = (obj && typeof obj.type === 'string') ? obj.type : null
@@ -698,7 +719,11 @@
       },
       viewConfigDiff: function() {
         var self = this
-        AppAPI.post('/api/config/diff', { left: this.diffForm.left, right: this.diffForm.right, options: this.diffOptions })
+        var q = '?left=' + encodeURIComponent(this.diffForm.left) + '&right=' + encodeURIComponent(this.diffForm.right)
+        var o = this.diffOptions || {}
+        if (o.ignoreWs) q += '&ignore_ws=1'
+        if (o.ignoreComments) q += '&ignore_comments=1'
+        AppAPI.get('/api/config/diff' + q)
           .then(function(data) { self.configDiff = data; self.lineDiff = (data && data.lineDiff) || []; self.collapsedLineDiff = (data && data.collapsedLineDiff) || [] })
           .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
       },
@@ -707,13 +732,13 @@
         this.rollbackTarget = filename
         this.showRollbackConfirm = true
         var self = this
-        AppAPI.post('/api/config/diff', { left: 'current', right: filename })
+        AppAPI.get('/api/config/diff?left=current&right=' + encodeURIComponent(filename))
           .then(function(data) { self.rollbackDiff = data; self.rollbackLineDiff = (data && data.lineDiff) || [] })
           .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
       },
       confirmRollback: function() {
         var self = this
-        AppAPI.post('/api/config/rollback', { target: this.rollbackTarget })
+        AppAPI.post('/api/config/rollback', { filename: this.rollbackTarget })
           .then(function(res) { if (!res.ok) throw new Error('回滚失败'); UiHelpers.showToast('配置已回滚', 'success'); self.showRollbackConfirm = false; self.fetchTasks() })
           .catch(function(e) { UiHelpers.showToast('回滚失败: ' + e.message, 'error') })
       },
@@ -721,7 +746,7 @@
         var tag = prompt('输入标签名称:')
         if (!tag || !tag.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/tag', { tag: tag.trim() })
+        AppAPI.post('/api/config/tag', { filename: filename, tag: tag.trim() })
           .then(function() { UiHelpers.showToast('标签已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
       },
@@ -729,28 +754,28 @@
         var note = prompt('输入记录内容:')
         if (!note || !note.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(filename) + '/note', { message: note.trim() })
+        AppAPI.post('/api/config/note', { filename: filename, message: note.trim() })
           .then(function() { UiHelpers.showToast('记录已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
       },
       deleteConfigBackupRow: function(filename) {
         if (!confirm('确定要删除备份 ' + filename + ' 吗？')) return
         var self = this
-        AppAPI.del('/api/config/backup/' + encodeURIComponent(filename))
+        AppAPI.post('/api/config/delete', { filename: filename })
           .then(function() { UiHelpers.showToast('备份已删除', 'success'); self.fetchTasks() })
           .catch(function(e) { UiHelpers.showToast('删除失败: ' + e.message, 'error') })
       },
       addConfigTag: function() {
         if (!this.tagForm.tag || !this.tagForm.tag.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/tag', { tag: this.tagForm.tag.trim() })
+        AppAPI.post('/api/config/tag', { filename: this.diffForm.right, tag: this.tagForm.tag.trim() })
           .then(function() { self.tagForm.tag = ''; self.tagForm.message = '标签已添加'; UiHelpers.showToast('标签已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加标签失败: ' + e.message, 'error') })
       },
       addConfigNote: function() {
         if (!this.noteForm.message || !this.noteForm.message.trim()) return
         var self = this
-        AppAPI.post('/api/config/backup/' + encodeURIComponent(this.diffForm.right) + '/note', { message: this.noteForm.message.trim(), author: this.noteForm.author || '' })
+        AppAPI.post('/api/config/note', { filename: this.diffForm.right, message: this.noteForm.message.trim(), author: this.noteForm.author || '' })
           .then(function() { self.noteForm.message = ''; self.noteForm.messageText = '记录已添加'; UiHelpers.showToast('记录已添加', 'success') })
           .catch(function(e) { UiHelpers.showToast('添加记录失败: ' + e.message, 'error') })
       },

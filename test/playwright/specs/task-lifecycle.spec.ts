@@ -64,6 +64,24 @@ test.describe('Task & Object Management', () => {
     await page.waitForTimeout(500);
   });
 
+  test('T4b: cloud download option is guarded when backend unconfigured', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-testid="task-test-mixed"]').click();
+    await expect(page.locator('h2:has-text("test-mixed")')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // 该 fixture 未配置 downloader.sproxy_cloud.api_url → /api/runtime 的
+    // features.cloud_download=false → 按钮必须置灰（防止「假成功」）。
+    // 若服务端不再下发该能力位，按钮会变为可用，本断言即失败。
+    const cloudBtn = page.locator('[data-testid^="btn-cloud-"]').first();
+    await cloudBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await expect(cloudBtn).toBeDisabled();
+    await expect(cloudBtn).not.toHaveClass(/bg-indigo-600/);
+    // 强制触发 click 也不应进入激活态
+    await cloudBtn.click({ force: true }).catch(() => {});
+    await expect(cloudBtn).not.toHaveClass(/bg-indigo-600/);
+  });
+
   test('T5: batch select', async ({ page }) => {
     await page.goto('/');
     await page.locator('[data-testid="task-test-tktube"]').click();

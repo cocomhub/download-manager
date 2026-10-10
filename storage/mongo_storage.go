@@ -130,11 +130,37 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 	// 与 soWorker/metadata flusher 等并发写方共享同一对象时可能触发
 	// "concurrent map iteration and map write"。Snapshot 在 RLock 下深拷贝，
 	// 编码线程安全（见 model/object.go Snapshot）。
+	// 注意：$set 为整文档快照。per-object 选项（cloud_download）同时由
+	// ObjectFieldUpdater 局部更新写入；若某调用方持「读-改-写」窗口内的陈旧副本做整文档
+	// 更新，可能把该选项回退（窗口为毫秒级；不能从 $set 排除——那会使正常开启/关闭失效）。
 	update := bson.M{"$set": obj.Snapshot()}
 	opts := options.UpdateOne().SetUpsert(true)
 
 	_, err := s.collection.UpdateOne(ctx, filter, update, opts)
 	return err
+}
+
+// UpdateFields 局部 $set 指定字段（实现 core.ObjectFieldUpdater）：避免整文档覆盖
+// 造成「读-改-写」窗口内丢失下载器并发写入的 status/progress。
+func (s *MongoStorage) UpdateFields(id string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	for k := range fields {
+		if !core.AllowedUpdateFields[k] {
+			return fmt.Errorf("UpdateFields: field %q not allowed", k)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := s.collection.UpdateOne(ctx, bson.M{"url": id}, bson.M{"$set": fields})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("%w: %s", core.ErrObjectNotFound, id)
+	}
+	return nil
 }
 
 func (s *MongoStorage) Delete(id string) error {
@@ -306,11 +332,20 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	for key, value := range query.Filter.Metadata {
 		filter["metadata."+key] = value
 	}
-	if query.Filter.VersionLT > 0 {
-		filter["version"] = bson.M{"$lt": query.Filter.VersionLT}
-	}
 
 	var andConditions bson.A
+
+	// 版本升级扫描：mongo 上 version=0 的旧文档字段不存在（bson omitempty），而
+	// {version: {$lt: N}} 只匹配同类型数值字段 ⇒ 缺字段不匹配，旧数据永不被升级
+	// （file/memory 走 query.go 的 GetVersion() 语义可升级）。故须 $exists:false 兜底。
+	if query.Filter.VersionLT > 0 {
+		andConditions = append(andConditions, bson.M{
+			"$or": bson.A{
+				bson.M{"version": bson.M{"$exists": false}},
+				bson.M{"version": bson.M{"$lt": query.Filter.VersionLT}},
+			},
+		})
+	}
 
 	// MissingID 过滤
 	if query.Filter.MissingID != nil {
