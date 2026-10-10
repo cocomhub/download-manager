@@ -137,6 +137,18 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 	return err
 }
 
+// UpdateFields 局部 $set 指定字段（实现 core.ObjectFieldUpdater）：避免整文档覆盖
+// 造成「读-改-写」窗口内丢失下载器并发写入的 status/progress。
+func (s *MongoStorage) UpdateFields(id string, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.collection.UpdateOne(ctx, bson.M{"url": id}, bson.M{"$set": fields})
+	return err
+}
+
 func (s *MongoStorage) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

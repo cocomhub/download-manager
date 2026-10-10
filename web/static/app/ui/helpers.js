@@ -336,6 +336,42 @@
     return text.split('\n').map(function (l) { return l.trim() }).filter(function (l) { return l !== '' })
   }
 
+  // formatDomainLimits：把 downloader.domain_limits（{host: n}）渲染为「一行一个 host=n」。
+  function formatDomainLimits (m) {
+    if (!m || typeof m !== 'object') return ''
+    return Object.keys(m).map(function (k) { return k + '=' + m[k] }).join('\n')
+  }
+
+  // parseDomainLimits：把「host=n」多行文本解析为 map（忽略空行/注释/非法行）。
+  function parseDomainLimits (text) {
+    var out = {}
+    if (typeof text !== 'string') return out
+    text.split('\n').forEach(function (line) {
+      var l = line.trim()
+      if (l === '' || l.charAt(0) === '#') return
+      var i = l.lastIndexOf('=')
+      if (i <= 0) return
+      var host = l.slice(0, i).trim()
+      var n = parseInt(l.slice(i + 1).trim(), 10)
+      if (host === '' || !isFinite(n) || n <= 0) return
+      out[host] = n
+    })
+    return out
+  }
+
+  // get/setConfigDomainLimits：读写 configForm.downloader.domain_limits（嵌套路径）。
+  function getConfigDomainLimits (state) {
+    var form = state.configForm || {}
+    return formatDomainLimits((form.downloader || {}).domain_limits)
+  }
+
+  function setConfigDomainLimits (state, text) {
+    var form = state.configForm || {}
+    if (!form.downloader) form.downloader = {}
+    form.downloader.domain_limits = parseDomainLimits(text)
+    state.configForm = form
+  }
+
   // setConfigProxies：把文本写回 configForm.downloader.proxies（GET 返回的是嵌套结构，
   // 此前绑定顶层 configForm.proxies → 编辑被静默丢弃）。
   function setConfigProxies (state, text) {
@@ -463,6 +499,10 @@
     initTypeFromURL: initTypeFromURL,
     initRuntime: initRuntime,
     formatProxiesText: formatProxiesText,
+    formatDomainLimits: formatDomainLimits,
+    parseDomainLimits: parseDomainLimits,
+    getConfigDomainLimits: getConfigDomainLimits,
+    setConfigDomainLimits: setConfigDomainLimits,
     parseProxiesText: parseProxiesText,
     getConfigProxies: getConfigProxies,
     setConfigProxies: setConfigProxies,

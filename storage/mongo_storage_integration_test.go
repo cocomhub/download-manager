@@ -337,6 +337,31 @@ func TestMongoStorage_VersionLTMatchesMissingField(t *testing.T) {
 	}
 }
 
+// TestMongoStorage_UpdateFieldsPartial 验证局部更新只改指定字段、不覆盖其它字段
+// （消除整文档 $set 的读-改-写窗口：并发下载器写入的 status/progress 不会被陈旧快照覆盖）。
+func TestMongoStorage_UpdateFieldsPartial(t *testing.T) {
+	st := mongoTestStorage(t, "update_fields")
+	const u = "http://example.com/uf"
+
+	obj := &model.DownloadObject{TaskID: "t-uf", URL: u, SavePath: "/tmp/uf", Status: "downloading", Progress: 42}
+	if err := st.Update(obj); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := st.UpdateFields(u, map[string]any{"cloud_download": true}); err != nil {
+		t.Fatalf("UpdateFields: %v", err)
+	}
+	got, err := st.Get(u)
+	if err != nil || got == nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.IsCloudDownload() {
+		t.Fatal("局部更新未生效")
+	}
+	if got.GetStatus() != "downloading" || got.GetProgress() != 42 {
+		t.Fatalf("局部更新覆盖了其它字段: status=%s progress=%d", got.GetStatus(), got.GetProgress())
+	}
+}
+
 func TestMain(m *testing.M) {
 	// Ensure no leftover mongo clients from previous tests
 	CloseAllMongoClients()

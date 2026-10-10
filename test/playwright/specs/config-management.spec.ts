@@ -48,6 +48,34 @@ test.describe('Config Management', () => {
     await page.waitForTimeout(500);
   });
 
+  test('T13c: log + domain-limits fields round-trip (nested bindings)', async ({ page }) => {
+    await page.goto('/');
+    const configBtn = page.locator('button:has(.fa-cog)').first();
+    await configBtn.waitFor({ state: 'visible', timeout: 5000 });
+    await configBtn.click();
+
+    // 此前这些字段绑定错层级（顶层 configForm.xxx）→ 编辑被静默丢弃
+    const logFile = page.locator('input[placeholder="./logs/app.log"]');
+    await logFile.waitFor({ state: 'visible', timeout: 5000 });
+    await logFile.fill('./logs/e2e.log');
+
+    const limits = page.locator('[data-testid="input-domain-limits"]');
+    await limits.fill('e2e.example.com=3');
+
+    await page.locator('button:has-text("Save Changes")').first().click();
+    await page.waitForTimeout(800);
+
+    await configBtn.click();
+    await expect(page.locator('input[placeholder="./logs/app.log"]')).toHaveValue('./logs/e2e.log', { timeout: 5000 });
+    await expect(page.locator('[data-testid="input-domain-limits"]')).toHaveValue(/e2e\.example\.com=3/, { timeout: 5000 });
+
+    // 清理，避免影响后续用例
+    await page.locator('input[placeholder="./logs/app.log"]').fill('');
+    await page.locator('[data-testid="input-domain-limits"]').fill('');
+    await page.locator('button:has-text("Save Changes")').first().click();
+    await page.waitForTimeout(500);
+  });
+
   test('T13: config panel close works', async ({ page }) => {
     await page.goto('/');
 

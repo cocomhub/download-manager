@@ -244,3 +244,54 @@ func TestSproxyCloud_TryReverifyRateLimited(t *testing.T) {
 		t.Fatalf("1 分钟限频内不应重复请求, before=%d after=%d", before, got)
 	}
 }
+
+// TestSproxyCloud_TryReverifyConcurrentWaitsForInflight 验证并发懒重验等待在途验证并返回
+// 最新结果（否则并发调用拿到陈旧 false → 任务被 ErrNoTry 永久失败）。
+func TestSproxyCloud_TryReverifyConcurrentWaitsForInflight(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-wait", "skey-wait000001"
+	sk := strings.Repeat("4", 64)
+	var calls atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/credentials/"+ak+"/sk", func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(w, "down", http.StatusInternalServerError) // 构造期启动验证失败
+			return
+		}
+		// 拉长窗口以制造并发重叠（断言仍是确定的）
+		time.Sleep(150 * time.Millisecond)
+		writeJSONResp(w, map[string]any{
+			"ak": ak, "total": 1, "admin": false,
+			"sk": []map[string]any{{
+				"sk_id": skid, "created": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+				"expires": time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339),
+				"status":  "alive",
+			}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	if d.verified.Load() {
+		t.Fatal("构造期验证应失败")
+	}
+	res := make([]bool, 4)
+	var wg sync.WaitGroup
+	for i := range res {
+		wg.Go(func() {
+			res[i] = d.tryReverify()
+		})
+	}
+	wg.Wait()
+	for i, v := range res {
+		if !v {
+			t.Fatalf("并发懒重验应返回最新结果 true, res[%d]=false", i)
+		}
+	}
+}

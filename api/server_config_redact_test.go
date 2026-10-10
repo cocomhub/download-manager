@@ -69,18 +69,23 @@ func TestMergeRedactedProxies(t *testing.T) {
 	t.Parallel()
 	current := []string{"http://u:p@1.2.3.4:8080", "socks5://1.1.1.1:1080"}
 
-	// 原样回传脱敏视图 → 全部保留凭据
-	got := mergeRedactedProxies([]string{"http://1.2.3.4:8080", "socks5://1.1.1.1:1080"}, current)
+	// 原样回传脱敏视图（密码已掩码为 ***）→ 全部保留凭据
+	got := mergeRedactedProxies([]string{"http://u:***@1.2.3.4:8080", "socks5://1.1.1.1:1080"}, current)
 	if got[0] != current[0] || got[1] != current[1] {
 		t.Fatalf("原样回传应保留凭据, got %v", got)
 	}
 	// 混合编辑：保留原代理 + 新增一条 → 原代理凭据不丢
-	got = mergeRedactedProxies([]string{"http://1.2.3.4:8080", "http://new:9@9.9.9.9:3128"}, current)
+	got = mergeRedactedProxies([]string{"http://u:***@1.2.3.4:8080", "http://new:9@9.9.9.9:3128"}, current)
 	if got[0] != current[0] {
 		t.Fatalf("已存代理凭据应保留, got %v", got)
 	}
 	if got[1] != "http://new:9@9.9.9.9:3128" {
 		t.Fatalf("新增项应原样采用, got %v", got)
+	}
+	// 显式剥离凭据（无 @）→ 必须真正生效（此前会被静默还原）
+	got = mergeRedactedProxies([]string{"http://1.2.3.4:8080"}, current)
+	if got[0] != "http://1.2.3.4:8080" {
+		t.Fatalf("显式剥离凭据应生效, got %v", got)
 	}
 	// nil（字段未提供）→ 不动当前配置
 	if got := mergeRedactedProxies(nil, current); len(got) != len(current) {
@@ -90,11 +95,11 @@ func TestMergeRedactedProxies(t *testing.T) {
 	if got := mergeRedactedProxies([]string{}, current); len(got) != 0 {
 		t.Fatalf("显式空列表应清空, got %v", got)
 	}
-	// 同脱敏视图重复项 → 不回填（避免凭据错配）
+	// 同 host 不同用户名 → 脱敏视图不同 → 各自回填自己的凭据（不再错配）
 	dup := []string{"http://u1:p1@h:8080", "http://u2:p2@h:8080"}
-	gotDup := mergeRedactedProxies([]string{"http://h:8080", "http://h:8080"}, dup)
-	if gotDup[0] != "http://h:8080" || gotDup[1] != "http://h:8080" {
-		t.Fatalf("重复脱敏视图不应回填凭据, got %v", gotDup)
+	gotDup := mergeRedactedProxies([]string{"http://u1:***@h:8080", "http://u2:***@h:8080"}, dup)
+	if gotDup[0] != dup[0] || gotDup[1] != dup[1] {
+		t.Fatalf("同 host 不同用户应各自回填, got %v", gotDup)
 	}
 }
 

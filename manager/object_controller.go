@@ -196,7 +196,12 @@ func (oc *ObjectController) SetObjectCloudDownload(taskID, url string, enabled b
 		return fmt.Errorf("object not found")
 	}
 	obj.SetCloudDownload(enabled)
-	if err := t.Storage().Update(obj); err != nil {
+	if updater, ok := t.Storage().(core.ObjectFieldUpdater); ok {
+		// 局部更新：避免整文档 $set 的读-改-写窗口覆盖并发写入的状态
+		if err := updater.UpdateFields(url, map[string]any{"cloud_download": enabled}); err != nil {
+			return err
+		}
+	} else if err := t.Storage().Update(obj); err != nil {
 		return err
 	}
 	// mongo 等后端的存储对象是解码副本：同步运行时实例，避免开关要等重启才生效

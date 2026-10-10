@@ -43,6 +43,7 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"status_style":        cfg.Server.UIDefaults.StatusStyle,
 		},
 		"log_level": cfg.Runtime.LogLevel,
+		"log":       cfg.Log,
 	}
 	json.NewEncoder(w).Encode(resp)
 }
@@ -237,14 +238,25 @@ func mergeRedactedProxies(incoming, current []string) []string {
 	return out
 }
 
-// redactURLUserinfo 返回去掉 user:pass 的 URL；解析失败或本无 userinfo 时原样返回。
+// redactedPassword 是脱敏视图中密码的占位符。
+const redactedPassword = "***"
+
+// redactURLUserinfo 返回密码已掩码的 URL（保留用户名与 @，如 http://user:***@host:8080）。
+// 保留 @ 形态使前端回传时能区分「未改动（仍带占位符）」与「用户显式剥离凭据（无 @）」；
+// 同 host 不同用户名的条目也因用户名不同而不会互相错配。解析失败/无 userinfo 时原样返回。
 func redactURLUserinfo(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.User == nil {
 		return raw
 	}
+	user := u.User.Username()
 	u.User = nil
-	return u.String()
+	s := u.String()
+	// 手工拼回 user:***@：url.String() 会把 * 转义成 %2A，对 UI 不友好。
+	if i := strings.Index(s, "://"); i >= 0 {
+		return s[:i+3] + url.PathEscape(user) + ":" + redactedPassword + "@" + s[i+3:]
+	}
+	return s
 }
 
 // redactStringField 把 m[key] 从明文替换为""，并在非空时置 m[hasFlag]=true。
@@ -280,6 +292,7 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		Downloader config.Downloader  `json:"downloader"`
 		UIDefaults config.UIDefaults  `json:"ui_defaults"`
 		LogLevel   string             `json:"log_level"`
+		Log        *logutil.LogConfig `json:"log"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf(errFmtInvalidBody, err))
@@ -350,6 +363,10 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 	// Update frontend log level
 	if req.LogLevel != "" {
 		cc.Runtime.LogLevel = req.LogLevel
+	}
+	// 日志轮转设置（表单 log_* 字段）：仅在请求显式提供时覆盖
+	if req.Log != nil {
+		cc.Log = *req.Log
 	}
 	if err := s.mgr.UpdateConfig(cc, &manager.AuditInfo{
 		Author:  "ui",

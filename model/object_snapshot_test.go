@@ -115,3 +115,20 @@ func TestCopyObjectOptions(t *testing.T) {
 	CopyObjectOptions(nil, src)
 	CopyObjectOptions(dst, nil)
 }
+
+// TestCopyObjectOptionsLocked_NoLocking 确定性守卫：locked 变体在调用方已持锁时不得再取锁。
+// 若其内部改用加锁访问器（dst.SetCloudDownload(src.IsCloudDownload())），在持写锁调用时
+// 会立刻自死锁 → 测试超时失败。（Snapshot 走的正是该变体；曾因此让 model 包整体超时。）
+func TestCopyObjectOptionsLocked_NoLocking(t *testing.T) {
+	t.Parallel()
+	src := &DownloadObject{URL: "http://example.com/dl"}
+	src.SetCloudDownload(true)
+
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	dst := &DownloadObject{}
+	copyObjectOptionsLocked(dst, src) // 内部若加锁 → 本 goroutine 自死锁
+	if !dst.CloudDownload {
+		t.Fatal("locked 变体应拷贝 cloud_download")
+	}
+}

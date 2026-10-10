@@ -173,6 +173,11 @@
         get: function () { return UiHelpers.getConfigProxies(this) },
         set: function (v) { UiHelpers.setConfigProxies(this, v) }
       },
+      // domainLimitsText：域名限流文本 ↔ configForm.downloader.domain_limits
+      domainLimitsText: {
+        get: function () { return UiHelpers.getConfigDomainLimits(this) },
+        set: function (v) { UiHelpers.setConfigDomainLimits(this, v) }
+      },
       cloudDownloadAvailable: function () {
         var f = (this.runtime || {}).features || {}
         return f.cloud_download !== false

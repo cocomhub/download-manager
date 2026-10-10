@@ -33,14 +33,25 @@ type DownloadObject struct {
 	mu sync.RWMutex `json:"-" bson:"-"`
 }
 
-// CopyObjectOptions 把下载项级选项从 src 复制到 dst。集中一处，避免各拷贝点
-// （聚合代表对象、任务重建对象等）漏字段——曾因 urllist 重建漏拷 CloudDownload 丢标志。
-// 新增 per-object 选项时只需改这里。
+// copyObjectOptionsLocked 在调用方已持有 src.mu 读锁时使用（如 Snapshot 内）。
+// 不能在此再走 src 的加锁访问器：Go RWMutex 的递归读锁在有写者等待时会死锁。
+func copyObjectOptionsLocked(dst, src *DownloadObject) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.CloudDownload = src.CloudDownload
+}
+
+// CopyObjectOptions 把下载项级选项从 src 复制到 dst（自行加锁）。集中一处，避免各拷贝点
+// （Snapshot 深拷贝、聚合代表对象、任务重建对象）漏字段——曾因 urllist 重建漏拷
+// CloudDownload 丢标志。新增 per-object 选项时只需改这里（Snapshot 走 locked 变体）。
 func CopyObjectOptions(dst, src *DownloadObject) {
 	if dst == nil || src == nil {
 		return
 	}
-	dst.SetCloudDownload(src.IsCloudDownload())
+	src.mu.RLock()
+	defer src.mu.RUnlock()
+	copyObjectOptionsLocked(dst, src)
 }
 
 // ObjectOption 描述可同步到任务运行时对象的下载项选项（nil 字段 = 不同步该项）。
@@ -170,15 +181,15 @@ func (o *DownloadObject) Snapshot() *DownloadObject {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	snap := &DownloadObject{
-		TaskID:        o.TaskID,
-		URL:           o.URL,
-		ID:            o.ID,
-		SavePath:      o.SavePath,
-		Status:        o.Status,
-		Progress:      o.Progress,
-		Version:       o.Version,
-		CloudDownload: o.CloudDownload,
+		TaskID:   o.TaskID,
+		URL:      o.URL,
+		ID:       o.ID,
+		SavePath: o.SavePath,
+		Status:   o.Status,
+		Progress: o.Progress,
+		Version:  o.Version,
 	}
+	copyObjectOptionsLocked(snap, o) // 已持读锁：不能再走加锁访问器（递归读锁死锁）
 	if o.Metadata != nil {
 		snap.Metadata = maps.Clone(o.Metadata)
 	}

@@ -48,3 +48,28 @@ test('get/setConfigProxies: 读写 configForm.downloader.proxies（嵌套路径�
   assert.deepStrictEqual(empty.configForm.downloader.proxies, ['http://d:4'])
   assert.strictEqual(UiHelpers.getConfigProxies({}), '')
 })
+
+// nl 用 fromCharCode 构造，避免转义序列在工具链中被解释为真换行
+const nl = String.fromCharCode(10)
+
+test('formatDomainLimits/parseDomainLimits: 域名限流文本 ↔ map 往返', () => {
+  assert.strictEqual(UiHelpers.formatDomainLimits({ 'a.com': 2, 'b.com': 4 }), ['a.com=2', 'b.com=4'].join(nl))
+  assert.strictEqual(UiHelpers.formatDomainLimits(null), '')
+
+  const text = ['a.com=2', '', '  b.com=4  ', '# 注释', '非法行', 'c.com=0', 'd.com=x'].join(nl)
+  assert.deepStrictEqual(UiHelpers.parseDomainLimits(text), { 'a.com': 2, 'b.com': 4 })
+  assert.deepStrictEqual(UiHelpers.parseDomainLimits(null), {})
+})
+
+test('get/setConfigDomainLimits: 读写 configForm.downloader.domain_limits', () => {
+  const state = { configForm: { downloader: { domain_limits: { 'a.com': 3 } } } }
+  assert.strictEqual(UiHelpers.getConfigDomainLimits(state), 'a.com=3')
+
+  UiHelpers.setConfigDomainLimits(state, 'b.com=5')
+  assert.deepStrictEqual(state.configForm.downloader.domain_limits, { 'b.com': 5 })
+
+  const empty = { configForm: {} }
+  UiHelpers.setConfigDomainLimits(empty, 'c.com=7')
+  assert.deepStrictEqual(empty.configForm.downloader.domain_limits, { 'c.com': 7 })
+  assert.strictEqual(UiHelpers.getConfigDomainLimits({}), '')
+})

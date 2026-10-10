@@ -62,6 +62,8 @@ type SproxyCloudDownloader struct {
 	// 启动验证懒重验限频（sproxy 晚于 dm 启动 / 瞬时不可用后自愈）。
 	verifyMu      sync.Mutex
 	lastVerifyTry time.Time
+	// verifyInflight 非 nil 表示有验证在途：并发 tryReverify 等待其结束后读最新结果。
+	verifyInflight chan struct{}
 	// 下载上下文（manager 经 ContextInjecter 注入；用于取消/停止传播）。
 	ctxMu sync.Mutex
 	dlCtx context.Context
@@ -157,16 +159,29 @@ func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownload
 // 用于 sproxy 晚于 dm 启动或瞬时不可用后的自愈（对抗性评审 P2-5）。
 func (d *SproxyCloudDownloader) tryReverify() bool {
 	d.verifyMu.Lock()
+	// 已有验证在途：等待其结束再读结果（否则并发调用会拿到陈旧 false，
+	// 使 validateConfig 以 ErrNoTry 永久失败该任务）。等待上限由 verifyTimeout 保证。
+	if inflight := d.verifyInflight; inflight != nil {
+		d.verifyMu.Unlock()
+		<-inflight
+		return d.verified.Load()
+	}
 	if time.Since(d.lastVerifyTry) < time.Minute {
 		v := d.verified.Load()
 		d.verifyMu.Unlock()
 		return v
 	}
 	d.lastVerifyTry = time.Now()
+	done := make(chan struct{})
+	d.verifyInflight = done
 	d.verifyMu.Unlock()
+
 	d.verifyOnStart()
+
 	d.verifyMu.Lock()
-	defer d.verifyMu.Unlock()
+	d.verifyInflight = nil
+	close(done)
+	d.verifyMu.Unlock()
 	return d.verified.Load()
 }
 

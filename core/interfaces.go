@@ -115,6 +115,14 @@ type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
+// ObjectFieldUpdater 可选：只更新指定字段，避免「读最新 → 整文档 $set」的读-改-写窗口
+// （mongo 下该窗口会用陈旧快照覆盖下载器并发写入的 status/progress）。
+// 未实现该接口的存储回落为整对象 Update。
+type ObjectFieldUpdater interface {
+	// UpdateFields 按键值对局部更新（键为存储字段名，如 cloud_download）。
+	UpdateFields(id string, fields map[string]any) error
+}
+
 // ObjectOptionSyncer 可选：把存储层的下载项选项变更同步到任务运行时对象。
 // 背景：mongo 等后端的 Search 返回解码副本，运行时实例与存储对象不是同一指针，
 // 仅落库不会影响调度所用的运行时对象（导致开关要等重启才生效）。
