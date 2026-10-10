@@ -38,7 +38,7 @@ func TestDownloaderAdapter_PerURLCtxIsolation(t *testing.T) {
 func TestDownloaderAdapter_SetContextFor_EmptyURL(t *testing.T) {
 	t.Parallel()
 	a := &DownloaderAdapter{}
-	a.SetContextFor("", context.Background())
+	a.SetContextFor("", t.Context())
 	if len(a.urlCtx) != 0 {
 		t.Fatalf("空 URL 不应写入 urlCtx, got %d", len(a.urlCtx))
 	}

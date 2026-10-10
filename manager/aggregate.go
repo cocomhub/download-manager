@@ -132,14 +132,14 @@ func metadataDate(obj *model.DownloadObject) string {
 // copyRepresentative creates a shallow copy of rep and attaches the group_size extra field.
 func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.DownloadObject {
 	c := &model.DownloadObject{
-		TaskID:        rep.TaskID,
-		URL:           rep.URL,
-		SavePath:      rep.SavePath,
-		Status:        rep.GetStatus(),
-		Progress:      rep.GetProgress(),
-		Version:       rep.GetVersion(),
-		CloudDownload: rep.IsCloudDownload(),
+		TaskID:   rep.TaskID,
+		URL:      rep.URL,
+		SavePath: rep.SavePath,
+		Status:   rep.GetStatus(),
+		Progress: rep.GetProgress(),
+		Version:  rep.GetVersion(),
 	}
+	model.CopyObjectOptions(c, rep)
 	if rep.Metadata != nil {
 		c.Metadata = make(map[string]string, len(rep.Metadata))
 		maps.Copy(c.Metadata, rep.Metadata)

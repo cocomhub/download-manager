@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -209,5 +210,37 @@ func TestSproxyCloud_TryReverifyConcurrent(t *testing.T) {
 	wg.Wait()
 	if d.verified.Load() {
 		t.Fatal("凭据列表失败时 verified 应为 false")
+	}
+}
+
+// TestSproxyCloud_TryReverifyRateLimited 验证懒重验的 1 分钟限频真的生效
+// （删掉限频分支即会命中：5 次调用会打出 5 次请求）。
+func TestSproxyCloud_TryReverifyRateLimited(t *testing.T) {
+	t.Parallel()
+	const ak, skid = "ak-rl", "skey-rl00000001"
+	sk := strings.Repeat("6", 64)
+	var calls atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/credentials/"+ak+"/sk", func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "down", http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:          srv.URL + "/api/cloud/download",
+		AccessKey:       ak,
+		AccessKeySecret: sk,
+		AccessKeyID:     skid,
+	})
+	// 首次懒重验会真正验证（构造期的 verifyOnStart 不设限频时间戳）；此后进入限频窗口
+	_ = d.tryReverify()
+	before := calls.Load()
+	for range 5 {
+		_ = d.tryReverify()
+	}
+	if got := calls.Load(); got != before {
+		t.Fatalf("1 分钟限频内不应重复请求, before=%d after=%d", before, got)
 	}
 }

@@ -33,6 +33,16 @@ type DownloadObject struct {
 	mu sync.RWMutex `json:"-" bson:"-"`
 }
 
+// CopyObjectOptions 把下载项级选项从 src 复制到 dst。集中一处，避免各拷贝点
+// （聚合代表对象、任务重建对象等）漏字段——曾因 urllist 重建漏拷 CloudDownload 丢标志。
+// 新增 per-object 选项时只需改这里。
+func CopyObjectOptions(dst, src *DownloadObject) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.SetCloudDownload(src.IsCloudDownload())
+}
+
 // ObjectOption 描述可同步到任务运行时对象的下载项选项（nil 字段 = 不同步该项）。
 // 以指针表达「是否提供」，便于新增选项而无需扩展接口签名。
 type ObjectOption struct {

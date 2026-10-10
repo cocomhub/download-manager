@@ -120,7 +120,8 @@ var yamlBlockSecretRe = regexp.MustCompile(`(?m)^([ 	]*["']?(?:access_key_secret
 var secretKeyNameRe = regexp.MustCompile(`(?i)^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|api[-_]?key|token|password|secret|access_key_secret)$`)
 
 // proxyUserinfoRe 匹配 URL 中的 userinfo（user:pass@）。
-var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@`)
+// 贪婪匹配到最后一个 @（与 url.Parse 取最后 userinfo 的语义一致）。
+var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/\s]*@`)
 
 // redactYAMLSecrets 掩掉 YAML 文本中的已知机密（机密键值 + 代理 URL 的 user:pass）。
 func redactYAMLSecrets(text string) string {

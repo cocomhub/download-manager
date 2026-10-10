@@ -110,7 +110,7 @@ func (t *Task) initDownloadObject(rawURL string, idx int, usedNames map[string]b
 		obj.SetStatus(storedObj.GetStatus())
 		obj.Metadata = storedObj.Metadata
 		obj.Extra = storedObj.Extra
-		obj.SetCloudDownload(storedObj.IsCloudDownload()) // 保留下载项级「云端下载」选项
+		model.CopyObjectOptions(obj, storedObj) // 保留下载项级选项（集中一处，防漏拷）
 		t.ResetZombieState(obj)
 	}
 

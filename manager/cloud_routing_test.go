@@ -6,6 +6,7 @@ package manager
 import (
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cocomhub/download-manager/config"
@@ -327,5 +328,46 @@ func TestDownload_RoutesToCloudDownloader(t *testing.T) {
 	}
 	if def.downloadCalls() != 0 {
 		t.Fatalf("默认下载器不应被调用, got %d", def.downloadCalls())
+	}
+}
+
+// TestManagerDownloadersSwapIsAtomic 验证热更新替换「默认+云端」下载器是原子的：
+// 读取方永远不会看到「默认已换、云端仍旧」的撕裂对（拆成两次加锁即会命中）。
+func TestManagerDownloadersSwapIsAtomic(t *testing.T) {
+	t.Parallel()
+	a1, a2 := &namedDL{name: "a1"}, &namedDL{name: "a2"}
+	b1, b2 := &namedDL{name: "b1"}, &namedDL{name: "b2"}
+	m := &Manager{}
+	m.setDownloaders(a1, a2)
+
+	var wg sync.WaitGroup
+	const swaps, reads = 400, 4000
+
+	wg.Go(func() {
+		for i := range swaps {
+			if i%2 == 0 {
+				m.setDownloaders(a1, a2)
+				continue
+			}
+			m.setDownloaders(b1, b2)
+		}
+	})
+
+	var bad atomic.Int64
+	for range 4 {
+		wg.Go(func() {
+			for range reads {
+				d, c := m.snapshotDownloaders()
+				okPair := (d == core.Downloader(a1) && c == core.Downloader(a2)) ||
+					(d == core.Downloader(b1) && c == core.Downloader(b2))
+				if !okPair {
+					bad.Add(1)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if n := bad.Load(); n != 0 {
+		t.Fatalf("观察到 %d 次撕裂的下载器对（热更新非原子）", n)
 	}
 }

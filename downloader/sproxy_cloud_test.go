@@ -4,7 +4,6 @@
 package downloader
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -115,7 +114,7 @@ func TestSproxyCloud_SubmitHeaders(t *testing.T) {
 	defer srv.Close()
 
 	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{APIURL: srv.URL + "/api/cloud/download"})
-	taskID, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", map[string]string{
+	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", map[string]string{
 		"Referer":    "https://mypikpak.com/",
 		"User-Agent": "test-agent",
 	})
@@ -136,7 +135,6 @@ func TestSproxyCloud_SubmitHeaders(t *testing.T) {
 // TestSproxyCloud_Download 端到端：提交 → 轮询 → 完成（fake sproxy API）。
 func TestSproxyCloud_Download(t *testing.T) {
 	var submitted atomic.Bool
-	done := make(chan struct{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
 		submitted.Store(true)
@@ -149,7 +147,6 @@ func TestSproxyCloud_Download(t *testing.T) {
 	})
 	mux.HandleFunc("GET /api/cloud/tasks/task-1", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResp(w, map[string]any{"id": "task-1", "status": "completed"})
-		close(done)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

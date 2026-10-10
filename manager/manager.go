@@ -192,6 +192,14 @@ func (m *Manager) setCloudDownloader(dl core.Downloader) {
 
 // setDownloaders 单次持锁原子替换默认与云端下载器：避免热更新时「默认已换、云端仍旧」
 // 的窗口内出现能力位/取消路由短暂不一致（窗口内启动的下载会落到即将被替换的实例）。
+// snapshotDownloaders 单锁返回「默认 + 云端」下载器对：热更新期间读取方不会看到
+// 「默认已换、云端仍旧」的撕裂状态。
+func (m *Manager) snapshotDownloaders() (core.Downloader, core.Downloader) {
+	m.downloaderMu.Lock()
+	defer m.downloaderMu.Unlock()
+	return m.downloader, m.cloudDownloader
+}
+
 func (m *Manager) setDownloaders(def, cloud core.Downloader) {
 	m.downloaderMu.Lock()
 	if old, ok := m.downloader.(interface{ CloseIdleConnections() }); ok {
@@ -221,14 +229,15 @@ func newCloudDownloader(cfg config.Downloader, def core.Downloader) core.Downloa
 // selectDownloader 依据下载项选项选择下载器：对象标记云端下载（obj.SetCloudDownload(true)，
 // 由任务自行管理）且云端下载器已配置时用云端下载器，否则用默认下载器。
 func (m *Manager) selectDownloader(obj *model.DownloadObject) core.Downloader {
+	def, cloud := m.snapshotDownloaders()
 	if obj.IsCloudDownload() {
-		if cdl := m.getCloudDownloader(); cdl != nil {
-			return cdl
+		if cloud != nil {
+			return cloud
 		}
 		slog.Warn("cloud download requested but sproxy_cloud not configured; falling back to default downloader",
 			logutil.LogKeyURL, obj.URL)
 	}
-	return m.getDownloader()
+	return def
 }
 
 // cancelObjectDownload 向可能正在处理该 URL 的下载器传播取消。
@@ -238,8 +247,9 @@ func (m *Manager) cancelObjectDownload(url string) {
 	if url == "" {
 		return
 	}
+	def, cloud := m.snapshotDownloaders()
 	seen := make(map[core.Downloader]struct{}, 2)
-	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+	for _, dl := range []core.Downloader{def, cloud} {
 		if dl == nil {
 			continue
 		}
@@ -255,8 +265,9 @@ func (m *Manager) cancelObjectDownload(url string) {
 
 // closeIdleConnections 关闭默认与云端下载器的空闲连接（停机/热更新）。
 func (m *Manager) closeIdleConnections() {
+	def, cloud := m.snapshotDownloaders()
 	seen := make(map[core.Downloader]struct{}, 2)
-	for _, dl := range []core.Downloader{m.getDownloader(), m.getCloudDownloader()} {
+	for _, dl := range []core.Downloader{def, cloud} {
 		if dl == nil {
 			continue
 		}

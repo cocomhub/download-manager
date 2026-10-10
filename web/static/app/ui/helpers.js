@@ -324,6 +324,34 @@
 
   // ---- Config panel ----
 
+  // formatProxiesText：把 downloader.proxies 数组渲染为「一行一个」文本（配置表单用）。
+  function formatProxiesText (list) {
+    if (!Array.isArray(list)) return ''
+    return list.filter(function (x) { return typeof x === 'string' && x !== '' }).join('\n')
+  }
+
+  // parseProxiesText：把多行文本解析为代理数组（忽略空行与首尾空白）。
+  function parseProxiesText (text) {
+    if (typeof text !== 'string') return []
+    return text.split('\n').map(function (l) { return l.trim() }).filter(function (l) { return l !== '' })
+  }
+
+  // setConfigProxies：把文本写回 configForm.downloader.proxies（GET 返回的是嵌套结构，
+  // 此前绑定顶层 configForm.proxies → 编辑被静默丢弃）。
+  function setConfigProxies (state, text) {
+    var form = state.configForm || {}
+    if (!form.downloader) form.downloader = {}
+    form.downloader.proxies = parseProxiesText(text)
+    state.configForm = form
+  }
+
+  // getConfigProxies：从 configForm.downloader.proxies 读取文本。
+  function getConfigProxies (state) {
+    var form = state.configForm || {}
+    var dl = form.downloader || {}
+    return formatProxiesText(dl.proxies)
+  }
+
   function openConfig (state) {
     Log.info('openConfig')
     state.showConfigModal = true
@@ -434,6 +462,10 @@
     // State init
     initTypeFromURL: initTypeFromURL,
     initRuntime: initRuntime,
+    formatProxiesText: formatProxiesText,
+    parseProxiesText: parseProxiesText,
+    getConfigProxies: getConfigProxies,
+    setConfigProxies: setConfigProxies,
     initUiDefaults: initUiDefaults,
 
     // Display helpers (pure, no state)

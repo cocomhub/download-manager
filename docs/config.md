@@ -81,7 +81,7 @@ PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优�
 | `transfer_path` | 转存目标路径（卷内相对路径，可含子目录，如 `xxx/xxxx.mp4`）；仅 `transfer_volume` 非空时生效 |
 | `cloud_only` | `false`（默认）= 完成后把原始文件下载到本地 `SavePath`；`true` = 仅留云端不下载（只转存不拉回） |
 | `poll_every` | 任务轮询间隔（默认 5s） |
-| `timeout` | 单任务总超时（默认 3h） |
+| `timeout` | 单任务总超时（默认 3h）。注意：云端下载项在轮询期间**整程占用全局 worker 槽**（`global_concurrent`，默认 5），多个云端对象可能挤占本地下载配额——建议按需下调本值 |
 | `client_timeout` | 显式覆盖单请求 HTTP 超时。默认：SproxySig 路径沿用 sproxy FileClient 的 300s；Bearer 路径为 30s |
 
 #### 下载项级「云端下载」选项

@@ -4,7 +4,6 @@
 package downloader
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -68,7 +67,7 @@ func TestSproxyCloud_SigAuth_Submit(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	taskID, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil)
+	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil)
 	if err != nil {
 		t.Fatalf("submit with sig auth: %v", err)
 	}
@@ -204,7 +203,7 @@ func TestSproxyCloud_RenewRotation(t *testing.T) {
 		PollEvery:       10,
 	})
 	// 场景：poll 先遇 401（旧 SK 失效）→ 触发 renew → 热替换 → 重试成功
-	_, rerr := d.pollWithRotateResult(context.Background(), "task-rot")
+	_, rerr := d.pollWithRotateResult(t.Context(), "task-rot")
 	if rerr != nil {
 		t.Fatalf("poll with rotate: %v", rerr)
 	}
@@ -256,7 +255,7 @@ func TestSproxyCloud_BearerFallback(t *testing.T) {
 		APIURL:   srv.URL + "/api/cloud/download",
 		APIToken: "old-bearer-token",
 	})
-	if _, err := d.submit(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil); err != nil {
+	if _, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil); err != nil {
 		t.Fatalf("submit bearer: %v", err)
 	}
 	if gotAuth != "Bearer old-bearer-token" {
@@ -625,7 +624,7 @@ func TestSproxyCloud_Poll500DoesNotRotate(t *testing.T) {
 		PollEvery:       10,
 	})
 	start := time.Now()
-	_, err := d.pollWithRotateResult(context.Background(), "task-500")
+	_, err := d.pollWithRotateResult(t.Context(), "task-500")
 	if err == nil {
 		t.Fatal("poll should fail on 500")
 	}
@@ -679,7 +678,7 @@ func TestSproxyCloud_Submit401LimitedRetry(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	_, sErr := d.submitSig(context.Background(), "https://mypikpak.com/s/abc", "out.mp4", nil)
+	_, sErr := d.submitSig(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil)
 	if sErr == nil {
 		t.Fatal("submit should fail after 401 retries exhausted")
 	}

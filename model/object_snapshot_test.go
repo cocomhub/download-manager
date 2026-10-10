@@ -100,3 +100,18 @@ func TestSnapshot_IsolatesMaps(t *testing.T) {
 		t.Error("Snapshot.Extra 未深拷贝")
 	}
 }
+
+// TestCopyObjectOptions 验证 per-object 选项的集中拷贝 helper（防各拷贝点漏字段）。
+func TestCopyObjectOptions(t *testing.T) {
+	t.Parallel()
+	src := &DownloadObject{URL: "u"}
+	src.SetCloudDownload(true)
+	dst := &DownloadObject{URL: "u"}
+	CopyObjectOptions(dst, src)
+	if !dst.IsCloudDownload() {
+		t.Fatal("CopyObjectOptions 未拷贝 cloud_download")
+	}
+	// nil 安全
+	CopyObjectOptions(nil, src)
+	CopyObjectOptions(dst, nil)
+}

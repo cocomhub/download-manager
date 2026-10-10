@@ -167,6 +167,12 @@
       },
       // cloudDownloadAvailable：服务端是否配置了 sproxy 云端下载后端（未配置时开关会被
       // 路由回落为默认下载器 → UI 置灰，避免「假成功」）。
+      // proxiesText：配置表单的代理多行文本 ↔ configForm.downloader.proxies 数组
+      // （后端 GET 返回嵌套结构；此前直接绑定 configForm.proxies 导致编辑被丢弃）。
+      proxiesText: {
+        get: function () { return UiHelpers.getConfigProxies(this) },
+        set: function (v) { UiHelpers.setConfigProxies(this, v) }
+      },
       cloudDownloadAvailable: function () {
         var f = (this.runtime || {}).features || {}
         return f.cloud_download !== false
@@ -705,7 +711,7 @@
       },
       viewConfigDiff: function() {
         var self = this
-        AppAPI.post('/api/config/diff', { left: this.diffForm.left, right: this.diffForm.right, options: this.diffOptions })
+        AppAPI.get('/api/config/diff?left=' + encodeURIComponent(this.diffForm.left) + '&right=' + encodeURIComponent(this.diffForm.right))
           .then(function(data) { self.configDiff = data; self.lineDiff = (data && data.lineDiff) || []; self.collapsedLineDiff = (data && data.collapsedLineDiff) || [] })
           .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
       },
@@ -714,7 +720,7 @@
         this.rollbackTarget = filename
         this.showRollbackConfirm = true
         var self = this
-        AppAPI.post('/api/config/diff', { left: 'current', right: filename })
+        AppAPI.get('/api/config/diff?left=current&right=' + encodeURIComponent(filename))
           .then(function(data) { self.rollbackDiff = data; self.rollbackLineDiff = (data && data.lineDiff) || [] })
           .catch(function(e) { UiHelpers.showToast('加载差异失败: ' + e.message, 'error') })
       },

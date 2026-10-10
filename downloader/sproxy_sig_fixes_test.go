@@ -4,7 +4,6 @@
 package downloader
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -221,7 +220,7 @@ func TestSproxyCloud_PollPersistent401RotationCapped(t *testing.T) {
 		Timeout:         2 * time.Second,
 	})
 	start := time.Now()
-	_, err = d.pollWithRotateResult(context.Background(), "task-cap")
+	_, err = d.pollWithRotateResult(t.Context(), "task-cap")
 	if err == nil {
 		t.Fatal("poll should fail on persistent 401")
 	}
