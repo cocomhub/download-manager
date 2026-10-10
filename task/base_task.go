@@ -206,9 +206,28 @@ func (b *BaseTask) SetSharedRegistry(reg core.SharedRegistry) {
 	b.shared = reg
 }
 
-// SetDownloader is a no-op by default. Override in embedding task if needed.
+// SetDownloader stores the downloader handed in by the manager. Note that per-object
+// routing (e.g. the sproxy 云端下载 option) is decided by the manager before Download is
+// invoked; a task calling Downloader() to download directly bypasses that routing.
 func (b *BaseTask) SetDownloader(dl core.Downloader) {
 	b.dl = dl
+}
+
+// SyncCloudDownload 按 URL 把「云端下载」选项同步到运行时对象（实现 core.ObjectOptionSyncer）。
+// mongo 等后端的存储对象是解码副本，仅落库不会影响调度所用的运行时实例。
+func (b *BaseTask) SyncCloudDownload(url string, enabled bool) bool {
+	if url == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, obj := range b.objects {
+		if obj != nil && obj.URL == url {
+			obj.SetCloudDownload(enabled)
+			return true
+		}
+	}
+	return false
 }
 
 // SetPathStrategy sets the path strategy. Only takes effect if not already set.

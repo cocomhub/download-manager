@@ -342,6 +342,9 @@
   function toggleObjectCloudDownload (state, obj) {
     if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
     if (!state.selectedTaskId || !obj || !obj.url) return
+    if (((state.runtime || {}).features || {}).cloud_download === false) {
+      UiHelpers.showToast('未配置 sproxy 云端下载后端，无法启用', 'error'); return
+    }
     if (cloudToggleInFlight[obj.url]) return
     var enabled = !obj.cloud_download
     cloudToggleInFlight[obj.url] = true

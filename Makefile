@@ -214,7 +214,7 @@ archcheck:
 
 .PHONY: archcheck
 
-check-ci: vet lint check-loopback notest archcheck build-ci test-cover cover-check test-all build-all
+check-ci: vet lint check-loopback notest archcheck web-test build-ci test-cover cover-check test-all build-all
 	@echo "CI pipeline passed"
 
 .PHONY: help

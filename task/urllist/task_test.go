@@ -133,3 +133,31 @@ func TestInitDownloadObject_PreservesCloudDownload(t *testing.T) {
 		t.Fatal("cloud_download 未在重建对象时保留")
 	}
 }
+
+// TestSyncCloudDownload_UpdatesRuntimeObject 验证运行时对象按 URL 同步「云端下载」选项。
+func TestSyncCloudDownload_UpdatesRuntimeObject(t *testing.T) {
+	t.Parallel()
+	const u = "https://example.com/sync-cloud.dat"
+	tk, err := task.NewTask(&config.Task{
+		ID:      "cd-sync",
+		Type:    TaskType,
+		SaveDir: t.TempDir(),
+		Storage: config.StorageConfig{Type: "memory"},
+		Extra:   map[string]any{"urls": []string{u}},
+	})
+	if err != nil {
+		t.Fatalf("new task err: %s", err)
+	}
+	tt := tk.(*Task)
+	if tt.SyncCloudDownload("https://example.com/unknown", true) {
+		t.Fatal("未知 URL 不应命中")
+	}
+	if !tt.SyncCloudDownload(u, true) {
+		t.Fatal("已知 URL 应命中")
+	}
+	for _, o := range tt.GetAllObjects(true) {
+		if o.URL == u && !o.IsCloudDownload() {
+			t.Fatal("运行时对象未同步 cloud_download")
+		}
+	}
+}

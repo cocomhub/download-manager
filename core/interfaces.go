@@ -115,6 +115,14 @@ type ContextInjecter interface {
 	SetContext(ctx context.Context)
 }
 
+// ObjectOptionSyncer 可选：把存储层的下载项选项变更同步到任务运行时对象。
+// 背景：mongo 等后端的 Search 返回解码副本，运行时实例与存储对象不是同一指针，
+// 仅落库不会影响调度所用的运行时对象（导致开关要等重启才生效）。
+type ObjectOptionSyncer interface {
+	// SyncCloudDownload 按 URL 更新运行时对象的「云端下载」选项；返回是否命中。
+	SyncCloudDownload(url string, enabled bool) bool
+}
+
 // ContextInjecterFor 可选增强：按 URL 注入下载上下文。
 // 共享单实例的下载器在并发多对象下载时，单字段 SetContext 会被后启动的下载覆盖
 // （先启动者可能被「兄弟对象完成」误取消）；实现本接口可按对象隔离上下文。

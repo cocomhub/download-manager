@@ -150,6 +150,9 @@ type taskMetrics struct {
 type RuntimeFeatures struct {
 	Scheduler bool `json:"scheduler"`
 	Workers   bool `json:"workers"`
+	// CloudDownload 是否配置了 sproxy 云端下载后端（未配置时下载项级「云端下载」开关
+	// 会被路由回落为默认下载器，UI 据此置灰以避免「假成功」）。
+	CloudDownload bool `json:"cloud_download"`
 }
 
 // getDownloader returns the current downloader under read lock.
@@ -297,7 +300,11 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 func (m *Manager) FeaturesStatus() RuntimeFeatures {
-	return RuntimeFeatures{Scheduler: m.schedulerEnabled.Load(), Workers: m.workersEnabled.Load()}
+	return RuntimeFeatures{
+		Scheduler:     m.schedulerEnabled.Load(),
+		Workers:       m.workersEnabled.Load(),
+		CloudDownload: m.getCloudDownloader() != nil,
+	}
 }
 
 // getAllTasks returns all registered tasks as a flat slice.

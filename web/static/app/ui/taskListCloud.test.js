@@ -98,3 +98,13 @@ test('toggleObjectCloudDownload: 并发点击只提交一次（in-flight 防重�
   global.AppAPI.post = origPost
   assert.strictEqual(obj.cloud_download, true)
 })
+
+test('toggleObjectCloudDownload: 未配置云端后端（能力位 false）→ 不提交仅提示', async () => {
+  calls.length = 0
+  const obj = { url: 'http://x/6' }
+  const st = newState(obj)
+  st.runtime = { features: { cloud_download: false } }
+  await UiTaskList.toggleObjectCloudDownload(st, obj)
+  assert.strictEqual(calls.filter(function (c) { return c[0] === 'post' }).length, 0)
+  assert.ok(calls.some(function (c) { return c[0] === 'toast' && c[2] === 'error' }))
+})

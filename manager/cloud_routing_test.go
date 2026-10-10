@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -140,13 +141,25 @@ func TestNewCloudDownloader_Gating(t *testing.T) {
 
 // cancelRecDL 记录 Cancel 调用的假下载器。
 type cancelRecDL struct {
-	name string
-	mu   sync.Mutex
-	got  []string
+	name      string
+	mu        sync.Mutex
+	got       []string
+	downloads int
 }
 
-func (d *cancelRecDL) Download(*model.DownloadObject, map[string]string) error { return nil }
-func (d *cancelRecDL) Name() string                                            { return d.name }
+func (d *cancelRecDL) Download(*model.DownloadObject, map[string]string) error {
+	d.mu.Lock()
+	d.downloads++
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *cancelRecDL) downloadCalls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.downloads
+}
+func (d *cancelRecDL) Name() string { return d.name }
 func (d *cancelRecDL) Cancel(url string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -204,5 +217,115 @@ func TestSetObjectCloudDownload_Errors(t *testing.T) {
 	m.tasks.Store("t", &mockTaskWithStorage{id: "t", typ: "mock", st: ms})
 	if err := m.SetObjectCloudDownload("t", "missing", true); err == nil {
 		t.Fatal("expected object-not-found error")
+	}
+}
+
+// countingStorage 统计 Update 调用次数（消除 memory 存储「指针别名」导致的持久化断言假绿）。
+type countingStorage struct {
+	core.Storage
+	updates int
+}
+
+func (c *countingStorage) Update(obj *model.DownloadObject) error {
+	c.updates++
+	return c.Storage.Update(obj)
+}
+
+// syncRecTask 记录运行时同步调用。
+type syncRecTask struct {
+	*mockTaskWithStorage
+	mu  sync.Mutex
+	got []string
+}
+
+func (t *syncRecTask) SyncCloudDownload(url string, enabled bool) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.got = append(t.got, url)
+	return true
+}
+
+func (t *syncRecTask) synced() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.got...)
+}
+
+// TestSetObjectCloudDownload_PersistsAndSyncs 验证：① 真的调用了 Storage().Update（非指针别名假绿）；
+// ② 同步了任务运行时对象（mongo 后端存储副本与运行时实例不同指针，否则开关要等重启生效）。
+func TestSetObjectCloudDownload_PersistsAndSyncs(t *testing.T) {
+	t.Parallel()
+	ms, err := storage.NewMemoryStorage(nil)
+	if err != nil {
+		t.Fatalf("NewMemoryStorage: %v", err)
+	}
+	cs := &countingStorage{Storage: ms}
+	obj := &model.DownloadObject{TaskID: "t-ps", URL: "http://example.com/ps"}
+	obj.SetStatus(model.StatusPending)
+	if err := ms.Update(obj); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	tk := &syncRecTask{mockTaskWithStorage: &mockTaskWithStorage{id: "t-ps", typ: "mock", st: cs}}
+	m := NewManager(&config.Config{})
+	m.tasks.Store("t-ps", tk)
+
+	if err := m.SetObjectCloudDownload("t-ps", obj.URL, true); err != nil {
+		t.Fatalf("SetObjectCloudDownload: %v", err)
+	}
+	if cs.updates == 0 {
+		t.Fatal("未调用 Storage().Update（开关不会落库）")
+	}
+	if got := tk.synced(); len(got) != 1 || got[0] != obj.URL {
+		t.Fatalf("未同步运行时对象: %v", got)
+	}
+}
+
+// TestFeaturesStatus_CloudDownloadBit 验证能力位反映云端下载器是否已配置（UI 据此置灰）。
+func TestFeaturesStatus_CloudDownloadBit(t *testing.T) {
+	t.Parallel()
+	m := &Manager{}
+	if m.FeaturesStatus().CloudDownload {
+		t.Fatal("未配置云端下载器时能力位应为 false")
+	}
+	m.setCloudDownloader(&namedDL{name: "cloud"})
+	if !m.FeaturesStatus().CloudDownload {
+		t.Fatal("已配置云端下载器时能力位应为 true")
+	}
+}
+
+// TestDownload_RoutesToCloudDownloader 在真实下载入口（m.download）上验证按项路由：
+// 标记 cloud_download 的对象必须交给云端下载器（此前仅测 selectDownloader 本体，
+// 把 download.go 的调用点改回 getDownloader() 不会红）。
+func TestDownload_RoutesToCloudDownloader(t *testing.T) {
+	t.Parallel()
+	ms, err := storage.NewMemoryStorage(nil)
+	if err != nil {
+		t.Fatalf("NewMemoryStorage: %v", err)
+	}
+	obj := &model.DownloadObject{
+		TaskID:   "t-rt",
+		URL:      "http://example.com/rt",
+		SavePath: filepath.Join(t.TempDir(), "o.bin"),
+	}
+	obj.SetStatus(model.StatusPending)
+	obj.SetCloudDownload(true)
+	if err := ms.Update(obj); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	tk := &mockTaskWithStorage{id: "t-rt", typ: "mock", st: ms}
+	m := NewManager(&config.Config{})
+	m.tasks.Store("t-rt", tk)
+	def := &cancelRecDL{name: "default"}
+	cloud := &cancelRecDL{name: "cloud"}
+	m.setDownloader(def)
+	m.setCloudDownloader(cloud)
+
+	m.download(tk, obj)
+
+	if cloud.downloadCalls() != 1 {
+		t.Fatalf("云端下载器应被调用 1 次, got %d", cloud.downloadCalls())
+	}
+	if def.downloadCalls() != 0 {
+		t.Fatalf("默认下载器不应被调用, got %d", def.downloadCalls())
 	}
 }

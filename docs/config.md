@@ -87,8 +87,8 @@ PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优�
 #### 下载项级「云端下载」选项
 
 是否走云端下载由**每个下载项**控制（而非全局下载器类型）：`DownloadObject.cloud_download`（bool）。
-任务在创建/解析对象时自行决定是否置位；置位的下载项由 Manager 路由到 sproxy_cloud（未配置 `api_url`
-时回落默认下载器并告警）。切换方式：
+任务可自行决定是否置位；当前对外入口为 API 与 Web UI（服务端未配置 `api_url` 时开关会被路由回落为
+默认下载器并告警，UI 会置灰）。切换方式：
 
 - API：`POST /api/tasks/{id}/object/cloud_download`，body `{"url": "...", "enabled": true}`
 - Web UI：对象列表的「云端」按钮（写入受 `uiMode` / 写保护约束）

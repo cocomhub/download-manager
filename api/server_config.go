@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/cocomhub/download-manager/config"
@@ -78,7 +79,39 @@ func downloaderConfigView(dl config.Downloader) map[string]any {
 		redactStringField(sh, "access_key_secret", "has_access_key_secret")
 		redactStringField(sh, "api_token", "has_api_token")
 	}
+	// 代理列表可能内联 http://user:pass@host —— 去掉 userinfo 再返回（预存缺口）
+	redactProxyList(m, "proxies")
+	if dc, ok := m["dc_proxy"].(map[string]any); ok {
+		redactProxyList(dc, "list")
+	}
 	return m
+}
+
+// redactProxyList 去掉 m[key] 列表中每个代理 URL 的 userinfo（user:pass）。
+func redactProxyList(m map[string]any, key string) {
+	list, ok := m[key].([]any)
+	if !ok {
+		return
+	}
+	out := make([]any, 0, len(list))
+	for _, raw := range list {
+		if s, ok := raw.(string); ok {
+			out = append(out, redactURLUserinfo(s))
+			continue
+		}
+		out = append(out, raw)
+	}
+	m[key] = out
+}
+
+// redactURLUserinfo 返回去掉 user:pass 的 URL；解析失败或本无 userinfo 时原样返回。
+func redactURLUserinfo(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
 }
 
 // redactStringField 把 m[key] 从明文替换为""，并在非空时置 m[hasFlag]=true。

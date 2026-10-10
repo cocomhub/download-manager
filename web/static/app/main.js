@@ -165,6 +165,12 @@
         var f = rt.features || {}
         return rt.mode === 'ui' || (!f.download && !f.scheduler)
       },
+      // cloudDownloadAvailable：服务端是否配置了 sproxy 云端下载后端（未配置时开关会被
+      // 路由回落为默认下载器 → UI 置灰，避免「假成功」）。
+      cloudDownloadAvailable: function () {
+        var f = (this.runtime || {}).features || {}
+        return f.cloud_download !== false
+      },
       volumeIcon: function () {
         if (this.isMuted || this.volume === 0) return 'fa-volume-mute'
         if (this.volume < 0.5) return 'fa-volume-down'
