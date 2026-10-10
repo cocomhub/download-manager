@@ -336,6 +336,18 @@
       }).catch(function (e) { UiHelpers.showToast('撤销失败: ' + e.message, 'error') })
   }
 
+  function toggleObjectCloudDownload (state, obj) {
+    if (state.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+    if (!state.selectedTaskId || !obj || !obj.url) return
+    var enabled = !obj.cloud_download
+    return AppAPI.post('/api/tasks/' + encodeURIComponent(state.selectedTaskId) + '/object/cloud_download', { url: obj.url, enabled: enabled })
+      .then(function (res) {
+        if (!res.ok) throw new Error('设置失败')
+        obj.cloud_download = enabled
+        UiHelpers.showToast(enabled ? '已启用云端下载' : '已关闭云端下载', 'success')
+      }).catch(function (e) { UiHelpers.showToast('设置云端下载失败: ' + e.message, 'error') })
+  }
+
   function toggleTaskConfigPanel (state) {
     state.showTaskConfigPanel = !state.showTaskConfigPanel
   }
@@ -380,6 +392,7 @@
     undoCancelSelectAllObjects: undoCancelSelectAllObjects,
     cancelObject: cancelObject,
     undoCancelObject: undoCancelObject,
+    toggleObjectCloudDownload: toggleObjectCloudDownload,
     toggleTaskConfigPanel: toggleTaskConfigPanel,
     saveTaskConfig: saveTaskConfig,
   }

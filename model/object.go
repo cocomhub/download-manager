@@ -19,6 +19,10 @@ type DownloadObject struct {
 	Extra    map[string]any    `json:"extra" bson:"extra"`
 	Status   string            `json:"status" bson:"status"`
 	Progress int               `json:"progress" bson:"progress"`
+	// CloudDownload 该下载项经 sproxy 云端下载（转存到后端卷，可选是否下载本地）。
+	// 由任务在创建/解析对象时设置（任务自行决定是否启用该选项）；Manager 据此路由到
+	// sproxy_cloud 下载器（未配置时回落默认下载器并告警）。
+	CloudDownload bool `json:"cloud_download,omitempty" bson:"cloud_download,omitempty"`
 	// Version 对象数据结构版本（ObjectVersioner 升级机制用）：version < 任务 LatestVersion
 	// 的对象在启动标准化时被自动逐级升级到最新结构。缺省 0 视为旧数据。
 	Version int64 `json:"version,omitempty" bson:"version,omitempty"`
@@ -42,6 +46,26 @@ func (o *DownloadObject) SetID(id int64) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.ID = id
+}
+
+// IsCloudDownload 返回该对象是否要求经 sproxy 云端下载（并发安全）。
+func (o *DownloadObject) IsCloudDownload() bool {
+	if o == nil {
+		return false
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.CloudDownload
+}
+
+// SetCloudDownload 设置该对象的云端下载选项（并发安全）。
+func (o *DownloadObject) SetCloudDownload(v bool) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.CloudDownload = v
 }
 
 func (o *DownloadObject) GetProgress() int {

@@ -213,3 +213,9 @@ func (m *Manager) ReorderObjectsBatch(taskID string, urls []string) error {
 func (m *Manager) UpdateObjectTags(taskType string, id int64, tags []string) error {
 	return m.objectCtrl.UpdateObjectTags(taskType, id, tags)
 }
+
+// SetObjectCloudDownload 设置下载项的「云端下载」选项（委托 ObjectController）。
+// 由任务/用户自行管理：标记后该对象由 sproxy_cloud 下载器处理。
+func (m *Manager) SetObjectCloudDownload(taskID, url string, enabled bool) error {
+	return m.objectCtrl.SetObjectCloudDownload(taskID, url, enabled)
+}

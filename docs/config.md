@@ -84,6 +84,15 @@ PikPak 分享链接（keepshare / mypikpak）为特化优先来源。认证优�
 | `timeout` | 单任务总超时（默认 3h） |
 | `client_timeout` | 显式覆盖单请求 HTTP 超时（默认沿用 sproxy 的 300s） |
 
+#### 下载项级「云端下载」选项
+
+是否走云端下载由**每个下载项**控制（而非全局下载器类型）：`DownloadObject.cloud_download`（bool）。
+任务在创建/解析对象时自行决定是否置位；置位的下载项由 Manager 路由到 sproxy_cloud（未配置 `api_url`
+时回落默认下载器并告警）。切换方式：
+
+- API：`POST /api/tasks/{id}/object/cloud_download`，body `{"url": "...", "enabled": true}`
+- Web UI：对象列表的「云端」按钮（写入受 `uiMode` / 写保护约束）
+
 说明：
 - SproxySig 三件套（`access_key` / `access_key_secret` / `access_key_id`）需同时配置；启动时会带外验证签名链路，失败则该后端拒绝任务（fail-closed）。
 - 转存成功后产物引用写入对象 `Extra`：`transfer_url`（`sproxy://<卷>/<路径>`）、`cloud_task_id`、`cloud_task_filename`。

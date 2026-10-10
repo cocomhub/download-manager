@@ -136,6 +136,12 @@ type ObjectURLsRequest struct {
 	URLs []string `json:"urls"`
 }
 
+// ObjectCloudDownloadRequest 设置下载项的「云端下载」选项。
+type ObjectCloudDownloadRequest struct {
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled"`
+}
+
 // cancelTask cancels a task by ID.
 func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -608,6 +614,22 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // ObjectTagsPayload 标签更新请求体
 type ObjectTagsPayload struct {
 	Tags []string `json:"tags"`
+}
+
+// setObjectCloudDownload 设置单个下载项的「云端下载」选项（任务自行管理的下载项级开关）。
+// POST /api/tasks/{id}/object/cloud_download
+func (s *Server) setObjectCloudDownload(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var req ObjectCloudDownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "url is required")
+		return
+	}
+	if err := s.mgr.SetObjectCloudDownload(id, req.URL, req.Enabled); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeUpdateFailed, fmt.Sprintf("Failed to set cloud download: %v", err))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // updateObjectTags 更新指定下载对象的标签。

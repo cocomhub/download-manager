@@ -120,7 +120,7 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
-	dl := m.getDownloader()
+	dl := m.selectDownloader(obj)
 
 	// Create per-download context tied to manager lifecycle for cancellation
 	dlCtx, dlCancel := context.WithCancel(context.Background())

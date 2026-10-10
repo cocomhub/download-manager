@@ -64,6 +64,26 @@ test.describe('Task & Object Management', () => {
     await page.waitForTimeout(500);
   });
 
+  test('T4b: toggle object cloud download', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-testid="task-test-mixed"]').click();
+    await expect(page.locator('h2:has-text("test-mixed")')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    const cloudBtn = page.locator('[data-testid^="btn-cloud-"]').first();
+    await cloudBtn.waitFor({ state: 'visible', timeout: 5000 });
+    const before = await cloudBtn.getAttribute('class');
+    expect(before).not.toContain('bg-indigo-600');
+    await cloudBtn.click();
+    // 开启后样式切换为激活态（bg-indigo-600）
+    await expect(cloudBtn).toHaveClass(/bg-indigo-600/, { timeout: 5000 });
+    expect(await cloudBtn.getAttribute('class')).not.toBe(before);
+
+    // 再点一次关闭
+    await cloudBtn.click();
+    await expect(cloudBtn).not.toHaveClass(/bg-indigo-600/, { timeout: 5000 });
+  });
+
   test('T5: batch select', async ({ page }) => {
     await page.goto('/');
     await page.locator('[data-testid="task-test-tktube"]').click();

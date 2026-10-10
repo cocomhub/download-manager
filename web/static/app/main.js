@@ -433,6 +433,7 @@
       undoCancelSelectAllObjects: function() { UiTaskList.undoCancelSelectAllObjects(this) },
       cancelObject: function(obj) { UiTaskList.cancelObject(this, obj) },
       undoCancelObject: function(obj) { UiTaskList.undoCancelObject(this, obj) },
+      toggleObjectCloudDownload: function(obj) { UiTaskList.toggleObjectCloudDownload(this, obj) },
       hasOnClick: function(obj) { return UiHelpers.hasOnClick(obj) },
       saveConfig: function() { UiHelpers.saveConfig(this) },
       openConfigHistory: function() { UiHelpers.openConfigHistory(this) },

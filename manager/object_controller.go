@@ -188,6 +188,30 @@ func (oc *ObjectController) UpdateObjectTags(taskType string, id int64, tags []s
 	return nil
 }
 
+// SetObjectCloudDownload 设置单个下载对象的「云端下载」选项（任务自行管理的下载项级开关）。
+// 仅影响后续调度：标记后由 Manager.selectDownloader 路由到 sproxy_cloud 下载器。
+func (oc *ObjectController) SetObjectCloudDownload(taskID, url string, enabled bool) error {
+	m := oc.m
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return fmt.Errorf("%w", errTaskNotFound)
+	}
+	obj, err := m.getTaskObject(t, url)
+	if err != nil {
+		return err
+	}
+	if obj == nil {
+		return fmt.Errorf("object not found")
+	}
+	obj.SetCloudDownload(enabled)
+	if err := t.Storage().Update(obj); err != nil {
+		return err
+	}
+	m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+	return nil
+}
+
 // RetryObject resets the status of an object to pending and forces download。
 func (oc *ObjectController) RetryObject(taskID, url string) error {
 	m := oc.m

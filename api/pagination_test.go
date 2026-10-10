@@ -120,6 +120,7 @@ func TestAPI_WriteDisabled(t *testing.T) {
 	}{
 		{"POST", "/api/tasks/mock-405/cancel", nil},
 		{"POST", "/api/tasks/mock-405/object/cancel", map[string]string{"url": "http://mock-download/file-0.bin"}},
+		{"POST", "/api/tasks/mock-405/object/cloud_download", map[string]any{"url": "http://mock-download/file-0.bin", "enabled": true}},
 		{"POST", "/api/tasks/mock-405/config", nil},
 		{"POST", "/api/config/server", nil},
 		{"POST", "/api/config/apply", nil},

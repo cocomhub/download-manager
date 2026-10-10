@@ -113,6 +113,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}/object/undo_cancel_batch", s.undoCancelObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/retry_batch", s.retryObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/delete_batch", s.deleteObjectsBatch).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/cloud_download", s.setObjectCloudDownload).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/object/reorder_batch", s.reorderObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/config", s.updateTaskConfig).Methods("POST")
