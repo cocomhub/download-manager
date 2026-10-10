@@ -249,7 +249,8 @@ help:
 	@echo "  run             Build and run"
 	@echo "  show-version    Show binary version"
 	@echo "  test-no-mongo   Run tests with no_mongo tag"
-	@echo "  test-integration Run integration tests (requires Docker)"
+	@echo "  test-integration Run integration tests (testcontainers, requires Docker)"
+	@echo "  test-mongo      Run mongo integration tests (docker container, no Docker -> t.Skip)"
 	@echo "  test-cover-html Generate coverage HTML report"
 	@echo "  playwright-server  Build Playwright test server"
 	@echo "  playwright-test    Run Playwright tests"
@@ -282,6 +283,11 @@ test-no-mongo:
 .PHONY: test-integration
 test-integration:
 	go test -tags=integration -race -count=1 -timeout=300s ./storage/...
+
+# mongo 集成测试（docker 起容器；无 docker 时集成用例回落到 testcontainers / t.Skip）
+.PHONY: test-mongo
+test-mongo:
+	@bash scripts/test-mongo.sh
 
 .PHONY: test-cover-html
 test-cover-html: test-cover

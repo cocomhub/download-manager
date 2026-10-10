@@ -165,6 +165,41 @@ jobs:
             build/cover.out
           retention-days: 7
 
+  test-mongo:
+    name: Test (mongo integration)
+    runs-on: ubuntu-latest
+    # mongo service container（对齐 sproxy 的 vault 集成测试模式：CI 起服务容器，
+    # 测试经 MONGO_TEST_URI 复用它而非 testcontainers）。
+    services:
+      mongo:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok' || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27"
+          check-latest: true
+
+      - name: Configure private module access
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
+        shell: bash
+
+      - name: Run mongo integration tests
+        env:
+          MONGO_TEST_URI: mongodb://127.0.0.1:27017
+        run: make test-integration
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

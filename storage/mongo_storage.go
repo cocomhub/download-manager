@@ -306,11 +306,20 @@ func buildMongoFilter(query *core.StorageQuery) bson.M {
 	for key, value := range query.Filter.Metadata {
 		filter["metadata."+key] = value
 	}
-	if query.Filter.VersionLT > 0 {
-		filter["version"] = bson.M{"$lt": query.Filter.VersionLT}
-	}
 
 	var andConditions bson.A
+
+	// 版本升级扫描：mongo 上 version=0 的旧文档字段不存在（bson omitempty），而
+	// {version: {$lt: N}} 只匹配同类型数值字段 ⇒ 缺字段不匹配，旧数据永不被升级
+	// （file/memory 走 query.go 的 GetVersion() 语义可升级）。故须 $exists:false 兜底。
+	if query.Filter.VersionLT > 0 {
+		andConditions = append(andConditions, bson.M{
+			"$or": bson.A{
+				bson.M{"version": bson.M{"$exists": false}},
+				bson.M{"version": bson.M{"$lt": query.Filter.VersionLT}},
+			},
+		})
+	}
 
 	// MissingID 过滤
 	if query.Filter.MissingID != nil {
