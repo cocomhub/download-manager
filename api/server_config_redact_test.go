@@ -95,11 +95,23 @@ func TestMergeRedactedProxies(t *testing.T) {
 	if got := mergeRedactedProxies([]string{}, current); len(got) != 0 {
 		t.Fatalf("显式空列表应清空, got %v", got)
 	}
-	// 同 host 不同用户名 → 脱敏视图不同 → 各自回填自己的凭据（不再错配）
+	// 同 host 不同用户名 → 脱敏视图不同 → 各自回填自己的凭据
 	dup := []string{"http://u1:p1@h:8080", "http://u2:p2@h:8080"}
 	gotDup := mergeRedactedProxies([]string{"http://u1:***@h:8080", "http://u2:***@h:8080"}, dup)
 	if gotDup[0] != dup[0] || gotDup[1] != dup[1] {
 		t.Fatalf("同 host 不同用户应各自回填, got %v", gotDup)
+	}
+	// 同 host + 同用户名（仅密码不同）→ 视图相同，必须按出现顺序回填原值，
+	// 绝不能把 *** 占位符当作真实密码写回配置
+	same := []string{"http://u:p1@h:8080", "http://u:p2@h:8080"}
+	gotSame := mergeRedactedProxies([]string{"http://u:***@h:8080", "http://u:***@h:8080"}, same)
+	if gotSame[0] != same[0] || gotSame[1] != same[1] {
+		t.Fatalf("同视图多条应按顺序回填原值, got %v", gotSame)
+	}
+	for _, v := range gotSame {
+		if strings.Contains(v, redactedPassword) {
+			t.Fatalf("占位符不得写回配置: %v", gotSame)
+		}
 	}
 }
 

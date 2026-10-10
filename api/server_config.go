@@ -218,19 +218,19 @@ func mergeRedactedProxies(incoming, current []string) []string {
 	if len(incoming) == 0 {
 		return []string{} // 显式清空
 	}
-	counts := make(map[string]int, len(current))
-	orig := make(map[string]string, len(current))
+	// 当前条目的「脱敏视图 → 原值」队列：按出现顺序消费，保证
+	// ① 同 host+同用户名的多条（仅密码不同）也能各自回填、不把 *** 占位符落成真实密码；
+	// ② 用户显式改写（视图不匹配，如去掉 @ 剥离凭据）时采用请求值。
+	queue := make(map[string][]string, len(current))
 	for _, p := range current {
 		red := redactURLUserinfo(p)
-		counts[red]++
-		orig[red] = p
+		queue[red] = append(queue[red], p)
 	}
 	out := make([]string, 0, len(incoming))
 	for _, p := range incoming {
-		// 仅当该脱敏视图唯一时回填原值；重复视图（同 host 多凭据）不回填，
-		// 避免把 A 条目的凭据错贴到 B 条目。
-		if counts[p] == 1 {
-			out = append(out, orig[p])
+		if q := queue[p]; len(q) > 0 {
+			out = append(out, q[0])
+			queue[p] = q[1:]
 			continue
 		}
 		out = append(out, p)

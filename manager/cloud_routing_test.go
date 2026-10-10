@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -142,10 +143,17 @@ func TestNewCloudDownloader_Gating(t *testing.T) {
 
 // cancelRecDL 记录 Cancel 调用的假下载器。
 type cancelRecDL struct {
-	name      string
-	mu        sync.Mutex
-	got       []string
-	downloads int
+	name        string
+	mu          sync.Mutex
+	got         []string
+	downloads   int
+	ctxForCalls int
+}
+
+func (d *cancelRecDL) SetContextFor(url string, _ context.Context) {
+	d.mu.Lock()
+	d.ctxForCalls++
+	d.mu.Unlock()
 }
 
 func (d *cancelRecDL) Download(*model.DownloadObject, map[string]string) error {
@@ -328,6 +336,57 @@ func TestDownload_RoutesToCloudDownloader(t *testing.T) {
 	}
 	if def.downloadCalls() != 0 {
 		t.Fatalf("默认下载器不应被调用, got %d", def.downloadCalls())
+	}
+	// 按 URL 注入上下文（core.ContextInjecterFor），不得退化到单字段 SetContext
+	if cloud.ctxForCalls != 1 {
+		t.Fatalf("应按 URL 注入 ctx 一次, got %d", cloud.ctxForCalls)
+	}
+}
+
+// fieldUpdStorage 记录 Update / UpdateFields 调用（验证局部更新分支被选中）。
+type fieldUpdStorage struct {
+	core.Storage
+	updates    int
+	fieldUpd   int
+	lastFields map[string]any
+}
+
+func (f *fieldUpdStorage) Update(*model.DownloadObject) error { f.updates++; return nil }
+
+func (f *fieldUpdStorage) UpdateFields(_ string, fields map[string]any) error {
+	f.fieldUpd++
+	f.lastFields = fields
+	return nil
+}
+
+// TestSetObjectCloudDownload_UsesPartialUpdate 验证实现了 ObjectFieldUpdater 的存储走局部更新
+// （避免整文档 $set 的读-改-写窗口），且不调用整对象 Update。
+func TestSetObjectCloudDownload_UsesPartialUpdate(t *testing.T) {
+	t.Parallel()
+	ms, err := storage.NewMemoryStorage(nil)
+	if err != nil {
+		t.Fatalf("NewMemoryStorage: %v", err)
+	}
+	obj := &model.DownloadObject{TaskID: "t-fu", URL: "http://example.com/fu", Status: model.StatusPending}
+	if err := ms.Update(obj); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	fs := &fieldUpdStorage{Storage: ms}
+	tk := &mockTaskWithStorage{id: "t-fu", typ: "mock", st: fs}
+	m := NewManager(&config.Config{})
+	m.tasks.Store("t-fu", tk)
+
+	if err := m.SetObjectCloudDownload("t-fu", "http://example.com/fu", true); err != nil {
+		t.Fatalf("SetObjectCloudDownload: %v", err)
+	}
+	if fs.fieldUpd != 1 {
+		t.Fatalf("应走局部更新一次, got %d", fs.fieldUpd)
+	}
+	if fs.updates != 0 {
+		t.Fatalf("不应调用整对象 Update, got %d", fs.updates)
+	}
+	if got, _ := fs.lastFields["cloud_download"].(bool); !got {
+		t.Fatalf("局部更新字段应为 cloud_download=true, got %v", fs.lastFields)
 	}
 }
 

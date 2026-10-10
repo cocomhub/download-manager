@@ -1259,7 +1259,7 @@
                                     <option value="error">error</option>
                                     <option value="">off</option>
                                 </select>
-                                <p class="text-xs text-gray-500 mt-1">Controls both server-side and frontend (browser console) log output.</p>
+                                <p class="text-xs text-gray-500 mt-1">Frontend (browser console) log level. Server-side level is the Logging 段 <code>log.level</code>.</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Log File Path</label>
@@ -1267,15 +1267,15 @@
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Size (MB)</label>
-                                <input type="number" v-model.number="configForm.log_max_size" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
+                                <input type="number" v-model.number="configForm.log.max_size" data-testid="input-log-max-size" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Backups</label>
-                                <input type="number" v-model.number="configForm.log_max_backups" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                                <input type="number" v-model.number="configForm.log.max_backups" data-testid="input-log-max-backups" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Max Age (days)</label>
-                                <input type="number" v-model.number="configForm.log_max_age" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
+                                <input type="number" v-model.number="configForm.log.max_age" data-testid="input-log-max-age" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="0">
                             </div>
                             <div class="flex items-center gap-3">
                                 <label class="text-sm font-medium text-gray-700">Compress</label>

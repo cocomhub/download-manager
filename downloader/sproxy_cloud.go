@@ -252,10 +252,10 @@ func (d *SproxyCloudDownloader) Name() string { return "sproxy_cloud" }
 // 时 strings.Replace 误切 URL（对抗性评审 P2-1）。
 func (d *SproxyCloudDownloader) statusURL(taskID string) string {
 	if u, err := url.Parse(d.apiURL); err == nil && u.Host != "" {
-		return u.Scheme + "://" + u.Host + "/api/cloud/tasks/" + url.PathEscape(taskID)
+		return u.Scheme + "://" + u.Host + cloudTasksPath + url.PathEscape(taskID)
 	}
 	base := d.apiBase()
-	return base + "/api/cloud/tasks/" + url.PathEscape(taskID)
+	return base + cloudTasksPath + url.PathEscape(taskID)
 }
 
 // validateSaveName 校验提交给服务端的文件名（sproxy cloudfilename 仅接受单文件名：

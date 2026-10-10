@@ -49,11 +49,14 @@
         uiDefaults: null,
         showEditTaskModal: false,
         editTask: null,
+        // 与 GET /api/config/server 的嵌套结构一致（openConfig 会整体覆盖，
+        // 这里只保证首帧渲染不读到 undefined）
         configForm: {
-          proxies: '', scan_interval: 10, global_concurrent: 5,
-          log_level: 'info', log_filename: '', log_max_size: 100,
-          log_max_backups: 3, log_max_age: 7, log_compress: false, log_console: true,
-          domain_limits_text: '', status_style: 'pill'
+          log_level: 'info',
+          log: { filename: '', max_size: 100, max_backups: 3, max_age: 7, compress: false, console: true },
+          downloader: { global_concurrent: 5, proxies: [], domain_limits: {} },
+          task_scan: { interval: 10 },
+          ui_defaults: { status_style: 'pill' }
         },
         newTask: {
           id: '', type: 'url_list', save_dir: './downloads', save_sub_dir: '', scrape_enabled: true, download_enabled: true,

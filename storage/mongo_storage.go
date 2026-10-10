@@ -130,6 +130,9 @@ func (s *MongoStorage) Update(obj *model.DownloadObject) error {
 	// 与 soWorker/metadata flusher 等并发写方共享同一对象时可能触发
 	// "concurrent map iteration and map write"。Snapshot 在 RLock 下深拷贝，
 	// 编码线程安全（见 model/object.go Snapshot）。
+	// 注意：$set 为整文档快照。per-object 选项（cloud_download）同时由
+	// ObjectFieldUpdater 局部更新写入；若某调用方持「读-改-写」窗口内的陈旧副本做整文档
+	// 更新，可能把该选项回退（窗口为毫秒级；不能从 $set 排除——那会使正常开启/关闭失效）。
 	update := bson.M{"$set": obj.Snapshot()}
 	opts := options.UpdateOne().SetUpsert(true)
 
