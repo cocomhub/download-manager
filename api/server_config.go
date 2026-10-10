@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/cocomhub/download-manager/config"
@@ -81,7 +82,7 @@ func downloaderConfigView(dl config.Downloader) map[string]any {
 	}
 	// 代理列表可能内联 http://user:pass@host —— 去掉 userinfo 再返回（预存缺口）
 	redactProxyList(m, "proxies")
-	if dc, ok := m["dc_proxy"].(map[string]any); ok {
+	if dc, ok := m["proxy"].(map[string]any); ok {
 		redactProxyList(dc, "list")
 	}
 	return m
@@ -102,6 +103,39 @@ func redactProxyList(m map[string]any, key string) {
 		out = append(out, raw)
 	}
 	m[key] = out
+}
+
+// yamlSecretKeyRe 匹配 YAML 中的机密键（值替换为空串）。
+var yamlSecretKeyRe = regexp.MustCompile(`(?m)^(\s*(?:access_key_secret|api_token|password|secret|scraper_tunnel_key)\s*:\s*)(\S.*)$`)
+
+// proxyUserinfoRe 匹配 URL 中的 userinfo（user:pass@）。
+var proxyUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://)[^/@\s]+@`)
+
+// redactYAMLSecrets 掩掉 YAML 文本中的已知机密（机密键值 + 代理 URL 的 user:pass）。
+func redactYAMLSecrets(text string) string {
+	if text == "" {
+		return text
+	}
+	out := yamlSecretKeyRe.ReplaceAllString(text, `${1}""`)
+	return proxyUserinfoRe.ReplaceAllString(out, `${1}`)
+}
+
+// sameRedactedProxies 判断请求回传的代理列表是否与「当前配置的脱敏视图」一致
+// （一致 = 用户未修改代理，应保留已存凭据）。
+func sameRedactedProxies(incoming, current []string) bool {
+	red := make([]string, 0, len(current))
+	for _, p := range current {
+		red = append(red, redactURLUserinfo(p))
+	}
+	if len(incoming) != len(red) {
+		return false
+	}
+	for i := range incoming {
+		if incoming[i] != red[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // redactURLUserinfo 返回去掉 user:pass 的 URL；解析失败或本无 userinfo 时原样返回。
@@ -165,12 +199,19 @@ func (s *Server) updateServerConfig(w http.ResponseWriter, r *http.Request) {
 		cc.Downloader.MaxRetries = req.Downloader.MaxRetries
 	}
 	cc.Downloader.ForceProxy = req.Downloader.ForceProxy
-	cc.Downloader.Proxies = req.Downloader.Proxies
+	// 脱敏回写保护：GET 视图返回的是去掉 user:pass 的代理列表；请求若原样回传该视图，
+	// 视为「未修改」并保留已存凭据（否则保存配置会静默抹掉代理凭据）。
+	if !sameRedactedProxies(req.Downloader.Proxies, cc.Downloader.Proxies) {
+		cc.Downloader.Proxies = req.Downloader.Proxies
+	}
 	cc.Downloader.DomainLimits = req.Downloader.DomainLimits
 	// New sub-structures
 	cc.Downloader.Filesystem = req.Downloader.Filesystem
 	if req.Downloader.HTTP.TimeoutSeconds > 0 {
 		cc.Downloader.HTTP = req.Downloader.HTTP
+	}
+	if sameRedactedProxies(req.Downloader.Proxy.List, cc.Downloader.Proxy.List) {
+		req.Downloader.Proxy.List = cc.Downloader.Proxy.List
 	}
 	cc.Downloader.Proxy = req.Downloader.Proxy
 	cc.Downloader.Progress = req.Downloader.Progress
@@ -288,6 +329,12 @@ func (s *Server) diffConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "diff_failed", fmt.Sprintf("Failed to diff config files: %v", err))
 		return
+	}
+	// diff 返回的是配置文件原始 YAML：掩掉已知机密键，避免绕过 /api/config/server 的脱敏
+	for _, k := range []string{"left_yaml", "right_yaml", "left_norm", "right_norm"} {
+		if v, ok := res[k].(string); ok {
+			res[k] = redactYAMLSecrets(v)
+		}
 	}
 	json.NewEncoder(w).Encode(res)
 }

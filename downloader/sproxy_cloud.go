@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -53,11 +54,11 @@ type SproxyCloudDownloader struct {
 	// 主动 SK 轮换调度（提前 24h 每小时直到成功）：
 	now         func() time.Time // 时钟注入（测试可控）
 	rotateMu    sync.Mutex
-	expireAt    time.Time // 当前 SK 过期时间（RenewAccessKey/启动验证 记录）
-	lastRotate  time.Time // 上次轮换时刻（每小时限频）
-	verified    bool      // 启动验证通过（签名链路有效才启用 SproxySig 路径；否则 degraded）
-	apiURLSet   bool      // api_url 是否显式配置（未配则拒绝投递，避免发往缺省地址）
-	partialCred bool      // SproxySig 三件套是否部分配置（非全有/全空→配置错误）
+	expireAt    time.Time   // 当前 SK 过期时间（RenewAccessKey/启动验证 记录）
+	lastRotate  time.Time   // 上次轮换时刻（每小时限频）
+	verified    atomic.Bool // 启动验证通过（签名链路有效才启用 SproxySig 路径；否则 degraded）
+	apiURLSet   bool        // api_url 是否显式配置（未配则拒绝投递，避免发往缺省地址）
+	partialCred bool        // SproxySig 三件套是否部分配置（非全有/全空→配置错误）
 	// 启动验证懒重验限频（sproxy 晚于 dm 启动 / 瞬时不可用后自愈）。
 	verifyMu      sync.Mutex
 	lastVerifyTry time.Time
@@ -143,7 +144,7 @@ func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownload
 func (d *SproxyCloudDownloader) tryReverify() bool {
 	d.verifyMu.Lock()
 	if time.Since(d.lastVerifyTry) < time.Minute {
-		v := d.verified
+		v := d.verified.Load()
 		d.verifyMu.Unlock()
 		return v
 	}
@@ -152,7 +153,7 @@ func (d *SproxyCloudDownloader) tryReverify() bool {
 	d.verifyOnStart()
 	d.verifyMu.Lock()
 	defer d.verifyMu.Unlock()
-	return d.verified
+	return d.verified.Load()
 }
 
 // verifyTimeout 是启动验证（verifyOnStart）的超时：独立且较短，避免 sproxy
@@ -170,12 +171,12 @@ func (d *SproxyCloudDownloader) verifyOnStart() {
 		slog.Error("sproxy sig verify-on-start failed: 签名链路不可用，SproxySig 路径停用（任务将显式失败）",
 			"err", err, "ak", d.ak)
 		d.verifyMu.Lock()
-		d.verified = false
+		d.verified.Store(false)
 		d.verifyMu.Unlock()
 		return
 	}
 	d.verifyMu.Lock()
-	d.verified = true
+	d.verified.Store(true)
 	d.verifyMu.Unlock()
 	// 预热 expireAt：找当前 skeyID 条目过期；找不到取最晚过期（服务端多 SK 共存）。
 	// expireAt 由 rotateMu 保护（与 rotateOnce/ensureRotatedBeforeSubmit 对称）。
@@ -260,6 +261,9 @@ func (d *SproxyCloudDownloader) CloseIdleConnections() {
 
 // Ensure SproxyCloudDownloader implements core.Downloader
 var _ core.Downloader = &SproxyCloudDownloader{}
+
+// Ensure SproxyCloudDownloader implements core.Downloader / ContextInjecterFor / 连接清理。
+var _ core.Downloader = (*SproxyCloudDownloader)(nil)
 
 // Ensure SproxyCloudDownloader implements core.ContextInjecterFor（按 URL 隔离的取消/停止传播）。
 var _ core.ContextInjecterFor = &SproxyCloudDownloader{}
@@ -373,7 +377,7 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	}
 	// 启动验证失败（且懒重验仍失败）→ 显式拒绝任务，不静默降级；
 	// 但允许限频重验（sproxy 晚于 dm 启动/瞬时抖动可自愈）。
-	if d.sigEnabled && !d.verified && !d.tryReverify() {
+	if d.sigEnabled && !d.verified.Load() && !d.tryReverify() {
 		return fmt.Errorf("%w: sproxy_cloud SproxySig 启动验证失败（签名链路不可用）；请检查 access_key/access_key_secret/access_key_id 配置", download.ErrNoTry)
 	}
 	shareURL := d.pickURL(obj)
@@ -410,6 +414,10 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	// 2. 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/拉回）
 	task, err := d.pollResult(ctx, taskID)
 	if err != nil {
+		if errors.Is(err, errCloudTaskTerminal) {
+			// 失效坐标：清掉以便重试时重新提交（否则重试永远复用死任务直到永久失败）
+			clearExtra(obj, extraKeyCloudTaskID)
+		}
 		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
 	}
 	// 完成：置进度 100（否则 SSE/UI 恒 0%，对抗性评审 P2-7）。
@@ -662,6 +670,17 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+// errCloudTaskTerminal 表示 sproxy 侧任务进入终态失败（failed/error/cancelled）：
+// 该 cloud_task_id 已失效，重试必须重新提交而非复用。
+var errCloudTaskTerminal = errors.New("cloud task terminal status")
+
+// clearExtra 删除 obj.Extra 字段（加锁）。
+func clearExtra(obj *model.DownloadObject, key string) {
+	obj.Lock()
+	delete(obj.Extra, key)
+	obj.Unlock()
+}
+
 // extraString 读 obj.Extra 字符串字段（加锁）。
 func extraString(obj *model.DownloadObject, key string) string {
 	obj.RLock()
@@ -796,7 +815,7 @@ func (d *SproxyCloudDownloader) pollResult(ctx context.Context, taskID string) (
 		case "completed", "done":
 			return &sproxyclient.CloudTask{ID: taskID, Status: out.Status, TransferURL: out.TransferURL, Filename: out.Filename}, nil
 		case "failed", "error", "cancelled":
-			return nil, fmt.Errorf("task status %q", out.Status)
+			return nil, fmt.Errorf("%w: %q", errCloudTaskTerminal, out.Status)
 		}
 		if !sleepCtx(ctx, d.pollEvery) {
 			return nil, ctx.Err()
@@ -855,7 +874,7 @@ func (d *SproxyCloudDownloader) pollWithRotateResult(ctx context.Context, taskID
 		case "completed", "done":
 			return task, nil
 		case "failed", "error", "cancelled":
-			return nil, fmt.Errorf("task status %q", task.Status)
+			return nil, fmt.Errorf("%w: %q", errCloudTaskTerminal, task.Status)
 		}
 		if !sleepCtx(ctx, d.pollEvery) {
 			return nil, ctx.Err()

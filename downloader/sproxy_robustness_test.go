@@ -176,3 +176,30 @@ func TestSproxyCloud_PullbackAtomic(t *testing.T) {
 		t.Fatalf(".partial must be cleaned up after failed pullback (stat err=%v)", err)
 	}
 }
+
+// TestSproxyCloud_TerminalFailureClearsTaskID 验证 sproxy 侧任务终态失败后清除
+// cloud_task_id，使重试重新提交（否则重试永远复用已失效任务直到永久失败）。
+func TestSproxyCloud_TerminalFailureClearsTaskID(t *testing.T) {
+	t.Parallel()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/cloud/tasks/task-dead", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-dead", "status": "failed", "filename": "m.mp4"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", PollEvery: 10, CloudOnly: true,
+	})
+	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
+	obj.Extra = map[string]any{"cloud_task_id": "task-dead"}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("终态 failed 应返回错误")
+	}
+	obj.RLock()
+	_, still := obj.Extra["cloud_task_id"]
+	obj.RUnlock()
+	if still {
+		t.Fatal("终态失败后应清除 cloud_task_id（否则重试永远复用死任务）")
+	}
+}

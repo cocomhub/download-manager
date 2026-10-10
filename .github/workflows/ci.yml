@@ -234,6 +234,9 @@ jobs:
           mkdir -p snapshots
           chmod -R u+w snapshots 2>/dev/null || true
 
+      - name: Run web unit tests (node --test)
+        run: make web-test
+
       - name: Run Playwright tests
         working-directory: test/playwright
         env:

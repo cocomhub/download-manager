@@ -339,6 +339,8 @@
       showToast('配置已保存', 'success')
       state.showConfigModal = false
       initUiDefaults(state)
+      // 配置变更可能重建云端下载器 → 刷新 runtime 能力位，避免按钮状态陈旧
+      initRuntime(state)
       if (state.configForm.log_level !== undefined && typeof Log !== 'undefined' && Log.setLevel) {
         Log.setLevel(state.configForm.log_level)
       }

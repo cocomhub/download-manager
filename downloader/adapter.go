@@ -88,6 +88,9 @@ func (a *DownloaderAdapter) getMetadataFlusher() func() {
 	return a.metadataFlusher
 }
 
+// Ensure DownloaderAdapter implements core.ContextInjecterFor（按 URL 隔离上下文）。
+var _ core.ContextInjecterFor = (*DownloaderAdapter)(nil)
+
 // Name 返回适配器名称。
 func (a *DownloaderAdapter) Name() string { return "native_http" }
 

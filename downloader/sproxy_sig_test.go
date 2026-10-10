@@ -531,7 +531,7 @@ func TestSproxyCloud_VerifyOnStartFail(t *testing.T) {
 		AccessKeySecret: "5555555555555555555555555555555555555555555555555555555555555555",
 		AccessKeyID:     "skey-bad000001",
 	})
-	if d.verified {
+	if d.verified.Load() {
 		t.Fatal("verified should be false after 401 verify-on-start")
 	}
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc", SavePath: filepath.Join(t.TempDir(), "out.mp4")}
@@ -581,7 +581,7 @@ func TestSproxyCloud_VerifyOnStartPrimesExpiry(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	if !d.verified {
+	if !d.verified.Load() {
 		t.Fatal("verify-on-start should succeed")
 	}
 	// 预热后 expireAt ≈ 30d 后；模拟时钟推进到到期前 23h

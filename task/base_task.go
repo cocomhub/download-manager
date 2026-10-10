@@ -213,6 +213,9 @@ func (b *BaseTask) SetDownloader(dl core.Downloader) {
 	b.dl = dl
 }
 
+// Ensure BaseTask implements core.ObjectOptionSyncer（运行时对象选项同步）。
+var _ core.ObjectOptionSyncer = (*BaseTask)(nil)
+
 // SyncCloudDownload 按 URL 把「云端下载」选项同步到运行时对象（实现 core.ObjectOptionSyncer）。
 // mongo 等后端的存储对象是解码副本，仅落库不会影响调度所用的运行时实例。
 func (b *BaseTask) SyncCloudDownload(url string, enabled bool) bool {

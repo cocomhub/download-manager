@@ -28,19 +28,21 @@ func (s *Server) getRuntime(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"mode": "full",
 			"features": map[string]bool{
-				"download":  true,
-				"scheduler": true,
+				"download":       true,
+				"scheduler":      true,
+				"cloud_download": s.mgr.FeaturesStatus().CloudDownload,
 			},
 			"download_root": s.mgr.GetDownloadRootDir(),
-			"log_level":     cfg.Runtime.LogLevel,
+			"log_level":     "",
 		})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"mode": cfg.Runtime.Mode,
 		"features": map[string]bool{
-			"download":  cfg.Runtime.Download.Enabled,
-			"scheduler": cfg.Runtime.Scheduler.Enabled,
+			"download":       cfg.Runtime.Download.Enabled,
+			"scheduler":      cfg.Runtime.Scheduler.Enabled,
+			"cloud_download": s.mgr.FeaturesStatus().CloudDownload,
 		},
 		"download_root": s.mgr.GetDownloadRootDir(),
 		"log_level":     cfg.Runtime.LogLevel,
