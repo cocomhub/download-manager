@@ -261,3 +261,24 @@ func TestRunRebuild_DataFlagsRequireRepair(t *testing.T) {
 		t.Errorf("应提示需与 --repair 同用: %q", errBuf.String())
 	}
 }
+
+// TestRebuildDestHonorsOutput --repair 本地文件模式下显式 -o 优先（否则用文件名推导最终名）。
+func TestRebuildDestHonorsOutput(t *testing.T) {
+	t.Parallel()
+	const chunk = 1 << 20
+	dir := t.TempDir()
+	work := filepath.Join(dir, "movie.mp4.hybrid.downloading")
+	if err := os.WriteFile(work, make([]byte, chunk), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// 无 manifest → --repair 会因缺 URL 报错，但错误信息里的 dest 必须尊重 -o
+	custom := filepath.Join(dir, "renamed.mp4")
+	var out, errBuf bytes.Buffer
+	code := runRebuild([]string{"--repair", "-o", custom, work}, &out, &errBuf)
+	if code != exitFail {
+		t.Fatalf("无 manifest URL 应 exitFail，实际 %d", code)
+	}
+	if !strings.Contains(errBuf.String(), custom) {
+		t.Errorf("错误信息应使用 -o 指定的 dest %q: %q", custom, errBuf.String())
+	}
+}

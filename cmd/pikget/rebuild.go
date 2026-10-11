@@ -96,6 +96,14 @@ func runRebuild(args []string, stdout, stderr io.Writer) int {
 			return runOfflineRebuild(target, chunkSize, zeroRun, *quiet, stdout, stderr)
 		}
 		localDest = normalizeRebuildDest(target)
+		if *output != "" { // 显式 -o 优先（否则用工作/成品文件名推导最终名）
+			resolved, rerr := resolveDest(target, *output)
+			if rerr != nil {
+				fmt.Fprintf(stderr, "pikget: %v\n", rerr)
+				return exitFail
+			}
+			localDest = resolved
+		}
 		manifestURL, ok := rebuildSourceURL(target)
 		if !ok {
 			fmt.Fprintf(stderr, "pikget rebuild: %s 的 manifest 未记录分享 URL（或已丢失）——请显式指定：pikget rebuild -o %s <share-url>\n", target, localDest)
