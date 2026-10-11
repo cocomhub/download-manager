@@ -303,3 +303,75 @@ chunk (offset, length, source=share|account)
 - [ ] 多账号并行下载账号区（每账号独立 chunk 池）
 - [ ] 分享区免配额收益 metrics（ShareBytesSaved 已加）
 - [ ] 分享直链 416 边界动态探测（避免超限重试）
+
+## 9. 失败恢复与零尾重建（2026-10-11，v4）
+
+### 9.1 用户实测故障（3 次同类）
+
+`pikget` 下载 1.3GB/43 片任务时出现「**所有分片显示 100% done + 汇总 done，紧跟一行致命错误**」：
+
+```
+ #30 acct  [====================] 100.0% 32.0 MB / 32.0 MB  done
+ total     [====================] 100.0% 1.3 GB / 1.3 GB      0 B/s --:-- done
+pikget: pikget hybrid: hybrid fetch link (cached):
+  Get "https://api-drive.mypikpak.com/drive/v1/files/...?usage=FETCH": net/http: TLS handshake timeout
+```
+
+实测取证（磁盘状态）：manifest 记录 42/43 片，**唯一缺失 offset 1006632960（第 #30 片）**，
+数据文件同偏移 32MiB 全为 0x00 → 文件大小正确、内容残缺（若当成品改名即静默损坏）。
+`NHDTA-113` 同型（缺 #24 @805306368）。
+
+### 9.2 四个根因（全部已修）
+
+| # | 根因 | 修复 |
+|---|------|------|
+| 1 | 控制面 API 无重试：`API.doJSON` 裸 `client.Do`，`TLSHandshakeTimeout=10s` 一次握手超时即致命 | 幂等请求（GET/HEAD）退避重试（默认 3 次，指数+抖动，429/5xx 与传输层瞬断可重试；POST 不重试）；`ShareResolver` GET 同规则 |
+| 2 | 分片取链失败不重试：`downloadAccountChunk` 取链失败直接 `return`（只有「下载失败」才重试一轮） | 取链与下载**都**按 `hybridChunkAttempts(3)` 退避重试（每次重取新链接）；仅永久错误（未登录/空间不足/无账号/分享失效/不支持）不重试；多账号路径不再把网络抖动当账号过错 `MarkFailed` |
+| 3 | 首片失败不 fail-fast：其余分片继续白耗带宽/配额 | `runChunks` 首个错误即 `cancel()` 兄弟分片（未开始的分片不再尝试），返回带 offset 的 `*ChunkError` |
+| 4 | 进度条谎报完成：`finish(ok)` 忽略 ok，无条件把每片标 `done` | 失败收尾：已完成片保持 `done`，未完成片标 `stopped`（保留真实进度），汇总显示 `incomplete`；新增 `failed`/`cancelled` 状态 |
+
+附加修（同类状态异常）：
+
+- `removeManifest` 从「verify 之前」移到「rename 定稿之后」——此前校验失败即丢续传信息，重跑只能全量重下（实测的 `manifest 为空 + 数据存在` 状态即由此而来）。
+- 源身份不一致/工作文件缺失 → manifest **归档**为 `.hybrid.stale`（而非静默删除），保留证据。
+- `loadValidManifest` 增加**工作文件存在且大小 == total** 校验，且该校验必须在 `preallocate` **之前**（预分配会让「文件存在」恒真 → 「成品已改名 + manifest 残留」会跳过全部缺失分片）。
+- manifest 记录与磁盘不一致（崩溃/断电时 manifest 先落盘）→ 零尾扫描剔除这些分片并补下（自愈）。
+- manifest 新增 `source.url`（原始分享 URL）→ `pikget rebuild --repair <本地文件>` 免重输 URL。
+
+### 9.3 零尾判定规则（用户明示）
+
+分片落盘是 `preallocate(Truncate 全尺寸) + 逐块 WriteAt`，**文件大小恒等于目标**，
+因此「分片没写」表现为**块内尾部连续 0x00 的空洞**。判定：
+
+> **块内尾部存在连续 0x00（≥ 阈值，默认 64KiB；探测窗口默认块尾 1MiB）即视为未写完的异常块，需重建。**
+
+- 扫描代价与分片数成正比（每片只读尾部一个窗口），与文件大小无关。
+- 零尾是**启发式**（合法的大段零也可能命中，如 PCM 静音段），因此仅用于「定位候选」，
+  **最终正确性恒由源权威哈希（GCID）兜底**：假阳性最多多下一次分片，绝不会产出「校验通过但内容错」的文件。
+- 实测校验：两个完整成品（1.6GB/51 片、1.1GB/37 片）零尾可疑块 = 0（无误报）；
+  失败/未写完文件精确定位到缺失分片（113 → #24，106 → #30）。
+
+### 9.4 `pikget rebuild` 子命令
+
+```bash
+pikget rebuild <本地文件>                 # 离线零尾扫描报告（不联网、不改动任何文件）
+pikget rebuild --repair <本地文件>        # 用 manifest 记录的分享 URL 联网定点重建
+pikget rebuild -o <dest> <分享URL>        # 显式指定源；--dry-run 仅报告
+pikget rebuild --repair --data <异常数据> --manifest <异常进度> -o <dest> <URL>
+```
+
+在线重建流程（sproxy `HybridDownloader.Rebuild`）：
+
+1. 定位数据文件（工作文件 `dest.hybrid.downloading` 优先，其次成品名 `dest`）；
+2. **权威哈希快路径**：现有数据已与源一致 → 直接定稿（不下载任何分片）；
+3. 零尾扫描 + manifest 对照 → 可信集合（记录完成 ∩ 扫描通过）/ 待重建集合；
+4. 重写 manifest（只保留可信分片）→ 复用正常下载续传补齐 → 权威校验 → 定稿（rename + 清进度）；
+5. 补下后仍校验失败（非零损坏/旧源数据，扫描定位不到）→ **自动升级全量重建一次**（`--no-escalate` 可关）。
+
+退出码：0 无需重建/已修好；1 检出空洞或重建失败；2 参数错误；130 中断。
+
+### 9.5 残留（已知，后续片）
+
+- 断点续传仍不校验「已下分片」的内容一致性（只做零尾启发式 + 全文件哈希兜底）；
+  若源文件在分享端被替换为同大小不同内容，全量重建是正确的最终兜底。
+- `.hybrid.stale` 归档目前只保留最近一次（同名覆盖），未做轮转。

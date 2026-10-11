@@ -4,8 +4,8 @@ go 1.27
 
 require (
 	github.com/cavaliergopher/grab/v3 v3.0.1
-	github.com/cocomhub/sproxy v0.0.0-20261008134855-8b2a42ff4439
-	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd0be
+	github.com/cocomhub/sproxy v0.23.1-0.20261011104619-56869bd73200
+	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261011104619-56869bd73200
 	github.com/gofrs/flock v0.13.1
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0

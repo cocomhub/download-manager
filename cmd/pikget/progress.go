@@ -14,6 +14,14 @@ import (
 	"golang.org/x/term"
 )
 
+// 执行者状态（进度行状态列展示；空 = 未开始/下载中，由 line() 按进度推导 pending）。
+const (
+	stateDone      = "done"      // 完成
+	stateFailed    = "failed"    // 失败（该分片真实错误）
+	stateCancelled = "cancelled" // 被取消（fail-fast 取消的兄弟分片）
+	stateStopped   = "stopped"   // 收尾时仍未完成（失败/中断），**不谎报 done**
+)
+
 // workerStat 是单个执行者（chunk）的进度状态。
 type workerStat struct {
 	id     string // 执行者代号（chunk 标识）
@@ -21,6 +29,7 @@ type workerStat struct {
 	total  int64  // 总大小
 	done   int64  // 已下字节（原子更新，加锁读快照）
 	base   int64  // 续传起始字节（manifest 累计）
+	state  string // 状态（stateDone/stateFailed/stateCancelled/stateStopped；空 = 进行中）
 	finish bool   // 是否完成（移除速率/ETA）
 	// 速率滑动窗口（3s 环形缓冲）：采样 (时间ms, 已下字节)，速率 = 窗口增量/窗口时长。
 	// 空闲期自动衰减（突发不虚高，限速显示平均）——不用瞬时加权。
@@ -51,6 +60,7 @@ type multiProgress struct {
 	totalFile    int64    // 真实文件总大小（sproxy 聚合回调 total；0=未知回落各 worker 之和）
 	enabled      bool     // 显示开关（TTY 或非 quiet 才画）
 	order        []string // id 稳定顺序（创建序）
+	aborted      bool     // 收尾时存在未完成执行者（汇总显示 incomplete，不谎报 done）
 	renderedOnce bool     // 是否已画过第一帧（后续刷新先上移）
 	widths       int      // 名称列宽（固定，避免长度抖动残留）
 	refresh      time.Time
@@ -167,7 +177,26 @@ func (p *multiProgress) markDone(id string) {
 		return
 	}
 	w.finish = true
+	w.state = stateDone
 	w.done = w.total
+	p.refreshLocked()
+}
+
+// markFailed 标记某 worker 失败（保留真实已下字节，状态列显示 failed）。
+func (p *multiProgress) markFailed(id string) { p.markState(id, stateFailed) }
+
+// markCancelled 标记某 worker 被取消（fail-fast 取消的兄弟分片，与真失败区分）。
+func (p *multiProgress) markCancelled(id string) { p.markState(id, stateCancelled) }
+
+// markState 设置执行者状态（已完成的不覆盖）。
+func (p *multiProgress) markState(id, state string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	w, ok := p.workers[id]
+	if !ok || w.finish {
+		return
+	}
+	w.state = state
 	p.refreshLocked()
 }
 
@@ -249,9 +278,14 @@ func (p *multiProgress) line(w *workerStat, now time.Time) string {
 	speed := windowSpeed(w, now) // 滑动窗口速率（限速场景平均，不虚高）
 	name := pad(w.name, p.widths)
 	bar := progressBar(int(pct), 20)
+	if w.state == stateFailed || w.state == stateCancelled || w.state == stateStopped {
+		// 未完成收尾：保留真实进度（绝不伪造 100%），状态列如实显示。
+		return fmt.Sprintf(" %s %s %5.1f%% %s %s %10s %8s %8s",
+			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))), w.state, "", "")
+	}
 	if w.finish {
 		return fmt.Sprintf(" %s %s %5.1f%% %s %s %10s %8s %8s",
-			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))), "done", "", "")
+			name, bar, pct, humanize(float64(eff)), fmt.Sprintf("/ %s", humanize(float64(w.total))), stateDone, "", "")
 	}
 	// 未下载（pending，done=0 且无速度）→ 不显示 ETA，速率占位 '--'
 	if w.done == 0 && speed <= 0 {
@@ -300,8 +334,11 @@ func (p *multiProgress) summary(now time.Time) string {
 		eta = formatETA(time.Duration(float64(totalSize-eff)/speed) * time.Second)
 	}
 	status := "downloading"
-	if doneCnt == len(p.order) {
-		status = "done"
+	switch {
+	case doneCnt == len(p.order) && len(p.order) > 0:
+		status = stateDone
+	case p.aborted:
+		status = "incomplete" // 失败收尾：不谎报 done（明确告知不是全部完成）
 	}
 	return fmt.Sprintf(" %s %s %5.1f%% %s %s %12s %s",
 		pad("total", p.widths), progressBar(int(pct), 20), pct,
@@ -329,18 +366,27 @@ func (p *multiProgress) finish(ok bool) {
 	if !p.enabled {
 		return
 	}
-	// Finish B: keep all chunk progress lines showing done (no ANSI clearing).
+	// Finish B: keep all chunk progress lines (no ANSI clearing)。
+	// **尊重 ok**：成功 → 所有行 done；失败 → 已完成行保持 done，未完成行标 stopped 并保留真实进度。
+	// （此前无条件 w.done = w.total：失败也显示 100% done，与紧随其后的错误行自相矛盾。）
 	if p.renderedOnce {
+		if !ok {
+			p.aborted = true
+		}
 		fmt.Fprintf(p.w, "\x1b[%dA", len(p.order))
 		for _, id := range p.order {
 			w := p.workers[id]
-			w.finish = true
-			w.done = w.total
+			if ok {
+				w.finish = true
+				w.state = stateDone
+				w.done = w.total
+			} else if !w.finish && w.state == "" {
+				w.state = stateStopped
+			}
 			fmt.Fprintf(p.w, "\r%s\n", pad(p.line(w, time.Now()), 100))
 		}
 		fmt.Fprintf(p.w, "\r%s\n", pad(p.summary(time.Now()), 100))
 	}
-	_ = ok
 }
 
 // pad 按固定宽度填充（右侧补空格，避免长度变化残留）。

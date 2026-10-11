@@ -9,13 +9,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/cocomhub/sproxy/pkg/downloader"
+	"github.com/cocomhub/sproxy/pkg/netutil"
 	syncpkg "github.com/cocomhub/sproxy/pkg/sync"
 	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
@@ -24,6 +28,7 @@ import (
 type pikpakOpts struct {
 	shareRatio  float64
 	chunkSize   int64
+	zeroRun     int64 // rebuild：块尾连续零判定阈值（0 = 默认 64KiB）
 	concurrency int
 	autoDelete  bool
 	secretsDir  string                 // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
@@ -32,6 +37,27 @@ type pikpakOpts struct {
 	verbose     bool                   // -v：slog 提为 Debug 级
 	chunkProg   func(pikpak.ChunkInfo) // per-chunk 进度回调（pikget 逐行显示分片）
 	logFile     string                 // --log-file：hybrid 日志写文件（默认丢弃）
+	proxyURL    string                 // --proxy：hybrid 各层 HTTP 代理（此前只作用于直链路径）
+	retry       int                    // --retry：混合下载各层瞬断重试次数（此前只作用于直链路径）
+	noEscalate  bool                   // rebuild：禁用「校验失败→全量重建」自动升级
+}
+
+// newHybridHTTPClients 构造 hybrid 各层 HTTP client（统一代理设置）。
+// 背景：此前 hybrid 路径忽略 --proxy/--retry（只有直链路径生效）——用户设了代理仍直连，
+// 遇到 api-drive.mypikpak.com 握手超时就只能失败。
+func newHybridHTTPClients(proxyURL string) (download, api *http.Client, err error) {
+	tr := netutil.IsolatedTransport()
+	tr.IdleConnTimeout = 30 * time.Second // 分享直链 CDN 限速，防半途卡死（模块默认同值）
+	if proxyURL != "" {
+		u, perr := url.Parse(proxyURL)
+		if perr != nil {
+			return nil, nil, fmt.Errorf("代理地址无效 %q: %w", proxyURL, perr)
+		}
+		tr.Proxy = http.ProxyURL(u)
+	}
+	// 下载：单请求最长 15min（CDN 限速慢）；API：30s（控制面短请求）。
+	return &http.Client{Timeout: 15 * time.Minute, Transport: tr},
+		&http.Client{Timeout: 30 * time.Second, Transport: tr}, nil
 }
 
 // newHybrid 装配 sproxy HybridDownloader。
@@ -41,7 +67,14 @@ type pikpakOpts struct {
 // 立即告警（用户要求）：装配前先定位 pikpak CLI——账号区依赖它（OAuth 会话/凭据刷新），
 // CLI 缺失时在下载开始前就报错，而不是账号 chunk 走到一半才发现。
 func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
-	r := pikpak.NewShareResolver(pikpak.ShareResolverConfig{})
+	dlClient, apiClient, err := newHybridHTTPClients(o.proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("pikget hybrid: %w", err)
+	}
+	// 控制面（分享解析/网盘 REST）恒带瞬断退避重试：取 FETCH 直链偶发握手超时不应致命。
+	r := pikpak.NewShareResolver(pikpak.ShareResolverConfig{
+		MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile),
+	})
 
 	// CLI 预检：账号区依赖官方 pikpak CLI（OAuth 会话/凭据刷新）。
 	// 缺失时在下载开始前就报错（fail-closed），而不是账号 chunk 走到一半才发现。
@@ -64,12 +97,20 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	} else if err := checkDefaultCredential(); err != nil {
 		return nil, fmt.Errorf("pikget hybrid: 账号未登录：%v", err)
 	}
-	// **实际验证 token 有效**（未登录/已过期 → 立即报错）：用 API 轻量调用（List 根目录）
-	// 触发 ensureToken——凭据文件里 access_token 无效/过期时返回 ErrNotLoggedIn。
+	// 官方 CLI 包装：token 过期时自动续期（HTTP 优先 → CLI 回落，见 pikpak/token.go）；
+	// CLI 不可用时仍走 HTTP 续期（不阻断下载）。
+	pinCli, cliErr := pikpak.NewCli(pikpak.CliConfig{
+		BinaryPath: cliPath, AutoInstall: false, Logger: slogForPikget(o.verbose, o.logFile),
+	})
+	if cliErr != nil {
+		pinCli = nil
+	}
+	// **实际验证 token 有效**（未登录/已过期已有续期兜底；仍失败才报错）：用 API 轻量调用
+	// （List 根目录）触发 ensureToken——token 过期时此处会先自动续期再重试。
 	if o.secretsDir == "" {
-		api := pikpak.NewAPI(pikpak.APIConfig{}, nil)
+		api := pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli)
 		if _, err := api.List(context.Background(), ""); err != nil {
-			return nil, fmt.Errorf("pikget hybrid: 账号未登录或 token 失效：%v（请重新 sproxy pikpak login）", err)
+			return nil, fmt.Errorf("pikget hybrid: 账号未登录或 token 失效（已尝试自动续期）：%v（可运行 `pikpak auth status` 或重新登录）", err)
 		}
 	}
 
@@ -96,7 +137,8 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 
 	return pikpak.NewHybridDownloader(pikpak.HybridConfig{
 		Resolver:      r,
-		API:           pikpak.NewAPI(pikpak.APIConfig{}, nil),
+		API:           pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli),
+		HTTPClient:    dlClient,
 		AccountPool:   pool,
 		ChunkSize:     o.chunkSize,
 		ShareRatio:    o.shareRatio,
@@ -105,6 +147,25 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 		Logger:        slogForPikget(o.verbose, o.logFile),
 		ChunkProgress: o.chunkProg,
 	})
+}
+
+// rebuildHybrid 调用 sproxy HybridDownloader.Rebuild 做定点重建：
+// 零尾扫描定位未写完分片 → 只补这些分片 → 源权威哈希校验 → 定稿（rename + 清进度）。
+func rebuildHybrid(ctx context.Context, shareURL, dest string, o pikpakOpts, dryRun bool, onProg func(downloaded, total int64)) (*pikpak.RebuildReport, error) {
+	hd, err := newHybrid(o)
+	if err != nil {
+		return nil, err
+	}
+	rep, err := hd.Rebuild(ctx, shareURL, dest, pikpak.RebuildOptions{
+		ChunkSize:       o.chunkSize,
+		ZeroScan:        pikpak.ZeroScanOptions{ZeroRun: o.zeroRun, Concurrency: o.concurrency},
+		DryRun:          dryRun,
+		DisableEscalate: o.noEscalate,
+	}, onProg)
+	if err != nil {
+		return rep, fmt.Errorf("pikget hybrid rebuild: %w", err)
+	}
+	return rep, nil
 }
 
 // downloadHybrid 调用 sproxy HybridDownloader 下载分享 URL 到 dest 文件。
