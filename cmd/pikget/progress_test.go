@@ -254,3 +254,75 @@ func TestSummary_ResumeTotalSize(t *testing.T) {
 		t.Fatalf("summary total should show real file size 1.7 GB: %s", s)
 	}
 }
+
+// TestMultiProgress_FinishFailureDoesNotFakeDone 失败收尾不得伪造完成：
+// 此前 finish(ok) 忽略 ok，无条件把每个执行者 w.done = w.total（100% done）——
+// 用户实测「所有分片 100% done + 汇总 done」之后紧跟一行致命错误，误导排查方向。
+func TestMultiProgress_FinishFailureDoesNotFakeDone(t *testing.T) {
+	var buf bytes.Buffer
+	p := newMultiProgress(&buf, true)
+	p.addWorker("chunk-0", 100, 0, "#0 share")
+	p.addWorker("chunk-1", 100, 0, "#1 acct")
+	p.set("chunk-0", 100, 100)
+	p.markDone("chunk-0")
+	p.set("chunk-1", 30, 100)
+	p.markFailed("chunk-1")
+	p.finish(false)
+
+	if got := p.workers["chunk-1"].done; got != 30 {
+		t.Fatalf("失败分片进度被伪造: done = %d, want 30", got)
+	}
+	if got := p.workers["chunk-0"].done; got != 100 {
+		t.Fatalf("已完成分片进度不应变: done = %d, want 100", got)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "failed") {
+		t.Errorf("失败分片行应显示 failed: %q", out)
+	}
+	if !strings.Contains(out, "incomplete") {
+		t.Errorf("汇总行应显示 incomplete（失败不得显示 done）: %q", out)
+	}
+}
+
+// TestMultiProgress_FinishSuccessKeepsDoneRows 成功收尾保持「所有行 done + 汇总 done」
+// （既有行为不回退）。
+func TestMultiProgress_FinishSuccessKeepsDoneRows(t *testing.T) {
+	var buf bytes.Buffer
+	p := newMultiProgress(&buf, true)
+	p.addWorker("chunk-0", 100, 0, "#0 share")
+	p.set("chunk-0", 100, 100)
+	p.finish(true)
+	if p.workers["chunk-0"].state != stateDone {
+		t.Fatalf("成功收尾应为 done，实际 %q", p.workers["chunk-0"].state)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "done") || strings.Contains(out, "incomplete") {
+		t.Errorf("成功汇总应显示 done: %q", out)
+	}
+}
+
+// TestMultiProgress_MarkCancelled fail-fast 取消的分片与真失败区分显示。
+func TestMultiProgress_MarkCancelled(t *testing.T) {
+	var buf bytes.Buffer
+	p := newMultiProgress(&buf, true)
+	p.addWorker("chunk-0", 100, 0, "#0 acct")
+	p.markCancelled("chunk-0")
+	p.finish(false)
+	if p.workers["chunk-0"].state != stateCancelled {
+		t.Fatalf("state = %q, want cancelled", p.workers["chunk-0"].state)
+	}
+	if !strings.Contains(buf.String(), "cancelled") {
+		t.Errorf("行应显示 cancelled: %q", buf.String())
+	}
+}
+
+// TestMultiProgress_MarkFailedAfterDoneIgnored 已完成执行者不被失败标记覆盖。
+func TestMultiProgress_MarkFailedAfterDoneIgnored(t *testing.T) {
+	p := newMultiProgress(&bytes.Buffer{}, true)
+	p.addWorker("chunk-0", 100, 0, "#0")
+	p.markDone("chunk-0")
+	p.markFailed("chunk-0")
+	if p.workers["chunk-0"].state != stateDone {
+		t.Fatalf("state = %q, want done", p.workers["chunk-0"].state)
+	}
+}

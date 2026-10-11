@@ -70,6 +70,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "hash" {
 		return runHash(args[1:], stdout, stderr)
 	}
+	// rebuild 子命令：pikget rebuild <本地文件|分享URL> —— 零尾空洞扫描/定点重建
+	if len(args) > 0 && args[0] == "rebuild" {
+		return runRebuild(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("pikget", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
@@ -79,10 +83,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		force      = fs.Bool("force", false, "强制覆盖已存在文件（跳过 GCID 一致性检查）")
 		verbose    = fs.Bool("v", false, "详细日志（debug 级）")
 		userAgent  = fs.String("user-agent", "", "直链 User-Agent")
-		proxyURL   = fs.String("proxy", "", "直链 HTTP 代理")
+		proxyURL   = fs.String("proxy", "", "HTTP 代理（直链与 PikPak 混合下载均生效）")
 		headerArg  = fs.String("header", "", "自定义请求头 'K: V'（可重复/逗号分隔）")
 		timeout    = fs.Int("timeout", 300, "HTTP 超时(秒)")
-		retry      = fs.Int("retry", 3, "重试次数")
+		retry      = fs.Int("retry", 3, "重试次数（直链请求与 PikPak 接口瞬断）")
 		configPath = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
 		shareRatio = fs.Float64("share-ratio", 0.5, "PikPak 分享区比例（恒 ≤0.5）")
 		chunkSize  = fs.Int64("chunk-size", 32<<20, "PikPak 分片大小(字节)")
@@ -265,7 +269,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
 	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
 	resumeBase := hybridResumeBase(dest)
-	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done）。
+	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done/failed/cancelled）。
 	// 来源链显示：share=匿名分享直链；acct=账号直链（多账号时含账号名）。
 	chunkProgress := func(info pikpak.ChunkInfo) {
 		id := fmt.Sprintf("chunk-%d", info.Index)
@@ -278,6 +282,10 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		case "done":
 			pr.set(id, info.Length, info.Length)
 			pr.markDone(id)
+		case "failed":
+			pr.markFailed(id) // 保留真实进度，状态列 failed（不伪造 done）
+		case "cancelled":
+			pr.markCancelled(id) // fail-fast 取消的兄弟分片，与真失败区分
 		}
 	}
 	opts := pikpakOpts{
@@ -289,6 +297,8 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		verbose:     fl.verbose,
 		chunkProg:   chunkProgress,
 		logFile:     fl.logFile,
+		proxyURL:    fl.proxyURL, // 此前 hybrid 路径忽略 --proxy（只有直链生效）
+		retry:       fl.retry,
 	}
 	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
 	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
@@ -304,6 +314,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	if err != nil {
 		pr.finish(false)
 		fmt.Fprintf(stderr, "pikget: %v\n", err)
+		printHybridFailureHint(stderr, err, dest, fl.chunkSize)
 		return exitFail
 	}
 	pr.set("total", fileSize(dest), fileSize(dest))
@@ -355,10 +366,10 @@ func parseHeaders(pairs []string) map[string]string {
 	return out
 }
 
-// hybridResumeBase 读取 dest+latestWatch".hybrid" manifest，累计已完成 chunk 字节作为续传基准。
-// 预分配文件本身就是 total（os.Truncate 全量），不能右文件大小当基准——只能用 manifest 已下 chunk 之和。
+// hybridResumeBase 读取 manifest（pikpak.ManifestPath），累计已完成 chunk 字节作为续传基准。
+// 预分配文件本身就是 total（os.Truncate 全量），不能拿文件大小当基准——只能用 manifest 已下 chunk 之和。
 func hybridResumeBase(dest string) int64 {
-	b, err := os.ReadFile(dest + ".hybrid")
+	b, err := os.ReadFile(pikpak.ManifestPath(dest))
 	if err != nil {
 		return 0
 	}
@@ -575,7 +586,7 @@ func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, std
 			}
 		}
 	}
-	// 不一致 → 冲突：默认拒绝（推荐改名）；--force 强制下载覆盖
+	// 不一致 → 冲突：默认拒绝（推荐改名）；--force 强制下载覆盖，或 rebuild 定点修复
 	suggest := conflictName(dest)
 	fmt.Fprintf(stdout, "pikget: 文件冲突 %s —— GCID 与预期不一致\n", dest)
 	fmt.Fprintf(stdout, "  预期 GCID: %s\n", target.Hash)
@@ -583,6 +594,7 @@ func checkExistingHybrid(ctx context.Context, url, dest string, fl cliFlags, std
 		fmt.Fprintf(stdout, "  本地 GCID: %s\n", localGCIDs[0].GCID)
 	}
 	fmt.Fprintf(stdout, "  推荐: 保存到 %s，或 --force 强制覆盖\n", suggest)
+	fmt.Fprintf(stdout, "  定点修复: pikget rebuild -o %s <share-url>（只补异常分片）\n", dest)
 	if fl.force {
 		fmt.Fprintf(stdout, "  --force: 强制下载覆盖\n")
 		return exitOK, true, true // done=true + allowDownload=true → 调用方继续下载
