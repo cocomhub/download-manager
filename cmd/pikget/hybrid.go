@@ -97,12 +97,20 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	} else if err := checkDefaultCredential(); err != nil {
 		return nil, fmt.Errorf("pikget hybrid: 账号未登录：%v", err)
 	}
-	// **实际验证 token 有效**（未登录/已过期 → 立即报错）：用 API 轻量调用（List 根目录）
-	// 触发 ensureToken——凭据文件里 access_token 无效/过期时返回 ErrNotLoggedIn。
+	// 官方 CLI 包装：token 过期时自动续期（HTTP 优先 → CLI 回落，见 pikpak/token.go）；
+	// CLI 不可用时仍走 HTTP 续期（不阻断下载）。
+	pinCli, cliErr := pikpak.NewCli(pikpak.CliConfig{
+		BinaryPath: cliPath, AutoInstall: false, Logger: slogForPikget(o.verbose, o.logFile),
+	})
+	if cliErr != nil {
+		pinCli = nil
+	}
+	// **实际验证 token 有效**（未登录/已过期已有续期兜底；仍失败才报错）：用 API 轻量调用
+	// （List 根目录）触发 ensureToken——token 过期时此处会先自动续期再重试。
 	if o.secretsDir == "" {
-		api := pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient}, nil)
+		api := pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli)
 		if _, err := api.List(context.Background(), ""); err != nil {
-			return nil, fmt.Errorf("pikget hybrid: 账号未登录或 token 失效：%v（请重新 sproxy pikpak login）", err)
+			return nil, fmt.Errorf("pikget hybrid: 账号未登录或 token 失效（已尝试自动续期）：%v（可运行 `pikpak auth status` 或重新登录）", err)
 		}
 	}
 
@@ -129,7 +137,7 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 
 	return pikpak.NewHybridDownloader(pikpak.HybridConfig{
 		Resolver:      r,
-		API:           pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, nil),
+		API:           pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli),
 		HTTPClient:    dlClient,
 		AccountPool:   pool,
 		ChunkSize:     o.chunkSize,

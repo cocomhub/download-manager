@@ -22,6 +22,8 @@ github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd
 github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261008192300-cb55fb4dd0be/go.mod h1:hjgHEfJDESqxiwmnW+24m7mdnOWDoFwVf09PHrg8fxY=
 github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261011063247-e747588a043a h1:pROduGA8S3PHkxJXLkKYfgeKnUMi8YbqMgXHgcnqs74=
 github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261011063247-e747588a043a/go.mod h1:hjgHEfJDESqxiwmnW+24m7mdnOWDoFwVf09PHrg8fxY=
+github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261011101909-1d1b7f0e23a9 h1:IF/W+MiOD1FrffyyX7ixkPSLf1h7gIp1Dm3QyK0gh+s=
+github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.0.0-20261011101909-1d1b7f0e23a9/go.mod h1:hjgHEfJDESqxiwmnW+24m7mdnOWDoFwVf09PHrg8fxY=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=
 github.com/containerd/errdefs v1.0.0/go.mod h1:+YBYIdtsnF4Iw6nWZhJcqGSg/dwvV7tyJ/kCkyJ2k+M=
 github.com/containerd/errdefs/pkg v0.3.0 h1:9IKJ06FvyNlexW690DXuQNx2KA2cUJXx151Xdx3ZPPE=
