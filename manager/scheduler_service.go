@@ -92,6 +92,9 @@ func (s *SchedulerService) Scan() {
 					// ctx is canceled; wait for inner goroutine to actually return
 					// before releasing the dedup guard, so the next scan cycle
 					// does not start a second concurrent Scrape for this task.
+					// 值丢弃：超时路径下错误已由 "Scrape timed out" 记录；
+					// golangci 2.15 的 errcheck 把通道接收误报为错误未检查（lint 对齐补标注）。
+					//nolint:errcheck // 通道值丢弃，非错误处理路径
 					<-done
 				}
 				m.scrapingTask.Delete(taskID)

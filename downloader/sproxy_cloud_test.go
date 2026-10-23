@@ -117,7 +117,7 @@ func TestSproxyCloud_SubmitHeaders(t *testing.T) {
 	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", map[string]string{
 		"Referer":    "https://mypikpak.com/",
 		"User-Agent": "test-agent",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

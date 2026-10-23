@@ -67,7 +67,7 @@ func TestSproxyCloud_SigAuth_Submit(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil)
+	taskID, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil, nil)
 	if err != nil {
 		t.Fatalf("submit with sig auth: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestSproxyCloud_BearerFallback(t *testing.T) {
 		APIURL:   srv.URL + "/api/cloud/download",
 		APIToken: "old-bearer-token",
 	})
-	if _, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil); err != nil {
+	if _, err := d.submit(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil, nil); err != nil {
 		t.Fatalf("submit bearer: %v", err)
 	}
 	if gotAuth != "Bearer old-bearer-token" {
@@ -678,7 +678,7 @@ func TestSproxyCloud_Submit401LimitedRetry(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	_, sErr := d.submitSig(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil)
+	_, sErr := d.submitSig(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil, nil)
 	if sErr == nil {
 		t.Fatal("submit should fail after 401 retries exhausted")
 	}
