@@ -95,3 +95,52 @@ func TestSproxyCloud_DownloadWithTargetFile(t *testing.T) {
 		t.Fatalf("提交 URL 未带 spx_target: %q", gotURL)
 	}
 }
+
+// TestSproxyCloud_TransferPathOverride 验证 per-object transfer_path 覆盖静态路径
+// （分卷全套每个文件不同卷内路径）：提交请求体的 transfer.path 用 Extra 值。
+func TestSproxyCloud_TransferPathOverride(t *testing.T) {
+	t.Parallel()
+	var gotTransfer map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotTransfer, _ = body["transfer"].(map[string]any)
+		writeJSONResp(w, map[string]any{"id": "task-t", "status": "running"})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/task-t", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-t", "status": "completed"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL:         srv.URL + "/api/cloud/download",
+		PollEvery:      100,
+		CloudOnly:      true,
+		TransferVolume: "jav",
+		TransferPath:   "static/path.mp4",
+	})
+	obj := &model.DownloadObject{
+		URL:      "https://mypikpak.com/s/abc",
+		SavePath: filepath.Join(t.TempDir(), "out.mp4"),
+		Extra: map[string]any{
+			"magnet_list":   []map[string]string{{"keepshare": "https://mypikpak.com/s/abc"}},
+			"target_file":   "NHDTA-513A.mp4",
+			"transfer_path": "jav/makers/natural-high/NHDTC/NHDTC-254/NHDTC-254 就寝中.mp4",
+		},
+	}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download error: %v", err)
+	}
+	if gotTransfer == nil {
+		t.Fatal("transfer 未提交")
+	}
+	if gotTransfer["volume"] != "jav" {
+		t.Fatalf("volume = %v", gotTransfer["volume"])
+	}
+	gotPath, _ := gotTransfer["path"].(string)
+	if gotPath != "jav/makers/natural-high/NHDTC/NHDTC-254/NHDTC-254 就寝中.mp4" {
+		t.Fatalf("path = %q，want per-object 覆盖", gotPath)
+	}
+}

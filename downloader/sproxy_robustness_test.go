@@ -381,7 +381,7 @@ func TestSproxyCloud_SubmitDeclaresProducePolicy(t *testing.T) {
 	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
 		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", CloudOnly: true,
 	})
-	if _, err := d.submit(t.Context(), "https://example.com/a.mp4", "", nil); err != nil {
+	if _, err := d.submit(t.Context(), "https://example.com/a.mp4", "", nil, nil); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if got["save"] != true {

@@ -96,6 +96,9 @@ const extraKeyCloudTaskID = "cloud_task_id"
 // extraKeyTargetFile 是分享内目标文件名（分卷 A/B/C 全套：每文件一次提交，Extra 标目标）。
 const extraKeyTargetFile = "target_file"
 
+// extraKeyTransferPath 是「按对象覆盖转存卷内路径」（分卷全套每个文件不同路径）。
+const extraKeyTransferPath = "transfer_path"
+
 // NewSproxyCloudDownloader 创建 sproxy 云端下载器。
 // 配置了 access_key/access_key_secret → 用 FileClient（SproxySig 签名认证）；否则旧 Bearer。
 func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownloader {
@@ -556,7 +559,7 @@ func (d *SproxyCloudDownloader) submitOrReuse(ctx context.Context, obj *model.Do
 		slog.Info("Sproxy cloud reuse existing task", "task_id", taskID, logutil.LogKeyURL, shareURL)
 		return taskID, nil
 	}
-	tid, err := d.submit(ctx, shareURL, obj.SavePath, headers)
+	tid, err := d.submit(ctx, shareURL, obj.SavePath, headers, obj)
 	if err != nil {
 		return "", fmt.Errorf("sproxy_cloud submit %s: %w", shareURL, err)
 	}
@@ -716,9 +719,9 @@ func isShareURL(u string) bool {
 // 注意：pinned 版 sproxy 的 POST /api/cloud/download 请求体**不含**下载头字段，
 // 服务端不消费这些头，因此它们不会传给源站（此处不做能力声明）。
 // SproxySig 路径用 FileClient（RequestRaw 透传 headers + 签名）；Bearer 路径走 HTTP 直连。
-func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath string, headers map[string]string) (string, error) {
+func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath string, headers map[string]string, obj *model.DownloadObject) (string, error) {
 	if d.sigEnabled && d.sig != nil {
-		return d.submitSig(ctx, shareURL, savePath, headers)
+		return d.submitSig(ctx, shareURL, savePath, headers, obj)
 	}
 	body := map[string]any{"url": shareURL}
 	d.applyProducePolicy(body) // save / download_local 显式声明
@@ -729,7 +732,7 @@ func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath s
 		}
 		body["filename"] = name
 	}
-	if tr := d.transferSpec(); tr != nil {
+	if tr := d.transferSpec(obj); tr != nil {
 		body["transfer"] = tr
 	}
 	b, _ := json.Marshal(body)
@@ -772,7 +775,7 @@ func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath s
 // TransferVolume 非空 → 请求体带 transfer（master 新三行为：转存到卷）。
 // 401（签名失效）触发轮换后**有限次重试**（评审 P1-1：无界递归 → DoS）；
 // 重试次数耗尽后返回显式错误（不静默降级）。
-func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePath string, headers map[string]string) (string, error) {
+func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePath string, headers map[string]string, obj *model.DownloadObject) (string, error) {
 	const maxSubmitRetry = 2
 	for attempt := 0; attempt <= maxSubmitRetry; attempt++ {
 		body := map[string]any{"url": shareURL}
@@ -784,7 +787,7 @@ func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePat
 			}
 			body["filename"] = name
 		}
-		if tr := d.transferSpec(); tr != nil {
+		if tr := d.transferSpec(obj); tr != nil {
 			body["transfer"] = tr
 		}
 		b, _ := json.Marshal(body)
@@ -876,13 +879,22 @@ func setExtra(obj *model.DownloadObject, key string, value any) {
 
 // transferSpec 构造转存请求体（volume 必填；path 可选，支持卷内子目录/重命名，
 // 如 xxx/xxxx.mp4）。返回 nil = 不转存。
-func (d *SproxyCloudDownloader) transferSpec() map[string]any {
+//
+// 按对象覆盖：obj.Extra["transfer_path"] 非空时优先于下载器静态 TransferPath——
+// 分卷全套（同一分享多文件）需为每个文件指定不同卷内路径，静态配置无法表达。
+func (d *SproxyCloudDownloader) transferSpec(obj *model.DownloadObject) map[string]any {
 	if d.transferVol == "" {
 		return nil
 	}
 	tr := map[string]any{"volume": d.transferVol}
-	if d.transferPath != "" {
-		tr["path"] = d.transferPath
+	p := strings.TrimSpace(d.transferPath)
+	if obj != nil {
+		if v := strings.TrimSpace(extraString(obj, extraKeyTransferPath)); v != "" {
+			p = v
+		}
+	}
+	if p != "" {
+		tr["path"] = p
 	}
 	return tr
 }
