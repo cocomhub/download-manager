@@ -93,6 +93,9 @@ func (d *SproxyCloudDownloader) apiBase() string {
 // Extra 键名常量（避免同文件重复字面量）。
 const extraKeyCloudTaskID = "cloud_task_id"
 
+// extraKeyTargetFile 是分享内目标文件名（分卷 A/B/C 全套：每文件一次提交，Extra 标目标）。
+const extraKeyTargetFile = "target_file"
+
 // NewSproxyCloudDownloader 创建 sproxy 云端下载器。
 // 配置了 access_key/access_key_secret → 用 FileClient（SproxySig 签名认证）；否则旧 Bearer。
 func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownloader {
@@ -476,6 +479,10 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	if shareURL == "" {
 		return fmt.Errorf("%w: sproxy_cloud 无可提交的 URL（obj.URL 为空）", download.ErrNoTry)
 	}
+	// 分享内目标文件（分卷 A/B/C 全套）：Extra[target_file] 非空 → 叠加 spx_target 到 URL。
+	// sproxy 侧按名选文件下载（见 sproxy feat/cloud-dl-target-file）；不同 target 不同 URL
+	// ⇒ 云端任务去重不误吸收。
+	shareURL = withTargetFileParam(shareURL, extraString(obj, extraKeyTargetFile))
 	if !isHTTPURL(shareURL) {
 		// 服务端 ValidateEntry 只接受 http/https（纯 magnet:/bt: 会被 400）→ 早退为永久失败
 		return fmt.Errorf("%w: sproxy_cloud 仅支持 http(s) URL: %s", download.ErrNoTry, truncate(shareURL, 80))
@@ -1094,4 +1101,20 @@ func baseName(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+// withTargetFileParam 把 spx_target 参数叠加到分享 URL（已有则覆盖；target 空 = 原样）。
+// 语义对齐 sproxy cloud_download_handler 的 target_file 字段（同键参数）。
+func withTargetFileParam(rawURL, target string) string {
+	if strings.TrimSpace(target) == "" {
+		return rawURL
+	}
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	q.Set("spx_target", target)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
