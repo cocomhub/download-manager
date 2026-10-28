@@ -247,6 +247,9 @@ func hasFiles(obj *model.DownloadObject) bool {
 		return len(f) > 0
 	case []map[string]string:
 		return len(f) > 0
+	case []map[string]any:
+		// 多目标携带逐文件 meta（sdserver 分卷/字幕）——同样是「已解析」。
+		return len(f) > 0
 	default:
 		return false
 	}
