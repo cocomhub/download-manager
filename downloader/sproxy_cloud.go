@@ -632,6 +632,7 @@ func cloudTargets(obj *model.DownloadObject) []cloudTarget {
 	obj.RLock()
 	raw := obj.Extra["files"]
 	obj.RUnlock()
+	raw = normalizeExtra(raw) // bson.A/bson.D → []any/map[string]any
 	var out []cloudTarget
 	switch list := raw.(type) {
 	case []map[string]string:
@@ -1133,8 +1134,14 @@ func extraMap(obj *model.DownloadObject, key string) map[string]any {
 	}
 	obj.RLock()
 	defer obj.RUnlock()
-	m, _ := obj.Extra[key].(map[string]any)
-	return m
+	if m, ok := obj.Extra[key].(map[string]any); ok {
+		return m
+	}
+	// mongo 读回形态：内嵌文档是 bson.D ⇒ 直接断言恒失败（meta_extra 透传静默丢失）。
+	if m, ok := normalizeExtra(obj.Extra[key]).(map[string]any); ok {
+		return m
+	}
+	return nil
 }
 
 func (d *SproxyCloudDownloader) mergedMetaExtra(obj *model.DownloadObject, override map[string]any) map[string]any {
