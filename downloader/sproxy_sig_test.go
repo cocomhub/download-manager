@@ -678,7 +678,7 @@ func TestSproxyCloud_Submit401LimitedRetry(t *testing.T) {
 		AccessKeySecret: sk,
 		AccessKeyID:     skid,
 	})
-	_, sErr := d.submitSig(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", nil, nil)
+	_, sErr := d.submitSig(t.Context(), "https://mypikpak.com/s/abc", "out.mp4", submitOpts{}, nil, nil)
 	if sErr == nil {
 		t.Fatal("submit should fail after 401 retries exhausted")
 	}

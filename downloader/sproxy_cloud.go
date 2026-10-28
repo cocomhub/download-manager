@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,6 +96,10 @@ func (d *SproxyCloudDownloader) apiBase() string {
 const extraKeyCloudTaskID = "cloud_task_id"
 
 // extraKeyTargetFile 是分享内目标文件名（分卷 A/B/C 全套：每文件一次提交，Extra 标目标）。
+// extraKeyMetaExtra 是转存产物自定义元数据（业务写入，透传 sproxy 合并进目标卷 meta）。
+// 回归修复（2026-10-28）：PR #174 的 squash 基于旧分支，丢失了该常量与透传逻辑。
+const extraKeyMetaExtra = "meta_extra"
+
 const extraKeyTargetFile = "target_file"
 
 // extraKeyTransferPath 是「按对象覆盖转存卷内路径」（分卷全套每个文件不同路径）。
@@ -501,6 +507,13 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	d.registerCancel(obj.URL, cancel)
 	defer d.unregisterCancel(obj.URL)
 
+	// 分卷全套 / 多文件（video + 字幕）：Extra.files 有多条 → 逐文件独立提交
+	// （各自 spx_target + transfer_path；同一分享不同 target ⇒ URL 不同，云端任务去重
+	// 不会误吸收）。单文件/无 files 时走既有单条路径（零回归）。
+	if targets := cloudTargets(obj); len(targets) > 1 {
+		return d.downloadTargets(ctx, obj, headers, targets)
+	}
+
 	taskID, err := d.submitOrReuse(ctx, obj, shareURL, headers)
 	if err != nil {
 		return err
@@ -595,6 +608,216 @@ func (d *SproxyCloudDownloader) recordArtifacts(obj *model.DownloadObject, task 
 	if task.Filename != "" {
 		setExtra(obj, "cloud_task_filename", task.Filename)
 	}
+}
+
+// cloudTarget 是一条待提交目标（Extra.files 元素）。
+type cloudTarget struct {
+	URL    string         // 分享 URL（可提交）
+	Path   string         // 转存卷内路径
+	Target string         // 分享内文件名（spx_target）
+	Meta   map[string]any // 该文件独立的业务 meta（share_file_name/share_hash/role 等）
+}
+
+// cloudTargets 从 obj.Extra["files"] 解析多目标（>1 才有意义）。
+// 兼容内存形态（[]map[string]string）与 mongo 往返形态（[]any + map），
+// 键名 url/path/target（见 sdserver buildSproxyTargets 的唯一构造）。
+func cloudTargets(obj *model.DownloadObject) []cloudTarget {
+	if obj == nil {
+		return nil
+	}
+	obj.RLock()
+	raw := obj.Extra["files"]
+	obj.RUnlock()
+	var out []cloudTarget
+	switch list := raw.(type) {
+	case []map[string]string:
+		for _, m := range list {
+			out = append(out, cloudTarget{URL: m["url"], Path: m["path"], Target: m["target"]})
+		}
+	case []map[string]any:
+		for _, m := range list {
+			tg := cloudTarget{URL: asString(m["url"]), Path: asString(m["path"]), Target: asString(m["target"])}
+			if meta, ok := m["meta"].(map[string]any); ok {
+				tg.Meta = meta
+			}
+			out = append(out, tg)
+		}
+	case []any:
+		for _, it := range list {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			tg := cloudTarget{
+				URL: asString(m["url"]), Path: asString(m["path"]), Target: asString(m["target"]),
+			}
+			if meta, ok := m["meta"].(map[string]any); ok {
+				tg.Meta = meta
+			}
+			out = append(out, tg)
+		}
+	}
+	// 过滤空 URL（脏数据不参与提交）
+	clean := out[:0]
+	for _, tg := range out {
+		if strings.TrimSpace(tg.URL) != "" {
+			clean = append(clean, tg)
+		}
+	}
+	return clean
+}
+
+// asString 宽松取字符串（BSON/JSON 解码值）。
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// downloadTargets 逐文件提交 + 轮询 + 落产物（分卷全套/字幕）。
+//
+// 顺序执行：同一分享的直链 CDN 对并发有限速，串行简单可靠；每个目标的云端任务
+// 独立（不同 URL），失败整体返回错误（已成功的产物坐标已记录，重试按 target 复用）。
+func (d *SproxyCloudDownloader) downloadTargets(ctx context.Context, obj *model.DownloadObject, headers map[string]string, targets []cloudTarget) error {
+	for i, tg := range targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		shareURL := withTargetFileParam(tg.URL, tg.Target)
+		if !isHTTPURL(shareURL) {
+			return fmt.Errorf("%w: sproxy_cloud 仅支持 http(s) URL: %s", download.ErrNoTry, truncate(shareURL, 80))
+		}
+		taskID, err := d.submitTarget(ctx, obj, shareURL, tg, headers)
+		if err != nil {
+			return fmt.Errorf("sproxy_cloud submit[%d/%d] %s: %w", i+1, len(targets), truncate(tg.Target, 60), err)
+		}
+		task, err := d.pollResult(ctx, taskID)
+		if err != nil {
+			return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+		}
+		if task != nil && strings.EqualFold(task.IntegrityStatus, "damaged") {
+			clearTargetTaskID(obj, tg)
+			return fmt.Errorf("sproxy_cloud: 源文件完整性校验未通过（integrity_status=damaged）: %s", tg.Target)
+		}
+		d.recordTargetArtifacts(obj, tg, task)
+		// 本地拉回：多目标时 SavePath 是目录语义 → 追加文件名（避免互相覆盖）。
+		if err := d.localDownloadTarget(ctx, obj, task, tg); err != nil {
+			return err
+		}
+	}
+	obj.SetProgress(100)
+	return nil
+}
+
+// submitTarget 提交单目标（按 target 复用云端任务坐标；重试不重复建任务）。
+func (d *SproxyCloudDownloader) submitTarget(ctx context.Context, obj *model.DownloadObject, shareURL string, tg cloudTarget, headers map[string]string) (string, error) {
+	if tid := targetTaskID(obj, tg); tid != "" {
+		slog.Info("Sproxy cloud reuse existing task", "task_id", tid, "target", tg.Target)
+		return tid, nil
+	}
+	tid, err := d.submitWithOpts(ctx, shareURL, obj.SavePath, submitOpts{pathOverride: tg.Path, metaExtra: tg.Meta}, headers, obj)
+	if err != nil {
+		return "", err
+	}
+	setTargetTaskID(obj, tg, tid)
+	return tid, nil
+}
+
+// extraKeyCloudTaskIDs 是多目标任务的坐标表（target 文件名 → cloud task id）。
+const extraKeyCloudTaskIDs = "cloud_task_ids"
+
+// targetTaskID 读某目标的已提交任务坐标。
+func targetTaskID(obj *model.DownloadObject, tg cloudTarget) string {
+	m := extraMap(obj, extraKeyCloudTaskIDs)
+	if m == nil {
+		return ""
+	}
+	s, _ := m[targetKey(tg)].(string)
+	return s
+}
+
+// setTargetTaskID 记录某目标的云端任务坐标（供重试复用）。
+func setTargetTaskID(obj *model.DownloadObject, tg cloudTarget, id string) {
+	obj.Lock()
+	if obj.Extra == nil {
+		obj.Extra = make(map[string]any)
+	}
+	m, _ := obj.Extra[extraKeyCloudTaskIDs].(map[string]any)
+	if m == nil {
+		m = make(map[string]any)
+		obj.Extra[extraKeyCloudTaskIDs] = m
+	}
+	m[targetKey(tg)] = id
+	obj.Unlock()
+}
+
+// clearTargetTaskID 清除失效目标坐标（重试时重新提交）。
+func clearTargetTaskID(obj *model.DownloadObject, tg cloudTarget) {
+	obj.Lock()
+	if m, _ := obj.Extra[extraKeyCloudTaskIDs].(map[string]any); m != nil {
+		delete(m, targetKey(tg))
+	}
+	obj.Unlock()
+}
+
+// targetKey 是坐标表的键：优先 spx_target（文件级唯一），退化用 URL。
+func targetKey(tg cloudTarget) string {
+	if s := strings.TrimSpace(tg.Target); s != "" {
+		return s
+	}
+	return tg.URL
+}
+
+// recordTargetArtifacts 记录单目标产物坐标（transfer_url 列表 + 任务 id）。
+func (d *SproxyCloudDownloader) recordTargetArtifacts(obj *model.DownloadObject, tg cloudTarget, task *sproxyclient.CloudTask) {
+	if task == nil {
+		return
+	}
+	if task.ID != "" {
+		setTargetTaskID(obj, tg, task.ID)
+	}
+	if task.TransferURL == "" {
+		return
+	}
+	obj.Lock()
+	if obj.Extra == nil {
+		obj.Extra = make(map[string]any)
+	}
+	list, _ := obj.Extra["transfer_urls"].([]any)
+	entry := map[string]any{"target": tg.Target, "path": tg.Path, "url": task.TransferURL}
+	obj.Extra["transfer_urls"] = append(list, entry)
+	// 首条同时写单值键（兼容既有消费方/UI）。
+	if _, ok := obj.Extra["transfer_url"]; !ok {
+		obj.Extra["transfer_url"] = task.TransferURL
+	}
+	obj.Unlock()
+}
+
+// localDownloadTarget 多目标本地拉回：SavePath 视为目录（追加文件名），
+// 单文件语义由 localDownload 保持（零回归）。
+func (d *SproxyCloudDownloader) localDownloadTarget(ctx context.Context, obj *model.DownloadObject, task *sproxyclient.CloudTask, tg cloudTarget) error {
+	if d.cloudOnly || task == nil {
+		return nil
+	}
+	name := strings.TrimSpace(tg.Target)
+	if name == "" {
+		name = task.Filename
+	}
+	if name == "" {
+		return d.localDownload(ctx, obj, task)
+	}
+	if d.sig == nil {
+		return fmt.Errorf("sproxy_cloud: 本地下载需要 SproxySig 凭据；或设 cloud_only: true 只留云端")
+	}
+	savePath := strings.TrimSpace(obj.SavePath)
+	if savePath == "" {
+		return d.localDownload(ctx, obj, task)
+	}
+	// 多目标：SavePath 视为目录（取父目录 + 文件名），避免互相覆盖。
+	dest := filepath.Join(filepath.Dir(savePath), filepath.Base(name))
+	if err := d.pullBackToSavePath(ctx, task, dest); err != nil {
+		return fmt.Errorf("sproxy_cloud pullback %s: %w", task.ID, err)
+	}
+	return nil
 }
 
 // localDownload 默认路径：cloud_only=false 时用 kind=cloud_task 把原始文件拉到本地
@@ -720,8 +943,19 @@ func isShareURL(u string) bool {
 // 服务端不消费这些头，因此它们不会传给源站（此处不做能力声明）。
 // SproxySig 路径用 FileClient（RequestRaw 透传 headers + 签名）；Bearer 路径走 HTTP 直连。
 func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath string, headers map[string]string, obj *model.DownloadObject) (string, error) {
+	return d.submitWithOpts(ctx, shareURL, savePath, submitOpts{}, headers, obj)
+}
+
+// submitOpts 是单次提交的可选覆盖（分卷全套逐文件：独立转存路径 + 独立业务 meta）。
+type submitOpts struct {
+	pathOverride string         // 转存卷内路径（空 = 按对象/静态配置）
+	metaExtra    map[string]any // 覆盖/追加的业务 meta（与对象级 meta_extra 合并，后者优先）
+}
+
+// submitWithOpts 同 submit，但可覆盖转存路径与业务 meta。
+func (d *SproxyCloudDownloader) submitWithOpts(ctx context.Context, shareURL, savePath string, opts submitOpts, headers map[string]string, obj *model.DownloadObject) (string, error) {
 	if d.sigEnabled && d.sig != nil {
-		return d.submitSig(ctx, shareURL, savePath, headers, obj)
+		return d.submitSig(ctx, shareURL, savePath, opts, headers, obj)
 	}
 	body := map[string]any{"url": shareURL}
 	d.applyProducePolicy(body) // save / download_local 显式声明
@@ -732,8 +966,14 @@ func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath s
 		}
 		body["filename"] = name
 	}
-	if tr := d.transferSpec(obj); tr != nil {
+	if tr := d.transferSpecWithPath(obj, opts.pathOverride); tr != nil {
 		body["transfer"] = tr
+	}
+	if me := d.mergedMetaExtra(obj, opts.metaExtra); len(me) > 0 {
+		// 业务元数据透传（sproxy 合并进目标卷 meta）。**回归修复**：PR #174 的 squash
+		// 基于旧分支，丢失了该透传 ⇒ 转存产物 meta 缺 code/title 等业务键
+		// （2026-10-28 恢复；多目标时逐文件覆盖 share_file_name/share_hash）。
+		body[extraKeyMetaExtra] = me
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.apiURL, strings.NewReader(string(b)))
@@ -775,7 +1015,7 @@ func (d *SproxyCloudDownloader) submit(ctx context.Context, shareURL, savePath s
 // TransferVolume 非空 → 请求体带 transfer（master 新三行为：转存到卷）。
 // 401（签名失效）触发轮换后**有限次重试**（评审 P1-1：无界递归 → DoS）；
 // 重试次数耗尽后返回显式错误（不静默降级）。
-func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePath string, headers map[string]string, obj *model.DownloadObject) (string, error) {
+func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePath string, opts submitOpts, headers map[string]string, obj *model.DownloadObject) (string, error) {
 	const maxSubmitRetry = 2
 	for attempt := 0; attempt <= maxSubmitRetry; attempt++ {
 		body := map[string]any{"url": shareURL}
@@ -787,8 +1027,12 @@ func (d *SproxyCloudDownloader) submitSig(ctx context.Context, shareURL, savePat
 			}
 			body["filename"] = name
 		}
-		if tr := d.transferSpec(obj); tr != nil {
+		if tr := d.transferSpecWithPath(obj, opts.pathOverride); tr != nil {
 			body["transfer"] = tr
+		}
+		if me := d.mergedMetaExtra(obj, opts.metaExtra); len(me) > 0 {
+			// 业务元数据透传（sproxy 合并进目标卷 meta）；多目标逐文件覆盖。
+			body[extraKeyMetaExtra] = me
 		}
 		b, _ := json.Marshal(body)
 		hdr := make(http.Header)
@@ -877,21 +1121,47 @@ func setExtra(obj *model.DownloadObject, key string, value any) {
 	obj.Unlock()
 }
 
-// transferSpec 构造转存请求体（volume 必填；path 可选，支持卷内子目录/重命名，
-// 如 xxx/xxxx.mp4）。返回 nil = 不转存。
-//
-// 按对象覆盖：obj.Extra["transfer_path"] 非空时优先于下载器静态 TransferPath——
-// 分卷全套（同一分享多文件）需为每个文件指定不同卷内路径，静态配置无法表达。
-func (d *SproxyCloudDownloader) transferSpec(obj *model.DownloadObject) map[string]any {
+// mergedMetaExtra 合并对象级 meta_extra 与目标级覆盖（目标级优先：分卷/字幕各自的
+// share_file_name/share_hash/role 必须逐文件正确，不能用首个文件的值）。
+func extraMap(obj *model.DownloadObject, key string) map[string]any {
+	if obj == nil {
+		return nil
+	}
+	obj.RLock()
+	defer obj.RUnlock()
+	m, _ := obj.Extra[key].(map[string]any)
+	return m
+}
+
+func (d *SproxyCloudDownloader) mergedMetaExtra(obj *model.DownloadObject, override map[string]any) map[string]any {
+	base := extraMap(obj, extraKeyMetaExtra)
+	if len(override) == 0 {
+		return base
+	}
+	out := make(map[string]any, len(base)+len(override))
+	maps.Copy(out, base)
+	for k, v := range override {
+		if k != "" && v != nil {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// transferSpecWithPath 同 transferSpec，但可显式指定卷内路径（分卷全套：每个文件一个路径；
+// 空则按对象 Extra[transfer_path] → 静态 TransferPath 回退）。
+func (d *SproxyCloudDownloader) transferSpecWithPath(obj *model.DownloadObject, pathOverride string) map[string]any {
 	if d.transferVol == "" {
 		return nil
 	}
 	tr := map[string]any{"volume": d.transferVol}
-	p := strings.TrimSpace(d.transferPath)
-	if obj != nil {
-		if v := strings.TrimSpace(extraString(obj, extraKeyTransferPath)); v != "" {
-			p = v
-		}
+	// 优先级：显式覆盖（分卷逐文件）> 对象级 Extra[transfer_path] > 静态 TransferPath。
+	p := strings.TrimSpace(pathOverride)
+	if p == "" && obj != nil {
+		p = strings.TrimSpace(extraString(obj, extraKeyTransferPath))
+	}
+	if p == "" {
+		p = strings.TrimSpace(d.transferPath)
 	}
 	if p != "" {
 		tr["path"] = p
