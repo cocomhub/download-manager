@@ -257,3 +257,132 @@ func TestSproxyCloud_DownloadMultipleTargets(t *testing.T) {
 		t.Errorf("progress = %d, want 100", obj.GetProgress())
 	}
 }
+
+// TestSproxyCloud_SingleTargetKeepsTopLevelContract 单元素 files[] 仍走既有单条路径
+// （顶层 target_file/transfer_path 契约）——防「>1 改 >=1」之类回归把单目标切到多目标分支。
+func TestSproxyCloud_SingleTargetKeepsTopLevelContract(t *testing.T) {
+	t.Parallel()
+	var gotURL string
+	var gotTransfer map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			URL      string         `json:"url"`
+			Transfer map[string]any `json:"transfer"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotURL, gotTransfer = body.URL, body.Transfer
+		writeJSONResp(w, map[string]any{"id": "task-one"})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/task-one", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-one", "status": "completed", "filename": "one.mp4",
+			"transfer_url": "secretdata://v/one.mp4"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", PollEvery: 50, CloudOnly: true, TransferVolume: "v",
+	})
+	obj := &model.DownloadObject{
+		URL:      "https://mypikpak.com/s/EXAMPLE-001",
+		SavePath: filepath.Join(t.TempDir(), "out.mp4"),
+		Extra: map[string]any{
+			"files": []map[string]string{
+				{"url": "https://mypikpak.com/s/EXAMPLE-001", "path": "jav/C/one.mp4", "target": "one.mp4"},
+			},
+			"target_file":   "one.mp4",
+			"transfer_path": "jav/C/one.mp4",
+		},
+	}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("Download error: %v", err)
+	}
+	if !strings.Contains(gotURL, "spx_target=one.mp4") {
+		t.Fatalf("单目标应走顶层 target_file 契约: url=%q", gotURL)
+	}
+	if gotTransfer["path"] != "jav/C/one.mp4" {
+		t.Fatalf("单目标 transfer.path = %v", gotTransfer["path"])
+	}
+	// 单目标不写多目标坐标表
+	if _, ok := obj.Extra["cloud_task_ids"]; ok {
+		t.Fatal("单目标不应写 cloud_task_ids")
+	}
+	if obj.GetProgress() != 100 {
+		t.Fatalf("progress = %d", obj.GetProgress())
+	}
+}
+
+// TestSproxyCloud_MultiTargetPartialFailureThenRetry 多目标第 2 个失败：返回错误但第 1 个的
+// 任务坐标已记录；重试时第 1 个复用（不重复提交），只补第 2 个。
+func TestSproxyCloud_MultiTargetPartialFailureThenRetry(t *testing.T) {
+	t.Parallel()
+	var submits []string
+	failSecond := true
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			URL      string         `json:"url"`
+			Transfer map[string]any `json:"transfer"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		submits = append(submits, withTargetOf(body.URL))
+		writeJSONResp(w, map[string]any{"id": "task-" + withTargetOf(body.URL)})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/cloud/tasks/")
+		if strings.HasSuffix(id, "p2.mp4") && failSecond {
+			writeJSONResp(w, map[string]any{"id": id, "status": "failed", "error": "boom"})
+			return
+		}
+		writeJSONResp(w, map[string]any{"id": id, "status": "completed", "filename": id,
+			"transfer_url": "secretdata://v/" + id})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", PollEvery: 30, CloudOnly: true, TransferVolume: "v",
+	})
+	obj := &model.DownloadObject{
+		URL: "https://mypikpak.com/s/EXAMPLE-001", SavePath: filepath.Join(t.TempDir(), "out.mp4"),
+		Extra: map[string]any{
+			"files": []map[string]string{
+				{"url": "https://mypikpak.com/s/EXAMPLE-001", "path": "jav/C/p1.mp4", "target": "p1.mp4"},
+				{"url": "https://mypikpak.com/s/EXAMPLE-001", "path": "jav/C/p2.mp4", "target": "p2.mp4"},
+			},
+		},
+	}
+	if err := d.Download(obj, nil); err == nil {
+		t.Fatal("第 2 个目标失败应返回错误")
+	}
+	if len(submits) != 2 {
+		t.Fatalf("首次应提交 2 次, got %v", submits)
+	}
+	// 第 1 个坐标已记录（供重试复用）
+	ids := extraMap(obj, "cloud_task_ids")
+	if ids == nil || ids["p1.mp4"] == nil {
+		t.Fatalf("第 1 个目标坐标应已记录: %v", ids)
+	}
+	// 重试：第 1 个复用（总提交数只 +1 = 第 2 个）
+	failSecond = false
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatalf("重试应成功: %v", err)
+	}
+	if len(submits) != 3 {
+		t.Fatalf("重试只应补提交失败目标（共 3 次）, got %v", submits)
+	}
+	urls, _ := obj.Extra["transfer_urls"].([]any)
+	if len(urls) != 2 {
+		t.Fatalf("重试后产物坐标应 2 条, got %d", len(urls))
+	}
+}
+
+// withTargetOf 取 URL 的 spx_target 值（测试断言用）。
+func withTargetOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("spx_target")
+}
