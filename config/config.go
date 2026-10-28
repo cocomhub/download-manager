@@ -173,6 +173,9 @@ type SproxyCloudConfig struct {
 	PollEvery     time.Duration `yaml:"poll_every" json:"poll_every"`
 	Timeout       time.Duration `yaml:"timeout" json:"timeout"`
 	ClientTimeout time.Duration `yaml:"client_timeout" json:"client_timeout"`
+	// InsecureTLS 跳过 TLS 证书校验（仅自签证书的本地/测试服务；默认 false = 严格校验）。
+	// 生产环境必须保持 false。
+	InsecureTLS bool `yaml:"insecure_tls" json:"insecure_tls"`
 }
 
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。

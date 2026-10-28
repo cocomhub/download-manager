@@ -140,6 +140,10 @@ func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownload
 		if cfg.ClientTimeout > 0 {
 			opts = append(opts, sproxyclient.WithTimeout(cfg.ClientTimeout))
 		}
+		if cfg.InsecureTLS {
+			// 仅自签测试环境：跳过证书校验（生产保持 false）。
+			opts = append(opts, sproxyclient.WithInsecureTLS())
+		}
 		sig = sproxyclient.NewFileClient(baseURL, opts...)
 	}
 	d := &SproxyCloudDownloader{
