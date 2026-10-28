@@ -34,7 +34,7 @@ func TestBuildMongoFilter_IncludesTaskStatusMetadataAndSearch(t *testing.T) {
 		Filter: core.StorageFilter{
 			TaskIDs:  []string{"t1"},
 			Statuses: []string{"pending"},
-			Metadata: map[string]string{"content_group": "ABP-123"},
+			Metadata: map[string]string{"content_group": "EXAMPLE-123"},
 			Search:   "club",
 		},
 	})
@@ -44,7 +44,7 @@ func TestBuildMongoFilter_IncludesTaskStatusMetadataAndSearch(t *testing.T) {
 	if filter["status"] == nil {
 		t.Fatalf("expected status filter")
 	}
-	if got := filter["metadata.content_group"]; got != "ABP-123" {
+	if got := filter["metadata.content_group"]; got != "EXAMPLE-123" {
 		t.Fatalf("expected metadata filter, got %v", got)
 	}
 	andVal, ok := filter["$and"].(bson.A)

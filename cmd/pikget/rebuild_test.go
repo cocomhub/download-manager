@@ -169,7 +169,7 @@ func TestPrintHybridFailureHint(t *testing.T) {
 	netErr := &url.Error{Op: "Get", URL: "https://api-drive.mypikpak.com/drive/v1/files/X?usage=FETCH",
 		Err: errors.New("net/http: TLS handshake timeout")}
 	err := fmt.Errorf("pikget hybrid: %w", &pikpak.ChunkError{Offset: 1006632960, Length: 33554432, Err: netErr})
-	printHybridFailureHint(&buf, err, "NHDTA-106.avi", 32<<20)
+	printHybridFailureHint(&buf, err, "EXAMPLE-106.avi", 32<<20)
 	got := buf.String()
 	for _, want := range []string{"#30", "1006632960", "瞬断", "重跑", "pikget rebuild"} {
 		if !strings.Contains(got, want) {

@@ -14,7 +14,7 @@ func TestDispatch(t *testing.T) {
 		{name: "http 直链", url: "http://example.com/a.mp4", want: kindDirect},
 		{name: "https 直链带查询", url: "https://cdn.example.com/v.mp4?token=abc", want: kindDirect},
 		{name: "大写 http", url: "HTTPS://EXAMPLE.COM/x.zip", want: kindDirect},
-		{name: "mypikpak.com 分享", url: "https://mypikpak.com/s/V1bzETjSE3NwdS", want: kindPikpak},
+		{name: "mypikpak.com 分享", url: "https://mypikpak.com/s/EXAMPLE-SHARE-1", want: kindPikpak},
 		{name: "mypikpak.net 分享带 token", url: "https://mypikpak.net/s/abc/XYZ123", want: kindPikpak},
 		{name: "keepshare.org 分享", url: "https://keepshare.org/V1bzETjSE3NwdS", want: kindPikpak},
 		{name: "keepshare.cc 分享", url: "https://keepshare.cc/abc/def", want: kindPikpak},

@@ -55,7 +55,7 @@ func TestNewHybrid_SupportsShareURL(t *testing.T) {
 		}
 		t.Fatalf("newHybrid: %v", err)
 	}
-	if !dl.Supports("https://mypikpak.com/s/V1bzETjSE3NwdS") {
+	if !dl.Supports("https://mypikpak.com/s/EXAMPLE-SHARE-1") {
 		t.Fatal("expected hybrid to support mypikpak share URL")
 	}
 	if dl.Supports("https://example.com/a.mp4") {

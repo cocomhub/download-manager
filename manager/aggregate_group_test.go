@@ -64,7 +64,7 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 	// Group B: single item no flags
 	o3 := &model.DownloadObject{
 		TaskID: "t1", URL: "u3",
-		Metadata: map[string]string{"title": "ABP-456", "content_group": "ABP-456", "date": "2024-02-01"},
+		Metadata: map[string]string{"title": "EXAMPLE-456", "content_group": "EXAMPLE-456", "date": "2024-02-01"},
 		Extra:    map[string]any{},
 	}
 	t1 := &tktubeLikeTask{
@@ -92,7 +92,7 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 		if o.Metadata[model.MetadataKeyContentGroup] == "CLUB-100" {
 			repA = o
 		}
-		if o.Metadata[model.MetadataKeyContentGroup] == "ABP-456" {
+		if o.Metadata[model.MetadataKeyContentGroup] == "EXAMPLE-456" {
 			repB = o
 		}
 	}
@@ -103,10 +103,10 @@ func TestAggregateByContent_SelectRepresentativeAndSize(t *testing.T) {
 		t.Fatalf("expect group_size 2 for CLUB-100, got %v", repA.Extra["group_size"])
 	}
 	if repB == nil || repB.URL != "u3" {
-		t.Fatalf("expect ABP-456 representative u3, got %+v", repB)
+		t.Fatalf("expect EXAMPLE-456 representative u3, got %+v", repB)
 	}
 	if repB.Extra["group_size"] != 1 {
-		t.Fatalf("expect group_size 1 for ABP-456, got %v", repB.Extra["group_size"])
+		t.Fatalf("expect group_size 1 for EXAMPLE-456, got %v", repB.Extra["group_size"])
 	}
 }
 

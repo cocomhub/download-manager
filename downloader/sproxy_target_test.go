@@ -20,7 +20,7 @@ import (
 func TestWithTargetFileParam(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ raw, target, wantSub string }{
-		{"https://mypikpak.com/s/abc", "NHDTA-513A.mp4", "spx_target=NHDTA-513A.mp4"},
+		{"https://mypikpak.com/s/abc", "EXAMPLE-513A.mp4", "spx_target=EXAMPLE-513A.mp4"},
 		{"https://mypikpak.com/s/abc?x=1", "b.mp4", "x=1"},
 		{"https://keepshare.org/k/magnet:?xt=urn:btih:ab", "m.mp4", "spx_target=m.mp4"},
 	}
@@ -49,9 +49,9 @@ func TestWithTargetFileParam(t *testing.T) {
 func TestExtraTargetFileRoundTrip(t *testing.T) {
 	t.Parallel()
 	obj := &model.DownloadObject{URL: "https://mypikpak.com/s/abc"}
-	setExtra(obj, extraKeyTargetFile, "NHDTA-513B.mp4")
-	if got := extraString(obj, extraKeyTargetFile); got != "NHDTA-513B.mp4" {
-		t.Fatalf("target_file = %q, want NHDTA-513B.mp4", got)
+	setExtra(obj, extraKeyTargetFile, "EXAMPLE-513B.mp4")
+	if got := extraString(obj, extraKeyTargetFile); got != "EXAMPLE-513B.mp4" {
+		t.Fatalf("target_file = %q, want EXAMPLE-513B.mp4", got)
 	}
 }
 
@@ -85,13 +85,13 @@ func TestSproxyCloud_DownloadWithTargetFile(t *testing.T) {
 			"magnet_list": []map[string]string{
 				{"keepshare": "https://mypikpak.com/s/abc"},
 			},
-			"target_file": "NHDTA-513B.mp4",
+			"target_file": "EXAMPLE-513B.mp4",
 		},
 	}
 	if err := d.Download(obj, nil); err != nil {
 		t.Fatalf("Download error: %v", err)
 	}
-	if !strings.Contains(gotURL, "spx_target=NHDTA-513B.mp4") {
+	if !strings.Contains(gotURL, "spx_target=EXAMPLE-513B.mp4") {
 		t.Fatalf("提交 URL 未带 spx_target: %q", gotURL)
 	}
 }
@@ -126,8 +126,8 @@ func TestSproxyCloud_TransferPathOverride(t *testing.T) {
 		SavePath: filepath.Join(t.TempDir(), "out.mp4"),
 		Extra: map[string]any{
 			"magnet_list":   []map[string]string{{"keepshare": "https://mypikpak.com/s/abc"}},
-			"target_file":   "NHDTA-513A.mp4",
-			"transfer_path": "jav/makers/natural-high/NHDTC/NHDTC-254/NHDTC-254 就寝中.mp4",
+			"target_file":   "EXAMPLE-513A.mp4",
+			"transfer_path": "jav/makers/example-maker/EXAMPLE/EXAMPLE-254/EXAMPLE-254 示例.mp4",
 		},
 	}
 	if err := d.Download(obj, nil); err != nil {
@@ -140,7 +140,7 @@ func TestSproxyCloud_TransferPathOverride(t *testing.T) {
 		t.Fatalf("volume = %v", gotTransfer["volume"])
 	}
 	gotPath, _ := gotTransfer["path"].(string)
-	if gotPath != "jav/makers/natural-high/NHDTC/NHDTC-254/NHDTC-254 就寝中.mp4" {
+	if gotPath != "jav/makers/example-maker/EXAMPLE/EXAMPLE-254/EXAMPLE-254 示例.mp4" {
 		t.Fatalf("path = %q，want per-object 覆盖", gotPath)
 	}
 }

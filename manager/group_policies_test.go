@@ -408,9 +408,9 @@ func TestApplyGroupPriorityPolicies_MultipleContentGroups(t *testing.T) {
 		TaskID: "t1",
 		URL:    "u3",
 		Metadata: map[string]string{
-			"title":         "ABP-456",
+			"title":         "EXAMPLE-456",
 			"task_type":     core.TaskTypeTktube,
-			"content_group": "ABP-456",
+			"content_group": "EXAMPLE-456",
 		},
 		Extra:  map[string]any{},
 		Status: model.StatusPending,
