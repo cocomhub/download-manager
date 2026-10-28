@@ -169,7 +169,7 @@ func TestPrintHybridFailureHint(t *testing.T) {
 	netErr := &url.Error{Op: "Get", URL: "https://api-drive.mypikpak.com/drive/v1/files/X?usage=FETCH",
 		Err: errors.New("net/http: TLS handshake timeout")}
 	err := fmt.Errorf("pikget hybrid: %w", &pikpak.ChunkError{Offset: 1006632960, Length: 33554432, Err: netErr})
-	printHybridFailureHint(&buf, err, "NHDTA-106.avi", 32<<20)
+	printHybridFailureHint(&buf, err, "EXAMPLE-106.avi", 32<<20)
 	got := buf.String()
 	for _, want := range []string{"#30", "1006632960", "瞬断", "重跑", "pikget rebuild"} {
 		if !strings.Contains(got, want) {
@@ -229,7 +229,7 @@ func TestStageRebuildInputsMovesAbnormalNames(t *testing.T) {
 	if fileExists(dataPath) || fileExists(manifestPath) {
 		t.Error("原异常命名文件应已移走（避免留下歧义副本）")
 	}
-	if url, ok := rebuildSourceURL(dest); !ok || url != "https://mypikpak.com/s/abc123/tok" {
+	if url, ok := pikpak.SourceURLFromManifest(dest); !ok || url != "https://mypikpak.com/s/abc123/tok" {
 		t.Errorf("归位后应可读到分享 URL: %q ok=%v", url, ok)
 	}
 }

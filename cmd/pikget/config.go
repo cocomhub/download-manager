@@ -32,6 +32,9 @@ type pikpakCfg struct {
 	ShareRatio  float64 `yaml:"share_ratio"`
 	ChunkSize   int64   `yaml:"chunk_size"`
 	Concurrency int     `yaml:"concurrency"`
+	// DisableProgressJournal 关闭下载进度 WAL（默认 false = 启用：分片完成即落盘，
+	// 重启自动续传；状态目录 <UserCacheDir>/pikget/pikpak-progress）。
+	DisableProgressJournal bool `yaml:"disable_progress_journal"`
 	// DisableAutoRemove 默认 false = 结束自动永久删除转存副本（安全默认）。
 	// 配置纪律：bool 必须默认 false——用**反转语义**（disable_auto_remove）表达
 	// 「默认安全行为」，而不是默认 true。
@@ -50,7 +53,8 @@ func defaultConfig() config {
 				MaxRetries:  3,
 			},
 			Pikpak: pikpakCfg{
-				ShareRatio:  0.5,
+				// 0 = auto（匿名区上限按 416 边界探测；探测失败回落 50%）
+				ShareRatio:  0,
 				ChunkSize:   32 << 20, // 32MiB
 				Concurrency: 4,
 				// DisableAutoRemove 默认 false → hybrid AutoDelete=true（结束自动删转存）

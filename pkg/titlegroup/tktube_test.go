@@ -14,8 +14,8 @@ func TestTKTGroupNameFromTitle(t *testing.T) {
 		{"CLUB-100C", "CLUB-100"},
 		{"【高画质】CLUB-100", "CLUB-100"},
 		{"【高画质】CLUB-100C", "CLUB-100"},
-		{"SSIS-123", "SSIS-123"},
-		{"ABP-456C", "ABP-456"},
+		{"EXAMPLE-123", "EXAMPLE-123"},
+		{"EXAMPLE-456C", "EXAMPLE-456"},
 		{"随机标题", ""},
 	}
 	for _, c := range cases {

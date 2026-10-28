@@ -106,8 +106,8 @@ func TestBackfillContentGroups_RecomputesAndCorrectsSavedValue(t *testing.T) {
 		TaskID: "t1",
 		URL:    "https://example.com/video/2",
 		Metadata: map[string]string{
-			"title":         "ABP-123",
-			"content_group": titlegroup.TKTContentGroupKey("ABP-123", "https://example.com/video/2"),
+			"title":         "EXAMPLE-123",
+			"content_group": titlegroup.TKTContentGroupKey("EXAMPLE-123", "https://example.com/video/2"),
 		},
 	}
 	store := &snapshotStore{m: map[string]*model.DownloadObject{

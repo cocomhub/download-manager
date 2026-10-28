@@ -40,6 +40,7 @@ type pikpakOpts struct {
 	proxyURL    string                 // --proxy：hybrid 各层 HTTP 代理（此前只作用于直链路径）
 	retry       int                    // --retry：混合下载各层瞬断重试次数（此前只作用于直链路径）
 	noEscalate  bool                   // rebuild：禁用「校验失败→全量重建」自动升级
+	journal     bool                   // 启用进度 WAL（默认 true；分片完成即落盘，重启续传）
 }
 
 // newHybridHTTPClients 构造 hybrid 各层 HTTP client（统一代理设置）。
@@ -146,6 +147,12 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 		AutoDelete:    o.autoDelete,
 		Logger:        slogForPikget(o.verbose, o.logFile),
 		ChunkProgress: o.chunkProg,
+		JournalFactory: func(_, sourceKey string) (pikpak.ProgressJournal, error) {
+			if !o.journal {
+				return nil, nil
+			}
+			return pikpak.NewFileProgressJournal(defaultProgressDir(), sourceKey)
+		},
 	})
 }
 
@@ -194,6 +201,15 @@ func sourceLabel(src string) string {
 	default:
 		return src
 	}
+}
+
+// defaultProgressDir 返回下载进度 WAL 目录（节点本地；可重建）。
+func defaultProgressDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(".", "pikget-progress")
+	}
+	return filepath.Join(cache, "pikget", "pikpak-progress")
 }
 
 // defaultStateDir 返回账号配额状态默认目录。
