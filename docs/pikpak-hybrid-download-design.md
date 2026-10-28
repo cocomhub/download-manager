@@ -230,7 +230,7 @@ chunk (offset, length, source=share|account)
 ## 5. 风险与对策
 | 风险 | 对策 |
 |---|---|
-| 分享直链限制收紧（<50%） | share_ratio 恒 0.5 上限 + 边界探测 + 降级观测（DowngradeTotal metric） |
+| 分享直链限制收紧（<50%） | **边界自动探测**（`sproxy.ProbeAnonymousLimit`：416 二分，1MB 步进）作为权威；`share_ratio=0`（默认）=auto，探测失败回落 50%；显式 `>0` 才作为上限；降级观测（DowngradeTotal metric） |
 | 并发 WriteAt 可靠性 | Go 标准 `os.File.WriteAt` 线程安全（POSIX pwrite）；测试并发写入校验 |
 | 转存空间不足（6GB） | 分片只转账号区（≤50% 文件）→ 大文件 >12GB 才超空间；多账号轮换 |
 | 直链 expire 过期 | chunk 级重取直链（新签名）→ 连续两错才降级 |
@@ -375,3 +375,26 @@ pikget rebuild --repair --data <异常数据> --manifest <异常进度> -o <dest
 - 断点续传仍不校验「已下分片」的内容一致性（只做零尾启发式 + 全文件哈希兜底）；
   若源文件在分享端被替换为同大小不同内容，全量重建是正确的最终兜底。
 - `.hybrid.stale` 归档目前只保留最近一次（同名覆盖），未做轮转。
+
+## 10. 能力归属（2026-10-28 收敛：pikget 只做 CLI 交互）
+
+按「领域能力在 sproxy、pikget 只负责命令行交互」的裁定，以下逻辑已从 `cmd/pikget` 迁入
+`github.com/cocomhub/sproxy/pkg/volume/ext/pikpak`，CLI 直接调用：
+
+| 能力 | sproxy API | 说明 |
+| --- | --- | --- |
+| 匿名区上限探测 | `ProbeAnonymousLimit(ctx, client, directLink, total)` / `NewAnonymousProbeClient()` | 416 二分探测（1MB 步进、每次 1KB）；传输/协议错误显式返回错误 |
+| 下载进度 WAL | `NewFileProgressJournal(dir, key)` / `ProgressJournal`（Load/RecordSource/ChunkDone/MarkDone） | 分片完成即 SyncAlways 落盘；重启重放已完成分片（manifest 丢失也可续传）；成功写提交记录 |
+| manifest 摘要 | `ReadManifestSummary(dest)` / `ManifestCandidates(dest)` / `NormalizeWorkDest(dest)` | 进度文件候选（含 stale 归档）与已完成分片/总量 |
+| 源 URL 恢复 | `SourceURLFromManifest(dest)` | `rebuild --repair` 免重输 URL |
+| 续传基准 | `ResumeBytes(dest)` | 已记录分片字节之和（预分配文件大小不可作基准） |
+| 离线扫描 | `OfflineScan(dest, chunkSize, zeroRun)` | manifest ∩ 零尾扫描 → 可信/待重建分片 |
+| 工作文件归位 | `StageWorkFiles(dest, dataPath, manifestPath)` | 异常命名（`*.error` 等）移入标准位置；目标存在拒绝覆盖 |
+| 本地文件 GCID 比对 | `VerifyLocalFile(path, expectedGCID)` | 「已完成/冲突」判据（候选分块全对比、大小写无关） |
+
+**仍留在 pikget（CLI 职责）**：flag/config 解析、URL 分发（直链 vs PikPak）、进度条渲染
+（逐分片行/速度/ETA）、输出与退出码、失败恢复提示文案、账号/凭据预检、冲突改名建议、
+`hash` 子命令（人工校验）、直链下载装配（复用 `pkg/download`）。
+
+**后续可继续收敛（非阻塞）**：`checkExistingHybrid` 的「done/conflict/force」三态可抽为
+`sproxy.AssessExistingFile`（返回枚举），进一步把决策与输出分离。

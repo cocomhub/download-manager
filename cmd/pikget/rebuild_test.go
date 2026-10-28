@@ -229,7 +229,7 @@ func TestStageRebuildInputsMovesAbnormalNames(t *testing.T) {
 	if fileExists(dataPath) || fileExists(manifestPath) {
 		t.Error("原异常命名文件应已移走（避免留下歧义副本）")
 	}
-	if url, ok := rebuildSourceURL(dest); !ok || url != "https://mypikpak.com/s/abc123/tok" {
+	if url, ok := pikpak.SourceURLFromManifest(dest); !ok || url != "https://mypikpak.com/s/abc123/tok" {
 		t.Errorf("归位后应可读到分享 URL: %q ok=%v", url, ok)
 	}
 }

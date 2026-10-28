@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/cocomhub/sproxy/pkg/units/sizex"
@@ -95,7 +92,7 @@ func runRebuild(args []string, stdout, stderr io.Writer) int {
 		if !*repair {
 			return runOfflineRebuild(target, chunkSize, zeroRun, *quiet, stdout, stderr)
 		}
-		localDest = normalizeRebuildDest(target)
+		localDest = pikpak.NormalizeWorkDest(target)
 		if *output != "" { // 显式 -o 优先（否则用工作/成品文件名推导最终名）
 			resolved, rerr := resolveDest(target, *output)
 			if rerr != nil {
@@ -104,7 +101,7 @@ func runRebuild(args []string, stdout, stderr io.Writer) int {
 			}
 			localDest = resolved
 		}
-		manifestURL, ok := rebuildSourceURL(target)
+		manifestURL, ok := pikpak.SourceURLFromManifest(target)
 		if !ok {
 			fmt.Fprintf(stderr, "pikget rebuild: %s 的 manifest 未记录分享 URL（或已丢失）——请显式指定：pikget rebuild -o %s <share-url>\n", target, localDest)
 			return exitFail
@@ -169,87 +166,30 @@ func runRebuild(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// stageRebuildInputs 把用户指定的异常命名数据/进度文件移入标准位置
-// （*.hybrid.downloading / *.hybrid），使后续重建能直接续用已下数据
-// （用户实测习惯：把失败产物改名成 *.error 手工标记）。
+// stageRebuildInputs 把异常命名的数据/进度文件归位到标准工作位置（领域能力实现）。
 func stageRebuildInputs(dest, dataPath, manifestPath string) error {
-	if dataPath != "" {
-		if !fileExists(dataPath) {
-			return fmt.Errorf("--data %s 不存在", dataPath)
-		}
-		want := pikpak.WorkingPath(dest)
-		if dataPath != want {
-			if err := os.Rename(dataPath, want); err != nil {
-				return fmt.Errorf("--data 移入标准位置失败（%s → %s）: %w", dataPath, want, err)
-			}
-		}
-	}
-	if manifestPath != "" {
-		if !fileExists(manifestPath) {
-			return fmt.Errorf("--manifest %s 不存在", manifestPath)
-		}
-		want := pikpak.ManifestPath(dest)
-		if manifestPath != want {
-			if err := os.Rename(manifestPath, want); err != nil {
-				return fmt.Errorf("--manifest 移入标准位置失败（%s → %s）: %w", manifestPath, want, err)
-			}
-		}
-	}
-	return nil
+	return pikpak.StageWorkFiles(dest, dataPath, manifestPath)
 }
 
-// runOfflineRebuild 离线扫描本地文件（不联网）：零尾扫描 + manifest 对照，只报告不改动。
+// runOfflineRebuild 离线扫描本地文件（不联网）：扫描/可信判定由 sproxy 领域能力完成
+// （pikpak.OfflineScan：manifest ∩ 零尾扫描），本函数只负责 CLI 输出与退出码。
 func runOfflineRebuild(path string, chunkSize, zeroRun int64, quiet bool, stdout, stderr io.Writer) int {
-	total := fileSize(path)
-	sum, hasManifest := readManifestSummary(path)
-	recorded := sum.Chunks
-	if hasManifest && sum.Total > 0 {
-		total = sum.Total
-	}
-	if total <= 0 {
-		fmt.Fprintf(stderr, "pikget rebuild: %s 为空文件，无法扫描\n", path)
-		return exitFail
-	}
-	if hasManifest && sum.ChunkSize > 0 && chunkSize <= 0 {
-		chunkSize = sum.ChunkSize
-	}
-	suspects, err := pikpak.ScanZeroTailSpans(path, total, chunkSize, pikpak.ZeroScanOptions{ZeroRun: zeroRun})
+	rep, err := pikpak.OfflineScan(path, chunkSize, zeroRun)
 	if err != nil {
-		fmt.Fprintf(stderr, "pikget rebuild: 扫描失败: %v\n", err)
+		fmt.Fprintf(stderr, "pikget rebuild: %v\n", err)
 		return exitFail
 	}
 	view := rebuildView{
-		Target: path, DataPath: path, Total: total, ChunkSize: chunkSize,
-		ChunksTotal: len(pikpak.PlanChunkSpans(total, chunkSize)),
-		Suspects:    suspects, DryRun: true, Offline: true,
-	}
-	if hasManifest {
-		view.Manifest, view.ManifestDone = sum.Path, sum.Done
-	}
-	// 可信 = manifest 记录完成 ∩ 零尾扫描通过；待重建 = 其余（缺失 + 零尾可疑）。
-	suspectAt := make(map[int64]bool, len(suspects))
-	for _, s := range suspects {
-		suspectAt[s.Offset] = true
-	}
-	for _, span := range pikpak.PlanChunkSpans(total, chunkSize) {
-		if suspectAt[span.Offset] {
-			continue
-		}
-		if !hasManifest {
-			continue // 无 manifest：不做「已记录」判定（可信数无意义，保持 0）
-		}
-		if _, ok := recorded[span.Offset]; !ok {
-			continue
-		}
-		view.ChunksTrust++
-	}
-	for _, s := range suspects {
-		view.Rebuild = append(view.Rebuild, pikpak.ChunkSpan{Offset: s.Offset, Length: s.Length})
+		Target: path, DataPath: rep.DataPath, Total: rep.Total, ChunkSize: rep.ChunkSize,
+		ChunksTotal: rep.ChunksTotal, ChunksTrust: rep.ChunksTrust,
+		Suspects: rep.Suspects, Rebuild: rep.Rebuild,
+		DryRun: true, Offline: rep.Manifest == "",
+		Manifest: rep.Manifest, ManifestDone: rep.ManifestDone,
 	}
 	if !quiet {
 		printRebuildReport(stdout, view)
 	}
-	if len(suspects) > 0 {
+	if len(rep.Suspects) > 0 {
 		return exitFail // 检出需要重建的分片（离线扫描不改动文件）
 	}
 	return exitOK
@@ -347,78 +287,6 @@ func chunkSpanLabel(span pikpak.ChunkSpan, chunkSize int64) string {
 		return fmt.Sprintf("#%d @%d +%d", idx, span.Offset, span.Length)
 	}
 	return fmt.Sprintf("@%d +%d", span.Offset, span.Length)
-}
-
-// manifestSummary 是 manifest 的只读摘要（展示/扫描用）。
-type manifestSummary struct {
-	Path      string
-	Total     int64
-	ChunkSize int64
-	Done      int
-	Chunks    map[int64]int64 // 已完成分片（offset → length）
-}
-
-// manifestCandidates 返回 path 对应的进度文件候选（顺序：path 自身 → path 去掉
-// .hybrid.downloading 后的最终名）——用户常直接给「工作文件」路径，其 manifest 在最终名旁。
-func manifestCandidates(path string) []string {
-	base := normalizeRebuildDest(path)
-	out := []string{pikpak.ManifestPath(base), pikpak.StaleManifestPath(base)}
-	if base != path {
-		out = append(out, pikpak.ManifestPath(path), pikpak.StaleManifestPath(path))
-	}
-	return out
-}
-
-// normalizeRebuildDest 把「工作文件路径」（*.hybrid.downloading）归一化为最终文件路径。
-func normalizeRebuildDest(path string) string {
-	return strings.TrimSuffix(path, ".hybrid.downloading")
-}
-
-// rebuildSourceURL 读 manifest 里记录的原始分享 URL（--repair 免重输 URL）。
-func rebuildSourceURL(path string) (string, bool) {
-	for _, p := range manifestCandidates(path) {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		var m struct {
-			Source struct {
-				URL string `json:"url"`
-			} `json:"source"`
-		}
-		if json.Unmarshal(b, &m) != nil || m.Source.URL == "" {
-			continue
-		}
-		return m.Source.URL, true
-	}
-	return "", false
-}
-
-// readManifestSummary 读进度文件（candidates 顺序，优先 .hybrid）的总大小/分块大小/已完成块数。
-func readManifestSummary(path string) (manifestSummary, bool) {
-	for _, p := range manifestCandidates(path) {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		var m struct {
-			Total  int64            `json:"total"`
-			Chunks map[string]int64 `json:"chunks"`
-		}
-		_ = m
-		if json.Unmarshal(b, &m) != nil {
-			continue
-		}
-		sum := manifestSummary{Path: p, Total: m.Total, Done: len(m.Chunks), Chunks: map[int64]int64{}}
-		for offStr, ln := range m.Chunks {
-			sum.ChunkSize = max(sum.ChunkSize, ln)
-			if off, perr := strconv.ParseInt(offStr, 10, 64); perr == nil {
-				sum.Chunks[off] = ln
-			}
-		}
-		return sum, true
-	}
-	return manifestSummary{}, false
 }
 
 // printHybridFailureHint 输出失败后的可执行恢复指引（分片号/续传/rebuild）——

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cocomhub/sproxy/pkg/volume/ext/pikpak"
 )
 
 // runTest 调用 run()，返回退出码与输出。
@@ -114,7 +116,7 @@ func TestRun_QuietNoProgress(t *testing.T) {
 func TestHybridResumeBase(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "out.bin")
 	// 无 manifest → 0
-	if got := hybridResumeBase(dest); got != 0 {
+	if got := pikpak.ResumeBytes(dest); got != 0 {
 		t.Fatalf("no manifest: got %d, want 0", got)
 	}
 	// 写入 manifest：3 个已完成 chunk
@@ -122,7 +124,7 @@ func TestHybridResumeBase(t *testing.T) {
 	if err := os.WriteFile(dest+".hybrid", []byte(m), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if got := hybridResumeBase(dest); got != 70 {
+	if got := pikpak.ResumeBytes(dest); got != 70 {
 		t.Fatalf("got %d, want 70", got)
 	}
 }

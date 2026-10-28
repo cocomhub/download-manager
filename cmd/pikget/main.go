@@ -14,7 +14,6 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -62,6 +61,7 @@ type cliFlags struct {
 	concurrency int
 	autoDelete  bool
 	secretsDir  string
+	journal     bool // 进度 WAL（默认 true；--disable-progress-journal / config 可关）
 }
 
 // run 是命令入口（可测试：返回退出码，不直接 os.Exit）。
@@ -88,7 +88,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		timeout    = fs.Int("timeout", 300, "HTTP 超时(秒)")
 		retry      = fs.Int("retry", 3, "重试次数（直链请求与 PikPak 接口瞬断）")
 		configPath = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
-		shareRatio = fs.Float64("share-ratio", 0.5, "PikPak 分享区比例（恒 ≤0.5）")
+		shareRatio = fs.Float64("share-ratio", 0, "匿名分享区比例上限：0=auto（探测 416 边界，默认）；>0 显式上限（≤1）")
+		noJournal  = fs.Bool("disable-progress-journal", false, "关闭下载进度 WAL（默认启用：分片完成即落盘，重启自动续传）")
 		chunkSize  = fs.Int64("chunk-size", 32<<20, "PikPak 分片大小(字节)")
 		concur     = fs.Int("concurrency", 4, "并发数")
 		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
@@ -143,6 +144,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		autoDelete: !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
 		secretsDir: *secretsDir,
 		logFile:    *logFile,
+		journal:    !*noJournal && !cfg.Downloader.Pikpak.DisableProgressJournal,
 	}
 	if len(cfg.Downloader.HTTP.Headers) > 0 {
 		fl.headers = append(fl.headers, cfg.Downloader.HTTP.Headers...)
@@ -268,7 +270,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 	}
 	pr := newMultiProgress(stdout, !fl.quiet && !fl.noProgress && isTTY(stdout))
 	// 续传基准：manifest 累计已完成字节（预分配文件本身是 total，不能用文件大小）
-	resumeBase := hybridResumeBase(dest)
+	resumeBase := pikpak.ResumeBytes(dest) // 领域能力（manifest 已下分片之和）
 	// per-chunk 回调：每个分片一行（编号 + 来源链 + 状态 pending/downloading/done/failed/cancelled）。
 	// 来源链显示：share=匿名分享直链；acct=账号直链（多账号时含账号名）。
 	chunkProgress := func(info pikpak.ChunkInfo) {
@@ -299,6 +301,7 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		logFile:     fl.logFile,
 		proxyURL:    fl.proxyURL, // 此前 hybrid 路径忽略 --proxy（只有直链生效）
 		retry:       fl.retry,
+		journal:     fl.journal,
 	}
 	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
 	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。
@@ -364,26 +367,6 @@ func parseHeaders(pairs []string) map[string]string {
 		}
 	}
 	return out
-}
-
-// hybridResumeBase 读取 manifest（pikpak.ManifestPath），累计已完成 chunk 字节作为续传基准。
-// 预分配文件本身就是 total（os.Truncate 全量），不能拿文件大小当基准——只能用 manifest 已下 chunk 之和。
-func hybridResumeBase(dest string) int64 {
-	b, err := os.ReadFile(pikpak.ManifestPath(dest))
-	if err != nil {
-		return 0
-	}
-	var m struct {
-		Chunks map[string]int64 `json:"chunks"` // offset → length
-	}
-	if json.Unmarshal(b, &m) != nil {
-		return 0
-	}
-	var base int64
-	for _, ln := range m.Chunks {
-		base += ln
-	}
-	return base
 }
 
 // fileSize 返回文件大小（不存在返回 0）。
