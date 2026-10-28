@@ -588,13 +588,19 @@ func (d *SproxyCloudDownloader) submitOrReuse(ctx context.Context, obj *model.Do
 // clearStaleTaskID 清除已失效的任务坐标（终态失败 / 任务不存在），使重试重新提交
 // （否则重试永远复用死任务直到永久失败）。
 func (d *SproxyCloudDownloader) clearStaleTaskID(obj *model.DownloadObject, err error) {
-	// SproxySig 路径的 404 由 sproxy 客户端映射为 ErrNotFound（非本地 errCloudTaskGone），
-	// 两者都要清，否则「重试永远复用死任务」在推荐路径上依然存在。
-	if errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) ||
-		errors.Is(err, sproxyclient.ErrNotFound) || errors.Is(err, context.DeadlineExceeded) {
-		// 含超时：复用同一任务再轮询只会再等一个 timeout（放大 worker 占用），故一并清坐标
+	if isStaleTaskErr(err) {
 		clearExtra(obj, extraKeyCloudTaskID)
 	}
+}
+
+// isStaleTaskErr 判断任务坐标是否已失效（终态失败/任务不存在/超时）——单目标与多目标
+// 共用同一判据，避免两处语义漂移。
+func isStaleTaskErr(err error) bool {
+	// SproxySig 路径的 404 由 sproxy 客户端映射为 ErrNotFound（非本地 errCloudTaskGone），
+	// 两者都要清，否则「重试永远复用死任务」在推荐路径上依然存在。
+	// 含超时：复用同一任务再轮询只会再等一个 timeout（放大 worker 占用），故一并清坐标。
+	return errors.Is(err, errCloudTaskTerminal) || errors.Is(err, errCloudTaskGone) ||
+		errors.Is(err, sproxyclient.ErrNotFound) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // recordArtifacts 记录产物取用坐标（转存 URL + cloud 桶任务坐标）：无论走哪条路径，
@@ -697,6 +703,11 @@ func (d *SproxyCloudDownloader) downloadTargets(ctx context.Context, obj *model.
 		}
 		task, err := d.pollResult(ctx, taskID)
 		if err != nil {
+			// 与单目标语义一致：终态失败/任务不存在/超时 ⇒ 清该目标坐标，重试重新提交
+			// （否则复用死任务永远失败）。
+			if isStaleTaskErr(err) {
+				clearTargetTaskID(obj, tg)
+			}
 			return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
 		}
 		if task != nil && strings.EqualFold(task.IntegrityStatus, "damaged") {
@@ -788,8 +799,20 @@ func (d *SproxyCloudDownloader) recordTargetArtifacts(obj *model.DownloadObject,
 		obj.Extra = make(map[string]any)
 	}
 	list, _ := obj.Extra["transfer_urls"].([]any)
+	// 幂等：重试/复用同一目标时替换既有条目（否则重试会累积重复产物坐标）。
 	entry := map[string]any{"target": tg.Target, "path": tg.Path, "url": task.TransferURL}
-	obj.Extra["transfer_urls"] = append(list, entry)
+	replaced := false
+	for i, it := range list {
+		if m, ok := it.(map[string]any); ok && asString(m["target"]) == tg.Target {
+			list[i] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		list = append(list, entry)
+	}
+	obj.Extra["transfer_urls"] = list
 	// 首条同时写单值键（兼容既有消费方/UI）。
 	if _, ok := obj.Extra["transfer_url"]; !ok {
 		obj.Extra["transfer_url"] = task.TransferURL

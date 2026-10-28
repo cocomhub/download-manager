@@ -133,6 +133,11 @@ func TestHasFiles(t *testing.T) {
 		{"files empty slice", &model.DownloadObject{Extra: map[string]any{"files": []any{}}}, false},
 		{"files with items", &model.DownloadObject{Extra: map[string]any{"files": []any{"a"}}}, true},
 		{"files map slice", &model.DownloadObject{Extra: map[string]any{"files": []map[string]string{{"url": "a"}}}}, true},
+		// 多目标（分卷/字幕）携带 per-file meta 的形态（[]map[string]any）——否则对象永远
+		// 被判定「未解析」，反复 resolve 而从不下载（覆盖审计 2026-10-28）。
+		{"files any-map slice", &model.DownloadObject{Extra: map[string]any{
+			"files": []map[string]any{{"url": "a", "meta": map[string]any{"x_role": "video"}}},
+		}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

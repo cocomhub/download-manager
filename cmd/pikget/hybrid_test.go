@@ -105,7 +105,7 @@ func TestNewHybrid_ConfigDefaults(t *testing.T) {
 	}
 	dl, err := newHybrid(pikpakOpts{
 		cliBinary:   exe,
-		shareRatio:  0.9, // 超上限，应由 sproxy 钳到 0.5
+		shareRatio:  0.9, // 显式上限（0=auto；>0 clamp 到 (0,1]）
 		chunkSize:   0,   // 0 = 默认 64MiB
 		concurrency: 0,   // 0 = 默认 4
 	})
