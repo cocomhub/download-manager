@@ -287,11 +287,17 @@ func isHTTPURL(raw string) bool {
 }
 
 // applyProducePolicy 在提交体里显式声明产出策略，避免依赖服务端默认值：
-//   - save=true：保留 cloud 桶副本（本地拉回依赖它；服务端 save=false 会在完成后删除）；
+//   - save=!cloudOnly：cloud_only=true 时转存即完成、客户端**不会**拉回本地 ⇒ save=false，
+//     服务端完成后即删 cloud 桶副本（否则整份视频残留在服务端磁盘直到 24h TTL 过期——
+//     实测 1.9GB 泄漏）；需要本地副本时（cloudOnly=false）才 save=true；
 //   - download_local=!cloudOnly：告知服务端客户端是否会链式拉回本地（影响服务端清理决策）。
+//
+// 两者必须同源（save 与 download_local 同为 !cloudOnly）：save=true + download_local=false
+// 会让服务端保留一份永远不会被读取的副本。
 func (d *SproxyCloudDownloader) applyProducePolicy(body map[string]any) {
-	body["save"] = true
-	body["download_local"] = !d.cloudOnly
+	keepLocal := !d.cloudOnly
+	body["save"] = keepLocal
+	body["download_local"] = keepLocal
 }
 
 // validateSaveName 校验提交给服务端的文件名：直接复用 sproxy 的 cloudfilename.Safe

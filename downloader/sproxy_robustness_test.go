@@ -365,30 +365,47 @@ func TestSproxyCloud_NonHTTPURLRejected(t *testing.T) {
 	}
 }
 
-// TestSproxyCloud_SubmitDeclaresProducePolicy 验证提交体显式声明 save/download_local
-// （不依赖服务端默认：save=false 会在完成后删除 cloud 桶副本，使本地拉回失败）。
+// TestSproxyCloud_SubmitDeclaresProducePolicy 验证提交体显式声明 save/download_local，
+// 且两者**跟随 cloudOnly 语义**：
+//   - cloudOnly=true（转存即完成，客户端不拉回本地）⇒ save=false：服务端完成后删除
+//     cloud 桶副本（否则整份视频残留在本地磁盘直到 24h TTL 过期——实测 1.9GB 泄漏）；
+//   - cloudOnly=false（需要本地副本）⇒ save=true，避免服务端提前删除导致拉回失败。
 func TestSproxyCloud_SubmitDeclaresProducePolicy(t *testing.T) {
 	t.Parallel()
-	var got map[string]any
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&got)
-		writeJSONResp(w, map[string]any{"id": "t1", "status": "running"})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+	cases := []struct {
+		name      string
+		cloudOnly bool
+		wantSave  bool
+		wantLocal bool
+	}{
+		{"cloud_only=true 转存即完成", true, false, false},
+		{"cloud_only=false 需要本地副本", false, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got map[string]any
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&got)
+				writeJSONResp(w, map[string]any{"id": "t1", "status": "running"})
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
 
-	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
-		APIURL: srv.URL + "/api/cloud/download", APIToken: "t", CloudOnly: true,
-	})
-	if _, err := d.submit(t.Context(), "https://example.com/a.mp4", "", nil, nil); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	if got["save"] != true {
-		t.Fatalf("save 应显式为 true, got %v", got["save"])
-	}
-	if got["download_local"] != false { // CloudOnly=true → 不拉回本地
-		t.Fatalf("download_local 应显式为 false, got %v", got["download_local"])
+			d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+				APIURL: srv.URL + "/api/cloud/download", APIToken: "t", CloudOnly: tc.cloudOnly,
+			})
+			if _, err := d.submit(t.Context(), "https://example.com/a.mp4", "", nil, nil); err != nil {
+				t.Fatalf("submit: %v", err)
+			}
+			if got["save"] != tc.wantSave {
+				t.Fatalf("save = %v, want %v（cloudOnly=%v）", got["save"], tc.wantSave, tc.cloudOnly)
+			}
+			if got["download_local"] != tc.wantLocal {
+				t.Fatalf("download_local = %v, want %v（cloudOnly=%v）", got["download_local"], tc.wantLocal, tc.cloudOnly)
+			}
+		})
 	}
 }
 
