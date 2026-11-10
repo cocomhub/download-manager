@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/cocomhub/download-manager/core"
@@ -61,6 +62,14 @@ func (m *Manager) RemoteSaveStatus(taskID string) (map[string]any, error) {
 	out["statuses"] = stats
 	out["conflicts"] = conflicts
 	return out, nil
+}
+
+// ResolveRemoteSaveConflict 对单个冲突文件执行人工处理动作。
+func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectURL, rel, action string) error {
+	if m.remoteSave == nil {
+		return fmt.Errorf("remote-save 未装配")
+	}
+	return m.remoteSave.ResolveConflict(ctx, taskID, objectURL, rel, action)
 }
 
 // RemoteSaveConflicts 返回任务下所有逐文件冲突（只读，供后续 UI 人工处理）。
