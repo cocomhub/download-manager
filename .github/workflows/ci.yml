@@ -39,7 +39,7 @@ jobs:
     name: Test (${{ matrix.os }})
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
+        os: [ubuntu-24.04, windows-latest, macOS-latest]
         go: ["1.27"]
     permissions:
       contents: write   # auto-push 需要
@@ -67,7 +67,7 @@ jobs:
         shell: bash
 
       - name: Verify dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         env:
           GOPRIVATE: github.com/cocomhub/*
           GONOSUMCHECK: github.com/cocomhub/*
@@ -83,7 +83,7 @@ jobs:
         run: make notest
 
       - name: Run archcheck gates
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: make archcheck
 
       - name: Run tests with coverage
@@ -108,11 +108,11 @@ jobs:
           retention-days: 7
 
       - name: Run benchmarks
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.27'
+        if: matrix.os == 'ubuntu-24.04' && matrix.go == '1.27'
         run: make bench
 
       - uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba  # v1.22.1
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.27'
+        if: matrix.os == 'ubuntu-24.04' && matrix.go == '1.27'
         continue-on-error: true
         with:
           tool: go
@@ -130,7 +130,7 @@ jobs:
 
   test-no-mongo:
     name: Test (no mongo)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -167,7 +167,7 @@ jobs:
 
   test-mongo:
     name: Test (mongo integration)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # mongo service container（对齐 sproxy 的 vault 集成测试模式：CI 起服务容器，
     # 测试经 MONGO_TEST_URI 复用它而非 testcontainers）。
     services:
@@ -202,7 +202,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -225,7 +225,7 @@ jobs:
 
   playwright:
     name: Playwright UI E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -296,7 +296,7 @@ jobs:
 
   sonar:
     name: SonarQube
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # lint 成功后直接跑 SonarQube（对齐 sproxy：Sonar 不依赖 test 完成）
     needs: [lint]
     steps:
