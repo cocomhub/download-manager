@@ -20,11 +20,12 @@ import (
 
 // TaskConfig 是任务级 remote_save 配置（只允许路径，不允许账号）。
 type TaskConfig struct {
-	Enabled    bool
-	Volume     string
-	Dir        string
-	ObjectDirs bool
-	Exclude    []string
+	Enabled      bool
+	Volume       string
+	Dir          string
+	ObjectDirs   bool
+	MirrorDelete bool
+	Exclude      []string
 }
 
 // forbiddenTaskKeys 是必须集中在全局 sproxy 段的账号/连接字段；任务级出现即判非法。
@@ -53,6 +54,7 @@ func ParseTaskConfig(extra map[string]any) (TaskConfig, error) {
 	cfg.Volume = strings.TrimSpace(configutil.GetString(m, "volume", ""))
 	cfg.Dir = strings.TrimSpace(configutil.GetString(m, "dir", ""))
 	cfg.ObjectDirs = configutil.GetBool(m, "object_dirs", false)
+	cfg.MirrorDelete = configutil.GetBool(m, "mirror_delete", false)
 	cfg.Exclude = stringSlice(m["exclude"])
 	if !cfg.Enabled {
 		return cfg, nil

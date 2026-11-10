@@ -35,6 +35,8 @@ type Client interface {
 	Upload(ctx context.Context, local, remote string) (string, error)
 	UpdateMeta(ctx context.Context, remote string, meta map[string]any) error
 	GetMeta(ctx context.Context, remote string) (MetaInfo, error)
+	Delete(ctx context.Context, remote string) error
+	Rename(ctx context.Context, from, to string) error
 }
 
 type sproxyClient struct {
@@ -110,4 +112,16 @@ func (c *sproxyClient) GetMeta(ctx context.Context, remote string) (MetaInfo, er
 		return MetaInfo{}, err
 	}
 	return MetaInfo{MTime: mi.MTime, CTime: mi.CTime, Extra: mi.Extra}, nil
+}
+
+func (c *sproxyClient) Delete(ctx context.Context, remote string) error {
+	return c.fc.Delete(ctx, remote, "")
+}
+
+func (c *sproxyClient) Rename(ctx context.Context, from, to string) error {
+	fi, err := c.fc.Stat(ctx, from)
+	if err != nil {
+		return err
+	}
+	return c.fc.Rename(ctx, from, to, fi.Checksum)
 }

@@ -370,6 +370,7 @@ func NewManager(cfg *config.Config) *Manager {
 			}
 		},
 		IsObjectGone: mgr.isObjectGone,
+		Requeue:      mgr.forceDownload,
 		Logger:       slog.Default(),
 	})
 	mgr.startedAt = time.Now()

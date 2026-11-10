@@ -134,6 +134,12 @@ func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig,
 		s.Logger().Warn("remote-save cloud transfer_url 解析失败", "task_id", task.ID(), "url", transferURL, "error", err)
 		return
 	}
+	s.recordCloudRemote(ctx, task, cfg, obj, volume, remote, false)
+}
+
+// recordCloudRemote 回读 sproxy 远端坐标的 sha256/mtime，写 manifest/mongo/播放 URL。
+// 供转存完成、冲突 reuse/rename 复用。
+func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg TaskConfig, obj *model.DownloadObject, volume, remote string, acceptRemote bool) {
 	if volume == "" {
 		volume = cfg.Volume
 	}
@@ -164,12 +170,17 @@ func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig,
 		if rel, rerr := LocalRel(saveDir(task), obj.SavePath); rerr == nil {
 			localRel = rel
 		}
-		sum, herr := hashFile(ctx, obj.SavePath)
-		if herr != nil || !strings.EqualFold(sum, fi.Checksum) {
-			s.Logger().Warn("remote-save cloud 本地文件与远端 sha256 不一致", "task_id", task.ID(), "path", obj.SavePath)
-			return
+		if !acceptRemote {
+			sum, herr := hashFile(ctx, obj.SavePath)
+			if herr != nil || !strings.EqualFold(sum, fi.Checksum) {
+				s.Logger().Warn("remote-save cloud 本地文件与远端 sha256 不一致", "task_id", task.ID(), "path", obj.SavePath)
+				return
+			}
 		}
-		size, mtime = st.Size(), st.ModTime()
+		size = st.Size()
+		if !acceptRemote {
+			mtime = st.ModTime()
+		}
 	}
 	meta, merr := BuildMeta(task, obj, localRel, remote, size, mtime, fi.Checksum, cfg)
 	if merr == nil {
@@ -180,7 +191,7 @@ func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig,
 	metaHash, _ := MetaHash(meta)
 	man := s.manifest(task.ID())
 	man.Put(ManifestEntry{
-		Path: localRel, RemotePath: remote, Size: size, MTimeNs: mtime.UnixNano(),
+		Path: localRel, ObjectURL: obj.URL, RemotePath: remote, Size: size, MTimeNs: mtime.UnixNano(),
 		SHA256: fi.Checksum, RemoteSHA256: fi.Checksum, MetaHash: metaHash,
 		Origin: "cloud", Status: model.RemoteFileStatusUploaded,
 	})

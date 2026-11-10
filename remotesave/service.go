@@ -31,6 +31,7 @@ type Options struct {
 	WorkDir      string
 	ClientFor    func(sp config.Sproxy, volume string) (Client, error)
 	Persist      func(core.Task, *model.DownloadObject)
+	Requeue      func(core.Task, *model.DownloadObject)
 	IsObjectGone func(core.Task, string) bool
 	Logger       *slog.Logger
 }
@@ -263,6 +264,7 @@ func (s *Service) handle(r request) {
 		s.Logger().Error("remote-save list completed failed", "task_id", task.ID(), "error", err)
 		return
 	}
+	man := s.manifest(task.ID())
 	for _, obj := range objs {
 		if s.ctx.Err() != nil {
 			return
@@ -275,6 +277,68 @@ func (s *Service) handle(r request) {
 		}
 		s.syncObject(task, cfg, obj, r.force)
 	}
+	if r.url == "" && cfg.MirrorDelete {
+		s.mirrorCleanup(s.ctx, task, cfg, objs, man)
+	}
+}
+
+// mirrorCleanup 在任务级对账后删除「已不在任何 completed 对象文件集」且由本工具记录过的远端文件。
+// 安全边界：只删 manifest 中 ObjectURL 可判定为已删除/已完成对象已无此文件的条目；
+// 对象仍存在但非 completed（临时失败/重下）不删；未知远端文件永不删。
+func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskConfig, objs []*model.DownloadObject, man *Manifest) {
+	completed := make(map[string]*model.DownloadObject, len(objs))
+	for _, obj := range objs {
+		completed[obj.URL] = obj
+	}
+	expected := map[string]bool{}
+	for _, obj := range objs {
+		files, err := s.objectFiles(task, obj)
+		if err != nil {
+			continue
+		}
+		var rels []string
+		for _, f := range files {
+			if rel, rerr := LocalRel(saveDir(task), f.abs); rerr == nil {
+				rels = append(rels, rel)
+			}
+		}
+		for _, p := range objectRemotePaths(obj, files, rels, cfg) {
+			expected[p] = true
+		}
+		for _, e := range man.Snapshot() {
+			if e.ObjectURL == obj.URL && e.RemotePath != "" {
+				expected[e.RemotePath] = true
+			}
+		}
+	}
+	client, err := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume)
+	if err != nil {
+		return
+	}
+	st := task.Storage()
+	for rel, e := range man.Snapshot() {
+		if expected[e.RemotePath] || e.ObjectURL == "" || e.RemotePath == "" {
+			continue
+		}
+		if cfg.Dir != "" && !strings.HasPrefix(e.RemotePath, strings.TrimSuffix(cfg.Dir, "/")+"/") {
+			continue
+		}
+		if _, still := completed[e.ObjectURL]; !still {
+			if st == nil {
+				continue
+			}
+			if obj, gerr := st.Get(e.ObjectURL); gerr == nil && obj != nil {
+				continue // 对象仍存在（failed/pending 等），镜像清理不介入
+			}
+		}
+		if err := client.Delete(ctx, e.RemotePath); err != nil {
+			s.Logger().Warn("remote-save mirror delete failed", "task_id", task.ID(), "remote", e.RemotePath, "error", err)
+			continue
+		}
+		man.Delete(rel)
+		s.Logger().Info("remote-save mirror deleted orphan", "task_id", task.ID(), "remote", e.RemotePath)
+	}
+	_ = man.Flush()
 }
 
 func (s *Service) listCompleted(task core.Task, url string) ([]*model.DownloadObject, error) {
@@ -453,12 +517,12 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 			return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "upload: " + uerr.Error()}
 		}
 		if !strings.EqualFold(sum, sha) {
-			man.Put(ManifestEntry{Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, Status: model.RemoteFileStatusFailed, Reason: "upload checksum mismatch"})
+			man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, Status: model.RemoteFileStatusFailed, Reason: "upload checksum mismatch"})
 			return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "upload checksum mismatch"}
 		}
 		fi, serr = client.Stat(ctx, remote)
 		if serr != nil || fi == nil || !strings.EqualFold(fi.Checksum, sha) {
-			man.Put(ManifestEntry{Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, Status: model.RemoteFileStatusFailed, Reason: "remote checksum unavailable/mismatch"})
+			man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, Status: model.RemoteFileStatusFailed, Reason: "remote checksum unavailable/mismatch"})
 			return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "remote checksum unavailable/mismatch"}
 		}
 	case serr != nil:
@@ -470,20 +534,22 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 		if fi.Checksum == "" {
 			reason = "checksum_unknown"
 		}
-		man.Put(ManifestEntry{Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusConflict, Reason: reason})
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusConflict, Reason: reason})
 		return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusConflict, Reason: reason}
 	}
 	if err := client.UpdateMeta(ctx, remote, meta); err != nil {
-		man.Put(ManifestEntry{Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusFailed, Reason: "meta: " + err.Error()})
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusFailed, Reason: "meta: " + err.Error()})
 		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "meta: " + err.Error()}
 	}
 	mi, gerr := client.GetMeta(ctx, remote)
-	if gerr != nil || mi.MTime == "" || mi.MTime != st.ModTime().UTC().Format(time.RFC3339Nano) {
-		man.Put(ManifestEntry{Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusFailed, Reason: "meta mtime mismatch"})
+	remoteMTime, perr := time.Parse(time.RFC3339Nano, mi.MTime)
+	if gerr != nil || perr != nil || absInt64(remoteMTime.Unix()-st.ModTime().Unix()) > 1 {
+		s.Logger().Warn("remote-save meta mtime mismatch", "path", rel, "local", st.ModTime().UTC().Format(time.RFC3339Nano), "remote", mi.MTime, "error", gerr)
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusFailed, Reason: "meta mtime mismatch"})
 		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "meta mtime mismatch"}
 	}
 	entry := ManifestEntry{
-		Path: rel, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(),
+		Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(),
 		SHA256: sha, RemoteSHA256: fi.Checksum, MetaHash: metaHash, Origin: "local", Status: status,
 	}
 	man.Put(entry)
@@ -618,6 +684,13 @@ func (s *Service) verifyChecksum() bool {
 		return cfg.RemoteSave.VerifyChecksum
 	}
 	return false
+}
+
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (s *Service) settling(mtime time.Time) bool {

@@ -98,6 +98,10 @@
         aggMinIntervalMs: 3000,
         showGroupModal: false,
         groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' },
+        showRemoteSaveModal: false,
+        remoteSaveStatus: null,
+        remoteSaveConflicts: [],
+        remoteSaveBusy: false,
 
         // Hover
         hoverObj: null,
@@ -601,6 +605,57 @@
             }
           }
         }
+      },
+      openRemoteSaveModal: function() {
+        if (!this.selectedTaskId) return
+        var self = this
+        this.remoteSaveBusy = true
+        this.showRemoteSaveModal = true
+        Promise.all([
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
+        ]).then(function(data) {
+          self.remoteSaveStatus = data[0] || null
+          self.remoteSaveConflicts = (data[1] && data[1].conflicts) || []
+        }).catch(function(e) {
+          UiHelpers.showToast('加载远程保存状态失败: ' + e.message, 'error')
+          self.showRemoteSaveModal = false
+        }).finally(function() { self.remoteSaveBusy = false })
+      },
+      closeRemoteSaveModal: function() {
+        this.showRemoteSaveModal = false
+        this.remoteSaveConflicts = []
+        this.remoteSaveStatus = null
+      },
+      refreshRemoteSaveConflicts: function() {
+        var self = this
+        if (!this.selectedTaskId) return
+        this.remoteSaveBusy = true
+        AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
+          .then(function(data) { self.remoteSaveConflicts = (data && data.conflicts) || [] })
+          .catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
+          .finally(function() { self.remoteSaveBusy = false })
+      },
+      resolveRemoteSaveConflict: function(conflict, action) {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (this.remoteSaveBusy || !conflict) return
+        var labels = { reuse: '复用远端文件', overwrite: '覆盖远端文件', rename: '改名保留', skip: '跳过' }
+        if ((action === 'overwrite' || action === 'rename') && !window.confirm((labels[action] || action) + '：' + conflict.remote_path + '？')) return
+        var self = this
+        this.remoteSaveBusy = true
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts/resolve', {
+          object_url: conflict.object_url, path: conflict.path, action: action
+        }).then(function(res) {
+          if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '处理失败') })
+          UiHelpers.showToast('已处理：' + (labels[action] || action), 'success')
+          self.refreshRemoteSaveConflicts()
+          if (typeof fetchTaskDetails === 'function') fetchTaskDetails(self, self.selectedTaskId, true)
+        }).catch(function(e) { UiHelpers.showToast('处理失败: ' + e.message, 'error') })
+          .finally(function() { self.remoteSaveBusy = false })
+      },
+      remoteSaveReasonLabel: function(reason) {
+        var m = { checksum_mismatch: 'sha256 不一致', checksum_unknown: '远端 sha256 不可得', size_mismatch: '大小不一致', target_exists: '目标已存在' }
+        return m[reason] || reason || '-'
       },
       openGroupModal: function(obj) {
         var info = UiHelpers.getScopedTaskInfo(obj)

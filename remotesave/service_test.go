@@ -98,9 +98,13 @@ func (f *fakeClient) Upload(_ context.Context, local, remote string) (string, er
 	}
 	sum := sha256.Sum256(b)
 	cs := hex.EncodeToString(sum[:])
+	st, _ := os.Stat(local)
 	f.mu.Lock()
 	f.uploads++
 	f.files[remote] = &FileInfo{Size: int64(len(b)), Checksum: f.afterUpload(local, remote)}
+	if st != nil {
+		f.metas[remote] = MetaInfo{MTime: st.ModTime().UTC().Format(time.RFC3339Nano)}
+	}
 	f.mu.Unlock()
 	return cs, nil
 }
@@ -116,6 +120,24 @@ func (f *fakeClient) GetMeta(_ context.Context, remote string) (MetaInfo, error)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.metas[remote], nil
+}
+
+func (f *fakeClient) Delete(_ context.Context, remote string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.files, remote)
+	delete(f.metas, remote)
+	return nil
+}
+
+func (f *fakeClient) Rename(_ context.Context, from, to string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files[to] = f.files[from]
+	f.metas[to] = f.metas[from]
+	delete(f.files, from)
+	delete(f.metas, from)
+	return nil
 }
 
 func newTestService(t *testing.T, task core.Task, client Client, persist func(core.Task, *model.DownloadObject)) *Service {
@@ -458,5 +480,125 @@ func TestBuildPlayURL_Verifies(t *testing.T) {
 	}
 	if err := sproxysig.Verify("sk", hdr, sproxysig.Request{Method: "GET", Path: "/download", Query: vals.Encode()}, time.Now(), time.Hour, 0, nil); err != nil {
 		t.Fatalf("verify: %v", err)
+	}
+}
+
+func TestResolveCloudConflict_Reuse(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "x.mp4"),
+		Status: model.StatusCompleted, CloudDownload: true,
+		Metadata: map[string]string{"code": "ABC-001"},
+		Extra:    map[string]any{"transfer_url": "sproxy://baidu/hanime/2.5D/ABC-001/x.mp4"},
+	}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	remote := "hanime/2.5D/ABC-001/x.mp4"
+	client := &fakeClient{
+		files: map[string]*FileInfo{remote: {Size: 3, Checksum: "abc"}},
+		metas: map[string]MetaInfo{remote: {MTime: time.Now().UTC().Format(time.RFC3339Nano)}},
+	}
+	svc := newTestService(t, task, client, func(_ core.Task, o *model.DownloadObject) {})
+	svc.manifest("t1").Put(ManifestEntry{Path: "x.mp4", ObjectURL: "u1", RemotePath: remote, Status: model.RemoteFileStatusConflict, Reason: "target_exists"})
+	if err := svc.ResolveConflict(context.Background(), "t1", "u1", "x.mp4", ConflictActionReuse); err != nil {
+		t.Fatal(err)
+	}
+	rs := obj.GetRemoteSave()
+	if rs == nil || rs.Status != model.RemoteSaveStatusSynced || rs.RemotePath != remote {
+		t.Fatalf("state=%+v", rs)
+	}
+}
+
+func TestResolveCloudConflict_OverwriteDeletesAndRequeues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "missing.mp4"),
+		Status: model.StatusCompleted, CloudDownload: true,
+		Metadata: map[string]string{"code": "ABC-001"},
+		Extra: map[string]any{
+			"transfer_url":  "sproxy://baidu/hanime/2.5D/ABC-001/missing.mp4",
+			"cloud_task_id": "old-task",
+		},
+	}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	remote := "hanime/2.5D/ABC-001/missing.mp4"
+	client := &fakeClient{files: map[string]*FileInfo{remote: {Size: 3, Checksum: "abc"}}, metas: map[string]MetaInfo{}}
+	cfg := &config.Config{
+		Sproxy: config.Sproxy{APIURL: "https://sproxy.example.com"},
+		Tasks: []config.Task{{ID: "t1", Extra: map[string]any{"remote_save": map[string]any{
+			"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
+		}}}},
+	}
+	var requeued bool
+	svc := New(Options{
+		Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} },
+		WorkDir: t.TempDir(), ClientFor: func(config.Sproxy, string) (Client, error) { return client, nil },
+		Requeue: func(core.Task, *model.DownloadObject) { requeued = true },
+	})
+	svc.ctx = context.Background()
+	svc.manifest("t1").Put(ManifestEntry{Path: "missing.mp4", ObjectURL: "u1", RemotePath: remote, Status: model.RemoteFileStatusConflict})
+	if err := svc.ResolveConflict(context.Background(), "t1", "u1", "missing.mp4", ConflictActionOverwrite); err != nil {
+		t.Fatal(err)
+	}
+	if !requeued {
+		t.Fatal("cloud-only overwrite 应 requeue")
+	}
+	if obj.GetStatus() != model.StatusPending {
+		t.Fatalf("status=%s", obj.GetStatus())
+	}
+	obj.RLock()
+	_, hasTask := obj.Extra["cloud_task_id"]
+	obj.RUnlock()
+	if hasTask {
+		t.Fatal("cloud_task_id 未清理")
+	}
+	if _, ok := client.files[remote]; ok {
+		t.Fatal("远端未删除")
+	}
+}
+
+func TestMirrorDelete_RemovesOrphan(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.mp4")
+	if err := os.WriteFile(p, []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(p, old, old)
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: p, Status: model.StatusCompleted}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		s := sha256.Sum256(b)
+		return hex.EncodeToString(s[:])
+	}}
+	remote := "hanime/2.5D/a.mp4"
+	client.metas[remote] = MetaInfo{MTime: mustStat(t, p).ModTime().UTC().Format(time.RFC3339Nano)}
+	cfg := &config.Config{
+		Sproxy: config.Sproxy{APIURL: "https://sproxy.example.com"},
+		Tasks: []config.Task{{ID: "t1", Extra: map[string]any{"remote_save": map[string]any{
+			"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "mirror_delete": true,
+		}}}},
+	}
+	svc := New(Options{
+		Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} },
+		WorkDir: t.TempDir(), ClientFor: func(config.Sproxy, string) (Client, error) { return client, nil },
+	})
+	svc.ctx = context.Background()
+	svc.handle(request{taskID: "t1"})
+	if _, ok := client.files[remote]; !ok {
+		t.Fatal("首次同步应上传")
+	}
+	// 删除对象与本地文件 → 任务级对账应镜像删除远端。
+	store.objs = map[string]*model.DownloadObject{}
+	_ = os.Remove(p)
+	svc.handle(request{taskID: "t1"})
+	if _, ok := client.files[remote]; ok {
+		t.Fatal("孤儿远端未删除")
 	}
 }
