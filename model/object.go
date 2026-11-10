@@ -29,6 +29,9 @@ type DownloadObject struct {
 	// Version 对象数据结构版本（ObjectVersioner 升级机制用）：version < 任务 LatestVersion
 	// 的对象在启动标准化时被自动逐级升级到最新结构。缺省 0 视为旧数据。
 	Version int64 `json:"version,omitempty" bson:"version,omitempty"`
+	// RemoteSave 是对象级远程保存状态（含逐文件 sha256，用于一致性核对）。
+	// nil = 未配置/未执行远程保存。
+	RemoteSave *RemoteSaveState `json:"remote_save,omitempty" bson:"remote_save,omitempty"`
 
 	mu sync.RWMutex `json:"-" bson:"-"`
 }
@@ -135,6 +138,43 @@ func (o *DownloadObject) SetStatus(s string) {
 }
 
 // GetVersion 返回对象数据结构版本。
+// GetRemoteSave 返回远程保存状态的深拷贝（nil = 未配置/未执行）。
+func (o *DownloadObject) GetRemoteSave() *RemoteSaveState {
+	if o == nil {
+		return nil
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return CloneRemoteSaveState(o.RemoteSave)
+}
+
+// SetRemoteSave 设置远程保存状态（深拷贝；nil 清除）。
+func (o *DownloadObject) SetRemoteSave(s *RemoteSaveState) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.RemoteSave = CloneRemoteSaveState(s)
+}
+
+// UpdateRemoteSave 在写锁内更新远程保存状态；fn 返回 false 表示不写回。
+func (o *DownloadObject) UpdateRemoteSave(fn func(*RemoteSaveState) bool) {
+	if o == nil || fn == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	state := CloneRemoteSaveState(o.RemoteSave)
+	if state == nil {
+		state = &RemoteSaveState{}
+	}
+	if !fn(state) {
+		return
+	}
+	o.RemoteSave = state
+}
+
 func (o *DownloadObject) GetVersion() int64 {
 	if o == nil {
 		return 0
@@ -181,13 +221,14 @@ func (o *DownloadObject) Snapshot() *DownloadObject {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	snap := &DownloadObject{
-		TaskID:   o.TaskID,
-		URL:      o.URL,
-		ID:       o.ID,
-		SavePath: o.SavePath,
-		Status:   o.Status,
-		Progress: o.Progress,
-		Version:  o.Version,
+		TaskID:     o.TaskID,
+		URL:        o.URL,
+		ID:         o.ID,
+		SavePath:   o.SavePath,
+		Status:     o.Status,
+		Progress:   o.Progress,
+		Version:    o.Version,
+		RemoteSave: CloneRemoteSaveState(o.RemoteSave),
 	}
 	copyObjectOptionsLocked(snap, o) // 已持读锁：不能再走加锁访问器（递归读锁死锁）
 	if o.Metadata != nil {

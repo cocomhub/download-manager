@@ -31,8 +31,10 @@ func (s *Server) getServerConfig(w http.ResponseWriter, r *http.Request) {
 			"files_allow_symlink": cfg.Server.FilesAllowSymlink,
 			"auth":                authConfigView(cfg.Server.Auth),
 		},
-		"task_scan":  cfg.TaskScan,
-		"downloader": downloaderConfigView(cfg.Downloader),
+		"task_scan":   cfg.TaskScan,
+		"downloader":  downloaderConfigView(cfg.Downloader),
+		"sproxy":      sproxyConfigView(cfg.Sproxy),
+		"remote_save": cfg.RemoteSave,
 		"ui_defaults": map[string]any{
 			"default_save_dir":    cfg.Server.UIDefaults.DefaultSaveDir,
 			"window_width":        cfg.Server.UIDefaults.WindowWidth,
@@ -88,6 +90,20 @@ func downloaderConfigView(dl config.Downloader) map[string]any {
 		redactProxyList(dc, "list")
 	}
 	return m
+}
+
+// sproxyConfigView 返回 sproxy 账号配置的脱敏视图（secret/token 只暴露是否已配置）。
+func sproxyConfigView(sp config.Sproxy) map[string]any {
+	return map[string]any{
+		"api_url":               sp.APIURL,
+		"has_api_token":         sp.APIToken != "",
+		"access_key":            sp.AccessKey,
+		"has_access_key_secret": sp.AccessKeySecret != "",
+		"access_key_id":         sp.AccessKeyID,
+		"insecure_tls":          sp.InsecureTLS,
+		"play_base_url":         sp.PlayBaseURL,
+		"play_ttl":              sp.PlayTTL,
+	}
 }
 
 // redactProxyList 去掉 m[key] 列表中每个代理 URL 的 userinfo（user:pass）。

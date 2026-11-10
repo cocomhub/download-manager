@@ -27,6 +27,23 @@ log:
 mongo:
   - name: suixi-mini
     uri: mongodb://root:root123@suixi-mini.local:27017/download_manager?authSource=admin
+# sproxy：唯一账号/连接配置（remote_save、sproxy_cloud、播放链接共用）
+# sproxy:
+#   api_url: http://127.0.0.1:8080
+#   access_key: ""
+#   access_key_secret: ""
+#   access_key_id: ""
+#   insecure_tls: false
+#   play_base_url: https://sproxy.example.com
+#   play_ttl: 1h
+# remote_save：
+#   concurrency: 2
+#   reconcile_interval: 10m
+#   deep_reconcile_interval: 24h
+#   settle_seconds: 30
+#   max_retries: 3
+#   max_files_per_object: 1000
+#   verify_checksum: false
 downloader:
   type: native
   global_concurrent: 1
@@ -88,6 +105,12 @@ task_scan:
   disable: false
   interval: 10
 tasks:
+  # remote_save 任务级只配路径（账号集中在顶层 sproxy）：
+  # extra:
+  #   remote_save:
+  #     enabled: true
+  #     volume: baidu
+  #     dir: hanime/2.5D
   - id: task-file-001
     type: url_list
     save_dir: ./build/test/downloads/task1

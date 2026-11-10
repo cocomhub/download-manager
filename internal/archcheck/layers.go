@@ -48,6 +48,7 @@ var Levels = map[string]int{
 	"github.com/cocomhub/download-manager/task/mock/ui":     2,
 	"github.com/cocomhub/download-manager/task/urllist":     2,
 	"github.com/cocomhub/download-manager/task/urllist/ui":  2,
+	"github.com/cocomhub/download-manager/remotesave":       2,
 
 	// ---- L3 编排层（Manager）----
 	"github.com/cocomhub/download-manager/manager": 3,
