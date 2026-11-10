@@ -80,3 +80,21 @@ func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Reques
 	w.Header().Set(hdrContentType, "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
+
+// getRemotePlayURL 生成/刷新对象签名播放 URL（GET /api/tasks/{id}/object/play_url?url=...）。
+func (s *Server) getRemotePlayURL(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	objectURL := r.URL.Query().Get("url")
+	if objectURL == "" {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "url 必填")
+		return
+	}
+	play, exp, err := s.mgr.PlayRemoteURL(taskID, objectURL)
+	if err != nil {
+		writeJSONError(w, http.StatusConflict, "remote_play_unavailable", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"url": play, "expires_at": exp})
+}

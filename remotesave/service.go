@@ -52,6 +52,7 @@ type request struct {
 	taskID string
 	url    string // 空 = 全任务 completed 对象
 	force  bool
+	cloud  bool // 云端转存完成后的坐标记录
 }
 
 // New 创建 Service（不启动）。
@@ -266,6 +267,12 @@ func (s *Service) handle(r request) {
 		if s.ctx.Err() != nil {
 			return
 		}
+		if obj.IsCloudDownload() {
+			s.syncCloud(s.ctx, task, cfg, obj)
+			if r.cloud {
+				continue
+			}
+		}
 		s.syncObject(task, cfg, obj, r.force)
 	}
 }
@@ -395,6 +402,11 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	}
 	entries := man.Snapshot()
 	state.Files, state.FilesTruncated = ToModelFiles(entries, rels, s.maxFiles())
+	if state.Status == model.RemoteSaveStatusSynced && state.RemotePath != "" {
+		if play, exp, perr := s.buildPlayURL(state); perr == nil {
+			state.PlayURL, state.PlayExpiresAt = play, exp
+		}
+	}
 	state.UpdatedAt = time.Now().UTC()
 	_ = man.Flush()
 	s.persistState(task, obj, cfg, state)

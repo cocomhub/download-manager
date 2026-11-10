@@ -105,6 +105,9 @@ const extraKeyTargetFile = "target_file"
 // extraKeyTransferPath 是「按对象覆盖转存卷内路径」（分卷全套每个文件不同路径）。
 const extraKeyTransferPath = "transfer_path"
 
+// extraKeyTransferVolume 是「按对象覆盖转存卷」（任务级 remote_save.volume；优先于静态配置）。
+const extraKeyTransferVolume = "transfer_volume"
+
 // NewSproxyCloudDownloader 创建 sproxy 云端下载器。
 // 配置了 access_key/access_key_secret → 用 FileClient（SproxySig 签名认证）；否则旧 Bearer。
 func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownloader {
@@ -1191,10 +1194,16 @@ func (d *SproxyCloudDownloader) mergedMetaExtra(obj *model.DownloadObject, overr
 // transferSpecWithPath 同 transferSpec，但可显式指定卷内路径（分卷全套：每个文件一个路径；
 // 空则按对象 Extra[transfer_path] → 静态 TransferPath 回退）。
 func (d *SproxyCloudDownloader) transferSpecWithPath(obj *model.DownloadObject, pathOverride string) map[string]any {
-	if d.transferVol == "" {
+	vol := d.transferVol
+	if obj != nil {
+		if v := strings.TrimSpace(extraString(obj, extraKeyTransferVolume)); v != "" {
+			vol = v
+		}
+	}
+	if vol == "" {
 		return nil
 	}
-	tr := map[string]any{"volume": d.transferVol}
+	tr := map[string]any{"volume": vol}
 	// 优先级：显式覆盖（分卷逐文件）> 对象级 Extra[transfer_path] > 静态 TransferPath。
 	p := strings.TrimSpace(pathOverride)
 	if p == "" && obj != nil {

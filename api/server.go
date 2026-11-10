@@ -118,6 +118,7 @@ func (s *Server) Router() *mux.Router {
 	r.HandleFunc("/api/tasks/{id}/remote_save", s.triggerRemoteSave).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/remote_save/conflicts", s.getRemoteSaveConflicts).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}/remote_save/conflicts/resolve", s.resolveRemoteSaveConflict).Methods("POST")
+	r.HandleFunc("/api/tasks/{id}/object/play_url", s.getRemotePlayURL).Methods("GET")
 	r.HandleFunc("/api/tasks/{id}/object/reorder_batch", s.reorderObjectsBatch).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/reorder", s.reorderTask).Methods("POST")
 	r.HandleFunc("/api/tasks/{id}/config", s.updateTaskConfig).Methods("POST")
