@@ -172,7 +172,7 @@ jobs:
     # 测试经 MONGO_TEST_URI 复用它而非 testcontainers）。
     services:
       mongo:
-        image: mongo:8
+        image: mongo:8.2
         ports:
           - 27017:27017
         options: >-
