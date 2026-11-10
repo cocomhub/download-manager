@@ -19,6 +19,7 @@ import (
 // ManifestEntry 是远程保存的逐文件操作缓存（不是唯一事实源：mongo 中另有逐文件 sha256）。
 type ManifestEntry struct {
 	Path         string    `json:"path"`
+	ObjectURL    string    `json:"object_url,omitempty"`
 	RemotePath   string    `json:"remote_path"`
 	Size         int64     `json:"size"`
 	MTimeNs      int64     `json:"mtime_ns"`
@@ -102,6 +103,18 @@ func (m *Manifest) Put(e ManifestEntry) {
 	}
 	e.UpdatedAt = time.Now().UTC()
 	m.entries[e.Path] = e
+	m.gen++
+	m.dirty = true
+}
+
+// Delete 删除 entry（镜像清理成功后调用）。
+func (m *Manifest) Delete(rel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.entries[rel]; !ok {
+		return
+	}
+	delete(m.entries, rel)
 	m.gen++
 	m.dirty = true
 }

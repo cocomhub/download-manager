@@ -733,6 +733,9 @@
                                 <button @click="toggleTaskConfigPanel" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors flex items-center">
                                     <i class="fas fa-sliders-h mr-1"></i> 任务配置
                                 </button>
+                                <button @click="openRemoteSaveModal" data-testid="btn-remote-save" class="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-2 py-1 rounded-md transition-colors flex items-center">
+                                    <i class="fas fa-cloud-upload-alt mr-1"></i> 远程保存
+                                </button>
                                 <div class="flex items-center gap-2">
                                     <button @click="toggleSelectAllObjects" class="text-xs bg-white text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
                                       {{ selectAllScope === 'all' ? '取消全选' : '全选当前页' }}
@@ -1573,6 +1576,71 @@
                     <button @click="resetTaskForm" class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition" title="重置所有字段为默认值"><i class="fas fa-undo mr-1"></i>重置</button>
                     <button @click="showAddTaskModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
                     <button @click="saveNewTask" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 shadow-sm transition">创建</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Remote Save Conflicts Modal -->
+        <div v-if="showRemoteSaveModal" data-testid="remote-save-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh]">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-bold text-gray-800">远程保存</h3>
+                        <span v-if="remoteSaveStatus" class="text-xs text-gray-500">
+                            {{ remoteSaveStatus.volume }}:/{{ remoteSaveStatus.dir || '' }}
+                            · 对象 {{ remoteSaveStatus.objects_total || 0 }}
+                            · 冲突 {{ remoteSaveStatus.conflicts || 0 }}
+                        </span>
+                    </div>
+                    <button @click="closeRemoteSaveModal" data-testid="remote-save-close" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="p-4 flex-1 overflow-y-auto">
+                    <div v-if="remoteSaveStatus && !remoteSaveStatus.enabled" class="text-sm text-gray-500 py-6 text-center">
+                        该任务未启用 remote_save。
+                    </div>
+                    <div v-else-if="remoteSaveBusy && remoteSaveConflicts.length === 0" class="text-sm text-gray-400 py-6 text-center">加载中...</div>
+                    <div v-else-if="remoteSaveConflicts.length === 0" class="text-sm text-gray-500 py-6 text-center" data-testid="remote-save-empty">
+                        当前没有冲突。
+                    </div>
+                    <div v-else class="overflow-x-auto">
+                        <table class="min-w-full text-sm divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500">对象</th>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500">文件</th>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500">原因</th>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500">本地 sha256</th>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500">远端 sha256</th>
+                                    <th class="px-3 py-2 text-right text-xs text-gray-500">处理</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <tr v-for="c in remoteSaveConflicts" :key="c.object_url + ':' + c.path" data-testid="remote-save-conflict">
+                                    <td class="px-3 py-2 max-w-xs truncate" :title="c.object_url">{{ c.object_url }}</td>
+                                    <td class="px-3 py-2 max-w-xs">
+                                        <div class="truncate" :title="c.remote_path">{{ c.path }}</div>
+                                        <div class="text-xs text-gray-500 truncate" :title="c.remote_path">{{ c.remote_path }}</div>
+                                    </td>
+                                    <td class="px-3 py-2 text-amber-700">{{ remoteSaveReasonLabel(c.reason) }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs max-w-[10rem] truncate" :title="c.sha256">{{ c.sha256 || '-' }}</td>
+                                    <td class="px-3 py-2 font-mono text-xs max-w-[10rem] truncate" :title="c.remote_sha256">{{ c.remote_sha256 || '-' }}</td>
+                                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                                        <button @click="resolveRemoteSaveConflict(c, 'reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 mr-1">复用</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 mr-1">覆盖</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 mr-1">改名</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">跳过</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-between items-center">
+                    <div class="text-xs text-gray-500">复用/改名/覆盖会重新校验 sha256；覆盖为显式破坏性操作。</div>
+                    <div class="flex gap-2">
+                        <button @click="refreshRemoteSaveConflicts" :disabled="remoteSaveBusy" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">刷新</button>
+                        <button @click="closeRemoteSaveModal" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">关闭</button>
+                    </div>
                 </div>
             </div>
         </div>

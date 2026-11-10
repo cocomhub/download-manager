@@ -57,6 +57,7 @@ tasks:
         volume: baidu
         dir: hanime/2.5D
         object_dirs: true    # B：远端按番号/唯一 id 分目录
+        mirror_delete: false # 可选：镜像删除 manifest 记录过、且已不属于 completed 对象的远端文件
         exclude: []          # 可选 glob（相对 save_dir）
 ```
 
@@ -71,7 +72,9 @@ tasks:
   download-manager 读取/展示的是 sproxy sidecar 的 mtime，不使用百度存储时间。
 - 逐文件 sha256/远端 sha256 写入 mongo `DownloadObject.RemoteSave.Files`。
 - 远端已存在且 sha256 一致 → `reused`；否则 `conflict`。
-- 只上传/复用，不删除远端；本地改名/删除不会传播删除。
+- 默认只上传/复用，不删除远端；`mirror_delete=true` 时，任务级对账会删除「manifest 记录过、
+  对象已删除或已完成对象不再包含该文件」的远端文件（未知远端文件永不删除；对象仍存在但
+  非 completed 时跳过）。
 
 ## API
 
@@ -90,6 +93,27 @@ tasks:
 - 目标已存在 → **fail-closed**，对象 `failed_permanent` + `RemoteSave=conflict`，等待人工处理。
 - 转存完成后 `NotifyCloudCompleted` 回读 sproxy 的 sha256/mtime，写入 mongo 与播放链接；
   非 cloud_only 对象本地文件走正常对账（manifest 记录 origin=cloud，避免重复上传）。
+- 云端冲突动作：
+  - `reuse`：接受远端（不重新下载）；
+  - `overwrite`：本地有文件则覆盖远端；cloud-only 则删除远端、清 cloud 坐标并重新入队下载；
+  - `rename`：本地有文件则上传到新路径；cloud-only 则远端改名；
+  - `skip`：保持跳过。
+
+## UI 冲突处理
+
+任务详情「远程保存」按钮打开冲突面板，逐文件可选 `复用 / 覆盖 / 改名 / 跳过`；
+覆盖/改名有二次确认。UI 通过真实 API 读取/处理，Playwright 用例：
+`test/playwright/specs/remote-save.spec.ts`。
+
+## 真实端到端
+
+`test/e2e/remote_save_e2e_test.go`（`-tags=e2e`）启动独立 in-process download-manager
+（临时端口，不影响运行中的实例），连接真实 sproxy（不重启），覆盖：completed-only、
+sha256、meta mtime/tags、冲突覆盖、签名播放 URL、mirror_delete。
+
+```bash
+SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY_E2E_SKID=... go test -tags=e2e -run TestRemoteSaveRealE2E -v ./test/e2e
+```
 
 ## 已知限制
 

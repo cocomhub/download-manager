@@ -13,6 +13,7 @@ const (
 	RemoteSaveStatusConflict = "conflict"
 	RemoteSaveStatusFailed   = "failed"
 	RemoteSaveStatusMissing  = "missing"
+	RemoteSaveStatusSkipped  = "skipped"
 )
 
 // RemoteFileStatus 是单个文件的远程保存状态。
