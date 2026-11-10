@@ -119,9 +119,34 @@ func (s *Service) Stop(ctx context.Context) {
 	s.flushAllManifests()
 }
 
-// Reload 在配置热更新后调用（worker 数不动态调整；路径/账号下次运行生效）。
+// Reload 在配置热更新后调用：由 disabled → enabled 时自动启动（worker 数不动态调整）。
 func (s *Service) Reload() {
 	s.Logger().Info("remote-save config reloaded")
+	if s.Enabled() && !s.Started() {
+		s.Start()
+	}
+}
+
+// Enabled 报告是否至少有一个任务启用了 remote_save。
+func (s *Service) Enabled() bool {
+	cfg := s.opts.Cfg()
+	if cfg == nil {
+		return false
+	}
+	for i := range cfg.Tasks {
+		tc, err := ParseTaskConfig(cfg.Tasks[i].Extra)
+		if err == nil && tc.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// Started 报告服务是否已启动。
+func (s *Service) Started() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started
 }
 
 // NotifyObjectCompleted 在对象下载完成（含小对象）后入队；非阻塞。
