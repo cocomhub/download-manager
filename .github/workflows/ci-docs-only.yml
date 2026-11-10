@@ -91,7 +91,7 @@ jobs:
   test-ubuntu:
     needs: detect
     if: needs.detect.outputs.docsonly == 'true'
-    name: Test (ubuntu-24.04)
+    name: Test (ubuntu-latest)
     runs-on: ubuntu-24.04
     steps:
       - name: Docs-only OK
