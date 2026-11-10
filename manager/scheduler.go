@@ -22,7 +22,7 @@ func (m *Manager) Start() {
 	m.schedulerEnabled.Store(cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled)
 	slog.Info("disabled components", "scheduler", !m.schedulerEnabled.Load(), "workers", !m.workersEnabled.Load())
 	m.loadTasks()
-	if cfg.Runtime.Mode != config.RunModeUI && m.remoteSave != nil {
+	if cfg.Runtime.Mode != config.RunModeUI && m.remoteSave != nil && m.remoteSave.Enabled() {
 		m.remoteSave.Start()
 	}
 	if m.workersEnabled.Load() {
