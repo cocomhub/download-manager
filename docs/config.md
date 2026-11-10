@@ -64,6 +64,63 @@ auth:
 | `progress` | 进度回调：`min_percent_step` / `max_interval_seconds` |
 | `ffmpeg` | `path` / `extra_args` / `move_if_exists` / `external_hls_log` |
 
+## sproxy
+
+sproxy 的**唯一账号/连接配置**（`remote_save`、`sproxy_cloud`、播放链接共用）。任务级
+`remote_save` 只允许配卷与目录，出现 `access_key*` / `api_token` 等账号字段会被拒绝。
+
+```yaml
+sproxy:
+  api_url: https://sproxy.example.com
+  access_key: ak-...
+  access_key_secret: ...
+  access_key_id: skey-...
+  insecure_tls: false
+  play_base_url: https://sproxy.example.com   # 播放链接公开基址；空 = 不生成
+  play_ttl: 1h                                # 必须 <= 服务端 download_token_ttl
+```
+
+`downloader.sproxy_cloud` 的 `api_url/api_token/access_key*/insecure_tls` 保留为**兼容别名**：
+顶层 `sproxy` 为空时自动回填；两者都配置时顶层优先。
+
+## remote_save（全局引擎默认值）
+
+```yaml
+remote_save:
+  concurrency: 2
+  reconcile_interval: 10m
+  deep_reconcile_interval: 24h
+  settle_seconds: 30
+  max_retries: 3
+  max_files_per_object: 1000
+  verify_checksum: false   # 默认 false；深度对账默认仍用 sha256 校验
+```
+
+任务级只配路径：
+
+```yaml
+tasks:
+  - id: hanime-2.5d
+    type: hanime
+    save_dir: /opt/download-manager/downloads/hanime/2.5D
+    extra:
+      remote_save:
+        enabled: true
+        volume: baidu
+        dir: hanime/2.5D
+        object_dirs: false   # B 阶段：远端按番号/唯一 id 分目录
+        exclude: []          # 可选 glob（相对任务 SaveDir）
+```
+
+同步口径（用户裁定 2026-11-10）：
+
+- 只处理 `status=completed` 的对象，收集主视频 + cover/thumb/preview 等关联文件；
+- 逐文件 sha256 证明本地文件与 sproxy 文件一致（sproxy 侧 `Stat.Checksum` 必须是 sha256）；
+- sproxy 保存的 meta 包含原始 mtime 与完整 mongo Metadata/Extra/tags（`x_dm_object`）；
+- 远端已存在但 sha256 不一致/不可得 → `conflict`，**不自动覆盖**；A 阶段仅记录与只读 API，
+  UI 人工处理（reuse/overwrite/rename/skip）在 B 阶段；
+- 逐文件 sha256 写入 mongo `DownloadObject.RemoteSave.Files`；只上传不删除。
+
 ### downloader.sproxy_cloud
 
 将 URL 提交给 sproxy 云端下载服务（sproxy 侧完成下载/转存；PikPak 分享链接走其 hybrid 策略）；

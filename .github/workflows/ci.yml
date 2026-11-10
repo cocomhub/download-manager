@@ -45,7 +45,7 @@ jobs:
       contents: write   # auto-push 需要
       deployments: write
       pull-requests: write # 允许创建PR Review评论
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -130,7 +130,7 @@ jobs:
 
   test-no-mongo:
     name: Test (no mongo)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -167,12 +167,12 @@ jobs:
 
   test-mongo:
     name: Test (mongo integration)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # mongo service container（对齐 sproxy 的 vault 集成测试模式：CI 起服务容器，
     # 测试经 MONGO_TEST_URI 复用它而非 testcontainers）。
     services:
       mongo:
-        image: mongo:8
+        image: mongo:8.2
         ports:
           - 27017:27017
         options: >-
@@ -202,7 +202,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -225,7 +225,7 @@ jobs:
 
   playwright:
     name: Playwright UI E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -296,7 +296,7 @@ jobs:
 
   sonar:
     name: SonarQube
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # lint 成功后直接跑 SonarQube（对齐 sproxy：Sonar 不依赖 test 完成）
     needs: [lint]
     steps:

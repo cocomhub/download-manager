@@ -21,6 +21,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/logutil"
 	"github.com/cocomhub/download-manager/pkg/scrape"
+	"github.com/cocomhub/download-manager/remotesave"
 	"github.com/cocomhub/download-manager/storage"
 )
 
@@ -49,6 +50,7 @@ type Manager struct {
 	tasks           sync.Map
 	downloader      core.Downloader
 	cloudDownloader core.Downloader // sproxy 云端下载器（未配置 sproxy_cloud 时为 nil）
+	remoteSave      *remotesave.Service
 	downloaderMu    sync.Mutex
 	stopChan        chan struct{}
 	workerStop      chan struct{}
@@ -351,6 +353,25 @@ func NewManager(cfg *config.Config) *Manager {
 		mgr.countTaskObjects,
 		mgr.collectTaskObjects,
 	)
+	mgr.remoteSave = remotesave.New(remotesave.Options{
+		Cfg:     mgr.currentCfg,
+		Tasks:   mgr.getAllTasks,
+		WorkDir: cfg.Server.WorkDir,
+		ClientFor: func(sp config.Sproxy, volume string) (remotesave.Client, error) {
+			return remotesave.NewSproxyClient(sp, volume, sp.InsecureTLS)
+		},
+		Persist: func(t core.Task, obj *model.DownloadObject) {
+			if f, ok := t.(interface{ FlushObject(*model.DownloadObject) }); ok {
+				f.FlushObject(obj)
+				return
+			}
+			if st := t.Storage(); st != nil {
+				_ = st.Update(obj)
+			}
+		},
+		IsObjectGone: mgr.isObjectGone,
+		Logger:       slog.Default(),
+	})
 	mgr.startedAt = time.Now()
 	mgr.maxFailures = 1000
 	mgr.failureRecords = make([]FailureRecord, mgr.maxFailures)
@@ -823,6 +844,9 @@ func (m *Manager) UpdateConfig(newCfg *config.Config, audit *AuditInfo) error {
 
 	// Load missing tasks
 	m.loadTasks()
+	if m.remoteSave != nil {
+		m.remoteSave.Reload()
+	}
 	// Notify
 	slog.Info("Configuration updated")
 	m.publish(core.Event{Type: core.EventTaskListChange, Payload: nil})

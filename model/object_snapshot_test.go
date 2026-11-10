@@ -50,6 +50,7 @@ func TestSnapshot_CoversAllExportedFields(t *testing.T) {
 		Progress:      42,
 		Version:       3,
 		CloudDownload: true,
+		RemoteSave:    &RemoteSaveState{Status: RemoteSaveStatusSynced, Files: []RemoteFileState{{Path: "x"}}},
 		Metadata:      map[string]string{"k": "v"},
 		Extra:         map[string]any{"a": 1},
 	}
@@ -130,5 +131,19 @@ func TestCopyObjectOptionsLocked_NoLocking(t *testing.T) {
 	copyObjectOptionsLocked(dst, src) // 内部若加锁 → 本 goroutine 自死锁
 	if !dst.CloudDownload {
 		t.Fatal("locked 变体应拷贝 cloud_download")
+	}
+}
+
+// TestSnapshot_RemoteSaveDeepCopy 防止 mongo $set 快照与运行时对象共享 Files slice。
+func TestSnapshot_RemoteSaveDeepCopy(t *testing.T) {
+	t.Parallel()
+	src := &DownloadObject{RemoteSave: &RemoteSaveState{
+		Status: RemoteSaveStatusSynced,
+		Files:  []RemoteFileState{{Path: "a.mp4", SHA256: "abc"}},
+	}}
+	snap := src.Snapshot()
+	snap.RemoteSave.Files[0].SHA256 = "changed"
+	if src.RemoteSave.Files[0].SHA256 != "abc" {
+		t.Fatal("Snapshot 未深拷贝 RemoteSave.Files")
 	}
 }

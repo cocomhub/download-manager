@@ -345,6 +345,9 @@ func (m *Manager) handleDownloadSuccess(t core.Task, obj *model.DownloadObject, 
 	}
 
 	t.UpdateStatus(obj, model.StatusCompleted, nil)
+	if m.remoteSave != nil {
+		m.remoteSave.NotifyObjectCompleted(t, obj)
+	}
 	m.failedCount.Delete(obj.URL)
 	m.totalDownloads.Add(1)
 	m.applyGroupPriorityPolicies(t, obj)

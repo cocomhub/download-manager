@@ -35,6 +35,8 @@ type Config struct {
 	Log              logutil.LogConfig          `yaml:"log" json:"log"`
 	Mongo            []MongoSource              `yaml:"mongo" json:"mongo"`
 	Downloader       Downloader                 `yaml:"downloader" json:"downloader"`
+	Sproxy           Sproxy                     `yaml:"sproxy" json:"sproxy"`
+	RemoteSave       RemoteSaveSettings         `yaml:"remote_save" json:"remote_save"`
 	TaskScan         TaskScan                   `yaml:"task_scan" json:"task_scan"`
 	Runtime          Runtime                    `yaml:"runtime" json:"runtime"`
 	Contexts         map[string]Context         `yaml:"contexts" json:"contexts"`
@@ -178,6 +180,33 @@ type SproxyCloudConfig struct {
 	InsecureTLS bool `yaml:"insecure_tls" json:"insecure_tls"`
 }
 
+// Sproxy 是 sproxy 的唯一账号/连接配置（remote_save、sproxy_cloud、播放链接共用）。
+// 任务级 remote_save 只允许配卷与目录，不得重复配置账号。
+type Sproxy struct {
+	APIURL          string `yaml:"api_url" json:"api_url"`
+	APIToken        string `yaml:"api_token" json:"api_token"`
+	AccessKey       string `yaml:"access_key" json:"access_key"`
+	AccessKeySecret string `yaml:"access_key_secret" json:"access_key_secret"`
+	AccessKeyID     string `yaml:"access_key_id" json:"access_key_id"`
+	// InsecureTLS 跳过 TLS 证书校验（仅自签测试环境；默认 false）。
+	InsecureTLS bool `yaml:"insecure_tls" json:"insecure_tls"`
+	// PlayBaseURL 是播放链接的公开基址（如 https://sproxy.example.com）；空 = 不生成播放链接。
+	PlayBaseURL string `yaml:"play_base_url" json:"play_base_url"`
+	// PlayTTL 是签名播放 URL 的有效期（默认 1h；必须 <= 服务端 download_token_ttl）。
+	PlayTTL time.Duration `yaml:"play_ttl" json:"play_ttl"`
+}
+
+// RemoteSaveSettings 是远程保存引擎的全局默认值（不涉及账号；任务级只配路径）。
+type RemoteSaveSettings struct {
+	Concurrency           int           `yaml:"concurrency" json:"concurrency"`
+	ReconcileInterval     time.Duration `yaml:"reconcile_interval" json:"reconcile_interval"`
+	DeepReconcileInterval time.Duration `yaml:"deep_reconcile_interval" json:"deep_reconcile_interval"`
+	SettleSeconds         int           `yaml:"settle_seconds" json:"settle_seconds"`
+	MaxRetries            int           `yaml:"max_retries" json:"max_retries"`
+	MaxFilesPerObject     int           `yaml:"max_files_per_object" json:"max_files_per_object"`
+	VerifyChecksum        bool          `yaml:"verify_checksum" json:"verify_checksum"`
+}
+
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。
 type GopeedConfig struct {
 	RPCURL           string `yaml:"rpc_url" json:"rpc_url"`                       // Gopeed REST API 地址，默认 http://127.0.0.1:9999
@@ -277,6 +306,74 @@ func clampInt(v, min, max int) int {
 }
 
 // Clone returns a deep copy of the Config, including all map and slice fields.
+
+// setSproxyDefaults 归一 sproxy 账号配置：新顶层 sproxy 优先，其次从旧
+// downloader.sproxy_cloud 连接字段回填；随后把结果写回旧字段，保证云端下载器与
+// remote-save 使用同一份账号（唯一事实源）。
+func (c *Config) setSproxyDefaults() {
+	sp := &c.Sproxy
+	legacy := &c.Downloader.SproxyCloud
+	if sp.APIURL == "" {
+		sp.APIURL = legacy.APIURL
+		sp.APIToken = legacy.APIToken
+		sp.AccessKey = legacy.AccessKey
+		sp.AccessKeySecret = legacy.AccessKeySecret
+		sp.AccessKeyID = legacy.AccessKeyID
+		sp.InsecureTLS = legacy.InsecureTLS
+	} else {
+		// 已启用顶层块：空字符串字段仍可从旧字段回填，避免「迁移一半」丢凭据。
+		if sp.APIToken == "" {
+			sp.APIToken = legacy.APIToken
+		}
+		if sp.AccessKey == "" {
+			sp.AccessKey = legacy.AccessKey
+		}
+		if sp.AccessKeySecret == "" {
+			sp.AccessKeySecret = legacy.AccessKeySecret
+		}
+		if sp.AccessKeyID == "" {
+			sp.AccessKeyID = legacy.AccessKeyID
+		}
+	}
+	if sp.APIURL != "" {
+		legacy.APIURL = sp.APIURL
+		legacy.APIToken = sp.APIToken
+		legacy.AccessKey = sp.AccessKey
+		legacy.AccessKeySecret = sp.AccessKeySecret
+		legacy.AccessKeyID = sp.AccessKeyID
+		legacy.InsecureTLS = sp.InsecureTLS
+	}
+	if sp.PlayTTL <= 0 {
+		sp.PlayTTL = time.Hour
+	}
+}
+
+// setRemoteSaveDefaults 填充远程保存引擎默认值（配置默认值纪律：bool 默认 false）。
+func (c *Config) setRemoteSaveDefaults() {
+	rs := &c.RemoteSave
+	if rs.Concurrency <= 0 {
+		rs.Concurrency = 2
+	}
+	if rs.Concurrency > 8 {
+		rs.Concurrency = 8
+	}
+	if rs.ReconcileInterval <= 0 {
+		rs.ReconcileInterval = 10 * time.Minute
+	}
+	if rs.DeepReconcileInterval <= 0 {
+		rs.DeepReconcileInterval = 24 * time.Hour
+	}
+	if rs.SettleSeconds <= 0 {
+		rs.SettleSeconds = 30
+	}
+	if rs.MaxRetries <= 0 {
+		rs.MaxRetries = 3
+	}
+	if rs.MaxFilesPerObject <= 0 {
+		rs.MaxFilesPerObject = 1000
+	}
+}
+
 func (c *Config) Clone() *Config {
 	if c == nil {
 		return nil
@@ -406,6 +503,8 @@ func (c *Config) ValidateAndClamp() {
 	c.setFFmpegDefaults()
 	c.setRetryDefaults()
 	c.setGopeedDefaults()
+	c.setSproxyDefaults()
+	c.setRemoteSaveDefaults()
 	c.resolveTaskContexts()
 	c.validateTaskTypeDefaults()
 	c.resolveTaskSaveDirs()
@@ -540,6 +639,14 @@ func (c *Config) validateTaskExtras() {
 				t.Extra["refresh_interval"] = clampInt(vv, 10, 86400)
 			case float64:
 				t.Extra["refresh_interval"] = clampInt(int(vv), 10, 86400)
+			}
+		}
+		if rs, ok := t.Extra["remote_save"].(map[string]any); ok {
+			for _, k := range []string{"api_url", "api_token", "access_key", "access_key_secret", "access_key_id", "insecure_tls", "play_base_url", "play_ttl"} {
+				if _, exists := rs[k]; exists {
+					slog.Error("remote_save 不允许任务级账号/连接字段，请集中配置到顶层 sproxy",
+						"task_id", t.ID, "field", k)
+				}
 			}
 		}
 	}

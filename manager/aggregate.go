@@ -143,6 +143,7 @@ func copyRepresentative(rep *model.DownloadObject, groupSize int) *model.Downloa
 		Progress:      rep.Progress,
 		Version:       rep.Version,
 		CloudDownload: rep.CloudDownload,
+		RemoteSave:    model.CloneRemoteSaveState(rep.RemoteSave),
 	}
 	if rep.Metadata != nil {
 		c.Metadata = make(map[string]string, len(rep.Metadata))

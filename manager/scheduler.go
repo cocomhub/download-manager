@@ -22,6 +22,9 @@ func (m *Manager) Start() {
 	m.schedulerEnabled.Store(cfg.Runtime.Mode != config.RunModeUI && cfg.Runtime.Scheduler.Enabled)
 	slog.Info("disabled components", "scheduler", !m.schedulerEnabled.Load(), "workers", !m.workersEnabled.Load())
 	m.loadTasks()
+	if cfg.Runtime.Mode != config.RunModeUI && m.remoteSave != nil && m.remoteSave.Enabled() {
+		m.remoteSave.Start()
+	}
 	if m.workersEnabled.Load() {
 		limit := m.currentCfg().Downloader.GlobalConcurrent
 		if limit <= 0 {
@@ -108,6 +111,11 @@ func (m *Manager) Start() {
 				}
 			}
 			m.mu.Unlock()
+			if m.remoteSave != nil {
+				stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				m.remoteSave.Stop(stopCtx)
+				cancel()
+			}
 			m.closeAllTasks()
 			return
 		}
@@ -122,6 +130,11 @@ func (m *Manager) Stop(ctx context.Context) {
 	// 连带取消在途下载：云端下载的 Cancel 会同时取消 sproxy 侧任务
 	// （否则进程退出后服务端仍继续下载/转存，白占服务端配额）。
 	m.cancelActiveDownloads()
+	if m.remoteSave != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		m.remoteSave.Stop(stopCtx)
+		cancel()
+	}
 	m.StopResolveWorkers()
 	m.StopSmallObjectWorkers()
 

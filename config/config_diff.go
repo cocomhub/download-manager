@@ -55,6 +55,8 @@ func (c Config) Diff(b Config) []Change {
 	changes = append(changes, diffFFmpegFields(c, b)...)
 	changes = append(changes, diffTaskScanFields(c, b)...)
 	changes = append(changes, diffContextsFields(c, b)...)
+	changes = append(changes, diffSproxyFields(c, b)...)
+	changes = append(changes, diffRemoteSaveFields(c, b)...)
 	changes = append(changes, diffTaskConfigs(c, b)...)
 	changes = append(changes, diffTaskTypeDefaults(c, b)...)
 	return changes
@@ -333,6 +335,45 @@ func sproxyCloudDiffView(sc SproxyCloudConfig) map[string]any {
 		"timeout":               sc.Timeout,
 		"client_timeout":        sc.ClientTimeout,
 	}
+}
+
+func diffSproxyFields(c, b Config) []Change {
+	var changes []Change
+	if sproxyDiffHasChange(c.Sproxy, b.Sproxy) {
+		changes = append(changes, Change{Path: "sproxy", A: sproxyDiffView(c.Sproxy), B: sproxyDiffView(b.Sproxy)})
+	}
+	return changes
+}
+
+func sproxyDiffHasChange(a, b Sproxy) bool {
+	return a.APIURL != b.APIURL ||
+		(a.APIToken != "") != (b.APIToken != "") ||
+		a.AccessKey != b.AccessKey ||
+		(a.AccessKeySecret != "") != (b.AccessKeySecret != "") ||
+		a.AccessKeyID != b.AccessKeyID ||
+		a.InsecureTLS != b.InsecureTLS ||
+		a.PlayBaseURL != b.PlayBaseURL ||
+		a.PlayTTL != b.PlayTTL
+}
+
+func sproxyDiffView(sp Sproxy) map[string]any {
+	return map[string]any{
+		"api_url":               sp.APIURL,
+		"has_api_token":         sp.APIToken != "",
+		"access_key":            sp.AccessKey,
+		"has_access_key_secret": sp.AccessKeySecret != "",
+		"access_key_id":         sp.AccessKeyID,
+		"insecure_tls":          sp.InsecureTLS,
+		"play_base_url":         sp.PlayBaseURL,
+		"play_ttl":              sp.PlayTTL,
+	}
+}
+
+func diffRemoteSaveFields(c, b Config) []Change {
+	if c.RemoteSave == b.RemoteSave {
+		return nil
+	}
+	return []Change{{Path: "remote_save", A: c.RemoteSave, B: b.RemoteSave}}
 }
 
 func diffTaskScanFields(c, b Config) []Change {
