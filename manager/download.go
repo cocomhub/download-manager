@@ -17,6 +17,7 @@ import (
 	"github.com/cocomhub/download-manager/model"
 	"github.com/cocomhub/download-manager/pkg/download"
 	"github.com/cocomhub/download-manager/pkg/logutil"
+	"github.com/cocomhub/download-manager/remotesave"
 )
 
 // isCancelled 从 storage 重新读取对象状态检查是否已取消，
@@ -121,6 +122,19 @@ func (m *Manager) download(t core.Task, obj *model.DownloadObject) {
 	m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
 
 	dl := m.selectDownloader(obj)
+	if m.remoteSave != nil && obj.IsCloudDownload() {
+		if err := m.remoteSave.PrepareCloud(t, obj); err != nil {
+			if errors.Is(err, remotesave.ErrTargetExists) {
+				// 目标已存在：fail-closed，等待 UI 人工选择（reuse/overwrite/rename）。
+				t.UpdateStatus(obj, model.StatusFailedPermanent, err)
+				m.publish(core.Event{Type: core.EventObjectUpdate, Payload: obj})
+				m.publish(core.Event{Type: core.EventSharedObjectUpdate, Payload: obj})
+				return
+			}
+			m.handleDownloadError(t, obj, err)
+			return
+		}
+	}
 
 	// Create per-download context tied to manager lifecycle for cancellation
 	dlCtx, dlCancel := context.WithCancel(context.Background())
@@ -346,6 +360,9 @@ func (m *Manager) handleDownloadSuccess(t core.Task, obj *model.DownloadObject, 
 
 	t.UpdateStatus(obj, model.StatusCompleted, nil)
 	if m.remoteSave != nil {
+		if obj.IsCloudDownload() {
+			m.remoteSave.NotifyCloudCompleted(t, obj)
+		}
 		m.remoteSave.NotifyObjectCompleted(t, obj)
 	}
 	m.failedCount.Delete(obj.URL)
