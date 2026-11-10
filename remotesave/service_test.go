@@ -360,3 +360,41 @@ func mustStat(t *testing.T, p string) os.FileInfo {
 	}
 	return st
 }
+
+func TestResolveConflict_Overwrite(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "video.mp4")
+	body := []byte("local new content")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(path, old, old)
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: path, Status: model.StatusCompleted}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	client := &fakeClient{
+		files: map[string]*FileInfo{"hanime/2.5D/video.mp4": {Size: 5, Checksum: "different"}},
+		metas: map[string]MetaInfo{"hanime/2.5D/video.mp4": {MTime: mustStat(t, path).ModTime().UTC().Format(time.RFC3339Nano)}},
+		afterUpload: func(string, string) string {
+			sum := sha256.Sum256(body)
+			return hex.EncodeToString(sum[:])
+		},
+	}
+	svc := newTestService(t, task, client, func(_ core.Task, o *model.DownloadObject) {})
+	svc.handle(request{taskID: "t1", url: "u1"})
+	if got := obj.GetRemoteSave(); got == nil || got.Status != model.RemoteSaveStatusConflict {
+		t.Fatalf("precondition conflict: %+v", got)
+	}
+	if err := svc.ResolveConflict(context.Background(), "t1", "u1", "video.mp4", ConflictActionOverwrite); err != nil {
+		t.Fatal(err)
+	}
+	got := obj.GetRemoteSave()
+	if got == nil || got.Status != model.RemoteSaveStatusSynced {
+		t.Fatalf("after overwrite: %+v", got)
+	}
+	if client.uploads != 1 {
+		t.Fatalf("uploads=%d want 1", client.uploads)
+	}
+}
