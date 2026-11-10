@@ -386,3 +386,42 @@ func withTargetOf(raw string) string {
 	}
 	return u.Query().Get("spx_target")
 }
+
+// TestSproxyCloud_TransferVolumeOverride 验证按对象覆盖转存卷（任务级 remote_save.volume）。
+func TestSproxyCloud_TransferVolumeOverride(t *testing.T) {
+	t.Parallel()
+	var gotTransfer map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/cloud/download", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotTransfer, _ = body["transfer"].(map[string]any)
+		writeJSONResp(w, map[string]any{"id": "task-v", "status": "running"})
+	})
+	mux.HandleFunc("GET /api/cloud/tasks/task-v", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResp(w, map[string]any{"id": "task-v", "status": "completed"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	d := NewSproxyCloudDownloader(config.SproxyCloudConfig{
+		APIURL: srv.URL + "/api/cloud/download", PollEvery: 100, CloudOnly: true,
+		TransferVolume: "static", TransferPath: "static/x.mp4",
+	})
+	obj := &model.DownloadObject{
+		URL:      "https://mypikpak.com/s/abc",
+		SavePath: filepath.Join(t.TempDir(), "out.mp4"),
+		Extra: map[string]any{
+			"magnet_list":     []map[string]string{{"keepshare": "https://mypikpak.com/s/abc"}},
+			"target_file":     "x.mp4",
+			"transfer_volume": "baidu",
+			"transfer_path":   "hanime/2.5D/x.mp4",
+		},
+	}
+	if err := d.Download(obj, nil); err != nil {
+		t.Fatal(err)
+	}
+	if gotTransfer["volume"] != "baidu" {
+		t.Fatalf("volume=%v want baidu", gotTransfer["volume"])
+	}
+}

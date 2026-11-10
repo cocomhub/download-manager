@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
 	sproxyclient "github.com/cocomhub/sproxy/pkg/client"
+	"github.com/cocomhub/sproxy/pkg/sproxysig"
 )
 
 type fakeStorage struct {
@@ -396,5 +398,65 @@ func TestResolveConflict_Overwrite(t *testing.T) {
 	}
 	if client.uploads != 1 {
 		t.Fatalf("uploads=%d want 1", client.uploads)
+	}
+}
+
+func TestPrepareCloud_ObjectDirs(t *testing.T) {
+	t.Parallel()
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: "/tmp/x.mp4",
+		Metadata: map[string]string{"code": "ABC-001"}, CloudDownload: true,
+	}
+	task := &fakeTask{id: "t1", saveDir: "/tmp"}
+	cfg := &config.Config{
+		Sproxy:     config.Sproxy{APIURL: "https://sproxy.example.com"},
+		RemoteSave: config.RemoteSaveSettings{SettleSeconds: 1},
+		Tasks: []config.Task{{ID: "t1", Extra: map[string]any{"remote_save": map[string]any{
+			"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
+		}}}},
+	}
+	svc := New(Options{Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} }, WorkDir: t.TempDir()})
+	svc.ctx = context.Background()
+	if err := svc.PrepareCloud(task, obj); err != nil {
+		t.Fatal(err)
+	}
+	obj.RLock()
+	got, _ := obj.Extra["transfer_path"].(string)
+	obj.RUnlock()
+	if got != "hanime/2.5D/ABC-001/x.mp4" {
+		t.Fatalf("transfer_path=%q", got)
+	}
+}
+
+func TestBuildPlayURL_Verifies(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Sproxy: config.Sproxy{
+		APIURL: "https://sproxy.example.com", PlayBaseURL: "https://sproxy.example.com",
+		AccessKey: "ak", AccessKeySecret: "sk", AccessKeyID: "skey-1", PlayTTL: time.Hour,
+	}}
+	svc := New(Options{Cfg: func() *config.Config { return cfg }})
+	play, exp, err := svc.buildPlayURL(&model.RemoteSaveState{RemotePath: "hanime/x.mp4", Volume: "baidu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp.Before(time.Now()) {
+		t.Fatal("expired")
+	}
+	u, err := url.Parse(play)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := u.Query().Get("spx_sig")
+	if raw == "" {
+		t.Fatal("missing spx_sig")
+	}
+	vals := u.Query()
+	vals.Del("spx_sig")
+	hdr, err := sproxysig.ParseHeader(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sproxysig.Verify("sk", hdr, sproxysig.Request{Method: "GET", Path: "/download", Query: vals.Encode()}, time.Now(), time.Hour, 0, nil); err != nil {
+		t.Fatalf("verify: %v", err)
 	}
 }

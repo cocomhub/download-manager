@@ -6,6 +6,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
@@ -70,6 +71,22 @@ func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectU
 		return fmt.Errorf("remote-save 未装配")
 	}
 	return m.remoteSave.ResolveConflict(ctx, taskID, objectURL, rel, action)
+}
+
+// PlayRemoteURL 生成/刷新对象的签名播放 URL（有有效期）。
+func (m *Manager) PlayRemoteURL(taskID, objectURL string) (string, time.Time, error) {
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return "", time.Time{}, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	obj, err := t.Storage().Get(objectURL)
+	if err != nil || obj == nil {
+		return "", time.Time{}, fmt.Errorf("对象不存在: %s", objectURL)
+	}
+	if m.remoteSave == nil {
+		return "", time.Time{}, fmt.Errorf("remote-save 未装配")
+	}
+	return m.remoteSave.PlayURL(t, obj)
 }
 
 // RemoteSaveConflicts 返回任务下所有逐文件冲突（只读，供后续 UI 人工处理）。

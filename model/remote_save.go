@@ -56,6 +56,8 @@ type RemoteSaveState struct {
 	FilesTruncated bool              `json:"files_truncated,omitempty" bson:"files_truncated,omitempty"`
 	LastError      string            `json:"last_error,omitempty" bson:"last_error,omitempty"`
 	RemotePath     string            `json:"remote_path,omitempty" bson:"remote_path,omitempty"` // 主文件（视频）远端路径
+	PlayURL        string            `json:"play_url,omitempty" bson:"play_url,omitempty"`
+	PlayExpiresAt  time.Time         `json:"play_expires_at" bson:"play_expires_at,omitempty"`
 	UpdatedAt      time.Time         `json:"updated_at" bson:"updated_at"`
 	Files          []RemoteFileState `json:"files,omitempty" bson:"files,omitempty"`
 }
