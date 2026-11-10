@@ -331,15 +331,20 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	}
 	state.Volume, state.Dir, state.Status = cfg.Volume, cfg.Dir, model.RemoteSaveStatusSyncing
 	state.FilesTotal, state.FilesDone, state.BytesTotal, state.BytesDone, state.Conflicts, state.LastError = len(files), 0, 0, 0, 0, ""
-	rels := make([]string, 0, len(files))
-	var failures, skipped int
+	var rels []string
+	fileByRel := make(map[string]localFile, len(files))
 	for _, f := range files {
 		rel, rerr := LocalRel(saveDir(task), f.abs)
 		if rerr != nil {
-			failures++
 			continue
 		}
 		rels = append(rels, rel)
+		fileByRel[rel] = f
+	}
+	remotePaths := objectRemotePaths(obj, files, rels, cfg)
+	var failures, skipped int
+	for _, rel := range rels {
+		f := fileByRel[rel]
 		st, statErr := os.Lstat(f.abs)
 		if statErr == nil {
 			state.BytesTotal += st.Size()
@@ -348,7 +353,15 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 			skipped++
 			continue
 		}
-		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, force)
+		remote := remotePaths[rel]
+		if m, ok := man.Get(rel); ok && m.RemotePath != "" && !force {
+			remote = m.RemotePath
+		}
+		if remote == "" {
+			failures++
+			continue
+		}
+		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force)
 		s.Logger().Info("remote-save file", "task_id", task.ID(), "url", obj.URL, "file", rel, "status", res.Status, "reason", res.Reason)
 		switch res.Status {
 		case model.RemoteFileStatusConflict:
@@ -387,7 +400,7 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	s.persistState(task, obj, cfg, state)
 }
 
-func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, cfg TaskConfig, man *Manifest, obj *model.DownloadObject, f localFile, rel string, force bool) model.RemoteFileState {
+func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, cfg TaskConfig, man *Manifest, obj *model.DownloadObject, f localFile, rel, remote string, force bool) model.RemoteFileState {
 	st, err := os.Lstat(f.abs)
 	if err != nil {
 		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusMissing, Reason: err.Error()}
@@ -398,11 +411,10 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 	if !force && s.settling(st.ModTime()) {
 		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusSkipped, Reason: "settling"}
 	}
-	remote, rerr := cfg.RemotePath(rel)
-	if rerr != nil {
-		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: rerr.Error()}
-	}
 	if entry, ok := man.Get(rel); ok && !force && !s.verifyChecksum() && entry.Size == st.Size() && entry.MTimeNs == st.ModTime().UnixNano() && entry.SHA256 != "" {
+		if entry.Status == model.RemoteFileStatusSkipped {
+			return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: entry.SHA256, RemoteSHA256: entry.RemoteSHA256, Status: model.RemoteFileStatusSkipped}
+		}
 		meta, merr := BuildMeta(task, obj, rel, remote, st.Size(), st.ModTime(), entry.SHA256, cfg)
 		if merr == nil {
 			hash, _ := MetaHash(meta)

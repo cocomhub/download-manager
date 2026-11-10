@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -54,4 +55,28 @@ func (s *Server) getRemoteSaveConflicts(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set(hdrContentType, "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "conflicts": out, "total": len(out)})
+}
+
+// resolveRemoteSaveConflict 对单个冲突文件执行人工处理（B 阶段 UI 后端）。
+func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	var req struct {
+		ObjectURL string `json:"object_url"`
+		Path      string `json:"path"`
+		Action    string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid body")
+		return
+	}
+	if req.ObjectURL == "" || req.Path == "" || req.Action == "" {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "object_url/path/action 必填")
+		return
+	}
+	if err := s.mgr.ResolveRemoteSaveConflict(context.Background(), taskID, req.ObjectURL, req.Path, req.Action); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "remote_save_resolve_failed", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
