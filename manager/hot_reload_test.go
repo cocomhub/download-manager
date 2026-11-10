@@ -47,7 +47,7 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 
 	// Perform config hot-reload with increased capacity.
 	cfg := mgr.currentCfg()
-	newCfg := *cfg
+	newCfg := cfg.Clone()
 	newCfg.Downloader.GlobalConcurrent = 20
 	// Raise per-task concurrency so the scheduler can enqueue new objects
 	// even while the 2 ModePauseOnProgress downloads are still blocked.
@@ -57,7 +57,7 @@ func TestConfigHotReload_DuringActiveDownload(t *testing.T) {
 		}
 		newCfg.Tasks[0].Extra["max_concurrent"] = 20
 	}
-	if err := mgr.UpdateConfig(&newCfg, &AuditInfo{Source: "test", Message: "hot-reload-test"}); err != nil {
+	if err := mgr.UpdateConfig(newCfg, &AuditInfo{Source: "test", Message: "hot-reload-test"}); err != nil {
 		t.Fatalf("UpdateConfig failed: %v", err)
 	}
 

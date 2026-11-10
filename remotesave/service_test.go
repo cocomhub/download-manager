@@ -293,8 +293,8 @@ func TestService_IgnoresSymlink(t *testing.T) {
 		t.Fatalf("symlink 不应上传, uploads=%d", client.uploads)
 	}
 	rs := persisted.GetRemoteSave()
-	if rs == nil || rs.Status != model.RemoteSaveStatusSynced {
-		t.Fatalf("symlink 应跳过且对象 synced: %+v", rs)
+	if rs == nil || rs.Status != model.RemoteSaveStatusPending {
+		t.Fatalf("symlink 应跳过且对象 pending: %+v", rs)
 	}
 }
 
