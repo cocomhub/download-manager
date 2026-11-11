@@ -1,6 +1,6 @@
 # 远程保存（download-manager → sproxy）
 
-> 状态：A/B/C 已实现；UI 冲突处理面板待接入（后端接口已就绪）。
+> 状态：A/B/C 与 UI 冲突面板已实现；包含云端冲突、镜像清理、重试上限与重启恢复。
 
 ## 目标
 
@@ -39,8 +39,11 @@ remote_save:
   verify_checksum: false
 ```
 
-- `reconcile_interval`：快速对账（manifest 命中不访问远端）。
-- `deep_reconcile_interval`：深度对账（忽略 manifest，重算 sha256 + 校验远端）。
+- `reconcile_interval`：快速对账（manifest 命中时只核对远端 `Stat` 是否存在且 checksum 未变，
+  不重算本地 sha256）。
+- `deep_reconcile_interval`：深度对账（忽略 manifest，重算 sha256 + 校验远端）；上次执行时间
+  持久化在 `remote_save/deep.state`，进程重启不会把 24h 计时清零。
+- `max_retries`：失败对象自动重试上限；达到上限后自动对账停止重试，需人工触发/处理。
 - `settle_seconds`：跳过刚写入/可能仍在下载的文件。
 - `verify_checksum=true`：每次快速对账也重算本地 sha256。
 
@@ -73,8 +76,10 @@ tasks:
 - 逐文件 sha256/远端 sha256 写入 mongo `DownloadObject.RemoteSave.Files`。
 - 远端已存在且 sha256 一致 → `reused`；否则 `conflict`。
 - 默认只上传/复用，不删除远端；`mirror_delete=true` 时，任务级对账会删除「manifest 记录过、
-  对象已删除或已完成对象不再包含该文件」的远端文件（未知远端文件永不删除；对象仍存在但
-  非 completed 时跳过）。
+  当前 completed 文件集不再包含」的远端文件（未知远端文件永不删除；对象仍存在但非 completed
+  时跳过；列目录/数据库错误时 fail-closed；云端对象只保留当前 transfer 目标；用户 rename 的
+  保留文件不会被清理）。若同一 volume/dir 还有其它启用 remote_save 的任务，本任务跳过镜像
+  删除，避免跨任务误删。
 
 ## API
 
@@ -90,13 +95,15 @@ tasks:
 
 - `cloud_download` 对象提交前由 `PrepareCloud` 写入 `transfer_volume`/`transfer_path`，
   路径为 `<dir>/<对象键>/<目标文件>`（`object_dirs=false` 时保留目标相对路径）。
-- 目标已存在 → **fail-closed**，对象 `failed_permanent` + `RemoteSave=conflict`，等待人工处理。
+- 目标已存在 → **fail-closed**，对象 `failed_permanent` + `RemoteSave=conflict`；冲突仍会出现在
+  `/remote_save/conflicts`，可直接 reuse/overwrite/rename/skip。
 - 转存完成后 `NotifyCloudCompleted` 回读 sproxy 的 sha256/mtime，写入 mongo 与播放链接；
   非 cloud_only 对象本地文件走正常对账（manifest 记录 origin=cloud，避免重复上传）。
 - 云端冲突动作：
   - `reuse`：接受远端（不重新下载）；
   - `overwrite`：本地有文件则覆盖远端；cloud-only 则删除远端、清 cloud 坐标并重新入队下载；
-  - `rename`：本地有文件则上传到新路径；cloud-only 则远端改名；
+  - `rename`：本地有文件则上传到新路径；cloud-only 则先把既有远端改名保留，再重新入队下载到
+    原目标；
   - `skip`：保持跳过。
 
 ## UI 冲突处理
@@ -118,6 +125,9 @@ SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY
 ## 已知限制
 
 - 多实例同时写同一任务未做分布式锁（依赖单实例锁文件）。
-- 外部卷（百度）列举/Stat 最终一致；快速对账不访问远端，深度对账周期内可能短暂不一致。
-- 本地内容变化但 size+mtime 不变默认检测不到；开 `verify_checksum` 或深度对账可发现。
-- 云端冲突的 reuse/overwrite/rename 动作与 UI 面板待接入；当前 API 以 fail-closed 为主。
+- 外部卷（百度）列举/Stat 最终一致；快速对账会核对远端存在与 checksum，但本地内容变化且
+  size+mtime 不变需开 `verify_checksum` 或等待深度对账。
+- 云端多文件转存目前按 sproxy `transfer_url` + `files[]` 逐个记录；若 sproxy 只返回单个
+  transfer_url，状态以该主文件为准。
+- 覆盖/改名执行中途崩溃的恢复：删除已幂等（NotFound 视为成功）、改名目标已存在且 checksum
+  相同会复用；但 overwrite 删除后、上传前崩溃仍需重新执行一次动作。

@@ -30,6 +30,8 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 	if s == nil || task == nil || obj == nil || !obj.IsCloudDownload() {
 		return nil
 	}
+	unlock := s.lockObject(obj.URL)
+	defer unlock()
 	cfg, err := s.taskConfig(task)
 	if err != nil || !cfg.Enabled {
 		return err
@@ -51,6 +53,7 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 		obj.Extra["transfer_path"] = target
 		targets = append(targets, target)
 	} else {
+		used := map[string]string{}
 		for _, m := range files {
 			origPath := strings.TrimSpace(asString(m["path"]))
 			name := path.Base(origPath)
@@ -60,7 +63,13 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 			if name == "." || name == "" || name == "/" {
 				name = sanitizeRemoteSegment(path.Base(filepathToSlash(obj.SavePath)), false)
 			}
-			target := cloudPathForFile(cfg, key, origPath, sanitizeRemoteSegment(name, false))
+			base := sanitizeRemoteSegment(name, false)
+			target := cloudPathForFile(cfg, key, origPath, base)
+			if prev, ok := used[strings.ToLower(target)]; ok && prev != origPath {
+				base = withHashSuffix(base, origPath)
+				target = cloudPathForFile(cfg, key, origPath, base)
+			}
+			used[strings.ToLower(target)] = origPath
 			m["path"] = target
 			targets = append(targets, target)
 		}
@@ -68,34 +77,58 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 	}
 	obj.Unlock()
 
-	if client, cerr := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume); cerr == nil {
-		statCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		for _, target := range targets {
-			fi, serr := client.Stat(statCtx, target)
-			if serr == nil && fi != nil {
-				state := obj.GetRemoteSave()
-				if state == nil {
-					state = &model.RemoteSaveState{}
-				}
-				state.Status, state.Volume, state.Dir = model.RemoteSaveStatusConflict, cfg.Volume, cfg.Dir
-				state.Conflicts, state.LastError, state.UpdatedAt = 1, "cloud target exists: "+target, time.Now().UTC()
-				state.Files = append(state.Files, model.RemoteFileState{
-					Path: path.Base(target), RemotePath: target, Size: fi.Size,
-					RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusConflict, Reason: "target_exists",
-				})
-				obj.SetRemoteSave(state)
-				if s.opts.Persist != nil {
-					s.opts.Persist(task, obj)
-				}
-				return fmt.Errorf("%w: %s", ErrTargetExists, target)
-			}
-			if serr != nil && !errors.Is(serr, sproxyclient.ErrNotFound) {
-				// 无法确认目标状态时 fail-closed，避免误覆盖。
-				return fmt.Errorf("cloud target stat: %w", serr)
-			}
+	client, cerr := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume)
+	if cerr != nil {
+		return fmt.Errorf("cloud target check: %w", cerr)
+	}
+	statCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var conflicts []string
+	for _, target := range targets {
+		fi, serr := client.Stat(statCtx, target)
+		if serr == nil && fi != nil {
+			conflicts = append(conflicts, target)
+			continue
+		}
+		if serr != nil && !errors.Is(serr, sproxyclient.ErrNotFound) {
+			// 无法确认目标状态时 fail-closed，避免误覆盖。
+			return fmt.Errorf("cloud target stat: %w", serr)
 		}
 	}
+	if len(conflicts) > 0 {
+		state := obj.GetRemoteSave()
+		if state == nil {
+			state = &model.RemoteSaveState{}
+		}
+		state.Status, state.Volume, state.Dir = model.RemoteSaveStatusConflict, cfg.Volume, cfg.Dir
+		state.FilesTotal, state.FilesDone, state.BytesTotal, state.BytesDone = len(conflicts), 0, 0, 0
+		state.Conflicts, state.LastError, state.UpdatedAt = len(conflicts), "cloud target exists: "+strings.Join(conflicts, ", "), time.Now().UTC()
+		state.Files = nil
+		man := s.manifest(task.ID())
+		for _, target := range conflicts {
+			fi, _ := client.Stat(statCtx, target)
+			size, checksum := int64(0), ""
+			if fi != nil {
+				size, checksum = fi.Size, fi.Checksum
+			}
+			rel := remoteRelToTarget(cfg, target)
+			man.Put(ManifestEntry{
+				Path: rel, ObjectURL: obj.URL, RemotePath: target, Size: size,
+				RemoteSHA256: checksum, Status: model.RemoteFileStatusConflict, Reason: "target_exists", Origin: "cloud",
+			})
+			state.Files = append(state.Files, model.RemoteFileState{
+				Path: rel, RemotePath: target, Size: size,
+				RemoteSHA256: checksum, Status: model.RemoteFileStatusConflict, Reason: "target_exists",
+			})
+		}
+		_ = man.Flush()
+		obj.SetRemoteSave(state)
+		if s.opts.Persist != nil {
+			s.opts.Persist(task, obj)
+		}
+		return fmt.Errorf("%w: %s", ErrTargetExists, strings.Join(conflicts, ", "))
+	}
+
 	return nil
 }
 
@@ -125,87 +158,122 @@ func (s *Service) NotifyCloudCompleted(task core.Task, obj *model.DownloadObject
 }
 
 func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig, obj *model.DownloadObject) {
+	unlock := s.lockObject(obj.URL)
+	defer unlock()
 	transferURL := extraString(obj, "transfer_url")
 	if transferURL == "" {
+		s.persistState(task, obj, cfg, &model.RemoteSaveState{Status: model.RemoteSaveStatusFailed, Volume: cfg.Volume, Dir: cfg.Dir, LastError: "云端完成但缺少 transfer_url"})
 		return
 	}
-	volume, remote, err := parseTransferURL(transferURL)
+	volume, primary, err := parseTransferURL(transferURL)
 	if err != nil {
 		s.Logger().Warn("remote-save cloud transfer_url 解析失败", "task_id", task.ID(), "url", transferURL, "error", err)
 		return
 	}
-	s.recordCloudRemote(ctx, task, cfg, obj, volume, remote, false)
+	targets := []string{primary}
+	if files := normalizeCloudFiles(obj.Extra["files"]); len(files) > 0 {
+		for _, m := range files {
+			if p := strings.TrimSpace(asString(m["path"])); p != "" {
+				targets = append(targets, p)
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var firstErr error
+	man := s.manifest(task.ID())
+	for _, remote := range targets {
+		if remote == "" || seen[remote] {
+			continue
+		}
+		seen[remote] = true
+		rel := remoteRelToTarget(cfg, remote)
+		if e, ok := man.Get(rel); ok && e.ObjectURL == obj.URL && e.Status == model.RemoteFileStatusSkipped {
+			continue
+		}
+		if rerr := s.recordCloudRemote(ctx, task, cfg, obj, volume, rel, remote, false); rerr != nil {
+			s.Logger().Warn("remote-save cloud record failed", "task_id", task.ID(), "remote", remote, "error", rerr)
+			man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Status: model.RemoteFileStatusFailed, Origin: "cloud", Reason: rerr.Error()})
+			if firstErr == nil {
+				firstErr = rerr
+			}
+		}
+	}
+	setTransferURL(obj, volume, primary)
+	_ = man.Flush()
+	fs, ferr := s.collectObjectFileSet(task, obj)
+	if ferr != nil {
+		fs = objectFileSet{byRel: map[string]localFile{}}
+	}
+	delta := 0
+	if firstErr != nil {
+		delta = 1
+	}
+	s.refreshObjectState(task, cfg, obj, man, fs, delta)
 }
 
-// recordCloudRemote 回读 sproxy 远端坐标的 sha256/mtime，写 manifest/mongo/播放 URL。
-// 供转存完成、冲突 reuse/rename 复用。
-func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg TaskConfig, obj *model.DownloadObject, volume, remote string, acceptRemote bool) {
+// recordCloudRemote 回读 sproxy 远端坐标的 sha256/mtime，写 manifest 与 transfer_url。
+// acceptRemote=true 表示用户明确接受远端内容（reuse），不再要求本地 sha 相同；
+// 否则本地文件存在时必须与远端 sha 一致。
+func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg TaskConfig, obj *model.DownloadObject, volume, rel, remote string, acceptRemote bool) error {
 	if volume == "" {
 		volume = cfg.Volume
 	}
 	client, err := s.opts.ClientFor(s.sproxyCfg(), volume)
 	if err != nil {
-		s.Logger().Error("remote-save cloud client init failed", "task_id", task.ID(), "error", err)
-		return
+		return err
 	}
 	fi, err := client.Stat(ctx, remote)
-	if err != nil || fi == nil {
-		s.Logger().Warn("remote-save cloud stat failed", "task_id", task.ID(), "remote", remote, "error", err)
-		return
+	if err != nil {
+		return fmt.Errorf("stat: %w", err)
 	}
-	if fi.Checksum == "" {
-		s.Logger().Warn("remote-save cloud 缺少远端 sha256，拒绝标记同步", "task_id", task.ID(), "remote", remote)
-		return
+	if fi == nil || fi.Checksum == "" {
+		return fmt.Errorf("远端缺少 sha256: %s", remote)
 	}
-	localRel := path.Base(remote)
+	if rel == "" {
+		rel = remoteRelToTarget(cfg, remote)
+	}
 	size := fi.Size
-	var mtime time.Time
+	mtime := time.Time{}
 	if mi, merr := client.GetMeta(ctx, remote); merr == nil && mi.MTime != "" {
 		if t, terr := time.Parse(time.RFC3339Nano, mi.MTime); terr == nil {
 			mtime = t
 		}
 	}
 	if st, serr := os.Stat(obj.SavePath); serr == nil && st.Mode().IsRegular() {
-		localRel = filepathToSlash(obj.SavePath)
-		if rel, rerr := LocalRel(saveDir(task), obj.SavePath); rerr == nil {
-			localRel = rel
-		}
 		if !acceptRemote {
 			sum, herr := hashFile(ctx, obj.SavePath)
 			if herr != nil || !strings.EqualFold(sum, fi.Checksum) {
-				s.Logger().Warn("remote-save cloud 本地文件与远端 sha256 不一致", "task_id", task.ID(), "path", obj.SavePath)
-				return
+				return fmt.Errorf("本地文件与远端 sha256 不一致")
 			}
-		}
-		size = st.Size()
-		if !acceptRemote {
+			size = st.Size()
 			mtime = st.ModTime()
 		}
 	}
-	meta, merr := BuildMeta(task, obj, localRel, remote, size, mtime, fi.Checksum, cfg)
-	if merr == nil {
-		if uerr := client.UpdateMeta(ctx, remote, meta); uerr != nil {
-			s.Logger().Warn("remote-save cloud 补录 meta 失败", "task_id", task.ID(), "error", uerr)
-		}
+	meta, merr := BuildMeta(task, obj, rel, remote, size, mtime, fi.Checksum, cfg)
+	if merr != nil {
+		return merr
+	}
+	if uerr := client.UpdateMeta(ctx, remote, meta); uerr != nil {
+		return fmt.Errorf("补录 meta: %w", uerr)
 	}
 	metaHash, _ := MetaHash(meta)
 	man := s.manifest(task.ID())
 	man.Put(ManifestEntry{
-		Path: localRel, ObjectURL: obj.URL, RemotePath: remote, Size: size, MTimeNs: mtime.UnixNano(),
+		Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: size, MTimeNs: mtime.UnixNano(),
 		SHA256: fi.Checksum, RemoteSHA256: fi.Checksum, MetaHash: metaHash,
 		Origin: "cloud", Status: model.RemoteFileStatusUploaded,
 	})
-	_ = man.Flush()
-	state := &model.RemoteSaveState{
-		Status: model.RemoteSaveStatusSynced, Volume: volume, Dir: cfg.Dir,
-		FilesTotal: 1, FilesDone: 1, BytesTotal: size, BytesDone: size,
-		RemotePath: remote, UpdatedAt: time.Now().UTC(),
+	setTransferURL(obj, volume, remote)
+	return nil
+}
+
+func setTransferURL(obj *model.DownloadObject, volume, remote string) {
+	obj.Lock()
+	defer obj.Unlock()
+	if obj.Extra == nil {
+		obj.Extra = map[string]any{}
 	}
-	state.Files, _ = ToModelFiles(man.Snapshot(), []string{localRel}, s.maxFiles())
-	if play, exp, perr := s.buildPlayURL(state); perr == nil {
-		state.PlayURL, state.PlayExpiresAt = play, exp
-	}
-	s.persistState(task, obj, cfg, state)
+	obj.Extra["transfer_url"] = "local://" + volume + "/" + remote
 }
 
 // PlayURL 生成/刷新签名播放 URL，并写回对象状态。
@@ -328,4 +396,33 @@ func asString(v any) string {
 
 func filepathToSlash(p string) string {
 	return strings.ReplaceAll(p, "\\", "/")
+}
+
+// cloudRemotePaths 返回云端对象当前有效的转存目标（transfer_url + files[] 路径）。
+func cloudRemotePaths(obj *model.DownloadObject) []string {
+	if obj == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if u := extraString(obj, "transfer_url"); u != "" {
+		if _, rel, err := parseTransferURL(u); err == nil {
+			add(rel)
+		}
+	}
+	obj.RLock()
+	rawFiles := obj.Extra["files"]
+	obj.RUnlock()
+	for _, m := range normalizeCloudFiles(rawFiles) {
+		add(asString(m["path"]))
+	}
+	return out
 }

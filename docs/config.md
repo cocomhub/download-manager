@@ -109,7 +109,7 @@ tasks:
         volume: baidu
         dir: hanime/2.5D
         object_dirs: false   # B 阶段：远端按番号/唯一 id 分目录
-        mirror_delete: false # 可选：删除已不在 completed 对象文件集的远端孤儿（只删 manifest 记录过的）
+        mirror_delete: false # 可选：删除已不在当前 completed 文件集的远端孤儿（只删 manifest 记录过的；跨任务/云端/rename 保留）
         exclude: []          # 可选 glob（相对任务 SaveDir）
 ```
 

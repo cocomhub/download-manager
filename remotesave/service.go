@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,7 +47,14 @@ type Service struct {
 	inflight  sync.Map
 	manifests sync.Map // taskID -> *Manifest
 	mu        sync.Mutex
+	objMu     sync.Mutex
+	objLocks  map[string]*objectLock
 	started   bool
+}
+
+type objectLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 type request struct {
@@ -207,7 +215,7 @@ func (s *Service) reconciler() {
 	defer s.wg.Done()
 	timer := time.NewTimer(0)
 	defer timer.Stop()
-	lastDeep := time.Now()
+	lastDeep := s.loadLastDeep()
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -226,6 +234,7 @@ func (s *Service) reconciler() {
 			deep := time.Since(lastDeep) >= deepEvery
 			if deep {
 				lastDeep = time.Now()
+				s.saveLastDeep(lastDeep)
 			}
 			s.enqueueAll(deep)
 			timer.Reset(interval)
@@ -286,27 +295,38 @@ func (s *Service) handle(r request) {
 // 安全边界：只删 manifest 中 ObjectURL 可判定为已删除/已完成对象已无此文件的条目；
 // 对象仍存在但非 completed（临时失败/重下）不删；未知远端文件永不删。
 func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskConfig, objs []*model.DownloadObject, man *Manifest) {
+	if s.mirrorDeleteUnsafe(task, cfg) {
+		s.Logger().Warn("remote-save mirror cleanup skipped: another enabled task shares the same volume/dir", "task_id", task.ID(), "volume", cfg.Volume, "dir", cfg.Dir)
+		return
+	}
 	completed := make(map[string]*model.DownloadObject, len(objs))
 	for _, obj := range objs {
 		completed[obj.URL] = obj
 	}
 	expected := map[string]bool{}
+	filesKnown := map[string]bool{}
+	entries := man.Snapshot()
 	for _, obj := range objs {
-		files, err := s.objectFiles(task, obj)
+		fs, err := s.collectObjectFileSet(task, obj)
 		if err != nil {
+			filesKnown[obj.URL] = false
 			continue
 		}
-		var rels []string
-		for _, f := range files {
-			if rel, rerr := LocalRel(saveDir(task), f.abs); rerr == nil {
-				rels = append(rels, rel)
-			}
-		}
-		for _, p := range objectRemotePaths(obj, files, rels, cfg) {
+		filesKnown[obj.URL] = true
+		for _, p := range objectRemotePaths(obj, fs.files, fs.rels, cfg) {
 			expected[p] = true
 		}
-		for _, e := range man.Snapshot() {
-			if e.ObjectURL == obj.URL && e.RemotePath != "" {
+		if obj.IsCloudDownload() {
+			paths := cloudRemotePaths(obj)
+			if len(paths) == 0 {
+				filesKnown[obj.URL] = false
+			}
+			for _, p := range paths {
+				expected[p] = true
+			}
+		}
+		for _, e := range entries {
+			if e.ObjectURL == obj.URL && strings.HasPrefix(e.Reason, "user rename") && e.RemotePath != "" {
 				expected[e.RemotePath] = true
 			}
 		}
@@ -316,29 +336,71 @@ func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskCon
 		return
 	}
 	st := task.Storage()
-	for rel, e := range man.Snapshot() {
+	changed := map[string]*model.DownloadObject{}
+	for rel, e := range entries {
 		if expected[e.RemotePath] || e.ObjectURL == "" || e.RemotePath == "" {
 			continue
 		}
 		if cfg.Dir != "" && !strings.HasPrefix(e.RemotePath, strings.TrimSuffix(cfg.Dir, "/")+"/") {
 			continue
 		}
-		if _, still := completed[e.ObjectURL]; !still {
-			if st == nil {
-				continue
-			}
-			if obj, gerr := st.Get(e.ObjectURL); gerr == nil && obj != nil {
-				continue // 对象仍存在（failed/pending 等），镜像清理不介入
-			}
+		// 删除前始终重新确认对象状态，避免对账列表读取后对象已变成 failed/pending 时误删。
+		if st == nil {
+			continue
 		}
-		if err := client.Delete(ctx, e.RemotePath); err != nil {
+		obj, gerr := st.Get(e.ObjectURL)
+		if gerr == nil && obj != nil && obj.GetStatus() != model.StatusCompleted {
+			continue // 对象仍存在但非 completed，镜像清理不介入
+		}
+		if gerr != nil && !errors.Is(gerr, core.ErrObjectNotFound) {
+			s.Logger().Warn("remote-save mirror lookup failed, skip delete", "task_id", task.ID(), "object", e.ObjectURL, "error", gerr)
+			continue
+		}
+		if _, still := completed[e.ObjectURL]; still && !filesKnown[e.ObjectURL] {
+			// 对象仍是 completed，但本次无法可靠列举文件：不动，避免临时 IO 错误导致误删。
+			continue
+		}
+		if err := client.Delete(ctx, e.RemotePath); err != nil && !errors.Is(err, sproxyclient.ErrNotFound) {
 			s.Logger().Warn("remote-save mirror delete failed", "task_id", task.ID(), "remote", e.RemotePath, "error", err)
 			continue
 		}
 		man.Delete(rel)
+		if obj := completed[e.ObjectURL]; obj != nil {
+			changed[e.ObjectURL] = obj
+		}
 		s.Logger().Info("remote-save mirror deleted orphan", "task_id", task.ID(), "remote", e.RemotePath)
 	}
 	_ = man.Flush()
+	for _, obj := range changed {
+		fs, ferr := s.collectObjectFileSet(task, obj)
+		if ferr == nil {
+			s.refreshObjectState(task, cfg, obj, man, fs, 0)
+		}
+	}
+}
+
+func (s *Service) mirrorDeleteUnsafe(task core.Task, cfg TaskConfig) bool {
+	for _, other := range s.opts.Tasks() {
+		if other == nil || other.ID() == task.ID() {
+			continue
+		}
+		oc, err := s.taskConfig(other)
+		if err != nil || !oc.Enabled || oc.Volume != cfg.Volume {
+			continue
+		}
+		if remoteDirsOverlap(oc.Dir, cfg.Dir) {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteDirsOverlap(a, b string) bool {
+	a, b = path.Clean(strings.TrimSpace(a)), path.Clean(strings.TrimSpace(b))
+	if a == "." || b == "." {
+		return true
+	}
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 func (s *Service) listCompleted(task core.Task, url string) ([]*model.DownloadObject, error) {
@@ -376,18 +438,52 @@ func (s *Service) listCompleted(task core.Task, url string) ([]*model.DownloadOb
 }
 
 func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.DownloadObject, force bool) {
-	if obj.GetStatus() != model.StatusCompleted {
+	if obj == nil || obj.GetStatus() != model.StatusCompleted {
 		return
 	}
-	files, err := s.objectFiles(task, obj)
+	unlock := s.lockObject(obj.URL)
+	defer unlock()
+	fs, err := s.collectObjectFileSet(task, obj)
 	if err != nil {
 		s.Logger().Warn("remote-save collect files failed", "task_id", task.ID(), "url", obj.URL, "error", err)
 		s.persistState(task, obj, cfg, &model.RemoteSaveState{Status: model.RemoteSaveStatusFailed, Volume: cfg.Volume, Dir: cfg.Dir, LastError: err.Error()})
 		return
 	}
-	if len(files) == 0 {
+	if len(fs.files) == 0 {
 		s.Logger().Info("remote-save skip object without local files", "task_id", task.ID(), "url", obj.URL)
 		return
+	}
+	if obj.IsCloudDownload() {
+		existing := fs.files[:0]
+		for _, f := range fs.files {
+			if st, err := os.Lstat(f.abs); err == nil && st.Mode().IsRegular() {
+				existing = append(existing, f)
+			}
+		}
+		if len(existing) == 0 {
+			s.Logger().Info("remote-save skip cloud object without local file", "task_id", task.ID(), "url", obj.URL)
+			return
+		}
+		fs.files = existing
+		fs.rels = fs.rels[:0]
+		fs.byRel = make(map[string]localFile, len(existing))
+		for _, f := range existing {
+			if rel, rerr := LocalRel(saveDir(task), f.abs); rerr == nil {
+				fs.rels = append(fs.rels, rel)
+				fs.byRel[rel] = f
+			}
+		}
+		sort.Strings(fs.rels)
+	}
+	if state := obj.GetRemoteSave(); !force && state != nil {
+		if state.Conflicts > 0 {
+			s.Logger().Debug("remote-save skip object with unresolved conflict", "task_id", task.ID(), "url", obj.URL)
+			return
+		}
+		if state.Status == model.RemoteSaveStatusFailed && state.Retries >= s.maxRetries() {
+			s.Logger().Warn("remote-save retries exhausted", "task_id", task.ID(), "url", obj.URL, "retries", state.Retries)
+			return
+		}
 	}
 	client, err := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume)
 	if err != nil {
@@ -396,106 +492,59 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 		return
 	}
 	man := s.manifest(task.ID())
-	state := obj.GetRemoteSave()
-	if state == nil {
-		state = &model.RemoteSaveState{}
-	}
-	state.Volume, state.Dir, state.Status = cfg.Volume, cfg.Dir, model.RemoteSaveStatusSyncing
-	state.FilesTotal, state.FilesDone, state.BytesTotal, state.BytesDone, state.Conflicts, state.LastError = len(files), 0, 0, 0, 0, ""
-	var rels []string
-	fileByRel := make(map[string]localFile, len(files))
-	for _, f := range files {
-		rel, rerr := LocalRel(saveDir(task), f.abs)
-		if rerr != nil {
-			continue
-		}
-		rels = append(rels, rel)
-		fileByRel[rel] = f
-	}
-	remotePaths := objectRemotePaths(obj, files, rels, cfg)
-	var failures, skipped int
-	for _, rel := range rels {
-		f := fileByRel[rel]
-		st, statErr := os.Lstat(f.abs)
-		if statErr == nil {
-			state.BytesTotal += st.Size()
-		}
+	remotePaths := objectRemotePaths(obj, fs.files, fs.rels, cfg)
+	for _, rel := range fs.rels {
+		f := fs.byRel[rel]
 		if IsExcluded(rel, cfg.Exclude) {
-			skipped++
 			continue
 		}
 		remote := remotePaths[rel]
-		if m, ok := man.Get(rel); ok && m.RemotePath != "" && !force {
+		if m, ok := man.Get(rel); ok && m.RemotePath != "" && (m.ObjectURL == "" || m.ObjectURL == obj.URL) {
 			remote = m.RemotePath
 		}
 		if remote == "" {
-			failures++
 			continue
 		}
 		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force)
 		s.Logger().Info("remote-save file", "task_id", task.ID(), "url", obj.URL, "file", rel, "status", res.Status, "reason", res.Reason)
-		switch res.Status {
-		case model.RemoteFileStatusConflict:
-			state.Conflicts++
-			failures++
-		case model.RemoteFileStatusFailed, model.RemoteFileStatusMissing:
-			failures++
-			if state.LastError == "" {
-				state.LastError = res.Reason
-			}
-		case model.RemoteFileStatusUploaded, model.RemoteFileStatusReused:
-			state.FilesDone++
-			state.BytesDone += res.Size
-			if state.RemotePath == "" {
-				state.RemotePath = res.RemotePath
-			}
-		case model.RemoteFileStatusSkipped:
-			skipped++
-		}
 	}
-	switch {
-	case state.Conflicts > 0:
-		state.Status = model.RemoteSaveStatusConflict
-	case failures > 0:
-		state.Status = model.RemoteSaveStatusFailed
-	default:
-		state.Status = model.RemoteSaveStatusSynced
-	}
-	if skipped > 0 && state.Status == model.RemoteSaveStatusSynced {
-		state.Status = model.RemoteSaveStatusPending
-	}
-	entries := man.Snapshot()
-	state.Files, state.FilesTruncated = ToModelFiles(entries, rels, s.maxFiles())
-	if state.Status == model.RemoteSaveStatusSynced && state.RemotePath != "" {
-		if play, exp, perr := s.buildPlayURL(state); perr == nil {
-			state.PlayURL, state.PlayExpiresAt = play, exp
-		}
-	}
-	state.UpdatedAt = time.Now().UTC()
 	_ = man.Flush()
-	s.persistState(task, obj, cfg, state)
+	s.refreshObjectState(task, cfg, obj, man, fs, 1)
 }
 
 func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, cfg TaskConfig, man *Manifest, obj *model.DownloadObject, f localFile, rel, remote string, force bool) model.RemoteFileState {
 	st, err := os.Lstat(f.abs)
 	if err != nil {
-		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusMissing, Reason: err.Error()}
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Status: model.RemoteFileStatusMissing, Reason: err.Error()})
+		return model.RemoteFileState{Path: rel, RemotePath: remote, Status: model.RemoteFileStatusMissing, Reason: err.Error()}
 	}
 	if !st.Mode().IsRegular() {
-		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusSkipped, Reason: "not regular file"}
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), Status: model.RemoteFileStatusSkipped, Reason: "not regular file"})
+		return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), Status: model.RemoteFileStatusSkipped, Reason: "not regular file"}
 	}
 	if !force && s.settling(st.ModTime()) {
-		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusSkipped, Reason: "settling"}
+		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), Status: model.RemoteFileStatusSkipped, Reason: "settling"})
+		return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), Status: model.RemoteFileStatusSkipped, Reason: "settling"}
 	}
-	if entry, ok := man.Get(rel); ok && !force && !s.verifyChecksum() && entry.Size == st.Size() && entry.MTimeNs == st.ModTime().UnixNano() && entry.SHA256 != "" {
-		if entry.Status == model.RemoteFileStatusSkipped {
+	if entry, ok := man.Get(rel); ok && (entry.ObjectURL == "" || entry.ObjectURL == obj.URL) && !force && !s.verifyChecksum() && entry.Size == st.Size() && entry.MTimeNs == st.ModTime().UnixNano() && entry.SHA256 != "" {
+		if entry.Status == model.RemoteFileStatusSkipped && entry.Reason != "settling" {
 			return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: entry.SHA256, RemoteSHA256: entry.RemoteSHA256, Status: model.RemoteFileStatusSkipped}
 		}
-		meta, merr := BuildMeta(task, obj, rel, remote, st.Size(), st.ModTime(), entry.SHA256, cfg)
-		if merr == nil {
-			hash, _ := MetaHash(meta)
-			if hash == entry.MetaHash && (entry.Status == model.RemoteFileStatusUploaded || entry.Status == model.RemoteFileStatusReused) {
-				return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: entry.SHA256, RemoteSHA256: entry.RemoteSHA256, Status: entry.Status}
+		// manifest 只是缓存，不是远端事实源：必须核对远端仍存在且 checksum 未变，
+		// 否则远端被删/卷回滚后会永远停留在“已同步”。
+		if entry.Status == model.RemoteFileStatusUploaded || entry.Status == model.RemoteFileStatusReused {
+			fi, serr := client.Stat(ctx, remote)
+			if serr != nil && !errors.Is(serr, sproxyclient.ErrNotFound) {
+				return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "stat: " + serr.Error()}
+			}
+			if serr == nil && fi != nil && fi.Checksum != "" && (strings.EqualFold(fi.Checksum, entry.RemoteSHA256) || strings.EqualFold(fi.Checksum, entry.SHA256)) {
+				meta, merr := BuildMeta(task, obj, rel, remote, st.Size(), st.ModTime(), entry.SHA256, cfg)
+				if merr == nil {
+					hash, _ := MetaHash(meta)
+					if hash == entry.MetaHash {
+						return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: entry.SHA256, RemoteSHA256: entry.RemoteSHA256, Status: entry.Status}
+					}
+				}
 			}
 		}
 	}
@@ -619,6 +668,37 @@ func (s *Service) persistState(task core.Task, obj *model.DownloadObject, _ Task
 	if s.opts.Persist != nil {
 		s.opts.Persist(task, obj)
 	}
+}
+
+func (s *Service) lockObject(key string) func() {
+	s.objMu.Lock()
+	if s.objLocks == nil {
+		s.objLocks = map[string]*objectLock{}
+	}
+	l := s.objLocks[key]
+	if l == nil {
+		l = &objectLock{}
+		s.objLocks[key] = l
+	}
+	l.refs++
+	s.objMu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		s.objMu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(s.objLocks, key)
+		}
+		s.objMu.Unlock()
+	}
+}
+
+func (s *Service) maxRetries() int {
+	if cfg := s.opts.Cfg(); cfg != nil && cfg.RemoteSave.MaxRetries > 0 {
+		return cfg.RemoteSave.MaxRetries
+	}
+	return 3
 }
 
 func (s *Service) taskByID(id string) (core.Task, bool) {

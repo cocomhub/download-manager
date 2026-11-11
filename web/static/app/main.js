@@ -631,9 +631,13 @@
         var self = this
         if (!this.selectedTaskId) return
         this.remoteSaveBusy = true
-        AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
-          .then(function(data) { self.remoteSaveConflicts = (data && data.conflicts) || [] })
-          .catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
+        Promise.all([
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
+        ]).then(function(data) {
+          self.remoteSaveStatus = data[0] || null
+          self.remoteSaveConflicts = (data[1] && data[1].conflicts) || []
+        }).catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
       resolveRemoteSaveConflict: function(conflict, action) {

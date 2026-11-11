@@ -74,11 +74,10 @@ func BuildMeta(task core.Task, obj *model.DownloadObject, fileRel, remotePath st
 	if len(tags) > 0 {
 		meta["genres"] = tags
 	}
-	if b, err := json.Marshal(meta); err != nil {
+	if _, err := json.Marshal(meta); err != nil {
 		return nil, fmt.Errorf("meta 序列化失败: %w", err)
-	} else if len(b) > 10<<20 {
-		return nil, fmt.Errorf("meta 序列化后超过 10MiB（%d）", len(b))
 	}
+	// 大小上限由 sproxy 的 max_file_meta_bytes 执行（可配置），这里不重复硬编码。
 	return meta, nil
 }
 
