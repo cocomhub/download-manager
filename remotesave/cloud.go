@@ -23,6 +23,9 @@ import (
 // ErrTargetExists 表示云端转存目标已存在（必须先人工选择 reuse/overwrite/rename）。
 var ErrTargetExists = errors.New("remote-save: 目标已存在")
 
+// ErrRemoteChecksum 表示云端内容无法与本地/远端记录用 sha256 证明一致，应进入人工冲突流程。
+var ErrRemoteChecksum = errors.New("remote-save: 云端 checksum 不一致")
+
 // PrepareCloud 在提交 sproxy 云端下载前，把转存目标路径改写为
 // <dir>/<objectKey>/<filename>（object_dirs=false 时保持 <dir>/<rel>）。
 // 目标已存在时 fail-closed（记录 conflict），避免服务端下载后才发现 ErrExists。
@@ -102,6 +105,8 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 		}
 		state.Status, state.Volume, state.Dir = model.RemoteSaveStatusConflict, cfg.Volume, cfg.Dir
 		state.FilesTotal, state.FilesDone, state.BytesTotal, state.BytesDone = len(conflicts), 0, 0, 0
+		state.FilesTruncated, state.RemotePath = false, ""
+		state.PlayURL, state.PlayExpiresAt = "", time.Time{}
 		state.Conflicts, state.LastError, state.UpdatedAt = len(conflicts), "cloud target exists: "+strings.Join(conflicts, ", "), time.Now().UTC()
 		state.Files = nil
 		man := s.manifest(task.ID())
@@ -187,12 +192,27 @@ func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig,
 		}
 		seen[remote] = true
 		rel := remoteRelToTarget(cfg, remote)
-		if e, ok := man.Get(rel); ok && e.ObjectURL == obj.URL && e.Status == model.RemoteFileStatusSkipped {
+		if obj.SavePath != "" && remote == primary {
+			if lrel, lerr := LocalRel(saveDir(task), obj.SavePath); lerr == nil {
+				rel = lrel
+			}
+		}
+		if e, ok := man.GetFor(obj.URL, rel); ok && e.Status == model.RemoteFileStatusSkipped {
 			continue
+		}
+		// 云端目标冲突的 skip 可能按 target rel 记录；本地 rel 不同时也要尊重。
+		if targetRel := remoteRelToTarget(cfg, remote); targetRel != rel {
+			if e, ok := man.GetFor(obj.URL, targetRel); ok && e.Status == model.RemoteFileStatusSkipped {
+				continue
+			}
 		}
 		if rerr := s.recordCloudRemote(ctx, task, cfg, obj, volume, rel, remote, false); rerr != nil {
 			s.Logger().Warn("remote-save cloud record failed", "task_id", task.ID(), "remote", remote, "error", rerr)
-			man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Status: model.RemoteFileStatusFailed, Origin: "cloud", Reason: rerr.Error()})
+			st := model.RemoteFileStatusFailed
+			if errors.Is(rerr, ErrRemoteChecksum) {
+				st = model.RemoteFileStatusConflict
+			}
+			man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Status: st, Origin: "cloud", Reason: rerr.Error()})
 			if firstErr == nil {
 				firstErr = rerr
 			}
@@ -227,7 +247,7 @@ func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg Tas
 		return fmt.Errorf("stat: %w", err)
 	}
 	if fi == nil || fi.Checksum == "" {
-		return fmt.Errorf("远端缺少 sha256: %s", remote)
+		return fmt.Errorf("%w: 远端缺少 sha256: %s", ErrRemoteChecksum, remote)
 	}
 	if rel == "" {
 		rel = remoteRelToTarget(cfg, remote)
@@ -239,12 +259,23 @@ func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg Tas
 			mtime = t
 		}
 	}
-	if st, serr := os.Stat(obj.SavePath); serr == nil && st.Mode().IsRegular() {
-		if !acceptRemote {
+	localSHA := fi.Checksum
+	localRel := ""
+	if obj.SavePath != "" {
+		if rel, rerr := LocalRel(saveDir(task), obj.SavePath); rerr == nil {
+			localRel = rel
+		}
+	}
+	if localRel == rel {
+		if st, serr := os.Stat(obj.SavePath); serr == nil && st.Mode().IsRegular() {
 			sum, herr := hashFile(ctx, obj.SavePath)
-			if herr != nil || !strings.EqualFold(sum, fi.Checksum) {
-				return fmt.Errorf("本地文件与远端 sha256 不一致")
+			if herr != nil {
+				return herr
 			}
+			if !acceptRemote && !strings.EqualFold(sum, fi.Checksum) {
+				return fmt.Errorf("%w: 本地文件与远端 sha256 不一致", ErrRemoteChecksum)
+			}
+			localSHA = sum
 			size = st.Size()
 			mtime = st.ModTime()
 		}
@@ -260,7 +291,7 @@ func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg Tas
 	man := s.manifest(task.ID())
 	man.Put(ManifestEntry{
 		Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: size, MTimeNs: mtime.UnixNano(),
-		SHA256: fi.Checksum, RemoteSHA256: fi.Checksum, MetaHash: metaHash,
+		SHA256: localSHA, RemoteSHA256: fi.Checksum, MetaHash: metaHash,
 		Origin: "cloud", Status: model.RemoteFileStatusUploaded,
 	})
 	setTransferURL(obj, volume, remote)

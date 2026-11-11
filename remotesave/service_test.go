@@ -797,7 +797,7 @@ func TestCloudSkip_PersistsAcrossSyncCloud(t *testing.T) {
 	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSynced {
 		t.Fatalf("initial cloud state=%+v", state)
 	}
-	rel := remoteRelToTarget(cfg, remote)
+	rel, _ := LocalRel(dir, obj.SavePath)
 	man := svc.manifest("t1")
 	e, _ := man.Get(rel)
 	e.Status = model.RemoteFileStatusConflict
@@ -893,5 +893,155 @@ func TestMirrorDelete_KeepsCurrentCloudTarget(t *testing.T) {
 	svc.mirrorCleanup(context.Background(), task, cfg, []*model.DownloadObject{obj}, man)
 	if _, ok := man.Get(remoteRelToTarget(cfg, remote)); !ok {
 		t.Fatal("current cloud target deleted")
+	}
+}
+
+type statFailClient struct {
+	Client
+	fail bool
+}
+
+func (c *statFailClient) Stat(ctx context.Context, remote string) (*FileInfo, error) {
+	if c.fail {
+		return nil, errors.New("sproxy unavailable")
+	}
+	return c.Client.Stat(ctx, remote)
+}
+
+func TestSyncObject_StatFailureAfterSuccessIsFailed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(local, old, old); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	base := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	client := &statFailClient{Client: base}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSynced {
+		t.Fatalf("initial state=%+v", state)
+	}
+	client.fail = true
+	svc.syncObject(task, cfg, obj, false)
+	state := obj.GetRemoteSave()
+	if state == nil || state.Status != model.RemoteSaveStatusFailed {
+		t.Fatalf("stat failure reported as %+v", state)
+	}
+}
+
+func TestManifest_ObjectURLKeyIsolation(t *testing.T) {
+	t.Parallel()
+	m := &Manifest{entries: map[string]ManifestEntry{}}
+	m.Put(ManifestEntry{Path: "same.mp4", ObjectURL: "u1", RemotePath: "r/u1.mp4", Status: model.RemoteFileStatusUploaded})
+	m.Put(ManifestEntry{Path: "same.mp4", ObjectURL: "u2", RemotePath: "r/u2.mp4", Status: model.RemoteFileStatusUploaded})
+	if e, ok := m.GetFor("u1", "same.mp4"); !ok || e.RemotePath != "r/u1.mp4" {
+		t.Fatalf("u1 entry=%+v ok=%v", e, ok)
+	}
+	if e, ok := m.GetFor("u2", "same.mp4"); !ok || e.RemotePath != "r/u2.mp4" {
+		t.Fatalf("u2 entry=%+v ok=%v", e, ok)
+	}
+	m.DeleteFor("u1", "same.mp4")
+	if _, ok := m.GetFor("u1", "same.mp4"); ok {
+		t.Fatal("u1 entry not deleted")
+	}
+	if _, ok := m.GetFor("u2", "same.mp4"); !ok {
+		t.Fatal("u2 entry deleted")
+	}
+}
+
+func TestSyncCloud_ChecksumMismatchBecomesConflict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	remote := "hanime/2.5D/ABC-001/video.mp4"
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted,
+		CloudDownload: true, Extra: map[string]any{"transfer_url": "local://baidu/" + remote},
+	}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{remote: {Size: 5, Checksum: "remote"}}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncCloud(context.Background(), task, cfg, obj)
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusConflict {
+		t.Fatalf("state=%+v", state)
+	}
+	rel, _ := LocalRel(dir, local)
+	e, ok := svc.manifest("t1").GetFor("u1", rel)
+	if !ok || e.Status != model.RemoteFileStatusConflict {
+		t.Fatalf("entry=%+v ok=%v", e, ok)
+	}
+}
+
+func TestSyncCloud_MultiFileDoesNotVerifyPrimaryAgainstCover(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	body := []byte("video")
+	if err := os.WriteFile(local, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(body)
+	primary := "hanime/2.5D/ABC-001/video.mp4"
+	cover := "hanime/2.5D/ABC-001/cover.jpg"
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted, CloudDownload: true,
+		Extra: map[string]any{
+			"transfer_url": "local://baidu/" + primary,
+			"files":        []any{map[string]any{"path": cover}},
+		},
+	}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{
+		primary: {Size: int64(len(body)), Checksum: hex.EncodeToString(sum[:])},
+		cover:   {Size: 3, Checksum: "cover-sha"},
+	}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncCloud(context.Background(), task, cfg, obj)
+	state := obj.GetRemoteSave()
+	if state == nil || state.Status != model.RemoteSaveStatusSynced || state.FilesTotal != 2 || state.FilesDone != 2 {
+		t.Fatalf("state=%+v", state)
+	}
+}
+
+func TestLoadManifest_MigratesLegacyRelKey(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	legacy := `{"a.mp4":{"path":"a.mp4","object_url":"u1","remote_path":"r/a.mp4","status":"uploaded"}}`
+	if err := os.WriteFile(filepath.Join(dir, "t1.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(dir, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.GetFor("u1", "a.mp4"); !ok {
+		t.Fatal("legacy entry not migrated/readable")
+	}
+	if err := m.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := LoadManifest(dir, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m2.GetFor("u1", "a.mp4"); !ok {
+		t.Fatal("migrated entry lost after reload")
 	}
 }

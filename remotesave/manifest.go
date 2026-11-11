@@ -68,6 +68,35 @@ func LoadManifest(dir, taskID string) (*Manifest, error) {
 	if m.entries == nil {
 		m.entries = map[string]ManifestEntry{}
 	}
+	// 旧版本以 rel 为 key；统一迁移为 objectURL+rel，避免多对象同名文件互相覆盖。
+	migrated := make(map[string]ManifestEntry, len(m.entries))
+	for key, e := range m.entries {
+		if e.Path == "" {
+			e.Path = key
+		}
+		k := manifestKey(e.ObjectURL, e.Path)
+		if _, exists := migrated[k]; exists {
+			continue
+		}
+		migrated[k] = e
+	}
+	if len(migrated) != len(m.entries) {
+		m.entries = migrated
+		m.dirty = true
+	} else {
+		// 即使条目数量相同，也可能 key 还是旧格式；逐 key 判断后迁移。
+		changed := false
+		for key, e := range m.entries {
+			if key != manifestKey(e.ObjectURL, e.Path) {
+				changed = true
+				break
+			}
+		}
+		if changed {
+			m.entries = migrated
+			m.dirty = true
+		}
+	}
 	return m, nil
 }
 
@@ -87,37 +116,101 @@ func safeManifestName(taskID string) string {
 	return out
 }
 
-// Get 返回 entry 副本。
+// manifestKey 用对象 URL + 相对路径隔离不同对象的同名文件。
+func manifestKey(objectURL, rel string) string {
+	return objectURL + "\x00" + rel
+}
+
+// GetFor 返回指定对象的 entry 副本；兼容旧版以 rel 为 key 的 manifest。
+func (m *Manifest) GetFor(objectURL, rel string) (ManifestEntry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.entries[manifestKey(objectURL, rel)]; ok {
+		return e, true
+	}
+	if e, ok := m.entries[rel]; ok && (e.ObjectURL == "" || e.ObjectURL == objectURL) {
+		return e, true
+	}
+	for _, e := range m.entries {
+		if e.Path == rel && (e.ObjectURL == "" || e.ObjectURL == objectURL) {
+			return e, true
+		}
+	}
+	return ManifestEntry{}, false
+}
+
+// Get 是测试/兼容入口：按相对路径查找（同路径多对象时返回任意一条）。
 func (m *Manifest) Get(rel string) (ManifestEntry, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e, ok := m.entries[rel]
-	return e, ok
+	if e, ok := m.entries[rel]; ok {
+		return e, true
+	}
+	for _, e := range m.entries {
+		if e.Path == rel {
+			return e, true
+		}
+	}
+	return ManifestEntry{}, false
 }
 
-// Put 写入/更新 entry（仅标记 dirty，flush 时落盘）。
-func (m *Manifest) Put(e ManifestEntry) {
+// PutFor 用对象 URL + 路径作为 key 写入。
+func (m *Manifest) PutFor(objectURL string, e ManifestEntry) {
+	if e.ObjectURL == "" {
+		e.ObjectURL = objectURL
+	}
+	if objectURL == "" {
+		objectURL = e.ObjectURL
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.entries == nil {
 		m.entries = map[string]ManifestEntry{}
 	}
 	e.UpdatedAt = time.Now().UTC()
-	m.entries[e.Path] = e
+	m.entries[manifestKey(objectURL, e.Path)] = e
+	delete(m.entries, e.Path) // 清理旧格式同名 key
 	m.gen++
 	m.dirty = true
+}
+
+// DeleteFor 删除指定对象的 entry。
+func (m *Manifest) DeleteFor(objectURL, rel string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := manifestKey(objectURL, rel)
+	if _, ok := m.entries[key]; ok {
+		delete(m.entries, key)
+		m.gen++
+		m.dirty = true
+	}
+	if e, ok := m.entries[rel]; ok && (e.ObjectURL == "" || e.ObjectURL == objectURL) {
+		delete(m.entries, rel)
+		m.gen++
+		m.dirty = true
+	}
+}
+
+// Put 写入/更新 entry（仅标记 dirty，flush 时落盘）。
+func (m *Manifest) Put(e ManifestEntry) {
+	m.PutFor(e.ObjectURL, e)
 }
 
 // Delete 删除 entry（镜像清理成功后调用）。
 func (m *Manifest) Delete(rel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.entries[rel]; !ok {
-		return
+	found := false
+	for k, e := range m.entries {
+		if e.Path == rel || k == rel {
+			delete(m.entries, k)
+			found = true
+		}
 	}
-	delete(m.entries, rel)
-	m.gen++
-	m.dirty = true
+	if found {
+		m.gen++
+		m.dirty = true
+	}
 }
 
 // Snapshot 返回所有 entry 副本（用于构建对象状态）。
@@ -185,8 +278,12 @@ func (m *Manifest) Flush() error {
 func ToModelFiles(entries map[string]ManifestEntry, paths []string, limit int) ([]model.RemoteFileState, bool) {
 	out := make([]model.RemoteFileState, 0, len(paths))
 	truncated := false
+	byPath := make(map[string]ManifestEntry, len(entries))
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
 	for _, p := range paths {
-		e, ok := entries[p]
+		e, ok := byPath[p]
 		if !ok {
 			continue
 		}

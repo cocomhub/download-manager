@@ -62,7 +62,7 @@ func (s *Service) ResolveConflict(ctx context.Context, taskID, objectURL, rel, a
 	defer unlock()
 
 	man := s.manifest(taskID)
-	entry, ok := man.Get(rel)
+	entry, ok := man.GetFor(obj.URL, rel)
 	if !ok || entry.Status != model.RemoteFileStatusConflict {
 		return fmt.Errorf("文件不是冲突状态: %s", rel)
 	}
@@ -296,7 +296,7 @@ func (s *Service) resolveCloudConflict(ctx context.Context, task core.Task, cfg 
 
 func (s *Service) requeueCloudObject(task core.Task, obj *model.DownloadObject, man *Manifest, rel string) error {
 	clearCloudExtras(obj)
-	man.Delete(rel)
+	man.DeleteFor(obj.URL, rel)
 	_ = man.Flush()
 	obj.SetRemoteSave(nil)
 	obj.SetStatus(model.StatusPending)

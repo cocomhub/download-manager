@@ -74,6 +74,8 @@ tasks:
 - sproxy 侧 meta 保存原始 mtime + 完整 mongo `Metadata`/`Extra`/tags（`x_dm_object`）；
   download-manager 读取/展示的是 sproxy sidecar 的 mtime，不使用百度存储时间。
 - 逐文件 sha256/远端 sha256 写入 mongo `DownloadObject.RemoteSave.Files`。
+- manifest 以 `objectURL + rel` 为 key，同一任务下不同对象的同名文件不会互相覆盖。
+- 失败/缺失/冲突结果也会写 manifest；下一次对账不会因为旧的 uploaded 条目而误报 `synced`。
 - 远端已存在且 sha256 一致 → `reused`；否则 `conflict`。
 - 默认只上传/复用，不删除远端；`mirror_delete=true` 时，任务级对账会删除「manifest 记录过、
   当前 completed 文件集不再包含」的远端文件（未知远端文件永不删除；对象仍存在但非 completed
@@ -97,6 +99,7 @@ tasks:
   路径为 `<dir>/<对象键>/<目标文件>`（`object_dirs=false` 时保留目标相对路径）。
 - 目标已存在 → **fail-closed**，对象 `failed_permanent` + `RemoteSave=conflict`；冲突仍会出现在
   `/remote_save/conflicts`，可直接 reuse/overwrite/rename/skip。
+- 云端内容 checksum 与本地/记录不一致时进入 conflict（不是无限 failed 重试），可人工处理。
 - 转存完成后 `NotifyCloudCompleted` 回读 sproxy 的 sha256/mtime，写入 mongo 与播放链接；
   非 cloud_only 对象本地文件走正常对账（manifest 记录 origin=cloud，避免重复上传）。
 - 云端冲突动作：
@@ -124,7 +127,8 @@ SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY
 
 ## 已知限制
 
-- 多实例同时写同一任务未做分布式锁（依赖单实例锁文件）。
+- 多实例同时写同一任务未做分布式锁（依赖单实例锁文件）；同一任务不应同时跑多个 full 实例。
+- 覆盖动作删除远端后、上传前进程崩溃时，需要再次执行动作；删除/改名本身是幂等的。
 - 外部卷（百度）列举/Stat 最终一致；快速对账会核对远端存在与 checksum，但本地内容变化且
   size+mtime 不变需开 `verify_checksum` 或等待深度对账。
 - 云端多文件转存目前按 sproxy `transfer_url` + `files[]` 逐个记录；若 sproxy 只返回单个
