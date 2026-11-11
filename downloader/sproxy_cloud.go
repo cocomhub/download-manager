@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -50,7 +51,9 @@ type SproxyCloudDownloader struct {
 	sig          *sproxyclient.FileClient // SproxySig 凭据客户端（nil = Bearer 路径）；自带签名+轮换
 	sigEnabled   bool
 	ak           string // SproxySig AccessKey（启动验证 ListAccessKeys 用）
+	sk           string // SproxySig Secret（仅用于按 volume 构造临时 FileClient）
 	skid         string // SproxySig SK 条目 ID（启动验证取过期时间用）
+	insecureTLS  bool
 	transferVol  string // 转存目标卷（非空 → 提交带 transfer；默认留 cloud 桶）
 	transferPath string // 转存目标路径（卷内相对路径，可含子目录，如 xxx/xxxx.mp4）
 	cloudOnly    bool   // true=仅云端不下载本地；默认 false=下载到本地 SavePath
@@ -158,7 +161,9 @@ func NewSproxyCloudDownloader(cfg config.SproxyCloudConfig) *SproxyCloudDownload
 		sig:          sig,
 		sigEnabled:   sigEnabled,
 		ak:           cfg.AccessKey,
+		sk:           cfg.AccessKeySecret,
 		skid:         cfg.AccessKeyID,
+		insecureTLS:  cfg.InsecureTLS,
 		transferVol:  cfg.TransferVolume,
 		transferPath: cfg.TransferPath,
 		cloudOnly:    cfg.CloudOnly,
@@ -538,8 +543,15 @@ func (d *SproxyCloudDownloader) Download(obj *model.DownloadObject, headers map[
 	// 轮询直到完成（SproxySig 路径返回 CloudTask 供转存 URL 记录/本地下载）
 	task, err := d.pollResult(ctx, taskID)
 	if err != nil {
-		d.clearStaleTaskID(obj, err)
-		return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+		// cloud_only + transfer 时 sproxy 会在转存完成后立即 auto-clean（save=false）；
+		// 任务消失但目标文件已落盘属于成功，不能把已完成转存当成失败重试。
+		if recovered, rerr := d.recoverAutoCleanedTask(ctx, obj, taskID); rerr == nil && recovered != nil {
+			slog.Info("Sproxy cloud task auto-cleaned after transfer; recovered from target", "task_id", taskID, "url", shareURL)
+			task = recovered
+		} else {
+			d.clearStaleTaskID(obj, err)
+			return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
+		}
 	}
 	if task != nil && strings.EqualFold(task.IntegrityStatus, "damaged") {
 		// 服务端默认放行并标记 damaged：completed+damaged 不是可靠成功（拉回会拿到损坏文件）。
@@ -712,12 +724,16 @@ func (d *SproxyCloudDownloader) downloadTargets(ctx context.Context, obj *model.
 		}
 		task, err := d.pollResult(ctx, taskID)
 		if err != nil {
-			// 与单目标语义一致：终态失败/任务不存在/超时 ⇒ 清该目标坐标，重试重新提交
-			// （否则复用死任务永远失败）。
-			if isStaleTaskErr(err) {
-				clearTargetTaskID(obj, tg)
+			// cloud_only 转存完成后 sproxy auto-clean 的同一兼容路径（逐目标）。
+			if recovered, rerr := d.recoverAutoCleanedTarget(ctx, obj, taskID, tg); rerr == nil && recovered != nil {
+				slog.Info("Sproxy cloud target auto-cleaned after transfer; recovered", "task_id", taskID, "target", tg.Target)
+				task = recovered
+			} else {
+				if isStaleTaskErr(err) {
+					clearTargetTaskID(obj, tg)
+				}
+				return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
 			}
-			return fmt.Errorf("sproxy_cloud task %s: %w", taskID, err)
 		}
 		if task != nil && strings.EqualFold(task.IntegrityStatus, "damaged") {
 			clearTargetTaskID(obj, tg)
@@ -1283,6 +1299,67 @@ func (d *SproxyCloudDownloader) ensureRotatedBeforeSubmit() error {
 // SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
 // pollResult 轮询直到完成，返回最终 CloudTask（含 transfer_url / filename 供转存记录与拉回）。
 // SproxySig 路径：遇 401（签名失效）触发 RenewAccessKey 轮换后重试（pollWithRotate）。
+// recoverAutoCleanedTask 处理 cloud_only 转存完成后 sproxy auto-clean（save=false）导致
+// task GET 404 的窗口：known transfer target 已存在即视为成功，合成 completed task。
+func (d *SproxyCloudDownloader) recoverAutoCleanedTask(ctx context.Context, obj *model.DownloadObject, taskID string) (*sproxyclient.CloudTask, error) {
+	if !d.cloudOnly || d.sig == nil || obj == nil {
+		return nil, nil
+	}
+	volume := extraString(obj, extraKeyTransferVolume)
+	if volume == "" {
+		volume = d.transferVol
+	}
+	target := extraString(obj, extraKeyTransferPath)
+	if target == "" {
+		target = d.transferPath
+	}
+	return d.recoverAutoCleanedPath(ctx, taskID, volume, target)
+}
+
+func (d *SproxyCloudDownloader) recoverAutoCleanedTarget(ctx context.Context, obj *model.DownloadObject, taskID string, tg cloudTarget) (*sproxyclient.CloudTask, error) {
+	if !d.cloudOnly || d.sig == nil || obj == nil {
+		return nil, nil
+	}
+	volume := extraString(obj, extraKeyTransferVolume)
+	if volume == "" {
+		volume = d.transferVol
+	}
+	target := tg.Path
+	if target == "" {
+		target = d.transferPath
+	}
+	return d.recoverAutoCleanedPath(ctx, taskID, volume, target)
+}
+
+func (d *SproxyCloudDownloader) recoverAutoCleanedPath(ctx context.Context, taskID, volume, target string) (*sproxyclient.CloudTask, error) {
+	if volume == "" || target == "" {
+		return nil, nil
+	}
+	client := d.sig
+	if d.sig.Volume() != volume {
+		if d.sk == "" {
+			return nil, nil
+		}
+		opts := []sproxyclient.Option{
+			sproxyclient.WithAccessKey(d.ak, d.sk),
+			sproxyclient.WithAccessKeyID(d.skid),
+			sproxyclient.WithVolume(volume),
+		}
+		if d.insecureTLS {
+			opts = append(opts, sproxyclient.WithInsecureTLS())
+		}
+		client = sproxyclient.NewFileClient(d.apiBase(), opts...)
+	}
+	fi, err := client.Stat(ctx, target)
+	if err != nil || fi == nil || fi.IsDir {
+		return nil, err
+	}
+	return &sproxyclient.CloudTask{
+		ID: taskID, Status: "completed", Filename: pathpkg.Base(target),
+		TransferURL: "local://" + volume + "/" + strings.TrimPrefix(target, "/"),
+	}, nil
+}
+
 func (d *SproxyCloudDownloader) pollResult(ctx context.Context, taskID string) (*sproxyclient.CloudTask, error) {
 	if d.sigEnabled && d.sig != nil {
 		return d.pollWithRotateResult(ctx, taskID)
