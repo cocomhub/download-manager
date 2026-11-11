@@ -97,6 +97,9 @@ tasks:
 
 - `cloud_download` 对象提交前由 `PrepareCloud` 写入 `transfer_volume`/`transfer_path`，
   路径为 `<dir>/<对象键>/<目标文件>`（`object_dirs=false` 时保留目标相对路径）。
+- `cloud_only=true` 时 sproxy 转存完成后会立即 auto-clean 云端 task；download-manager 在
+  task 404 时会用已知 `transfer_volume/transfer_path` 回读目标文件，存在即按完成处理，
+  避免把成功转存误判为失败。
 - 目标已存在 → **fail-closed**，对象 `failed_permanent` + `RemoteSave=conflict`；冲突仍会出现在
   `/remote_save/conflicts`，可直接 reuse/overwrite/rename/skip。
 - 云端内容 checksum 与本地/记录不一致时进入 conflict（不是无限 failed 重试），可人工处理。

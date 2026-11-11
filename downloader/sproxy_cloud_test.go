@@ -15,6 +15,7 @@ import (
 
 	"github.com/cocomhub/download-manager/config"
 	"github.com/cocomhub/download-manager/model"
+	sproxyclient "github.com/cocomhub/sproxy/pkg/client"
 )
 
 // TestSproxyCloud_PickShareURL 验证分享 URL 提取。
@@ -177,4 +178,31 @@ func TestSproxyCloud_Download(t *testing.T) {
 func writeJSONResp(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func TestSproxyCloud_RecoverAutoCleanedTarget(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead || r.URL.Path != "/api/files/stat" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("X-File-Checksum", "abc")
+		w.Header().Set("X-File-Size", "123")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	fc := sproxyclient.NewFileClient(srv.URL,
+		sproxyclient.WithVolume("main"),
+		sproxyclient.WithAccessKey("ak", "sk"),
+		sproxyclient.WithAccessKeyID("skid"),
+	)
+	d := &SproxyCloudDownloader{sig: fc, cloudOnly: true, ak: "ak", sk: "sk", skid: "skid", transferVol: "main"}
+	task, err := d.recoverAutoCleanedPath(t.Context(), "cloud-1", "main", "dir/video.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task == nil || task.Status != "completed" || task.TransferURL != "local://main/dir/video.mp4" || task.Filename != "video.mp4" {
+		t.Fatalf("task=%+v", task)
+	}
 }
