@@ -176,9 +176,9 @@ func fileStat(p string) (os.FileInfo, error) {
 // manifestEntriesForObject 返回只属于该对象的 manifest 条目（避免 rel 跨对象串用）。
 func manifestEntriesForObject(entries map[string]ManifestEntry, objectURL string) map[string]ManifestEntry {
 	out := make(map[string]ManifestEntry, len(entries))
-	for rel, e := range entries {
+	for _, e := range entries {
 		if e.ObjectURL == "" || e.ObjectURL == objectURL {
-			out[rel] = e
+			out[e.Path] = e
 		}
 	}
 	return out
@@ -220,11 +220,22 @@ func (s *Service) ListConflicts(taskID string) []ConflictInfo {
 	}
 	entries := s.manifest(taskID).Snapshot()
 	out := make([]ConflictInfo, 0)
+	type objLookup struct {
+		obj *model.DownloadObject
+		err error
+	}
+	lookup := map[string]objLookup{}
 	for _, e := range entries {
 		if e.Status != model.RemoteFileStatusConflict || e.ObjectURL == "" {
 			continue
 		}
-		obj, err := st.Get(e.ObjectURL)
+		lr, seen := lookup[e.ObjectURL]
+		if !seen {
+			lr.obj, lr.err = st.Get(e.ObjectURL)
+			lookup[e.ObjectURL] = lr
+		}
+		obj := lr.obj
+		err := lr.err
 		if err != nil {
 			if errors.Is(err, core.ErrObjectNotFound) {
 				continue
