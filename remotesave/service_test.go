@@ -7,9 +7,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -79,6 +81,7 @@ type fakeClient struct {
 	metas       map[string]MetaInfo
 	uploads     int
 	lastMeta    map[string]any
+	uploadErr   error
 	afterUpload func(local, remote string) string
 }
 
@@ -92,6 +95,12 @@ func (f *fakeClient) Stat(_ context.Context, remote string) (*FileInfo, error) {
 }
 
 func (f *fakeClient) Upload(_ context.Context, local, remote string) (string, error) {
+	if f.uploadErr != nil {
+		f.mu.Lock()
+		f.uploads++
+		f.mu.Unlock()
+		return "", f.uploadErr
+	}
 	b, err := os.ReadFile(local)
 	if err != nil {
 		return "", err
@@ -437,7 +446,12 @@ func TestPrepareCloud_ObjectDirs(t *testing.T) {
 			"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
 		}}}},
 	}
-	svc := New(Options{Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} }, WorkDir: t.TempDir()})
+	svc := New(Options{
+		Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} }, WorkDir: t.TempDir(),
+		ClientFor: func(config.Sproxy, string) (Client, error) {
+			return &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}, nil
+		},
+	})
 	svc.ctx = context.Background()
 	if err := svc.PrepareCloud(task, obj); err != nil {
 		t.Fatal(err)
@@ -600,5 +614,284 @@ func TestMirrorDelete_RemovesOrphan(t *testing.T) {
 	svc.handle(request{taskID: "t1"})
 	if _, ok := client.files[remote]; ok {
 		t.Fatal("孤儿远端未删除")
+	}
+}
+
+func TestResolveConflict_NonOverwriteActionsPersist(t *testing.T) {
+	t.Parallel()
+	for _, action := range []string{ConflictActionSkip, ConflictActionReuse, ConflictActionRename} {
+		t.Run(action, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			local := filepath.Join(dir, "video.mp4")
+			body := []byte("local-content")
+			if err := os.WriteFile(local, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			old := time.Now().Add(-time.Hour).Truncate(time.Second)
+			if err := os.Chtimes(local, old, old); err != nil {
+				t.Fatal(err)
+			}
+			remote := "hanime/2.5D/video.mp4"
+			obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+			store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+			task := &fakeTask{id: "t1", saveDir: dir, store: store}
+			client := &fakeClient{
+				files: map[string]*FileInfo{remote: {Size: 13, Checksum: "deadbeef"}},
+				metas: map[string]MetaInfo{},
+				afterUpload: func(local, _ string) string {
+					b, _ := os.ReadFile(local)
+					sum := sha256.Sum256(b)
+					return hex.EncodeToString(sum[:])
+				},
+			}
+			svc := newTestService(t, task, client, func(core.Task, *model.DownloadObject) {})
+			cfg, err := svc.taskConfig(task)
+			if err != nil {
+				t.Fatal(err)
+			}
+			svc.syncObject(task, cfg, obj, false)
+			if err := svc.ResolveConflict(context.Background(), "t1", "u1", "video.mp4", action); err != nil {
+				t.Fatal(err)
+			}
+			e, ok := svc.manifest("t1").Get("video.mp4")
+			if !ok {
+				t.Fatal("manifest entry missing")
+			}
+			want := map[string]string{
+				ConflictActionSkip:   model.RemoteFileStatusSkipped,
+				ConflictActionReuse:  model.RemoteFileStatusReused,
+				ConflictActionRename: model.RemoteFileStatusUploaded,
+			}[action]
+			if e.Status != want {
+				t.Fatalf("status=%s want %s", e.Status, want)
+			}
+			if action == ConflictActionRename && !strings.Contains(e.RemotePath, "~") {
+				t.Fatalf("rename remote=%s", e.RemotePath)
+			}
+			state := obj.GetRemoteSave()
+			if state == nil {
+				t.Fatal("state nil")
+			}
+			if action == ConflictActionSkip && state.Status != model.RemoteSaveStatusSkipped {
+				t.Fatalf("object status=%s", state.Status)
+			}
+		})
+	}
+}
+
+func TestPrepareCloud_ConflictIsResolvableForFailedPermanentObject(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "x.mp4"),
+		Metadata: map[string]string{"code": "ABC-001"}, CloudDownload: true,
+		Status: model.StatusFailedPermanent,
+	}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	target := "hanime/2.5D/ABC-001/x.mp4"
+	client := &fakeClient{files: map[string]*FileInfo{target: {Size: 3, Checksum: "old"}}, metas: map[string]MetaInfo{}}
+	cfg := &config.Config{
+		Sproxy: config.Sproxy{APIURL: "https://sproxy.example.com"},
+		Tasks: []config.Task{{ID: "t1", Extra: map[string]any{"remote_save": map[string]any{
+			"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
+		}}}},
+	}
+	svc := New(Options{
+		Cfg: func() *config.Config { return cfg }, Tasks: func() []core.Task { return []core.Task{task} },
+		WorkDir: t.TempDir(), ClientFor: func(config.Sproxy, string) (Client, error) { return client, nil },
+	})
+	svc.ctx = context.Background()
+	if err := svc.PrepareCloud(task, obj); !errors.Is(err, ErrTargetExists) {
+		t.Fatalf("PrepareCloud err=%v", err)
+	}
+	rel := remoteRelToTarget(TaskConfig{Volume: "baidu", Dir: "hanime/2.5D", ObjectDirs: true}, target)
+	if _, ok := svc.manifest("t1").Get(rel); !ok {
+		t.Fatal("cloud conflict manifest entry missing")
+	}
+	// 远端目标冲突对象虽然是 failed_permanent，仍必须允许 reuse。
+	if err := svc.ResolveConflict(context.Background(), "t1", "u1", rel, ConflictActionReuse); err != nil {
+		t.Fatal(err)
+	}
+	got := obj.GetRemoteSave()
+	if got == nil || got.Status != model.RemoteSaveStatusSynced {
+		t.Fatalf("after reuse: %+v", got)
+	}
+}
+
+func TestMirrorDelete_RemovesStaleFileOfCompletedObject(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	keep := filepath.Join(dir, "keep.mp4")
+	if err := os.WriteFile(keep, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: keep, Status: model.StatusCompleted}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	svc := newTestService(t, task, &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}, nil)
+	cfg, err := svc.taskConfig(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MirrorDelete = true
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "keep.mp4", ObjectURL: "u1", RemotePath: "hanime/2.5D/keep.mp4", Status: model.RemoteFileStatusUploaded})
+	man.Put(ManifestEntry{Path: "stale.mp4", ObjectURL: "u1", RemotePath: "hanime/2.5D/stale.mp4", Status: model.RemoteFileStatusUploaded})
+	svc.mirrorCleanup(context.Background(), task, cfg, []*model.DownloadObject{obj}, man)
+	if _, ok := man.Get("stale.mp4"); ok {
+		t.Fatal("stale manifest entry should be removed")
+	}
+	if _, ok := man.Get("keep.mp4"); !ok {
+		t.Fatal("keep entry removed")
+	}
+}
+
+func TestMirrorDelete_StorageErrorDoesNotDelete(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// 对象已不在 completed 列表，且 storage.Get 返回非 NotFound 错误：必须 fail-closed。
+	store := &errStorage{err: errors.New("mongo unavailable")}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	cfg.MirrorDelete = true
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "stale.mp4", ObjectURL: "gone", RemotePath: "hanime/2.5D/stale.mp4", Status: model.RemoteFileStatusUploaded})
+	svc.mirrorCleanup(context.Background(), task, cfg, nil, man)
+	if _, ok := man.Get("stale.mp4"); !ok {
+		t.Fatal("must not delete on storage error")
+	}
+}
+
+type errStorage struct{ err error }
+
+func (e *errStorage) Get(string) (*model.DownloadObject, error) { return nil, e.err }
+func (e *errStorage) Update(*model.DownloadObject) error        { return nil }
+func (e *errStorage) Delete(string) error                       { return nil }
+func (e *errStorage) Search(*core.StorageQuery) ([]*model.DownloadObject, error) {
+	return nil, e.err
+}
+func (e *errStorage) Count(*core.StorageQuery) (int64, error) { return 0, e.err }
+func (e *errStorage) Exists([]string) (map[string]bool, error) {
+	return nil, e.err
+}
+
+func TestCloudSkip_PersistsAcrossSyncCloud(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	remote := "hanime/2.5D/ABC-001/video.mp4"
+	obj := &model.DownloadObject{
+		TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "video.mp4"),
+		Status: model.StatusCompleted, CloudDownload: true,
+		Extra: map[string]any{"transfer_url": "local://baidu/" + remote},
+	}
+	store := &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: store}
+	client := &fakeClient{files: map[string]*FileInfo{remote: {Size: 3, Checksum: "abc"}}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, func(core.Task, *model.DownloadObject) {})
+	cfg, _ := svc.taskConfig(task)
+	svc.syncCloud(context.Background(), task, cfg, obj)
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSynced {
+		t.Fatalf("initial cloud state=%+v", state)
+	}
+	rel := remoteRelToTarget(cfg, remote)
+	man := svc.manifest("t1")
+	e, _ := man.Get(rel)
+	e.Status = model.RemoteFileStatusConflict
+	man.Put(e)
+	if err := svc.ResolveConflict(context.Background(), "t1", "u1", rel, ConflictActionSkip); err != nil {
+		t.Fatal(err)
+	}
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSkipped {
+		t.Fatalf("after skip state=%+v", state)
+	}
+	// reconcile 的 syncCloud 不得把用户 skip 改回 synced。
+	svc.syncCloud(context.Background(), task, cfg, obj)
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSkipped {
+		t.Fatalf("skip overwritten: %+v", state)
+	}
+}
+
+func TestSyncFile_ReuploadsWhenRemoteDeleted(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(local, old, old); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	if client.uploads != 1 {
+		t.Fatalf("uploads=%d", client.uploads)
+	}
+	remote := "hanime/2.5D/video.mp4"
+	if err := client.Delete(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	svc.syncObject(task, cfg, obj, false)
+	if client.uploads != 2 {
+		t.Fatalf("remote deletion not repaired: uploads=%d", client.uploads)
+	}
+}
+
+func TestSyncObject_StopsAfterMaxRetries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(local, old, old); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, uploadErr: errors.New("upload down")}
+	svc := newTestService(t, task, client, nil)
+	svc.opts.Cfg().RemoteSave.MaxRetries = 1
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	state := obj.GetRemoteSave()
+	if state == nil || state.Status != model.RemoteSaveStatusFailed || state.Retries != 1 {
+		t.Fatalf("first state=%+v", state)
+	}
+	svc.syncObject(task, cfg, obj, false)
+	if client.uploads != 1 {
+		t.Fatalf("retry after max: uploads=%d", client.uploads)
+	}
+}
+
+func TestMirrorDelete_KeepsCurrentCloudTarget(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	remote := "hanime/2.5D/ABC-001/x.mp4"
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "x.mp4"), Status: model.StatusCompleted, CloudDownload: true,
+		Extra: map[string]any{"transfer_url": "local://baidu/" + remote}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{remote: {Size: 3, Checksum: "abc"}}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	cfg.MirrorDelete = true
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: remoteRelToTarget(cfg, remote), ObjectURL: "u1", RemotePath: remote, Status: model.RemoteFileStatusUploaded, Origin: "cloud"})
+	svc.mirrorCleanup(context.Background(), task, cfg, []*model.DownloadObject{obj}, man)
+	if _, ok := man.Get(remoteRelToTarget(cfg, remote)); !ok {
+		t.Fatal("current cloud target deleted")
 	}
 }

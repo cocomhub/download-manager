@@ -125,3 +125,41 @@ func (c *sproxyClient) Rename(ctx context.Context, from, to string) error {
 	}
 	return c.fc.Rename(ctx, from, to, fi.Checksum)
 }
+
+// deleteRemote 是幂等删除：目标已不存在视为成功（覆盖/镜像清理崩溃后的重试路径）。
+func deleteRemote(ctx context.Context, client Client, remote string) error {
+	err := client.Delete(ctx, remote)
+	if errors.Is(err, sproxyclient.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// uploadOrReuse 用于 rename：目标已存在且 checksum 相同则复用，避免“上传成功但
+// manifest 未落盘”的中断场景永久失败；目标存在但内容不同则拒绝。
+func uploadOrReuse(ctx context.Context, client Client, local, remote, sha string) (string, error) {
+	fi, err := client.Stat(ctx, remote)
+	switch {
+	case err == nil && fi != nil:
+		if strings.EqualFold(fi.Checksum, sha) {
+			return sha, nil
+		}
+		return "", fmt.Errorf("目标已存在且内容不同: %s", remote)
+	case err != nil && !errors.Is(err, sproxyclient.ErrNotFound):
+		return "", err
+	default:
+		return client.Upload(ctx, local, remote)
+	}
+}
+
+func renameRemoteOrReuse(ctx context.Context, client Client, from, to, checksum string) error {
+	if fi, err := client.Stat(ctx, to); err == nil && fi != nil {
+		if checksum != "" && strings.EqualFold(fi.Checksum, checksum) {
+			return nil
+		}
+		return fmt.Errorf("rename: 目标已存在: %s", to)
+	} else if err != nil && !errors.Is(err, sproxyclient.ErrNotFound) {
+		return err
+	}
+	return client.Rename(ctx, from, to)
+}

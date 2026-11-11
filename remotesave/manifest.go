@@ -35,6 +35,7 @@ type ManifestEntry struct {
 // Manifest 是单任务的逐文件操作缓存，落盘为 JSON（原子替换，批量 flush）。
 type Manifest struct {
 	mu      sync.Mutex
+	flushMu sync.Mutex
 	path    string
 	entries map[string]ManifestEntry
 	dirty   bool
@@ -130,6 +131,8 @@ func (m *Manifest) Snapshot() map[string]ManifestEntry {
 
 // Flush 原子落盘（无变更时 no-op）。
 func (m *Manifest) Flush() error {
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
 	m.mu.Lock()
 	if !m.dirty || m.gen == m.saved {
 		m.mu.Unlock()

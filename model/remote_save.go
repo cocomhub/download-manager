@@ -54,6 +54,7 @@ type RemoteSaveState struct {
 	BytesTotal     int64             `json:"bytes_total" bson:"bytes_total"`
 	BytesDone      int64             `json:"bytes_done" bson:"bytes_done"`
 	Conflicts      int               `json:"conflicts" bson:"conflicts"`
+	Retries        int               `json:"retries,omitempty" bson:"retries,omitempty"`
 	FilesTruncated bool              `json:"files_truncated,omitempty" bson:"files_truncated,omitempty"`
 	LastError      string            `json:"last_error,omitempty" bson:"last_error,omitempty"`
 	RemotePath     string            `json:"remote_path,omitempty" bson:"remote_path,omitempty"` // 主文件（视频）远端路径

@@ -90,9 +90,12 @@ func normalizeRemoteDir(dir string) (string, error) {
 	if strings.HasPrefix(clean, "../") || clean == ".." || strings.HasPrefix(clean, "/") {
 		return "", fmt.Errorf("remote_save.dir 不能逃逸卷根: %q", dir)
 	}
-	for seg := range strings.SplitSeq(clean, "/") {
+	for i, seg := range strings.Split(clean, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return "", fmt.Errorf("remote_save.dir 含非法段: %q", dir)
+		}
+		if sanitized := sanitizeRemoteSegment(seg, i == 0); sanitized != seg {
+			return "", fmt.Errorf("remote_save.dir 含 sproxy 非法字符/保留名: %q", seg)
 		}
 	}
 	return clean, nil

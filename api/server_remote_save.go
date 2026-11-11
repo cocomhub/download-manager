@@ -4,7 +4,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -73,7 +72,7 @@ func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "object_url/path/action 必填")
 		return
 	}
-	if err := s.mgr.ResolveRemoteSaveConflict(context.Background(), taskID, req.ObjectURL, req.Path, req.Action); err != nil {
+	if err := s.mgr.ResolveRemoteSaveConflict(r.Context(), taskID, req.ObjectURL, req.Path, req.Action); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "remote_save_resolve_failed", err.Error())
 		return
 	}

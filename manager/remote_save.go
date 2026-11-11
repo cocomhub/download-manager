@@ -46,21 +46,29 @@ func (m *Manager) RemoteSaveStatus(taskID string) (map[string]any, error) {
 	}
 	stats := map[string]int{}
 	var conflicts int
-	objs, err := m.listCompletedObjects(t)
+	objs, err := m.listRemoteSaveObjects(t)
 	if err != nil {
 		return nil, err
 	}
+	objectsTotal := 0
 	for _, obj := range objs {
 		rs := obj.GetRemoteSave()
 		if rs == nil {
-			stats["pending"]++
+			if obj.GetStatus() == model.StatusCompleted {
+				stats["pending"]++
+				objectsTotal++
+			}
 			continue
 		}
+		objectsTotal++
 		stats[rs.Status]++
 		conflicts += rs.Conflicts
 	}
-	out["objects_total"] = len(objs)
+	out["objects_total"] = objectsTotal
 	out["statuses"] = stats
+	if m.remoteSave != nil {
+		conflicts = len(m.remoteSave.ListConflicts(taskID))
+	}
 	out["conflicts"] = conflicts
 	return out, nil
 }
@@ -89,42 +97,36 @@ func (m *Manager) PlayRemoteURL(taskID, objectURL string) (string, time.Time, er
 	return m.remoteSave.PlayURL(t, obj)
 }
 
-// RemoteSaveConflicts 返回任务下所有逐文件冲突（只读，供后续 UI 人工处理）。
+// RemoteSaveConflicts 返回任务下所有逐文件冲突（直接读 manifest，不受 mongo Files 截断影响）。
 func (m *Manager) RemoteSaveConflicts(taskID string) ([]map[string]any, error) {
-	t, ok := m.getTask(taskID)
-	if !ok {
+	if _, ok := m.getTask(taskID); !ok {
 		return nil, fmt.Errorf("任务不存在: %s", taskID)
 	}
-	objs, err := m.listCompletedObjects(t)
-	if err != nil {
-		return nil, err
+	if m.remoteSave == nil {
+		return nil, fmt.Errorf("remote-save 未装配")
 	}
-	var out []map[string]any
-	for _, obj := range objs {
-		rs := obj.GetRemoteSave()
-		if rs == nil {
-			continue
-		}
-		for _, f := range rs.Files {
-			if f.Status != model.RemoteFileStatusConflict {
-				continue
-			}
-			out = append(out, map[string]any{
-				"object_url":    obj.URL,
-				"object_id":     obj.GetID(),
-				"path":          f.Path,
-				"remote_path":   f.RemotePath,
-				"size":          f.Size,
-				"sha256":        f.SHA256,
-				"remote_sha256": f.RemoteSHA256,
-				"reason":        f.Reason,
-			})
-		}
+	raw := m.remoteSave.ListConflicts(taskID)
+	out := make([]map[string]any, 0, len(raw))
+	for _, c := range raw {
+		out = append(out, map[string]any{
+			"object_url":    c.ObjectURL,
+			"object_id":     c.ObjectID,
+			"path":          c.Path,
+			"remote_path":   c.RemotePath,
+			"size":          c.Size,
+			"sha256":        c.SHA256,
+			"remote_sha256": c.RemoteSHA256,
+			"reason":        c.Reason,
+		})
 	}
 	return out, nil
 }
 
-func (m *Manager) listCompletedObjects(t core.Task) ([]*model.DownloadObject, error) {
+func (m *Manager) listRemoteSaveObjects(t core.Task) ([]*model.DownloadObject, error) {
+	return m.listObjectsByStatus(t, []string{model.StatusCompleted, model.StatusFailed, model.StatusFailedPermanent})
+}
+
+func (m *Manager) listObjectsByStatus(t core.Task, statuses []string) ([]*model.DownloadObject, error) {
 	st := t.Storage()
 	if st == nil {
 		return nil, fmt.Errorf("任务无存储")
@@ -133,7 +135,7 @@ func (m *Manager) listCompletedObjects(t core.Task) ([]*model.DownloadObject, er
 	var out []*model.DownloadObject
 	for off := int64(0); ; off += batch {
 		objs, err := st.Search(&core.StorageQuery{
-			Filter: core.StorageFilter{TaskIDs: []string{t.ID()}, Statuses: []string{model.StatusCompleted}},
+			Filter: core.StorageFilter{TaskIDs: []string{t.ID()}, Statuses: statuses},
 			Offset: off,
 			Limit:  batch,
 		})
