@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.7.0](https://github.com/cocomhub/download-manager/compare/v0.6.0...v0.7.0) (2026-11-11)
+
+
+### Added
+
+* **cli:** pikget 类 wget 下载器——URL 自动分发/直链+PikPak 混合下载/GCID 校验/进度/续传 ([#172](https://github.com/cocomhub/download-manager/issues/172)) ([54666b9](https://github.com/cocomhub/download-manager/commit/54666b913effb1f14916b2f4dac65b885b980f8b))
+* **downloader:** gopeed 下载器 + PikPak 免登录直链 + 状态持久化 ([04adde4](https://github.com/cocomhub/download-manager/commit/04adde4a463e7400c12049ee99d08bfde59532b8))
+* **downloader:** gopeed 下载器后端支持磁力/直链 ([#163](https://github.com/cocomhub/download-manager/issues/163)) ([ec861ee](https://github.com/cocomhub/download-manager/commit/ec861ee0793d5559b7be14b15a98d696a6843f10))
+* **downloader:** gopeed 支持 PikPak 分享免登录直链下载 ([#164](https://github.com/cocomhub/download-manager/issues/164)) ([93950a2](https://github.com/cocomhub/download-manager/commit/93950a2c4274d874e6219f62b5ab20a180a77b3b))
+* **downloader:** sproxy_cloud 云端下载后端——下载项级云端选项 + SproxySig 认证 + mongo 验证 ([#171](https://github.com/cocomhub/download-manager/issues/171)) ([8b392d4](https://github.com/cocomhub/download-manager/commit/8b392d46dd9c67e64bfc51e1438162240175718d))
+* **downloader:** sproxy_cloud 提交支持分享内目标文件（target_file → spx_target）+ 按对象 transfer_path 覆盖([#174](https://github.com/cocomhub/download-manager/issues/174)) ([6db0eca](https://github.com/cocomhub/download-manager/commit/6db0ecac0ec58aded5e41a8bb433b20ca58ba2c1))
+* **downloader:** sproxy_hybrid 混合下载后端——分享 URL 提交 sproxy 混合下载 ([#170](https://github.com/cocomhub/download-manager/issues/170)) ([3bb5de8](https://github.com/cocomhub/download-manager/commit/3bb5de861403f3d8dcd2dc974b54c4bba31e8027))
+* **m3u8d:** 下载后默认校验分片，两致对接重发保证可靠性 ([#160](https://github.com/cocomhub/download-manager/issues/160)) ([277e05e](https://github.com/cocomhub/download-manager/commit/277e05e1cedebdd14d3102b5d78e62b6bde5a9f9))
+* **manager:** 下载顺序化（任务内串行）配置开关 ([#169](https://github.com/cocomhub/download-manager/issues/169)) ([5dc9351](https://github.com/cocomhub/download-manager/commit/5dc935146e083c919304db03d740e2758723fafe))
+* **remote-save:** 云端直存路径与签名播放链接 ([#183](https://github.com/cocomhub/download-manager/issues/183)) ([95c2386](https://github.com/cocomhub/download-manager/commit/95c2386cb78305095b4a5380511df08d80ee463c))
+* **remote-save:** 冲突 UI、云端冲突动作与镜像清理 ([#184](https://github.com/cocomhub/download-manager/issues/184)) ([d957cdd](https://github.com/cocomhub/download-manager/commit/d957cdd2031b0e916fa448e7305e7052cbe04de5))
+* **remote-save:** 已完成对象逐文件 sha256 同步到 sproxy 卷 ([#179](https://github.com/cocomhub/download-manager/issues/179)) ([6cf11f7](https://github.com/cocomhub/download-manager/commit/6cf11f731ddd77be64a0444d7143aa251b9f6ff8))
+* **remote-save:** 远端番号目录归档与逐文件冲突处理 ([#182](https://github.com/cocomhub/download-manager/issues/182)) ([45fe3d6](https://github.com/cocomhub/download-manager/commit/45fe3d61a95c33754bdf0f6b864ccc6d6e9ee7a4))
+* **sproxy_cloud:** 分卷全套/字幕逐文件提交 + 恢复 meta_extra/insecure_tls/BSON 归一（[#175](https://github.com/cocomhub/download-manager/issues/175)） ([9d33348](https://github.com/cocomhub/download-manager/commit/9d33348639bcd90ff65d7f41065c6c9e4eeb2cff))
+
+
+### Fixed
+
+* **cloud:** cloud_only 自动清理后从转存目标恢复 ([#187](https://github.com/cocomhub/download-manager/issues/187)) ([6ff5405](https://github.com/cocomhub/download-manager/commit/6ff5405e2e3b2ead32cee8a5d985e14440a7f23e))
+* **downloader:** gopeed 磁力候选按大小降序尝试 + 唯一文件兜底 ([#168](https://github.com/cocomhub/download-manager/issues/168)) ([5e10c3a](https://github.com/cocomhub/download-manager/commit/5e10c3a807117d9d865997919e27dec863dcf2d8))
+* **downloader:** gopeed 非磁力/非 PikPak URL 明确报错，不下页面 ([#166](https://github.com/cocomhub/download-manager/issues/166)) ([ca511f1](https://github.com/cocomhub/download-manager/commit/ca511f129b4b519dcdd84ab7a0d0b72c45533fbd))
+* **download:** MD5 无法比较时重复下载至两份一致，保证文件可靠 ([#167](https://github.com/cocomhub/download-manager/issues/167)) ([cb33c72](https://github.com/cocomhub/download-manager/commit/cb33c726dfe4bf988f2a13e1ed3a85c649820baa))
+* **manager:** 版本升级写回前合并最新状态，进度/状态不被旧快照覆盖 ([#162](https://github.com/cocomhub/download-manager/issues/162)) ([70518c2](https://github.com/cocomhub/download-manager/commit/70518c27c7c1a42e436f726e9bfdfed110e521ce))
+* **pikget:** 进度不谎报完成 + rebuild 零尾定点重建 + 凭证续期接线 ([#173](https://github.com/cocomhub/download-manager/issues/173)) ([dcf6249](https://github.com/cocomhub/download-manager/commit/dcf6249d62d6c015efbf27e0561e7eb769c09245))
+* **remote-save:** 冲突持久化、云端冲突与镜像清理可靠性 ([#185](https://github.com/cocomhub/download-manager/issues/185)) ([95665f9](https://github.com/cocomhub/download-manager/commit/95665f9d1ff6221e07f6737e75bb19473eeb7549))
+* **remote-save:** 失败结果落盘、对象级 manifest 与云端冲突 ([#186](https://github.com/cocomhub/download-manager/issues/186)) ([4a089c5](https://github.com/cocomhub/download-manager/commit/4a089c51e1109cf630f382ae016f32f1fb85e079))
+* **sproxy_cloud:** cloud_only 模式提交 save=false（转存后即删本地副本）（[#178](https://github.com/cocomhub/download-manager/issues/178)） ([8604fc8](https://github.com/cocomhub/download-manager/commit/8604fc8290c1144fe65f11871bec5d0a25b9edaf))
+* **sproxy_cloud:** 多目标失败坐标清理 + 产物坐标幂等 + 补齐场景覆盖（[#177](https://github.com/cocomhub/download-manager/issues/177)） ([1b18a4e](https://github.com/cocomhub/download-manager/commit/1b18a4eba05b9410ceb73337b960e2fa18ed11b2))
+
+
+### Changed
+
+* **pikget:** 能力收敛到 sproxy 领域包 + 自动探测匿名区 + 进度 WAL 续传（[#176](https://github.com/cocomhub/download-manager/issues/176)） ([f43b3c1](https://github.com/cocomhub/download-manager/commit/f43b3c1d27850943a9038491acb187b01a745f84))
+
 ## [0.6.0](https://github.com/cocomhub/download-manager/compare/v0.5.0...v0.6.0) (2026-09-29)
 
 
