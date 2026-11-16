@@ -91,9 +91,13 @@ tasks:
 # 2. 启动 download-manager（唯一 work_dir/Mongo）
 # 3. 启动本地文件服务
 # 4. Playwright 连真实 URL：
-REMOTE_SAVE_UI_URL=http://127.0.0.1:<dm-port> \
-REMOTE_SAVE_UI_TASK_ID=e2e-remote-save-ui \
+REMOTE_SAVE_REAL_UI_URL=http://127.0.0.1:<dm-port> \
+REMOTE_SAVE_REAL_TASK_ID=e2e-remote-save-ui \
+REMOTE_SAVE_REAL_ALLOW_WRITE=1 \
+REMOTE_SAVE_REAL_EXPECT_SYNCED=1 \
   npx playwright test specs/remote-save-real.spec.ts
+
+未设置环境变量时该用例自动 skip，不影响普通 CI。
 ```
 
 自动化断言至少包含：
