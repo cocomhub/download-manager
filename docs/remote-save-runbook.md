@@ -29,6 +29,7 @@ SPROXY_E2E_URL=... SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY_E2E_SKID=... \
 
 ```http
 GET /api/tasks/{task_id}/remote_save
+GET /api/tasks/{task_id}/remote_save/objects
 GET /api/tasks/{task_id}/remote_save/conflicts
 ```
 

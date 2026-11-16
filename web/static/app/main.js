@@ -100,6 +100,7 @@
         groupModal: { title: '', list: [], repObj: null, taskId: '', taskType: '' },
         showRemoteSaveModal: false,
         remoteSaveStatus: null,
+        remoteSaveObjects: [],
         remoteSaveConflicts: [],
         remoteSaveBusy: false,
 
@@ -613,10 +614,12 @@
         this.showRemoteSaveModal = true
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
-          self.remoteSaveConflicts = (data[1] && data[1].conflicts) || []
+          self.remoteSaveObjects = (data[1] && data[1].objects) || []
+          self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
         }).catch(function(e) {
           UiHelpers.showToast('加载远程保存状态失败: ' + e.message, 'error')
           self.showRemoteSaveModal = false
@@ -624,6 +627,7 @@
       },
       closeRemoteSaveModal: function() {
         this.showRemoteSaveModal = false
+        this.remoteSaveObjects = []
         this.remoteSaveConflicts = []
         this.remoteSaveStatus = null
       },
@@ -633,10 +637,12 @@
         this.remoteSaveBusy = true
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
-          self.remoteSaveConflicts = (data[1] && data[1].conflicts) || []
+          self.remoteSaveObjects = (data[1] && data[1].objects) || []
+          self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
         }).catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
@@ -656,6 +662,14 @@
           if (typeof fetchTaskDetails === 'function') fetchTaskDetails(self, self.selectedTaskId, true)
         }).catch(function(e) { UiHelpers.showToast('处理失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
+      },
+      remoteSaveStatusLabel: function(status) {
+        var m = { pending: '待同步', syncing: '同步中', synced: '已同步', conflict: '冲突', failed: '失败', skipped: '已跳过' }
+        return m[status] || status || '-'
+      },
+      remoteSaveStatusClass: function(status) {
+        var m = { synced: 'text-green-700', conflict: 'text-amber-700', failed: 'text-red-700', skipped: 'text-gray-500', syncing: 'text-blue-700' }
+        return m[status] || 'text-gray-600'
       },
       remoteSaveReasonLabel: function(reason) {
         var m = { checksum_mismatch: 'sha256 不一致', checksum_unknown: '远端 sha256 不可得', size_mismatch: '大小不一致', target_exists: '目标已存在' }

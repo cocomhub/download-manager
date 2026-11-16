@@ -94,6 +94,7 @@ tasks:
 |---|---|---|
 | GET | `/api/tasks/{id}/remote_save` | 聚合状态（enabled/volume/dir/statuses/conflicts） |
 | POST | `/api/tasks/{id}/remote_save` | 手动触发（body `{"force":true}` 可选） |
+| GET | `/api/tasks/{id}/remote_save/objects` | 对象级状态摘要（状态/进度/冲突/重试/最近错误） |
 | GET | `/api/tasks/{id}/remote_save/conflicts` | 逐文件冲突列表 |
 | POST | `/api/tasks/{id}/remote_save/conflicts/resolve` | 冲突处理：`{object_url,path,action}`；action=`reuse|overwrite|rename|skip` |
 | GET | `/api/tasks/{id}/object/play_url?url=` | 生成/刷新签名播放 URL（返回 url + expires_at） |

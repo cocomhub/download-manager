@@ -56,6 +56,18 @@ func (s *Server) getRemoteSaveConflicts(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "conflicts": out, "total": len(out)})
 }
 
+// getRemoteSaveObjects 返回任务下对象级远程保存状态摘要。
+func (s *Server) getRemoteSaveObjects(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	out, err := s.mgr.RemoteSaveObjects(taskID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "remote_save_not_found", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "objects": out, "total": len(out)})
+}
+
 // resolveRemoteSaveConflict 对单个冲突文件执行人工处理（B 阶段 UI 后端）。
 func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
