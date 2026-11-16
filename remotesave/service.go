@@ -56,6 +56,8 @@ type Service struct {
 	auditMu    sync.Mutex
 	leases     map[string]*taskLease
 	leaseOwner string
+	trendMu    sync.Mutex
+	trend      []TrendPoint
 }
 
 type taskLease struct {
@@ -63,18 +65,29 @@ type taskLease struct {
 	stop chan struct{}
 }
 
+// TrendPoint 是最近 60 分钟的 remote-save 分钟级趋势。
+type TrendPoint struct {
+	Minute        int64  `json:"minute"`
+	FilesUploaded uint64 `json:"files_uploaded"`
+	FilesReused   uint64 `json:"files_reused"`
+	FilesFailed   uint64 `json:"files_failed"`
+	Conflicts     uint64 `json:"conflicts"`
+	MirrorDeleted uint64 `json:"mirror_deleted"`
+}
+
 // Metrics 是 remote-save 的累计运行指标（进程生命周期）。
 type Metrics struct {
-	FilesUploaded        uint64 `json:"files_uploaded"`
-	FilesReused          uint64 `json:"files_reused"`
-	FilesFailed          uint64 `json:"files_failed"`
-	FilesSkipped         uint64 `json:"files_skipped"`
-	Conflicts            uint64 `json:"conflicts"`
-	BytesUploaded        uint64 `json:"bytes_uploaded"`
-	MirrorDeleted        uint64 `json:"mirror_deleted"`
-	CloudFiles           uint64 `json:"cloud_files"`
-	LeaseAcquireFailures uint64 `json:"lease_acquire_failures"`
-	LeaseRenewFailures   uint64 `json:"lease_renew_failures"`
+	FilesUploaded        uint64       `json:"files_uploaded"`
+	FilesReused          uint64       `json:"files_reused"`
+	FilesFailed          uint64       `json:"files_failed"`
+	FilesSkipped         uint64       `json:"files_skipped"`
+	Conflicts            uint64       `json:"conflicts"`
+	BytesUploaded        uint64       `json:"bytes_uploaded"`
+	MirrorDeleted        uint64       `json:"mirror_deleted"`
+	CloudFiles           uint64       `json:"cloud_files"`
+	LeaseAcquireFailures uint64       `json:"lease_acquire_failures"`
+	LeaseRenewFailures   uint64       `json:"lease_renew_failures"`
+	Trend                []TrendPoint `json:"trend"`
 }
 
 type remoteSaveMetrics struct {
@@ -91,7 +104,11 @@ type remoteSaveMetrics struct {
 }
 
 func (s *Service) Metrics() Metrics {
+	s.trendMu.Lock()
+	trend := append([]TrendPoint(nil), s.trend...)
+	s.trendMu.Unlock()
 	return Metrics{
+		Trend:                trend,
 		FilesUploaded:        s.metrics.filesUploaded.Load(),
 		FilesReused:          s.metrics.filesReused.Load(),
 		FilesFailed:          s.metrics.filesFailed.Load(),
@@ -120,6 +137,32 @@ func (s *Service) observeFileResult(res model.RemoteFileState) {
 		s.metrics.filesFailed.Add(1)
 	case model.RemoteFileStatusSkipped:
 		s.metrics.filesSkipped.Add(1)
+	}
+	s.observeTrend(res.Status)
+}
+
+func (s *Service) observeTrend(status string) {
+	minute := time.Now().Unix() / 60
+	s.trendMu.Lock()
+	defer s.trendMu.Unlock()
+	if len(s.trend) == 0 || s.trend[len(s.trend)-1].Minute != minute {
+		s.trend = append(s.trend, TrendPoint{Minute: minute})
+		if len(s.trend) > 60 {
+			s.trend = s.trend[len(s.trend)-60:]
+		}
+	}
+	p := &s.trend[len(s.trend)-1]
+	switch status {
+	case model.RemoteFileStatusUploaded:
+		p.FilesUploaded++
+	case model.RemoteFileStatusReused:
+		p.FilesReused++
+	case model.RemoteFileStatusConflict:
+		p.Conflicts++
+	case model.RemoteFileStatusFailed, model.RemoteFileStatusMissing:
+		p.FilesFailed++
+	case "mirror_deleted":
+		p.MirrorDeleted++
 	}
 }
 
@@ -487,6 +530,7 @@ func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskCon
 		}
 		man.DeleteFor(e.ObjectURL, e.Path)
 		s.metrics.mirrorDeleted.Add(1)
+		s.observeTrend("mirror_deleted")
 		if obj := completed[e.ObjectURL]; obj != nil {
 			changed[e.ObjectURL] = obj
 		}
