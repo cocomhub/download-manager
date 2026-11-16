@@ -5,6 +5,7 @@ package remotesave
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"sort"
@@ -277,4 +278,56 @@ func (s *Service) ListConflicts(taskID string) []ConflictInfo {
 		})
 	}
 	return out
+}
+
+// MigrationItem 是对象目录键变化导致 manifest 远端路径与当前计算路径不一致的条目。
+type MigrationItem struct {
+	ObjectURL string `json:"object_url"`
+	Path      string `json:"path"`
+	OldRemote string `json:"old_remote"`
+	NewRemote string `json:"new_remote"`
+}
+
+// MigrationReport 只生成报告，不移动/删除远端文件。
+func (s *Service) MigrationReport(taskID string) ([]MigrationItem, error) {
+	task, ok := s.taskByID(taskID)
+	if !ok || task == nil {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	cfg, err := s.taskConfig(task)
+	if err != nil || !cfg.Enabled {
+		return nil, err
+	}
+	st := task.Storage()
+	if st == nil {
+		return nil, fmt.Errorf("任务无存储")
+	}
+	entries := s.manifest(taskID).Snapshot()
+	out := make([]MigrationItem, 0)
+	for _, e := range entries {
+		if e.ObjectURL == "" || e.RemotePath == "" {
+			continue
+		}
+		obj, gerr := st.Get(e.ObjectURL)
+		if gerr != nil || obj == nil || obj.GetStatus() != model.StatusCompleted || obj.IsCloudDownload() {
+			continue
+		}
+		fs, ferr := s.collectObjectFileSet(task, obj)
+		if ferr != nil {
+			continue
+		}
+		paths := objectRemotePaths(obj, fs.files, fs.rels, cfg)
+		newRemote := paths[e.Path]
+		if newRemote == "" || newRemote == e.RemotePath {
+			continue
+		}
+		out = append(out, MigrationItem{ObjectURL: e.ObjectURL, Path: e.Path, OldRemote: e.RemotePath, NewRemote: newRemote})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ObjectURL != out[j].ObjectURL {
+			return out[i].ObjectURL < out[j].ObjectURL
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
 }

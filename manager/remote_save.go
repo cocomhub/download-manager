@@ -126,6 +126,17 @@ func (m *Manager) RemoteSaveObjects(taskID string) ([]map[string]any, error) {
 	return out, nil
 }
 
+// RemoteSaveMigrationReport 返回对象目录键变化导致的远端路径迁移报告（只读）。
+func (m *Manager) RemoteSaveMigrationReport(taskID string) ([]remotesave.MigrationItem, error) {
+	if m.remoteSave == nil {
+		return nil, fmt.Errorf("remote-save 未装配")
+	}
+	if _, ok := m.getTask(taskID); !ok {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	return m.remoteSave.MigrationReport(taskID)
+}
+
 // ResolveRemoteSaveConflict 对单个冲突文件执行人工处理动作。
 func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectURL, rel, action string) error {
 	if m.remoteSave == nil {

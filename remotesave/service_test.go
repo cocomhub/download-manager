@@ -1277,3 +1277,28 @@ func TestTaskLease_ExclusiveAcrossServices(t *testing.T) {
 	}
 	relB()
 }
+
+func TestMigrationReport_ObjectKeyChanged(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("v"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted,
+		Metadata: map[string]string{"code": "NEW-001"}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	svc := newTestService(t, task, &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}, nil)
+	svc.opts.Cfg().Tasks[0].Extra = map[string]any{"remote_save": map[string]any{
+		"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
+	}}
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "video.mp4", ObjectURL: "u1", RemotePath: "hanime/2.5D/OLD-001/video.mp4", Status: model.RemoteFileStatusUploaded})
+	items, err := svc.MigrationReport("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].NewRemote != "hanime/2.5D/NEW-001/video.mp4" {
+		t.Fatalf("items=%+v", items)
+	}
+}

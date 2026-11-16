@@ -30,6 +30,7 @@ SPROXY_E2E_URL=... SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY_E2E_SKID=... \
 ```http
 GET /api/tasks/{task_id}/remote_save
 GET /api/tasks/{task_id}/remote_save/objects
+GET /api/tasks/{task_id}/remote_save/migration
 GET /api/tasks/{task_id}/remote_save/conflicts
 ```
 
@@ -88,6 +89,12 @@ download-manager 在 task 404 时按 `transfer_volume/transfer_path` 回读目�
 
 - 目标存在：视为成功，记录 `transfer_url`；
 - 目标不存在：保持失败，检查转存路径/卷配置。
+
+### 对象目录键变化
+
+`GET /api/tasks/{task_id}/remote_save/migration` 返回 manifest 旧路径与当前
+`object_dirs` 计算路径的差异；当前只生成报告，不自动移动/删除远端文件。
+确认后可用 sproxy rename/备份工具人工迁移，或让 mirror_delete 清理旧路径。
 
 ### mirror_delete 未删除
 
