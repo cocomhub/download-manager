@@ -12,11 +12,12 @@ import (
 )
 
 // triggerRemoteSave 手动触发任务远程保存（POST /api/tasks/{id}/remote_save）。
-// body: {"force": true}（可空；force 默认 false）。
+// body: {"force": true, "url": "..."}（url 为空 = 全任务；可空）。
 func (s *Server) triggerRemoteSave(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
 	var req struct {
-		Force bool `json:"force"`
+		Force bool   `json:"force"`
+		URL   string `json:"url"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -24,13 +25,19 @@ func (s *Server) triggerRemoteSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.mgr.TriggerRemoteSave(taskID, req.Force); err != nil {
+	var err error
+	if req.URL != "" {
+		err = s.mgr.TriggerRemoteSaveObject(taskID, req.URL, req.Force)
+	} else {
+		err = s.mgr.TriggerRemoteSave(taskID, req.Force)
+	}
+	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "remote_save_trigger_failed", err.Error())
 		return
 	}
 	w.Header().Set(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "task_id": taskID, "force": req.Force})
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "task_id": taskID, "url": req.URL, "force": req.Force})
 }
 
 // getRemoteSaveStatus 返回任务远程保存聚合状态（GET /api/tasks/{id}/remote_save）。
