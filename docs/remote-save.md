@@ -44,6 +44,7 @@ remote_save:
 - `deep_reconcile_interval`：深度对账（忽略 manifest，重算 sha256 + 校验远端）；上次执行时间
   持久化在 `remote_save/deep.state`，进程重启不会把 24h 计时清零。
 - `max_retries`：失败对象自动重试上限；达到上限后自动对账停止重试，需人工触发/处理。
+- 失败重试带指数退避：`1m → 2m → 4m …`，最高 `1h`；`force=true` 会绕过退避。
 - `settle_seconds`：跳过刚写入/可能仍在下载的文件。
 - `verify_checksum=true`：每次快速对账也重算本地 sha256。
 
@@ -84,6 +85,9 @@ tasks:
   删除，避免跨任务误删。
 
 ## API
+
+`GET /api/metrics`（如启用）除任务/全局指标外，包含 `remote_save` 累计指标：
+`files_uploaded/files_reused/files_failed/files_skipped/conflicts/bytes_uploaded/mirror_deleted/cloud_files`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|

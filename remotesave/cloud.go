@@ -294,6 +294,7 @@ func (s *Service) recordCloudRemote(ctx context.Context, task core.Task, cfg Tas
 		SHA256: localSHA, RemoteSHA256: fi.Checksum, MetaHash: metaHash,
 		Origin: "cloud", Status: model.RemoteFileStatusUploaded,
 	})
+	s.observeFileResult(model.RemoteFileState{Status: model.RemoteFileStatusUploaded, Size: size})
 	setTransferURL(obj, volume, remote)
 	return nil
 }
