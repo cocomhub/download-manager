@@ -1592,7 +1592,10 @@
                             · 冲突 {{ remoteSaveStatus.conflicts || 0 }}
                         </span>
                     </div>
-                    <button @click="closeRemoteSaveModal" data-testid="remote-save-close" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                    <div class="flex items-center gap-2">
+                        <button @click="triggerRemoteSave" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-trigger" class="text-xs px-3 py-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">立即对账</button>
+                        <button @click="closeRemoteSaveModal" data-testid="remote-save-close" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                    </div>
                 </div>
                 <div class="p-4 flex-1 overflow-y-auto">
                     <div v-if="remoteSaveStatus && remoteSaveStatus.enabled && remoteSaveObjects.length > 0" class="mb-4" data-testid="remote-save-objects">
@@ -1607,6 +1610,7 @@
                                         <th class="px-3 py-2 text-left text-xs text-gray-500">冲突</th>
                                         <th class="px-3 py-2 text-left text-xs text-gray-500">重试</th>
                                         <th class="px-3 py-2 text-left text-xs text-gray-500">最近错误</th>
+                                        <th class="px-3 py-2 text-right text-xs text-gray-500">播放</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -1617,6 +1621,10 @@
                                         <td class="px-3 py-2 text-amber-700">{{ o.conflicts || 0 }}</td>
                                         <td class="px-3 py-2 text-gray-600">{{ o.retries || 0 }}</td>
                                         <td class="px-3 py-2 text-red-600 max-w-xs truncate" :title="o.last_error">{{ o.last_error || '-' }}</td>
+                                        <td class="px-3 py-2 text-right">
+                                            <a v-if="o.play_url" :href="o.play_url" target="_blank" rel="noopener" data-testid="remote-save-play" class="text-xs text-blue-600 hover:underline">播放</a>
+                                            <span v-else class="text-xs text-gray-400">-</span>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
