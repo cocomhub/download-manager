@@ -567,6 +567,10 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	}
 	man := s.manifest(task.ID())
 	remotePaths := objectRemotePaths(obj, fs.files, fs.rels, cfg)
+	var remoteIndex map[string]FileInfo
+	if !force && s.batchStatEnabled() {
+		remoteIndex = s.buildRemoteIndex(s.ctx, client, remotePaths)
+	}
 	process := func(rel string) {
 		f := fs.byRel[rel]
 		if IsExcluded(rel, cfg.Exclude) {
@@ -580,7 +584,7 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 			s.recordSyncResult(man, obj, f, rel, remote, model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "remote path empty"})
 			return
 		}
-		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force)
+		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force, remoteIndex)
 		s.observeFileResult(res)
 		if res.Status != model.RemoteFileStatusUploaded && res.Status != model.RemoteFileStatusReused {
 			s.recordSyncResult(man, obj, f, rel, remote, res)
@@ -635,6 +639,15 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	s.refreshObjectState(task, cfg, obj, man, fs, 1)
 }
 
+func remoteInfo(ctx context.Context, client Client, index map[string]FileInfo, remote string) (*FileInfo, error) {
+	if index != nil {
+		if fi, ok := index[remote]; ok {
+			return &fi, nil
+		}
+	}
+	return client.Stat(ctx, remote)
+}
+
 // recordSyncResult 把失败/缺失/冲突/跳过结果写入 manifest；成功条目由 syncFile 自己写。
 // 否则上一次成功的 uploaded 条目会掩盖本次失败，refresh 会把对象错误汇总为 synced。
 func (s *Service) recordSyncResult(man *Manifest, obj *model.DownloadObject, f localFile, rel, remote string, res model.RemoteFileState) {
@@ -648,7 +661,7 @@ func (s *Service) recordSyncResult(man *Manifest, obj *model.DownloadObject, f l
 	man.Put(e)
 }
 
-func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, cfg TaskConfig, man *Manifest, obj *model.DownloadObject, f localFile, rel, remote string, force bool) model.RemoteFileState {
+func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, cfg TaskConfig, man *Manifest, obj *model.DownloadObject, f localFile, rel, remote string, force bool, remoteIndex map[string]FileInfo) model.RemoteFileState {
 	st, err := os.Lstat(f.abs)
 	if err != nil {
 		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Status: model.RemoteFileStatusMissing, Reason: err.Error()})
@@ -669,7 +682,7 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 		// manifest 只是缓存，不是远端事实源：必须核对远端仍存在且 checksum 未变，
 		// 否则远端被删/卷回滚后会永远停留在“已同步”。
 		if entry.Status == model.RemoteFileStatusUploaded || entry.Status == model.RemoteFileStatusReused {
-			fi, serr := client.Stat(ctx, remote)
+			fi, serr := remoteInfo(ctx, client, remoteIndex, remote)
 			if serr != nil && !errors.Is(serr, sproxyclient.ErrNotFound) {
 				return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "stat: " + serr.Error()}
 			}
@@ -828,6 +841,44 @@ func (s *Service) lockObject(key string) func() {
 		}
 		s.objMu.Unlock()
 	}
+}
+
+func (s *Service) batchStatEnabled() bool {
+	if cfg := s.opts.Cfg(); cfg != nil {
+		return cfg.RemoteSave.BatchStat
+	}
+	return false
+}
+
+func (s *Service) buildRemoteIndex(ctx context.Context, client Client, remotePaths map[string]string) map[string]FileInfo {
+	lister, ok := client.(DirLister)
+	if !ok {
+		return nil
+	}
+	dirs := map[string]bool{}
+	for _, remote := range remotePaths {
+		if remote == "" {
+			continue
+		}
+		dirs[path.Dir(remote)] = true
+	}
+	index := make(map[string]FileInfo)
+	for dir := range dirs {
+		files, err := lister.List(ctx, dir)
+		if err != nil {
+			continue
+		}
+		for _, fi := range files {
+			if fi.Name == "" {
+				continue
+			}
+			index[path.Join(dir, fi.Name)] = fi
+		}
+	}
+	if len(index) == 0 {
+		return nil
+	}
+	return index
 }
 
 func (s *Service) fileConcurrency() int {

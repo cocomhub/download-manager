@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,6 +81,8 @@ type fakeClient struct {
 	files       map[string]*FileInfo
 	metas       map[string]MetaInfo
 	uploads     int
+	listCalls   int
+	statCalls   int
 	lastMeta    map[string]any
 	uploadErr   error
 	afterUpload func(local, remote string) string
@@ -88,10 +91,27 @@ type fakeClient struct {
 func (f *fakeClient) Stat(_ context.Context, remote string) (*FileInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.statCalls++
 	if fi, ok := f.files[remote]; ok {
 		return fi, nil
 	}
 	return nil, sproxyclient.ErrNotFound
+}
+
+func (f *fakeClient) List(_ context.Context, dir string) ([]FileInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls++
+	var out []FileInfo
+	for remote, fi := range f.files {
+		if path.Dir(remote) != dir {
+			continue
+		}
+		cp := *fi
+		cp.Name = path.Base(remote)
+		out = append(out, cp)
+	}
+	return out, nil
 }
 
 func (f *fakeClient) Upload(_ context.Context, local, remote string) (string, error) {
@@ -1137,5 +1157,45 @@ func TestSyncObject_FileConcurrency(t *testing.T) {
 	}
 	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSynced || state.FilesDone != 2 {
 		t.Fatalf("state=%+v", state)
+	}
+}
+
+func TestSyncObject_BatchStatUsesDirListing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	files := []string{"a.mp4", "b.jpg"}
+	for _, name := range files {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "a.mp4"), Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}},
+		small: []core.SmallObjectInfo{{SavePath: filepath.Join(dir, "b.jpg")}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	svc := newTestService(t, task, client, nil)
+	svc.opts.Cfg().RemoteSave.BatchStat = true
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	client.mu.Lock()
+	client.statCalls, client.listCalls = 0, 0
+	client.mu.Unlock()
+	svc.syncObject(task, cfg, obj, false)
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.listCalls == 0 {
+		t.Fatal("expected dir listing")
+	}
+	if client.statCalls != 0 {
+		t.Fatalf("expected no per-file stat, got %d", client.statCalls)
 	}
 }

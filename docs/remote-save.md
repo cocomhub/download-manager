@@ -48,6 +48,7 @@ remote_save:
 - `file_concurrency`：单对象内文件并发（默认 1，最大 8）；用于多文件/小对象，不影响对象级 worker 数。
 - `settle_seconds`：跳过刚写入/可能仍在下载的文件。
 - `verify_checksum=true`：每次快速对账也重算本地 sha256。
+- `batch_stat=true`：快速对账按远端目录一次列举批量核对 checksum，减少逐文件 `Stat`（失败时回退 `Stat`）。
 
 ### 任务级（只配路径）
 

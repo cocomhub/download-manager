@@ -95,6 +95,7 @@ remote_save:
   max_retries: 3
   max_files_per_object: 1000
   verify_checksum: false   # 默认 false；深度对账默认仍用 sha256 校验
+  batch_stat: false        # true=快速对账按目录列举批量校验（减少逐文件 Stat）
 ```
 
 任务级只配路径：

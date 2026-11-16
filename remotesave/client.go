@@ -17,9 +17,15 @@ import (
 
 // FileInfo 是远端文件的验证信息（size + sproxy 侧 sha256）。
 type FileInfo struct {
+	Name     string
 	Size     int64
 	Checksum string
 	ModTime  int64
+}
+
+// DirLister 是可选能力：按目录一次列举远端元信息，用于批量快速对账。
+type DirLister interface {
+	List(ctx context.Context, dir string) ([]FileInfo, error)
 }
 
 // MetaInfo 是 sproxy 保存的原始文件时间与 meta。
@@ -77,7 +83,7 @@ func (c *sproxyClient) Stat(ctx context.Context, remote string) (*FileInfo, erro
 		}
 		return nil, err
 	}
-	return &FileInfo{Size: fi.Size, Checksum: fi.Checksum, ModTime: fi.ModTime}, nil
+	return &FileInfo{Name: fi.Name, Size: fi.Size, Checksum: fi.Checksum, ModTime: fi.ModTime}, nil
 }
 
 func (c *sproxyClient) Upload(ctx context.Context, local, remote string) (string, error) {
@@ -162,4 +168,24 @@ func renameRemoteOrReuse(ctx context.Context, client Client, from, to, checksum 
 		return err
 	}
 	return client.Rename(ctx, from, to)
+}
+
+func (c *sproxyClient) List(ctx context.Context, dir string) ([]FileInfo, error) {
+	var (
+		files []sproxyclient.FileInfo
+		err   error
+	)
+	if dir == "" || dir == "." {
+		files, err = c.fc.List(ctx)
+	} else {
+		files, err = c.fc.List(ctx, dir)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FileInfo, 0, len(files))
+	for _, fi := range files {
+		out = append(out, FileInfo{Name: fi.Name, Size: fi.Size, Checksum: fi.Checksum, ModTime: fi.ModTime})
+	}
+	return out, nil
 }
