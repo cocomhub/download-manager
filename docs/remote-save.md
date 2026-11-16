@@ -97,7 +97,8 @@ tasks:
 | POST | `/api/tasks/{id}/remote_save` | 手动触发（body `{"force":true}` 可选） |
 | GET | `/api/tasks/{id}/remote_save/objects` | 对象级状态摘要（状态/进度/冲突/重试/最近错误） |
 | GET | `/api/tasks/{id}/remote_save/conflicts` | 逐文件冲突列表 |
-| POST | `/api/tasks/{id}/remote_save/conflicts/resolve` | 冲突处理：`{object_url,path,action}`；action=`reuse|overwrite|rename|skip` |
+| POST | `/api/tasks/{id}/remote_save/conflicts/resolve` | 单条冲突处理：`{object_url,path,action}`；action=`reuse|overwrite|rename|skip` |
+| POST | `/api/tasks/{id}/remote_save/conflicts/resolve_batch` | 批量冲突处理：`{action,items:[{object_url,path}]}` |
 | GET | `/api/tasks/{id}/object/play_url?url=` | 生成/刷新签名播放 URL（返回 url + expires_at） |
 
 ## 云端直存（C）
@@ -122,7 +123,7 @@ tasks:
 ## UI 冲突处理
 
 任务详情「远程保存」按钮打开冲突面板，逐文件可选 `复用 / 覆盖 / 改名 / 跳过`；
-覆盖/改名有二次确认。对象状态表展示进度/冲突/重试/最近错误，并提供「立即对账」与播放链接。UI 通过真实 API 读取/处理，Playwright 用例：
+覆盖/改名有二次确认。对象状态表展示进度/冲突/重试/最近错误，并提供「立即对账」与播放链接；冲突列表支持全部复用/覆盖/改名/跳过。UI 通过真实 API 读取/处理，Playwright 用例：
 `test/playwright/specs/remote-save.spec.ts`。
 
 ## 真实端到端

@@ -47,6 +47,10 @@ POST /api/tasks/{task_id}/remote_save
 ```http
 POST /api/tasks/{task_id}/remote_save/conflicts/resolve
 {"object_url":"...","path":"...","action":"reuse|overwrite|rename|skip"}
+
+# 批量（同一动作，单条失败不阻断其它）
+POST /api/tasks/{task_id}/remote_save/conflicts/resolve_batch
+{"action":"reuse","items":[{"object_url":"...","path":"..."}]}
 ```
 
 - `reuse`：接受远端内容；

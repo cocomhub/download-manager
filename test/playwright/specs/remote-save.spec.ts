@@ -22,6 +22,7 @@ const conflict = {
 test.describe('Remote Save Conflict Panel', () => {
   test('RSP1: renders conflicts and resolves reuse', async ({ page }) => {
     let resolveBody: any = null;
+    let batchBody: any = null;
     let triggerBody: any = null;
 
     await page.route('**/api/tasks/*/remote_save', async (route) => {
@@ -61,6 +62,14 @@ test.describe('Remote Save Conflict Panel', () => {
         body: JSON.stringify({ conflicts: [conflict], total: 1 }),
       });
     });
+    await page.route('**/api/tasks/*/remote_save/conflicts/resolve_batch', async (route) => {
+      batchBody = JSON.parse(route.request().postData() || '{}');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, succeeded: 1, failed: 0, results: [] }),
+      });
+    });
     await page.route('**/api/tasks/*/remote_save/conflicts/resolve', async (route) => {
       resolveBody = JSON.parse(route.request().postData() || '{}');
       await route.fulfill({
@@ -87,6 +96,11 @@ test.describe('Remote Save Conflict Panel', () => {
 
     await page.locator('[data-testid="remote-save-trigger"]').click();
     await expect.poll(() => triggerBody && triggerBody.force).toBe(true);
+
+    await page.locator('[data-testid="remote-save-bulk-skip"]').click();
+    await expect.poll(() => batchBody && batchBody.action).toBe('skip');
+    expect(batchBody.items).toHaveLength(1);
+    expect(batchBody.items[0].path).toBe('video-0.mp4');
 
     await page.locator('[data-testid="remote-save-reuse"]').click();
     await expect.poll(() => resolveBody && resolveBody.action).toBe('reuse');

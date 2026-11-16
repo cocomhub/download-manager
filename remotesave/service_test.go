@@ -1199,3 +1199,26 @@ func TestSyncObject_BatchStatUsesDirListing(t *testing.T) {
 		t.Fatalf("expected no per-file stat, got %d", client.statCalls)
 	}
 }
+
+func TestResolveConflicts_BulkPartialFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "a.mp4")
+	if err := os.WriteFile(local, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	svc := newTestService(t, task, &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}, nil)
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "a.mp4", ObjectURL: "u1", RemotePath: "r/a.mp4", Status: model.RemoteFileStatusConflict})
+	man.Put(ManifestEntry{Path: "missing.mp4", ObjectURL: "u1", RemotePath: "r/missing.mp4", Status: model.RemoteFileStatusConflict})
+	results := svc.ResolveConflicts(context.Background(), "t1", ConflictActionSkip, []ConflictActionItem{
+		{ObjectURL: "u1", Path: "a.mp4"},
+		{ObjectURL: "u1", Path: "missing.mp4"},
+		{ObjectURL: "u1", Path: "not-conflict.mp4"},
+	})
+	if len(results) != 3 || !results[0].Success || !results[1].Success || results[2].Success {
+		t.Fatalf("results=%+v", results)
+	}
+}
