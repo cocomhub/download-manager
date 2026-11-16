@@ -88,6 +88,7 @@ sproxy:
 ```yaml
 remote_save:
   concurrency: 2
+  file_concurrency: 1 # 单对象内文件并发（默认 1，最大 8）
   reconcile_interval: 10m
   deep_reconcile_interval: 24h
   settle_seconds: 30

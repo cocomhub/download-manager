@@ -26,7 +26,7 @@ func TestValidateAndClamp_SproxyLegacyFallback(t *testing.T) {
 	if cfg.Sproxy.PlayTTL != time.Hour {
 		t.Fatalf("play_ttl 默认应为 1h: %v", cfg.Sproxy.PlayTTL)
 	}
-	if cfg.RemoteSave.Concurrency != 2 || cfg.RemoteSave.ReconcileInterval != 10*time.Minute {
+	if cfg.RemoteSave.Concurrency != 2 || cfg.RemoteSave.FileConcurrency != 1 || cfg.RemoteSave.ReconcileInterval != 10*time.Minute {
 		t.Fatalf("remote_save 默认值: %+v", cfg.RemoteSave)
 	}
 	if cfg.RemoteSave.VerifyChecksum {
@@ -61,7 +61,8 @@ func TestValidateAndClamp_RemoteSaveClamp(t *testing.T) {
 	if cfg.RemoteSave.Concurrency != 8 {
 		t.Fatalf("concurrency 应钳到 8: %d", cfg.RemoteSave.Concurrency)
 	}
-	if cfg.RemoteSave.ReconcileInterval != 10*time.Minute ||
+	if cfg.RemoteSave.FileConcurrency != 1 ||
+		cfg.RemoteSave.ReconcileInterval != 10*time.Minute ||
 		cfg.RemoteSave.DeepReconcileInterval != 24*time.Hour ||
 		cfg.RemoteSave.SettleSeconds != 30 ||
 		cfg.RemoteSave.MaxRetries != 3 ||

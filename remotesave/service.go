@@ -567,10 +567,10 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	}
 	man := s.manifest(task.ID())
 	remotePaths := objectRemotePaths(obj, fs.files, fs.rels, cfg)
-	for _, rel := range fs.rels {
+	process := func(rel string) {
 		f := fs.byRel[rel]
 		if IsExcluded(rel, cfg.Exclude) {
-			continue
+			return
 		}
 		remote := remotePaths[rel]
 		if m, ok := man.GetFor(obj.URL, rel); ok && m.RemotePath != "" && (m.ObjectURL == "" || m.ObjectURL == obj.URL) {
@@ -578,7 +578,7 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 		}
 		if remote == "" {
 			s.recordSyncResult(man, obj, f, rel, remote, model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "remote path empty"})
-			continue
+			return
 		}
 		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force)
 		s.observeFileResult(res)
@@ -586,6 +586,50 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 			s.recordSyncResult(man, obj, f, rel, remote, res)
 		}
 		s.Logger().Info("remote-save file", "task_id", task.ID(), "url", obj.URL, "file", rel, "status", res.Status, "reason", res.Reason)
+	}
+	n := s.fileConcurrency()
+	if n <= 1 || len(fs.rels) <= 1 {
+		for _, rel := range fs.rels {
+			if s.ctx != nil && s.ctx.Err() != nil {
+				break
+			}
+			process(rel)
+		}
+	} else {
+		ctx := s.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		jobs := make(chan string)
+		var wg sync.WaitGroup
+		for range n {
+			wg.Go(func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case rel, ok := <-jobs:
+						if !ok {
+							return
+						}
+						process(rel)
+					}
+				}
+			})
+		}
+		for _, rel := range fs.rels {
+			select {
+			case jobs <- rel:
+			case <-ctx.Done():
+				close(jobs)
+				wg.Wait()
+				_ = man.Flush()
+				s.refreshObjectState(task, cfg, obj, man, fs, 1)
+				return
+			}
+		}
+		close(jobs)
+		wg.Wait()
 	}
 	_ = man.Flush()
 	s.refreshObjectState(task, cfg, obj, man, fs, 1)
@@ -784,6 +828,16 @@ func (s *Service) lockObject(key string) func() {
 		}
 		s.objMu.Unlock()
 	}
+}
+
+func (s *Service) fileConcurrency() int {
+	if cfg := s.opts.Cfg(); cfg != nil && cfg.RemoteSave.FileConcurrency > 0 {
+		if cfg.RemoteSave.FileConcurrency > 8 {
+			return 8
+		}
+		return cfg.RemoteSave.FileConcurrency
+	}
+	return 1
 }
 
 func (s *Service) maxRetries() int {
