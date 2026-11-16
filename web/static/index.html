@@ -1651,7 +1651,8 @@
                                         <td class="px-3 py-2 text-red-600 max-w-xs truncate" :title="o.last_error">{{ o.last_error || '-' }}</td>
                                         <td class="px-3 py-2 text-right whitespace-nowrap">
                                             <button @click="triggerRemoteSaveObject(o)" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-object-trigger" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 mr-1">对账</button>
-                                            <a v-if="o.play_url" :href="o.play_url" target="_blank" rel="noopener" data-testid="remote-save-play" class="text-xs text-blue-600 hover:underline">播放</a>
+                                            <a v-if="o.play_url" :href="o.play_url" target="_blank" rel="noopener" data-testid="remote-save-play" @click.prevent="openRemotePlay(o)" class="text-xs text-blue-600 hover:underline">播放</a>
+                                            <button v-if="o.play_url" @click="refreshRemotePlayURL(o)" data-testid="remote-save-play-refresh" class="text-xs text-gray-500 hover:underline ml-1">刷新</button>
                                             <span v-else class="text-xs text-gray-400">-</span>
                                         </td>
                                     </tr>
@@ -1722,9 +1723,9 @@
                             <span class="text-xs text-gray-400 mr-auto">全部 {{ remoteSaveConflicts.length }} 条 · 显示 {{ remoteSaveConflictsVisible.length }} · 已选 {{ remoteSaveSelectedConflicts.length }}</span>
                             <input v-model="remoteSaveConflictFilter" data-testid="remote-save-conflict-filter" class="text-xs border rounded px-2 py-1 w-48" placeholder="筛选冲突">
                             <button @click="toggleAllRemoteSaveConflicts" data-testid="remote-save-select-all" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">全选筛选结果</button>
-                            <button @click="bulkResolveRemoteSave('reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">全部复用</button>
-                            <button @click="bulkResolveRemoteSave('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">全部覆盖</button>
-                            <button @click="bulkResolveRemoteSave('rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">全部改名</button>
+                            <button @click="bulkResolveRemoteSave('reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-reuse" title="全部信任远端内容并记录为复用" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">全部复用</button>
+                            <button @click="bulkResolveRemoteSave('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-overwrite" title="全部删除远端后重传；失败可能造成远端缺失" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">全部覆盖</button>
+                            <button @click="bulkResolveRemoteSave('rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-rename" title="全部保留远端文件并改用新路径" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">全部改名</button>
                             <button @click="bulkResolveRemoteSave('skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">全部跳过</button>
                             <span class="w-px h-4 bg-gray-200"></span>
                             <button @click="bulkResolveRemoteSaveSelected('reuse')" :disabled="remoteSaveBusy || isWriteDisabled || !remoteSaveSelectedConflicts.length" data-testid="remote-save-selected-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">选中复用</button>
@@ -1757,10 +1758,10 @@
                                     <td class="px-3 py-2 font-mono text-xs max-w-[10rem] truncate" :title="c.sha256">{{ c.sha256 || '-' }}</td>
                                     <td class="px-3 py-2 font-mono text-xs max-w-[10rem] truncate" :title="c.remote_sha256">{{ c.remote_sha256 || '-' }}</td>
                                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                                        <button @click="resolveRemoteSaveConflict(c, 'reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 mr-1">复用</button>
-                                        <button @click="resolveRemoteSaveConflict(c, 'overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 mr-1">覆盖</button>
-                                        <button @click="resolveRemoteSaveConflict(c, 'rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 mr-1">改名</button>
-                                        <button @click="resolveRemoteSaveConflict(c, 'skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">跳过</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-reuse" title="信任远端内容并记录为复用（sha256 可能不同）" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 mr-1">复用</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-overwrite" title="删除远端后重新上传；上传失败可能造成远端缺失" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 mr-1">覆盖</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-rename" title="保留远端文件，改用新路径上传" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50 mr-1">改名</button>
+                                        <button @click="resolveRemoteSaveConflict(c, 'skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-skip" title="保留冲突，不修改远端" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">跳过</button>
                                     </td>
                                 </tr>
                             </tbody>

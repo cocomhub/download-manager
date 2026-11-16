@@ -107,6 +107,13 @@ test.describe('Remote Save Conflict Panel', () => {
         body: JSON.stringify({ entries: [{ task_id: 'test', time: '2026-11-16T12:00:00Z', path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4', success: true }], total: 1 }),
       });
     });
+    await page.route('**/api/tasks/*/object/play_url*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ url: 'https://example.invalid/play-refreshed.mp4', expires_at: '2030-01-01T00:00:00Z' }),
+      });
+    });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({
         status: 200,
@@ -162,6 +169,8 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect(modal).toContainText('sha256 不一致');
     await expect(modal).toContainText('ABC-001/video-0.mp4');
     await expect(page.locator('[data-testid="remote-save-play"]')).toHaveAttribute('href', 'https://example.invalid/play.mp4');
+    await page.locator('[data-testid="remote-save-play-refresh"]').click();
+    await expect(page.locator('[data-testid="remote-save-play"]')).toHaveAttribute('href', 'https://example.invalid/play-refreshed.mp4');
     await expect.poll(() => objectsCalls, { timeout: 8000 }).toBeGreaterThan(1);
 
     await page.locator('[data-testid="remote-save-object-trigger"]').click();
@@ -215,6 +224,13 @@ test.describe('Remote Save Conflict Panel', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ entries: [{ task_id: 'test', time: '2026-11-16T12:00:00Z', path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4', success: true }], total: 1 }),
+      });
+    });
+    await page.route('**/api/tasks/*/object/play_url*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ url: 'https://example.invalid/play-refreshed.mp4', expires_at: '2030-01-01T00:00:00Z' }),
       });
     });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
