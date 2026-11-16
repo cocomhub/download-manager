@@ -33,6 +33,11 @@ func (s *Service) PrepareCloud(task core.Task, obj *model.DownloadObject) error 
 	if s == nil || task == nil || obj == nil || !obj.IsCloudDownload() {
 		return nil
 	}
+	releaseLease, ok := s.acquireTaskLease(task)
+	if !ok {
+		return fmt.Errorf("remote-save: 任务正被其它实例处理")
+	}
+	defer releaseLease()
 	unlock := s.lockObject(obj.URL)
 	defer unlock()
 	cfg, err := s.taskConfig(task)
@@ -163,6 +168,12 @@ func (s *Service) NotifyCloudCompleted(task core.Task, obj *model.DownloadObject
 }
 
 func (s *Service) syncCloud(ctx context.Context, task core.Task, cfg TaskConfig, obj *model.DownloadObject) {
+	releaseLease, ok := s.acquireTaskLease(task)
+	if !ok {
+		s.Logger().Warn("remote-save skip cloud sync: task lease busy", "task_id", task.ID(), "url", obj.URL)
+		return
+	}
+	defer releaseLease()
 	unlock := s.lockObject(obj.URL)
 	defer unlock()
 	transferURL := extraString(obj, "transfer_url")

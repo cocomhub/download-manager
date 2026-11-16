@@ -72,10 +72,11 @@ func MongoClientFor(source string) *mongo.Client {
 }
 
 type MongoStorage struct {
-	client     *mongo.Client
-	dbName     string
-	collName   string
-	collection *mongo.Collection
+	client          *mongo.Client
+	dbName          string
+	collName        string
+	collection      *mongo.Collection
+	leaseCollection *mongo.Collection
 }
 
 func NewMongoStorage(config map[string]string) (*MongoStorage, error) {
@@ -93,14 +94,21 @@ func NewMongoStorage(config map[string]string) (*MongoStorage, error) {
 	}
 
 	st := &MongoStorage{
-		client:     client,
-		dbName:     dbName,
-		collName:   collName,
-		collection: client.Database(dbName).Collection(collName),
+		client:          client,
+		dbName:          dbName,
+		collName:        collName,
+		collection:      client.Database(dbName).Collection(collName),
+		leaseCollection: client.Database(dbName).Collection(collName + "_leases"),
 	}
 	if err := st.ensureIndexes(); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = st.leaseCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
 	return st, nil
 }
 
@@ -593,4 +601,47 @@ func (s *MongoStorage) ContentGroupRepresentatives(taskID string, search, status
 		return nil, 0, err
 	}
 	return results, total, nil
+}
+
+// AcquireTaskLease 原子获取任务租约；过期或同 owner 可续租。
+func (s *MongoStorage) AcquireTaskLease(ctx context.Context, taskID, owner string, ttl time.Duration) (bool, error) {
+	now := time.Now().UTC()
+	filter := bson.M{
+		"_id": taskID,
+		"$or": bson.A{
+			bson.M{"owner": owner},
+			bson.M{"expires_at": bson.M{"$lte": now}},
+		},
+	}
+	update := bson.M{"$set": bson.M{"owner": owner, "expires_at": now.Add(ttl), "updated_at": now}}
+	opts := options.FindOneAndUpdate().SetUpsert(true)
+	var out bson.M
+	err := s.leaseCollection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&out)
+	if err == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if mongo.IsDuplicateKeyError(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *MongoStorage) RenewTaskLease(ctx context.Context, taskID, owner string, ttl time.Duration) (bool, error) {
+	now := time.Now().UTC()
+	res, err := s.leaseCollection.UpdateOne(ctx,
+		bson.M{"_id": taskID, "owner": owner},
+		bson.M{"$set": bson.M{"expires_at": now.Add(ttl), "updated_at": now}},
+	)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount > 0, nil
+}
+
+func (s *MongoStorage) ReleaseTaskLease(ctx context.Context, taskID, owner string) error {
+	_, err := s.leaseCollection.DeleteOne(ctx, bson.M{"_id": taskID, "owner": owner})
+	return err
 }

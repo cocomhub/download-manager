@@ -144,7 +144,7 @@ SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY
 
 ## 已知限制
 
-- 多实例同时写同一任务未做分布式锁（依赖单实例锁文件）；同一任务不应同时跑多个 full 实例。
+- Mongo 存储实现任务级租约（集合 `<collection>_leases`，TTL 5m，自动续租）；memory 等无租约存储仍按单实例语义运行。多主机部署请使用支持租约的共享 Mongo 存储。
 - 覆盖动作删除远端后、上传前进程崩溃时，需要再次执行动作；删除/改名本身是幂等的。
 - 外部卷（百度）列举/Stat 最终一致；快速对账会核对远端存在与 checksum，但本地内容变化且
   size+mtime 不变需开 `verify_checksum` 或等待深度对账。
