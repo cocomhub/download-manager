@@ -1222,3 +1222,58 @@ func TestResolveConflicts_BulkPartialFailure(t *testing.T) {
 		t.Fatalf("results=%+v", results)
 	}
 }
+
+type leaseStorage struct {
+	*fakeStorage
+	mu   sync.Mutex
+	held string
+}
+
+func (l *leaseStorage) AcquireTaskLease(_ context.Context, taskID, owner string, _ time.Duration) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.held != "" && l.held != owner {
+		return false, nil
+	}
+	l.held = owner
+	return true, nil
+}
+
+func (l *leaseStorage) RenewTaskLease(_ context.Context, _, owner string, _ time.Duration) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.held == owner, nil
+}
+
+func (l *leaseStorage) ReleaseTaskLease(_ context.Context, _, owner string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.held == owner {
+		l.held = ""
+	}
+	return nil
+}
+
+func TestTaskLease_ExclusiveAcrossServices(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	st := &leaseStorage{fakeStorage: &fakeStorage{objs: map[string]*model.DownloadObject{}}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: st}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}
+	a := newTestService(t, task, client, nil)
+	b := newTestService(t, task, client, nil)
+	b.leaseOwner = "other-service"
+	relA, ok := a.acquireTaskLease(task)
+	if !ok {
+		t.Fatal("first acquire failed")
+	}
+	if _, ok := b.acquireTaskLease(task); ok {
+		t.Fatal("second service acquired held lease")
+	}
+	relA()
+	relB, ok := b.acquireTaskLease(task)
+	if !ok {
+		t.Fatal("lease not released")
+	}
+	relB()
+}

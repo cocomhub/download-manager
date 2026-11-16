@@ -58,6 +58,11 @@ func (s *Service) ResolveConflict(ctx context.Context, taskID, objectURL, rel, a
 			return fmt.Errorf("只允许处理 completed 对象（云端冲突允许 failed/failed_permanent）")
 		}
 	}
+	releaseLease, leaseOK := s.acquireTaskLease(task)
+	if !leaseOK {
+		return fmt.Errorf("任务正被其它实例处理")
+	}
+	defer releaseLease()
 	unlock := s.lockObject(obj.URL)
 	defer unlock()
 

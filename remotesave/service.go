@@ -40,18 +40,26 @@ type Options struct {
 
 // Service 是远程保存引擎：只处理 completed 对象，逐文件 sha256 校验后上传。
 type Service struct {
-	opts      Options
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	queue     chan request
-	inflight  sync.Map
-	manifests sync.Map // taskID -> *Manifest
-	mu        sync.Mutex
-	objMu     sync.Mutex
-	objLocks  map[string]*objectLock
-	started   bool
-	metrics   remoteSaveMetrics
+	opts       Options
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	queue      chan request
+	inflight   sync.Map
+	manifests  sync.Map // taskID -> *Manifest
+	mu         sync.Mutex
+	objMu      sync.Mutex
+	objLocks   map[string]*objectLock
+	started    bool
+	metrics    remoteSaveMetrics
+	leaseMu    sync.Mutex
+	leases     map[string]*taskLease
+	leaseOwner string
+}
+
+type taskLease struct {
+	refs int
+	stop chan struct{}
 }
 
 // Metrics 是 remote-save 的累计运行指标（进程生命周期）。
@@ -130,7 +138,11 @@ func New(opts Options) *Service {
 			return NewSproxyClient(sp, volume, false)
 		}
 	}
-	return &Service{opts: opts, queue: make(chan request, 256)}
+	host, _ := os.Hostname()
+	return &Service{
+		opts: opts, queue: make(chan request, 256), leases: map[string]*taskLease{},
+		leaseOwner: fmt.Sprintf("%s:%d", host, os.Getpid()),
+	}
 }
 
 // Start 启动 worker 与周期对账（幂等）。
@@ -182,6 +194,7 @@ func (s *Service) Stop(ctx context.Context) {
 	case <-ctx.Done():
 		s.Logger().Warn("remote-save stop timed out")
 	}
+	s.releaseAllLeases()
 	s.flushAllManifests()
 }
 
@@ -381,6 +394,12 @@ func (s *Service) handle(r request) {
 // 安全边界：只删 manifest 中 ObjectURL 可判定为已删除/已完成对象已无此文件的条目；
 // 对象仍存在但非 completed（临时失败/重下）不删；未知远端文件永不删。
 func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskConfig, objs []*model.DownloadObject, man *Manifest) {
+	releaseLease, ok := s.acquireTaskLease(task)
+	if !ok {
+		s.Logger().Warn("remote-save skip mirror cleanup: task lease busy", "task_id", task.ID())
+		return
+	}
+	defer releaseLease()
 	if s.mirrorDeleteUnsafe(task, cfg) {
 		s.Logger().Warn("remote-save mirror cleanup skipped: another enabled task shares the same volume/dir", "task_id", task.ID(), "volume", cfg.Volume, "dir", cfg.Dir)
 		return
@@ -539,6 +558,12 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 	if obj == nil || obj.GetStatus() != model.StatusCompleted {
 		return
 	}
+	releaseLease, ok := s.acquireTaskLease(task)
+	if !ok {
+		s.Logger().Warn("remote-save skip object: task lease busy", "task_id", task.ID(), "url", obj.URL)
+		return
+	}
+	defer releaseLease()
 	unlock := s.lockObject(obj.URL)
 	defer unlock()
 	fs, err := s.collectObjectFileSet(task, obj)
@@ -846,6 +871,112 @@ func (s *Service) persistState(task core.Task, obj *model.DownloadObject, _ Task
 	obj.SetRemoteSave(state)
 	if s.opts.Persist != nil {
 		s.opts.Persist(task, obj)
+	}
+}
+
+const taskLeaseTTL = 5 * time.Minute
+
+// acquireTaskLease 获取任务级跨进程租约；同一进程内可重入。存储不支持时视为单实例。
+func (s *Service) acquireTaskLease(task core.Task) (func(), bool) {
+	store, ok := task.Storage().(core.TaskLeaseStore)
+	if !ok {
+		return func() {}, true
+	}
+	key := task.ID()
+	s.leaseMu.Lock()
+	if l := s.leases[key]; l != nil {
+		l.refs++
+		s.leaseMu.Unlock()
+		return func() { s.releaseTaskLease(task, key) }, true
+	}
+	ctx, cancel := context.WithTimeout(s.leaseContext(), 5*time.Second)
+	defer cancel()
+	ok, err := store.AcquireTaskLease(ctx, key, s.leaseOwner, taskLeaseTTL)
+	if err != nil || !ok {
+		s.leaseMu.Unlock()
+		if err != nil {
+			s.Logger().Warn("remote-save task lease acquire failed", "task_id", key, "error", err)
+		}
+		return nil, false
+	}
+	l := &taskLease{refs: 1, stop: make(chan struct{})}
+	s.leases[key] = l
+	s.leaseMu.Unlock()
+	go s.renewTaskLease(task, key, store, l.stop)
+	return func() { s.releaseTaskLease(task, key) }, true
+}
+
+func (s *Service) leaseContext() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
+func (s *Service) renewTaskLease(task core.Task, key string, store core.TaskLeaseStore, stop chan struct{}) {
+	ticker := time.NewTicker(taskLeaseTTL / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ok, err := store.RenewTaskLease(ctx, key, s.leaseOwner, taskLeaseTTL)
+			cancel()
+			if err != nil || !ok {
+				s.Logger().Warn("remote-save task lease renew failed", "task_id", key, "error", err, "ok", ok)
+			}
+		}
+	}
+}
+
+func (s *Service) releaseTaskLease(task core.Task, key string) {
+	s.leaseMu.Lock()
+	l := s.leases[key]
+	if l == nil {
+		s.leaseMu.Unlock()
+		return
+	}
+	l.refs--
+	if l.refs > 0 {
+		s.leaseMu.Unlock()
+		return
+	}
+	delete(s.leases, key)
+	close(l.stop)
+	s.leaseMu.Unlock()
+	store, ok := task.Storage().(core.TaskLeaseStore)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = store.ReleaseTaskLease(ctx, key, s.leaseOwner)
+}
+
+func (s *Service) releaseAllLeases() {
+	s.leaseMu.Lock()
+	keys := make([]string, 0, len(s.leases))
+	for key, l := range s.leases {
+		close(l.stop)
+		keys = append(keys, key)
+	}
+	s.leases = map[string]*taskLease{}
+	s.leaseMu.Unlock()
+	for _, task := range s.opts.Tasks() {
+		if task == nil {
+			continue
+		}
+		for _, key := range keys {
+			if task.ID() == key {
+				if store, ok := task.Storage().(core.TaskLeaseStore); ok {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_ = store.ReleaseTaskLease(ctx, key, s.leaseOwner)
+					cancel()
+				}
+			}
+		}
 	}
 }
 

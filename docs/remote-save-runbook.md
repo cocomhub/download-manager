@@ -126,7 +126,7 @@ download-manager 在 task 404 时按 `transfer_volume/transfer_path` 回读目�
 
 ## 5. 已知边界
 
-- 不支持多实例同时写同一任务（没有跨进程分布式锁）；
+- Mongo 存储带任务级租约（`<collection>_leases`，TTL 5m，自动续租）；memory 存储无跨进程保护；
 - overwrite 删除远端后、上传前进程崩溃需要再次执行动作；
 - cloud_only 没有 transfer 目标时，sproxy auto-clean 后无法恢复；
 - 单对象文件上传目前串行；大任务可考虑后续文件级并发；

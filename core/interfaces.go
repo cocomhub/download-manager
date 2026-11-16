@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/cocomhub/download-manager/model"
 )
@@ -119,6 +120,14 @@ type ContextInjecter interface {
 // ErrObjectNotFound 表示局部更新未命中任何文档（对象尚未落库或已被删除）。
 // 调用方可据此回落到整对象 Update（upsert）。
 var ErrObjectNotFound = errors.New("object not found")
+
+// TaskLeaseStore 可选：任务级跨进程租约，避免多个 full 实例同时处理同一任务。
+// 未实现该接口的存储（如 memory）按单实例语义运行。
+type TaskLeaseStore interface {
+	AcquireTaskLease(ctx context.Context, taskID, owner string, ttl time.Duration) (bool, error)
+	RenewTaskLease(ctx context.Context, taskID, owner string, ttl time.Duration) (bool, error)
+	ReleaseTaskLease(ctx context.Context, taskID, owner string) error
+}
 
 // ObjectFieldUpdater 可选：只更新指定字段，避免「读最新 → 整文档 $set」的读-改-写窗口
 // （mongo 下该窗口会用陈旧快照覆盖下载器并发写入的 status/progress）。
