@@ -625,6 +625,20 @@
           self.showRemoteSaveModal = false
         }).finally(function() { self.remoteSaveBusy = false })
       },
+      triggerRemoteSave: function() {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (this.remoteSaveBusy || !this.selectedTaskId) return
+        var self = this
+        this.remoteSaveBusy = true
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save', { force: true })
+          .then(function(res) {
+            if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '触发失败') })
+            UiHelpers.showToast('已触发远程保存对账', 'success')
+            self.refreshRemoteSaveConflicts()
+          })
+          .catch(function(e) { UiHelpers.showToast('触发失败: ' + e.message, 'error') })
+          .finally(function() { self.remoteSaveBusy = false })
+      },
       closeRemoteSaveModal: function() {
         this.showRemoteSaveModal = false
         this.remoteSaveObjects = []

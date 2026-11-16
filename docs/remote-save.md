@@ -121,7 +121,7 @@ tasks:
 ## UI 冲突处理
 
 任务详情「远程保存」按钮打开冲突面板，逐文件可选 `复用 / 覆盖 / 改名 / 跳过`；
-覆盖/改名有二次确认。UI 通过真实 API 读取/处理，Playwright 用例：
+覆盖/改名有二次确认。对象状态表展示进度/冲突/重试/最近错误，并提供「立即对账」与播放链接。UI 通过真实 API 读取/处理，Playwright 用例：
 `test/playwright/specs/remote-save.spec.ts`。
 
 ## 真实端到端

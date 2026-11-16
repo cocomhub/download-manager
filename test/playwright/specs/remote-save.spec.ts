@@ -22,8 +22,18 @@ const conflict = {
 test.describe('Remote Save Conflict Panel', () => {
   test('RSP1: renders conflicts and resolves reuse', async ({ page }) => {
     let resolveBody: any = null;
+    let triggerBody: any = null;
 
     await page.route('**/api/tasks/*/remote_save', async (route) => {
+      if (route.request().method() === 'POST') {
+        triggerBody = JSON.parse(route.request().postData() || '{}');
+        await route.fulfill({
+          status: 202,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, force: true }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -38,7 +48,7 @@ test.describe('Remote Save Conflict Panel', () => {
           objects: [{
             object_url: conflict.object_url, object_id: 1, download_status: 'completed',
             status: 'conflict', files_total: 1, files_done: 0, conflicts: 1, retries: 0,
-            last_error: 'checksum_mismatch',
+            last_error: 'checksum_mismatch', play_url: 'https://example.invalid/play.mp4',
           }],
           total: 1,
         }),
@@ -73,6 +83,10 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect(page.locator('[data-testid="remote-save-conflict"]')).toHaveCount(1);
     await expect(modal).toContainText('sha256 不一致');
     await expect(modal).toContainText('ABC-001/video-0.mp4');
+    await expect(page.locator('[data-testid="remote-save-play"]')).toHaveAttribute('href', 'https://example.invalid/play.mp4');
+
+    await page.locator('[data-testid="remote-save-trigger"]').click();
+    await expect.poll(() => triggerBody && triggerBody.force).toBe(true);
 
     await page.locator('[data-testid="remote-save-reuse"]').click();
     await expect.poll(() => resolveBody && resolveBody.action).toBe('reuse');
