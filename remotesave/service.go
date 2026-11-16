@@ -53,6 +53,7 @@ type Service struct {
 	started    bool
 	metrics    remoteSaveMetrics
 	leaseMu    sync.Mutex
+	auditMu    sync.Mutex
 	leases     map[string]*taskLease
 	leaseOwner string
 }
@@ -64,37 +65,43 @@ type taskLease struct {
 
 // Metrics 是 remote-save 的累计运行指标（进程生命周期）。
 type Metrics struct {
-	FilesUploaded uint64 `json:"files_uploaded"`
-	FilesReused   uint64 `json:"files_reused"`
-	FilesFailed   uint64 `json:"files_failed"`
-	FilesSkipped  uint64 `json:"files_skipped"`
-	Conflicts     uint64 `json:"conflicts"`
-	BytesUploaded uint64 `json:"bytes_uploaded"`
-	MirrorDeleted uint64 `json:"mirror_deleted"`
-	CloudFiles    uint64 `json:"cloud_files"`
+	FilesUploaded        uint64 `json:"files_uploaded"`
+	FilesReused          uint64 `json:"files_reused"`
+	FilesFailed          uint64 `json:"files_failed"`
+	FilesSkipped         uint64 `json:"files_skipped"`
+	Conflicts            uint64 `json:"conflicts"`
+	BytesUploaded        uint64 `json:"bytes_uploaded"`
+	MirrorDeleted        uint64 `json:"mirror_deleted"`
+	CloudFiles           uint64 `json:"cloud_files"`
+	LeaseAcquireFailures uint64 `json:"lease_acquire_failures"`
+	LeaseRenewFailures   uint64 `json:"lease_renew_failures"`
 }
 
 type remoteSaveMetrics struct {
-	filesUploaded atomic.Uint64
-	filesReused   atomic.Uint64
-	filesFailed   atomic.Uint64
-	filesSkipped  atomic.Uint64
-	conflicts     atomic.Uint64
-	bytesUploaded atomic.Uint64
-	mirrorDeleted atomic.Uint64
-	cloudFiles    atomic.Uint64
+	filesUploaded        atomic.Uint64
+	filesReused          atomic.Uint64
+	filesFailed          atomic.Uint64
+	filesSkipped         atomic.Uint64
+	conflicts            atomic.Uint64
+	bytesUploaded        atomic.Uint64
+	mirrorDeleted        atomic.Uint64
+	cloudFiles           atomic.Uint64
+	leaseAcquireFailures atomic.Uint64
+	leaseRenewFailures   atomic.Uint64
 }
 
 func (s *Service) Metrics() Metrics {
 	return Metrics{
-		FilesUploaded: s.metrics.filesUploaded.Load(),
-		FilesReused:   s.metrics.filesReused.Load(),
-		FilesFailed:   s.metrics.filesFailed.Load(),
-		FilesSkipped:  s.metrics.filesSkipped.Load(),
-		Conflicts:     s.metrics.conflicts.Load(),
-		BytesUploaded: s.metrics.bytesUploaded.Load(),
-		MirrorDeleted: s.metrics.mirrorDeleted.Load(),
-		CloudFiles:    s.metrics.cloudFiles.Load(),
+		FilesUploaded:        s.metrics.filesUploaded.Load(),
+		FilesReused:          s.metrics.filesReused.Load(),
+		FilesFailed:          s.metrics.filesFailed.Load(),
+		FilesSkipped:         s.metrics.filesSkipped.Load(),
+		Conflicts:            s.metrics.conflicts.Load(),
+		BytesUploaded:        s.metrics.bytesUploaded.Load(),
+		MirrorDeleted:        s.metrics.mirrorDeleted.Load(),
+		CloudFiles:           s.metrics.cloudFiles.Load(),
+		LeaseAcquireFailures: s.metrics.leaseAcquireFailures.Load(),
+		LeaseRenewFailures:   s.metrics.leaseRenewFailures.Load(),
 	}
 }
 
@@ -893,6 +900,7 @@ func (s *Service) acquireTaskLease(task core.Task) (func(), bool) {
 	defer cancel()
 	ok, err := store.AcquireTaskLease(ctx, key, s.leaseOwner, taskLeaseTTL)
 	if err != nil || !ok {
+		s.metrics.leaseAcquireFailures.Add(1)
 		s.leaseMu.Unlock()
 		if err != nil {
 			s.Logger().Warn("remote-save task lease acquire failed", "task_id", key, "error", err)
@@ -925,6 +933,7 @@ func (s *Service) renewTaskLease(task core.Task, key string, store core.TaskLeas
 			ok, err := store.RenewTaskLease(ctx, key, s.leaseOwner, taskLeaseTTL)
 			cancel()
 			if err != nil || !ok {
+				s.metrics.leaseRenewFailures.Add(1)
 				s.Logger().Warn("remote-save task lease renew failed", "task_id", key, "error", err, "ok", ok)
 			}
 		}

@@ -1338,6 +1338,10 @@ func TestApplyMigration_RenamesOldPath(t *testing.T) {
 	if e, _ := man.GetFor("u1", "video.mp4"); e.RemotePath != newRemote {
 		t.Fatalf("manifest remote=%s", e.RemotePath)
 	}
+	audit, err := os.ReadFile(filepath.Join(svc.opts.WorkDir, "remote_save", "migration-audit.jsonl"))
+	if err != nil || !strings.Contains(string(audit), newRemote) {
+		t.Fatalf("audit=%q err=%v", audit, err)
+	}
 }
 
 func TestRetryBackoff_Configurable(t *testing.T) {

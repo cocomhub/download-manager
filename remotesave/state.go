@@ -423,6 +423,7 @@ func (s *Service) ApplyMigration(ctx context.Context, taskID string) ([]Migratio
 			changed[item.ObjectURL] = obj
 		}
 	}
+	s.appendMigrationAudit(taskID, out)
 	_ = man.Flush()
 	for _, obj := range changed {
 		unlock := s.lockObject(obj.URL)
