@@ -1339,3 +1339,19 @@ func TestApplyMigration_RenamesOldPath(t *testing.T) {
 		t.Fatalf("manifest remote=%s", e.RemotePath)
 	}
 }
+
+func TestRetryBackoff_Configurable(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, &fakeTask{id: "t1", store: &fakeStorage{objs: map[string]*model.DownloadObject{}}}, &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}}, nil)
+	svc.opts.Cfg().RemoteSave.RetryBackoffBase = 2 * time.Minute
+	svc.opts.Cfg().RemoteSave.RetryBackoffMax = 5 * time.Minute
+	if got := svc.retryBackoff(1); got != 2*time.Minute {
+		t.Fatalf("retry 1=%s", got)
+	}
+	if got := svc.retryBackoff(2); got != 4*time.Minute {
+		t.Fatalf("retry 2=%s", got)
+	}
+	if got := svc.retryBackoff(3); got != 5*time.Minute {
+		t.Fatalf("retry 3=%s", got)
+	}
+}

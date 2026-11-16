@@ -204,6 +204,8 @@ type RemoteSaveSettings struct {
 	DeepReconcileInterval time.Duration `yaml:"deep_reconcile_interval" json:"deep_reconcile_interval"`
 	SettleSeconds         int           `yaml:"settle_seconds" json:"settle_seconds"`
 	MaxRetries            int           `yaml:"max_retries" json:"max_retries"`
+	RetryBackoffBase      time.Duration `yaml:"retry_backoff_base" json:"retry_backoff_base"`
+	RetryBackoffMax       time.Duration `yaml:"retry_backoff_max" json:"retry_backoff_max"`
 	MaxFilesPerObject     int           `yaml:"max_files_per_object" json:"max_files_per_object"`
 	VerifyChecksum        bool          `yaml:"verify_checksum" json:"verify_checksum"`
 	BatchStat             bool          `yaml:"batch_stat" json:"batch_stat"`
@@ -376,6 +378,15 @@ func (c *Config) setRemoteSaveDefaults() {
 	}
 	if rs.MaxRetries <= 0 {
 		rs.MaxRetries = 3
+	}
+	if rs.RetryBackoffBase <= 0 {
+		rs.RetryBackoffBase = time.Minute
+	}
+	if rs.RetryBackoffMax <= 0 {
+		rs.RetryBackoffMax = time.Hour
+	}
+	if rs.RetryBackoffMax < rs.RetryBackoffBase {
+		rs.RetryBackoffMax = rs.RetryBackoffBase
 	}
 	if rs.MaxFilesPerObject <= 0 {
 		rs.MaxFilesPerObject = 1000

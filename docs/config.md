@@ -93,6 +93,8 @@ remote_save:
   deep_reconcile_interval: 24h
   settle_seconds: 30
   max_retries: 3
+  retry_backoff_base: 1m # 失败重试指数退避起点
+  retry_backoff_max: 1h  # 退避上限
   max_files_per_object: 1000
   verify_checksum: false   # 默认 false；深度对账默认仍用 sha256 校验
   batch_stat: false        # true=快速对账按目录列举批量校验（减少逐文件 Stat）
