@@ -90,7 +90,7 @@ tasks:
 ## API
 
 `GET /api/metrics`（如启用）除任务/全局指标外，包含 `remote_save` 累计指标：
-`files_uploaded/files_reused/files_failed/files_skipped/conflicts/bytes_uploaded/mirror_deleted/cloud_files`。
+`files_uploaded/files_reused/files_failed/files_skipped/conflicts/bytes_uploaded/mirror_deleted/cloud_files/lease_acquire_failures/lease_renew_failures`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|

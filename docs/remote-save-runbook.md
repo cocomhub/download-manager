@@ -113,6 +113,16 @@ download-manager 在 task 404 时按 `transfer_volume/transfer_path` 回读目�
 - deep reconcile 时间从 `remote_save/deep.state` 恢复；
 - 大文件分块上传使用确定性 upload ID，可在 sproxy 未清理会话时续传。
 
+### 迁移审计
+
+`migration/apply` 结果会追加到：
+
+```text
+<work_dir>/remote_save/migration-audit.jsonl
+```
+
+每行包含 task/object/path/old_remote/new_remote/success/error，可用于审计和回滚决策。
+
 ## 4. 日志与指标建议
 
 关键日志字段：
