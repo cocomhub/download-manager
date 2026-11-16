@@ -44,7 +44,8 @@ remote_save:
 - `deep_reconcile_interval`：深度对账（忽略 manifest，重算 sha256 + 校验远端）；上次执行时间
   持久化在 `remote_save/deep.state`，进程重启不会把 24h 计时清零。
 - `max_retries`：失败对象自动重试上限；达到上限后自动对账停止重试，需人工触发/处理。
-- 失败重试带指数退避：`1m → 2m → 4m …`，最高 `1h`；`force=true` 会绕过退避。
+- 失败重试带指数退避：默认 `1m → 2m → 4m …`，最高 `1h`；可通过
+  `retry_backoff_base` / `retry_backoff_max` 调整，`force=true` 绕过退避。
 - `file_concurrency`：单对象内文件并发（默认 1，最大 8）；用于多文件/小对象，不影响对象级 worker 数。
 - `settle_seconds`：跳过刚写入/可能仍在下载的文件。
 - `verify_checksum=true`：每次快速对账也重算本地 sha256。

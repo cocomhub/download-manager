@@ -166,7 +166,7 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 		state.PlayURL, state.PlayExpiresAt = "", time.Time{}
 		if retryDelta > 0 {
 			state.Retries += retryDelta
-			state.NextRetryAt = time.Now().Add(retryBackoff(state.Retries))
+			state.NextRetryAt = time.Now().Add(s.retryBackoff(state.Retries))
 		}
 	}
 	state.Files, state.FilesTruncated = ToModelFiles(entries, fs.rels, s.maxFiles())
@@ -174,17 +174,29 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 	s.persistState(task, obj, cfg, state)
 }
 
-// retryBackoff 返回失败重试的指数退避（1m 起，最高 1h）。
-func retryBackoff(retries int) time.Duration {
+// retryBackoff 返回失败重试的指数退避（配置 base/max，默认 1m/1h）。
+func (s *Service) retryBackoff(retries int) time.Duration {
+	base, maxBackoff := time.Minute, time.Hour
+	if cfg := s.opts.Cfg(); cfg != nil {
+		if cfg.RemoteSave.RetryBackoffBase > 0 {
+			base = cfg.RemoteSave.RetryBackoffBase
+		}
+		if cfg.RemoteSave.RetryBackoffMax > 0 {
+			maxBackoff = cfg.RemoteSave.RetryBackoffMax
+		}
+	}
+	if maxBackoff < base {
+		maxBackoff = base
+	}
 	if retries <= 1 {
-		return time.Minute
+		return base
 	}
 	if retries > 10 {
 		retries = 10
 	}
-	d := time.Minute << (retries - 1)
-	if d > time.Hour {
-		return time.Hour
+	d := base << (retries - 1)
+	if d > maxBackoff {
+		return maxBackoff
 	}
 	return d
 }
