@@ -1045,3 +1045,64 @@ func TestLoadManifest_MigratesLegacyRelKey(t *testing.T) {
 		t.Fatal("migrated entry lost after reload")
 	}
 }
+
+func TestRemoteSaveMetrics_UploadAndMirror(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(local, old, old); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	m := svc.Metrics()
+	if m.FilesUploaded != 1 || m.BytesUploaded != 4 {
+		t.Fatalf("metrics=%+v", m)
+	}
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "stale.mp4", ObjectURL: "u1", RemotePath: "hanime/2.5D/stale.mp4", Status: model.RemoteFileStatusUploaded})
+	cfg.MirrorDelete = true
+	svc.mirrorCleanup(context.Background(), task, cfg, []*model.DownloadObject{obj}, man)
+	if got := svc.Metrics().MirrorDeleted; got != 1 {
+		t.Fatalf("mirror deleted=%d", got)
+	}
+}
+
+func TestSyncObject_RetryBackoffSkipsBeforeNextRetry(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted}
+	obj.SetRemoteSave(&model.RemoteSaveState{Status: model.RemoteSaveStatusFailed, Retries: 1, NextRetryAt: time.Now().Add(time.Hour)})
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	svc := newTestService(t, task, client, nil)
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	if client.uploads != 0 {
+		t.Fatalf("backoff ignored: uploads=%d", client.uploads)
+	}
+	svc.syncObject(task, cfg, obj, true) // force bypasses backoff
+	if client.uploads != 1 {
+		t.Fatalf("force uploads=%d", client.uploads)
+	}
+}

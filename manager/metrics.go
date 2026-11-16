@@ -71,11 +71,15 @@ func (m *Manager) CollectMetrics() map[string]any {
 		"subscriber_count": subCount,
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"uptime": time.Since(m.startedAt).Round(time.Second).String(),
 		"tasks":  taskMetricsMap,
 		"global": global,
 	}
+	if m.remoteSave != nil {
+		out["remote_save"] = m.remoteSave.Metrics()
+	}
+	return out
 }
 
 // recordFailure 记录一条失败记录到环形缓冲区

@@ -151,6 +151,7 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 	}
 	if state.Status == model.RemoteSaveStatusSynced {
 		state.Retries = 0
+		state.NextRetryAt = time.Time{}
 		if state.RemotePath != "" {
 			if play, exp, perr := s.buildPlayURL(state); perr == nil {
 				state.PlayURL, state.PlayExpiresAt = play, exp
@@ -162,11 +163,27 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 		state.PlayURL, state.PlayExpiresAt = "", time.Time{}
 		if retryDelta > 0 {
 			state.Retries += retryDelta
+			state.NextRetryAt = time.Now().Add(retryBackoff(state.Retries))
 		}
 	}
 	state.Files, state.FilesTruncated = ToModelFiles(entries, fs.rels, s.maxFiles())
 	state.UpdatedAt = time.Now().UTC()
 	s.persistState(task, obj, cfg, state)
+}
+
+// retryBackoff 返回失败重试的指数退避（1m 起，最高 1h）。
+func retryBackoff(retries int) time.Duration {
+	if retries <= 1 {
+		return time.Minute
+	}
+	if retries > 10 {
+		retries = 10
+	}
+	d := time.Minute << (retries - 1)
+	if d > time.Hour {
+		return time.Hour
+	}
+	return d
 }
 
 func fileStat(p string) (os.FileInfo, error) {

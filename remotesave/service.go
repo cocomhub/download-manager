@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cocomhub/download-manager/config"
@@ -50,6 +51,61 @@ type Service struct {
 	objMu     sync.Mutex
 	objLocks  map[string]*objectLock
 	started   bool
+	metrics   remoteSaveMetrics
+}
+
+// Metrics 是 remote-save 的累计运行指标（进程生命周期）。
+type Metrics struct {
+	FilesUploaded uint64 `json:"files_uploaded"`
+	FilesReused   uint64 `json:"files_reused"`
+	FilesFailed   uint64 `json:"files_failed"`
+	FilesSkipped  uint64 `json:"files_skipped"`
+	Conflicts     uint64 `json:"conflicts"`
+	BytesUploaded uint64 `json:"bytes_uploaded"`
+	MirrorDeleted uint64 `json:"mirror_deleted"`
+	CloudFiles    uint64 `json:"cloud_files"`
+}
+
+type remoteSaveMetrics struct {
+	filesUploaded atomic.Uint64
+	filesReused   atomic.Uint64
+	filesFailed   atomic.Uint64
+	filesSkipped  atomic.Uint64
+	conflicts     atomic.Uint64
+	bytesUploaded atomic.Uint64
+	mirrorDeleted atomic.Uint64
+	cloudFiles    atomic.Uint64
+}
+
+func (s *Service) Metrics() Metrics {
+	return Metrics{
+		FilesUploaded: s.metrics.filesUploaded.Load(),
+		FilesReused:   s.metrics.filesReused.Load(),
+		FilesFailed:   s.metrics.filesFailed.Load(),
+		FilesSkipped:  s.metrics.filesSkipped.Load(),
+		Conflicts:     s.metrics.conflicts.Load(),
+		BytesUploaded: s.metrics.bytesUploaded.Load(),
+		MirrorDeleted: s.metrics.mirrorDeleted.Load(),
+		CloudFiles:    s.metrics.cloudFiles.Load(),
+	}
+}
+
+func (s *Service) observeFileResult(res model.RemoteFileState) {
+	switch res.Status {
+	case model.RemoteFileStatusUploaded:
+		s.metrics.filesUploaded.Add(1)
+		if res.Size > 0 {
+			s.metrics.bytesUploaded.Add(uint64(res.Size))
+		}
+	case model.RemoteFileStatusReused:
+		s.metrics.filesReused.Add(1)
+	case model.RemoteFileStatusConflict:
+		s.metrics.conflicts.Add(1)
+	case model.RemoteFileStatusFailed, model.RemoteFileStatusMissing:
+		s.metrics.filesFailed.Add(1)
+	case model.RemoteFileStatusSkipped:
+		s.metrics.filesSkipped.Add(1)
+	}
 }
 
 type objectLock struct {
@@ -374,6 +430,7 @@ func (s *Service) mirrorCleanup(ctx context.Context, task core.Task, cfg TaskCon
 			continue
 		}
 		man.DeleteFor(e.ObjectURL, e.Path)
+		s.metrics.mirrorDeleted.Add(1)
 		if obj := completed[e.ObjectURL]; obj != nil {
 			changed[e.ObjectURL] = obj
 		}
@@ -491,9 +548,15 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 			s.Logger().Debug("remote-save skip object with unresolved conflict", "task_id", task.ID(), "url", obj.URL)
 			return
 		}
-		if state.Status == model.RemoteSaveStatusFailed && state.Retries >= s.maxRetries() {
-			s.Logger().Warn("remote-save retries exhausted", "task_id", task.ID(), "url", obj.URL, "retries", state.Retries)
-			return
+		if state.Status == model.RemoteSaveStatusFailed {
+			if state.Retries >= s.maxRetries() {
+				s.Logger().Warn("remote-save retries exhausted", "task_id", task.ID(), "url", obj.URL, "retries", state.Retries)
+				return
+			}
+			if !state.NextRetryAt.IsZero() && time.Now().Before(state.NextRetryAt) {
+				s.Logger().Debug("remote-save retry backoff", "task_id", task.ID(), "url", obj.URL, "next", state.NextRetryAt)
+				return
+			}
 		}
 	}
 	client, err := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume)
@@ -518,6 +581,7 @@ func (s *Service) syncObject(task core.Task, cfg TaskConfig, obj *model.Download
 			continue
 		}
 		res := s.syncFile(s.ctx, task, client, cfg, man, obj, f, rel, remote, force)
+		s.observeFileResult(res)
 		if res.Status != model.RemoteFileStatusUploaded && res.Status != model.RemoteFileStatusReused {
 			s.recordSyncResult(man, obj, f, rel, remote, res)
 		}
