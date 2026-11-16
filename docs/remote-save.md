@@ -125,8 +125,13 @@ tasks:
 sha256、meta mtime/tags、冲突覆盖、签名播放 URL、mirror_delete。
 
 ```bash
-SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY_E2E_SKID=... go test -tags=e2e -run TestRemoteSaveRealE2E -v ./test/e2e
+SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY_E2E_SKID=...   go test -tags=e2e -run 'TestRemoteSaveRealE2E|TestSproxyCloudOnlyAutoCleanRealE2E' -v ./test/e2e
 ```
+
+## 运行手册
+
+上线、冲突处理、故障恢复、mirror_delete 与 cloud-only auto-clean 操作见
+[`remote-save-runbook.md`](remote-save-runbook.md)。
 
 ## 已知限制
 
