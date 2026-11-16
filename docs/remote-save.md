@@ -99,7 +99,7 @@ tasks:
 | GET | `/api/tasks/{id}/remote_save/objects` | 对象级状态摘要（状态/进度/冲突/重试/最近错误） |
 | GET | `/api/tasks/{id}/remote_save/migration` | 对象目录键变化迁移报告（只读，不移动文件） |
 | POST | `/api/tasks/{id}/remote_save/migration/apply` | 按报告执行远端 rename（body `{limit:100}`；目标存在则拒绝，不删除） |
-| GET | `/api/tasks/{id}/remote_save/conflicts` | 逐文件冲突列表 |
+| GET | `/api/tasks/{id}/remote_save/conflicts?offset=0&limit=50` | 逐文件冲突列表（分页可选） |
 | POST | `/api/tasks/{id}/remote_save/conflicts/resolve` | 单条冲突处理：`{object_url,path,action}`；action=`reuse|overwrite|rename|skip` |
 | POST | `/api/tasks/{id}/remote_save/conflicts/resolve_batch` | 批量冲突处理：`{action,items:[{object_url,path}]}` |
 | GET | `/api/tasks/{id}/object/play_url?url=` | 生成/刷新签名播放 URL（返回 url + expires_at） |
@@ -145,7 +145,8 @@ SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY
 
 上线、冲突处理、故障恢复、mirror_delete 与 cloud-only auto-clean 操作见
 [`remote-save-runbook.md`](remote-save-runbook.md)；生产参数/告警/部署策略见
-[`remote-save-production.md`](remote-save-production.md)。
+[`remote-save-production.md`](remote-save-production.md)；真实浏览器全链路验收见
+[`remote-save-real-ui-e2e.md`](remote-save-real-ui-e2e.md)。
 
 ## 已知限制
 

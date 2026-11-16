@@ -1345,6 +1345,10 @@ func TestApplyMigration_RenamesOldPath(t *testing.T) {
 	if err != nil || !strings.Contains(string(audit), newRemote) {
 		t.Fatalf("audit=%q err=%v", audit, err)
 	}
+	entries, err := svc.ListMigrationAudit("t1", 10)
+	if err != nil || len(entries) != 1 || entries[0].NewRemote != newRemote || !entries[0].Success {
+		t.Fatalf("audit entries=%+v err=%v", entries, err)
+	}
 }
 
 func TestRetryBackoff_Configurable(t *testing.T) {

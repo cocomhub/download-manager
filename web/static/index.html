@@ -733,8 +733,8 @@
                                 <button @click="toggleTaskConfigPanel" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors flex items-center">
                                     <i class="fas fa-sliders-h mr-1"></i> 任务配置
                                 </button>
-                                <button @click="openRemoteSaveModal" data-testid="btn-remote-save" class="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-2 py-1 rounded-md transition-colors flex items-center">
-                                    <i class="fas fa-cloud-upload-alt mr-1"></i> 远程保存
+                                <button @click="openRemoteSaveModal" data-testid="btn-remote-save" :title="remoteSaveEnabled ? '查看远程保存状态' : '该任务未启用 remote_save'" class="text-xs px-2 py-1 rounded-md transition-colors flex items-center" :class="remoteSaveEnabled ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'">
+                                    <i class="fas fa-cloud-upload-alt mr-1"></i> 远程保存<span v-if="!remoteSaveEnabled" class="ml-1 text-[10px]">未启用</span>
                                 </button>
                                 <div class="flex items-center gap-2">
                                     <button @click="toggleSelectAllObjects" class="text-xs bg-white text-gray-700 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors">
@@ -1598,8 +1598,18 @@
                     </div>
                 </div>
                 <div class="p-4 flex-1 overflow-y-auto">
+                    <div v-if="remoteSaveError" class="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="remote-save-error">
+                        {{ remoteSaveError }}
+                        <button @click="refreshRemoteSaveConflicts()" class="ml-2 underline">重试</button>
+                    </div>
                     <div v-if="remoteSaveStatus && remoteSaveStatus.enabled && remoteSaveObjects.length > 0" class="mb-4" data-testid="remote-save-objects">
-                        <div class="text-xs font-semibold text-gray-500 uppercase mb-2">对象状态</div>
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <div class="text-xs font-semibold text-gray-500 uppercase">对象状态 · 显示 {{ remoteSaveObjectsVisible.length }}/{{ remoteSaveObjectsFiltered.length }}</div>
+                            <input v-model="remoteSaveObjectFilter" data-testid="remote-save-object-filter" class="text-xs border rounded px-2 py-1 w-52" placeholder="筛选对象/远端路径">
+                        </div>
+                        <div v-if="remoteSaveObjectsVisible.length < remoteSaveObjectsFiltered.length" class="mb-2 text-right">
+                            <button @click="remoteSaveShowMore('objects')" class="text-xs text-blue-600 hover:underline">显示更多</button>
+                        </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full text-sm divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
@@ -1614,12 +1624,18 @@
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                    <tr v-for="o in remoteSaveObjects" :key="o.object_url" data-testid="remote-save-object">
+                                    <tr v-for="o in remoteSaveObjectsVisible" :key="o.object_url" data-testid="remote-save-object">
                                         <td class="px-3 py-2 max-w-xs truncate" :title="o.object_url">{{ o.object_url }}</td>
                                         <td class="px-3 py-2" :class="remoteSaveStatusClass(o.status)">{{ remoteSaveStatusLabel(o.status) }}</td>
-                                        <td class="px-3 py-2 text-gray-600">{{ o.files_done || 0 }}/{{ o.files_total || 0 }}</td>
+                                        <td class="px-3 py-2 text-gray-600">
+                                            <div>{{ o.files_done || 0 }}/{{ o.files_total || 0 }}<span v-if="o.files_truncated" class="ml-1 text-amber-700" title="文件数超过 max_files_per_object，仅同步了一部分">（已截断）</span></div>
+                                            <div v-if="remoteSaveByteProgress(o)" class="text-xs text-gray-400">{{ remoteSaveByteProgress(o) }}</div>
+                                        </td>
                                         <td class="px-3 py-2 text-amber-700">{{ o.conflicts || 0 }}</td>
-                                        <td class="px-3 py-2 text-gray-600">{{ o.retries || 0 }}</td>
+                                        <td class="px-3 py-2 text-gray-600">
+                                            <div>{{ o.retries || 0 }}</div>
+                                            <div v-if="remoteSaveNextRetryLabel(o)" class="text-xs text-gray-400">{{ remoteSaveNextRetryLabel(o) }}</div>
+                                        </td>
                                         <td class="px-3 py-2 text-red-600 max-w-xs truncate" :title="o.last_error">{{ o.last_error || '-' }}</td>
                                         <td class="px-3 py-2 text-right whitespace-nowrap">
                                             <button @click="triggerRemoteSaveObject(o)" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-object-trigger" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 mr-1">对账</button>
@@ -1631,7 +1647,9 @@
                             </table>
                         </div>
                     </div>
-                    <div v-if="remoteSaveMetrics" class="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2" data-testid="remote-save-metrics">
+                    <div v-if="remoteSaveMetrics && remoteSaveStatus && remoteSaveStatus.enabled" class="mb-4" data-testid="remote-save-metrics">
+                        <div class="text-xs font-semibold text-gray-500 uppercase mb-2">全局累计指标（所有任务，非当前任务）</div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">上传文件</div><div class="font-semibold">{{ remoteSaveMetrics.files_uploaded || 0 }}</div></div>
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">复用文件</div><div class="font-semibold">{{ remoteSaveMetrics.files_reused || 0 }}</div></div>
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">失败/冲突</div><div class="font-semibold">{{ (remoteSaveMetrics.files_failed || 0) + '/' + (remoteSaveMetrics.conflicts || 0) }}</div></div>
@@ -1641,21 +1659,47 @@
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">云端文件</div><div class="font-semibold">{{ remoteSaveMetrics.cloud_files || 0 }}</div></div>
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">租约失败</div><div class="font-semibold">{{ (remoteSaveMetrics.lease_acquire_failures || 0) + '/' + (remoteSaveMetrics.lease_renew_failures || 0) }}</div></div>
                         <div v-if="remoteSaveMetrics.trend && remoteSaveMetrics.trend.length" class="col-span-2 md:col-span-4 text-xs text-gray-600 px-1" data-testid="remote-save-trend">{{ remoteSaveTrendSummary() }}</div>
+                        </div>
                     </div>
                     <div v-if="remoteSaveStatus && remoteSaveStatus.enabled && remoteSaveMigrations.length > 0" class="mb-4 border rounded" data-testid="remote-save-migration">
                         <div class="flex items-center justify-between px-3 py-2 bg-amber-50 border-b">
-                            <div class="text-xs font-semibold text-amber-800">对象目录迁移建议：{{ remoteSaveMigrations.length }} 条</div>
+                            <div class="flex items-center gap-2">
+                                <div class="text-xs font-semibold text-amber-800">对象目录迁移建议：{{ remoteSaveMigrations.length }} 条 · 显示 {{ remoteSaveMigrationsVisible.length }}</div>
+                                <input v-model="remoteSaveMigrationFilter" data-testid="remote-save-migration-filter" class="text-xs border rounded px-2 py-1 w-44" placeholder="筛选迁移路径">
+                            </div>
                             <button @click="applyRemoteSaveMigration" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-migration-apply" class="text-xs px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">执行迁移</button>
                         </div>
                         <div class="max-h-40 overflow-y-auto text-xs">
-                            <div v-for="m in remoteSaveMigrations" :key="m.object_url + ':' + m.path" class="px-3 py-1.5 border-b last:border-b-0" data-testid="remote-save-migration-item">
+                            <div v-for="m in remoteSaveMigrationsVisible" :key="m.object_url + ':' + m.path" class="px-3 py-1.5 border-b last:border-b-0" data-testid="remote-save-migration-item">
                                 <div class="truncate" :title="m.object_url">{{ m.object_url }}</div>
                                 <div class="text-gray-500 truncate">{{ m.old_remote }} → {{ m.new_remote }}</div>
                             </div>
                         </div>
+                        <div v-if="remoteSaveMigrationsVisible.length < remoteSaveMigrationsFiltered.length" class="px-3 py-2 text-right">
+                            <button @click="remoteSaveShowMore('migrations')" class="text-xs text-amber-700 hover:underline">显示更多迁移</button>
+                        </div>
+                    </div>
+                    <div v-if="remoteSaveAudit.length > 0" class="mb-4 border rounded" data-testid="remote-save-audit">
+                        <div class="flex items-center justify-between px-3 py-2 bg-gray-50 border-b">
+                            <div class="text-xs font-semibold text-gray-600">最近迁移审计：{{ remoteSaveAudit.length }} 条</div>
+                            <button @click="exportRemoteSaveAudit" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">导出 JSON</button>
+                        </div>
+                        <div class="max-h-40 overflow-y-auto text-xs">
+                            <div v-for="(a, i) in remoteSaveAudit.slice().reverse()" :key="a.time + ':' + i" class="px-3 py-1.5 border-b last:border-b-0" data-testid="remote-save-audit-item">
+                                <div class="flex gap-2">
+                                    <span :class="a.success ? 'text-green-700' : 'text-red-700'">{{ a.success ? '成功' : '失败' }}</span>
+                                    <span class="text-gray-500">{{ remoteSaveAuditTime(a.time) }}</span>
+                                    <span class="truncate">{{ a.path }}</span>
+                                </div>
+                                <div class="text-gray-500 truncate">{{ a.old_remote }} → {{ a.new_remote }}</div>
+                                <div v-if="a.error" class="text-red-600 truncate" :title="a.error">{{ a.error }}</div>
+                            </div>
+                        </div>
                     </div>
                     <div v-if="remoteSaveStatus && !remoteSaveStatus.enabled" class="text-sm text-gray-500 py-6 text-center">
-                        该任务未启用 remote_save。
+                        该任务未启用 remote_save。请在任务配置的 extra 中设置
+                        <code class="px-1 bg-gray-100 rounded">remote_save.enabled=true</code>，
+                        并配置 volume/dir 后重启任务。
                     </div>
                     <div v-else-if="remoteSaveBusy && remoteSaveConflicts.length === 0" class="text-sm text-gray-400 py-6 text-center">加载中...</div>
                     <div v-else-if="remoteSaveConflicts.length === 0" class="text-sm text-gray-500 py-6 text-center" data-testid="remote-save-empty">
@@ -1663,7 +1707,8 @@
                     </div>
                     <div v-else>
                         <div class="flex items-center justify-end gap-2 mb-2">
-                            <span class="text-xs text-gray-400 mr-auto">批量处理当前 {{ remoteSaveConflicts.length }} 条冲突</span>
+                            <span class="text-xs text-gray-400 mr-auto">批量处理全部 {{ remoteSaveConflicts.length }} 条冲突 · 显示 {{ remoteSaveConflictsVisible.length }}</span>
+                            <input v-model="remoteSaveConflictFilter" data-testid="remote-save-conflict-filter" class="text-xs border rounded px-2 py-1 w-48" placeholder="筛选冲突">
                             <button @click="bulkResolveRemoteSave('reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">全部复用</button>
                             <button @click="bulkResolveRemoteSave('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">全部覆盖</button>
                             <button @click="bulkResolveRemoteSave('rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">全部改名</button>
@@ -1682,7 +1727,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                <tr v-for="c in remoteSaveConflicts" :key="c.object_url + ':' + c.path" data-testid="remote-save-conflict">
+                                <tr v-for="c in remoteSaveConflictsVisible" :key="c.object_url + ':' + c.path" data-testid="remote-save-conflict">
                                     <td class="px-3 py-2 max-w-xs truncate" :title="c.object_url">{{ c.object_url }}</td>
                                     <td class="px-3 py-2 max-w-xs">
                                         <div class="truncate" :title="c.remote_path">{{ c.path }}</div>
@@ -1700,6 +1745,9 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <div v-if="remoteSaveConflictsVisible.length < remoteSaveConflictsFiltered.length" class="mt-2 text-right">
+                        <button @click="remoteSaveShowMore('conflicts')" class="text-xs text-blue-600 hover:underline">显示更多冲突</button>
                     </div>
                 </div>
                 <div class="p-4 border-t bg-gray-50 rounded-b-lg flex justify-between items-center">
