@@ -123,6 +123,17 @@ func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectU
 	return m.remoteSave.ResolveConflict(ctx, taskID, objectURL, rel, action)
 }
 
+// ResolveRemoteSaveConflicts 批量执行同一冲突动作。
+func (m *Manager) ResolveRemoteSaveConflicts(ctx context.Context, taskID, action string, items []remotesave.ConflictActionItem) ([]remotesave.ConflictActionResult, error) {
+	if m.remoteSave == nil {
+		return nil, fmt.Errorf("remote-save 未装配")
+	}
+	if _, ok := m.getTask(taskID); !ok {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	return m.remoteSave.ResolveConflicts(ctx, taskID, action, items), nil
+}
+
 // PlayRemoteURL 生成/刷新对象的签名播放 URL（有有效期）。
 func (m *Manager) PlayRemoteURL(taskID, objectURL string) (string, time.Time, error) {
 	t, ok := m.getTask(taskID)

@@ -677,6 +677,27 @@
         }).catch(function(e) { UiHelpers.showToast('处理失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
+      bulkResolveRemoteSave: function(action) {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (this.remoteSaveBusy || !this.remoteSaveConflicts.length) return
+        var labels = { reuse: '全部复用远端', overwrite: '全部覆盖远端', rename: '全部改名保留', skip: '全部跳过' }
+        if ((action === 'overwrite' || action === 'rename') && !window.confirm((labels[action] || action) + '：共 ' + this.remoteSaveConflicts.length + ' 条？')) return
+        var self = this
+        var items = this.remoteSaveConflicts.map(function(c) { return { object_url: c.object_url, path: c.path } })
+        this.remoteSaveBusy = true
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts/resolve_batch', { action: action, items: items })
+          .then(function(res) {
+            if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '批量处理失败') })
+            return res.json()
+          })
+          .then(function(data) {
+            UiHelpers.showToast((labels[action] || action) + '：成功 ' + (data.succeeded || 0) + '，失败 ' + (data.failed || 0), data.failed ? 'error' : 'success')
+            self.refreshRemoteSaveConflicts()
+            if (typeof fetchTaskDetails === 'function') fetchTaskDetails(self, self.selectedTaskId, true)
+          })
+          .catch(function(e) { UiHelpers.showToast('批量处理失败: ' + e.message, 'error') })
+          .finally(function() { self.remoteSaveBusy = false })
+      },
       remoteSaveStatusLabel: function(status) {
         var m = { pending: '待同步', syncing: '同步中', synced: '已同步', conflict: '冲突', failed: '失败', skipped: '已跳过' }
         return m[status] || status || '-'

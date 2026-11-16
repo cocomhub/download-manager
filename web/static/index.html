@@ -1637,7 +1637,15 @@
                     <div v-else-if="remoteSaveConflicts.length === 0" class="text-sm text-gray-500 py-6 text-center" data-testid="remote-save-empty">
                         当前没有冲突。
                     </div>
-                    <div v-else class="overflow-x-auto">
+                    <div v-else>
+                        <div class="flex items-center justify-end gap-2 mb-2">
+                            <span class="text-xs text-gray-400 mr-auto">批量处理当前 {{ remoteSaveConflicts.length }} 条冲突</span>
+                            <button @click="bulkResolveRemoteSave('reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">全部复用</button>
+                            <button @click="bulkResolveRemoteSave('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">全部覆盖</button>
+                            <button @click="bulkResolveRemoteSave('rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">全部改名</button>
+                            <button @click="bulkResolveRemoteSave('skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">全部跳过</button>
+                        </div>
+                        <div class="overflow-x-auto">
                         <table class="min-w-full text-sm divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>

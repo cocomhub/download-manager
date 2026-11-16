@@ -350,3 +350,35 @@ func statRegular(p string) (os.FileInfo, error) {
 	}
 	return st, nil
 }
+
+// ConflictActionItem 是批量冲突处理的单个目标。
+type ConflictActionItem struct {
+	ObjectURL string `json:"object_url"`
+	Path      string `json:"path"`
+}
+
+// ConflictActionResult 是批量处理的单条结果。
+type ConflictActionResult struct {
+	ObjectURL string `json:"object_url"`
+	Path      string `json:"path"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ResolveConflicts 批量执行同一动作；单条失败不阻断其它条目。
+func (s *Service) ResolveConflicts(ctx context.Context, taskID, action string, items []ConflictActionItem) []ConflictActionResult {
+	out := make([]ConflictActionResult, 0, len(items))
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			out = append(out, ConflictActionResult{ObjectURL: item.ObjectURL, Path: item.Path, Error: err.Error()})
+			continue
+		}
+		err := s.ResolveConflict(ctx, taskID, item.ObjectURL, item.Path, action)
+		res := ConflictActionResult{ObjectURL: item.ObjectURL, Path: item.Path, Success: err == nil}
+		if err != nil {
+			res.Error = err.Error()
+		}
+		out = append(out, res)
+	}
+	return out
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/cocomhub/download-manager/remotesave"
 	"github.com/gorilla/mux"
 )
 
@@ -90,6 +91,38 @@ func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set(hdrContentType, "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
+// resolveRemoteSaveConflicts 批量处理同一动作（POST /api/tasks/{id}/remote_save/conflicts/resolve_batch）。
+func (s *Server) resolveRemoteSaveConflicts(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	var req struct {
+		Action string                          `json:"action"`
+		Items  []remotesave.ConflictActionItem `json:"items"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid body")
+		return
+	}
+	if req.Action == "" {
+		writeJSONError(w, http.StatusBadRequest, errCodeInvalidRequest, "action 必填")
+		return
+	}
+	results, err := s.mgr.ResolveRemoteSaveConflicts(r.Context(), taskID, req.Action, req.Items)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "remote_save_resolve_failed", err.Error())
+		return
+	}
+	succeeded := 0
+	for _, res := range results {
+		if res.Success {
+			succeeded++
+		}
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true, "succeeded": succeeded, "failed": len(results) - succeeded, "results": results,
+	})
 }
 
 // getRemotePlayURL 生成/刷新对象签名播放 URL（GET /api/tasks/{id}/object/play_url?url=...）。
