@@ -76,6 +76,18 @@ func (s *Server) getRemoteSaveObjects(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "objects": out, "total": len(out)})
 }
 
+// getRemoteSaveMigration 返回对象目录迁移报告（只读，不移动文件）。
+func (s *Server) getRemoteSaveMigration(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	out, err := s.mgr.RemoteSaveMigrationReport(taskID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "remote_save_migration_failed", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "items": out, "total": len(out)})
+}
+
 // resolveRemoteSaveConflict 对单个冲突文件执行人工处理（B 阶段 UI 后端）。
 func (s *Server) resolveRemoteSaveConflict(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
