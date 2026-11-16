@@ -1602,6 +1602,18 @@
                         {{ remoteSaveError }}
                         <button @click="refreshRemoteSaveConflicts()" class="ml-2 underline">重试</button>
                     </div>
+                    <div v-if="remoteSaveTaskMetrics && remoteSaveStatus && remoteSaveStatus.enabled" class="mb-4" data-testid="remote-save-task-metrics">
+                        <div class="text-xs font-semibold text-gray-500 uppercase mb-2">当前任务指标</div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">对象</div><div class="font-semibold">{{ remoteSaveTaskMetrics.objects_synced || 0 }}/{{ remoteSaveTaskMetrics.objects_total || 0 }} 已同步</div></div>
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">冲突/失败对象</div><div class="font-semibold">{{ (remoteSaveTaskMetrics.objects_conflict || 0) + '/' + (remoteSaveTaskMetrics.objects_failed || 0) }}</div></div>
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">上传/复用文件</div><div class="font-semibold">{{ (remoteSaveTaskMetrics.files_uploaded || 0) + '/' + (remoteSaveTaskMetrics.files_reused || 0) }}</div></div>
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">失败/跳过文件</div><div class="font-semibold">{{ (remoteSaveTaskMetrics.files_failed || 0) + '/' + (remoteSaveTaskMetrics.files_skipped || 0) }}</div></div>
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">已同步字节</div><div class="font-semibold">{{ remoteSaveBytesLabel(remoteSaveTaskMetrics.bytes_done) }} / {{ remoteSaveBytesLabel(remoteSaveTaskMetrics.bytes_total) }}</div></div>
+                            <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">冲突文件</div><div class="font-semibold">{{ remoteSaveTaskMetrics.conflicts || 0 }}</div></div>
+                            <div v-if="remoteSaveTaskMetrics.files_truncated_objects" class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700"><div class="text-xs">已截断对象</div><div class="font-semibold">{{ remoteSaveTaskMetrics.files_truncated_objects }}</div></div>
+                        </div>
+                    </div>
                     <div v-if="remoteSaveStatus && remoteSaveStatus.enabled && remoteSaveObjects.length > 0" class="mb-4" data-testid="remote-save-objects">
                         <div class="flex items-center justify-between gap-2 mb-2">
                             <div class="text-xs font-semibold text-gray-500 uppercase">对象状态 · 显示 {{ remoteSaveObjectsVisible.length }}/{{ remoteSaveObjectsFiltered.length }}</div>
@@ -1706,18 +1718,25 @@
                         当前没有冲突。
                     </div>
                     <div v-else>
-                        <div class="flex items-center justify-end gap-2 mb-2">
-                            <span class="text-xs text-gray-400 mr-auto">批量处理全部 {{ remoteSaveConflicts.length }} 条冲突 · 显示 {{ remoteSaveConflictsVisible.length }}</span>
+                        <div class="flex flex-wrap items-center justify-end gap-2 mb-2">
+                            <span class="text-xs text-gray-400 mr-auto">全部 {{ remoteSaveConflicts.length }} 条 · 显示 {{ remoteSaveConflictsVisible.length }} · 已选 {{ remoteSaveSelectedConflicts.length }}</span>
                             <input v-model="remoteSaveConflictFilter" data-testid="remote-save-conflict-filter" class="text-xs border rounded px-2 py-1 w-48" placeholder="筛选冲突">
+                            <button @click="toggleAllRemoteSaveConflicts" data-testid="remote-save-select-all" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">全选筛选结果</button>
                             <button @click="bulkResolveRemoteSave('reuse')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">全部复用</button>
                             <button @click="bulkResolveRemoteSave('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">全部覆盖</button>
                             <button @click="bulkResolveRemoteSave('rename')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">全部改名</button>
                             <button @click="bulkResolveRemoteSave('skip')" :disabled="remoteSaveBusy || isWriteDisabled" data-testid="remote-save-bulk-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">全部跳过</button>
+                            <span class="w-px h-4 bg-gray-200"></span>
+                            <button @click="bulkResolveRemoteSaveSelected('reuse')" :disabled="remoteSaveBusy || isWriteDisabled || !remoteSaveSelectedConflicts.length" data-testid="remote-save-selected-reuse" class="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50">选中复用</button>
+                            <button @click="bulkResolveRemoteSaveSelected('overwrite')" :disabled="remoteSaveBusy || isWriteDisabled || !remoteSaveSelectedConflicts.length" data-testid="remote-save-selected-overwrite" class="text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50">选中覆盖</button>
+                            <button @click="bulkResolveRemoteSaveSelected('rename')" :disabled="remoteSaveBusy || isWriteDisabled || !remoteSaveSelectedConflicts.length" data-testid="remote-save-selected-rename" class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50">选中改名</button>
+                            <button @click="bulkResolveRemoteSaveSelected('skip')" :disabled="remoteSaveBusy || isWriteDisabled || !remoteSaveSelectedConflicts.length" data-testid="remote-save-selected-skip" class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">选中跳过</button>
                         </div>
                         <div class="overflow-x-auto">
                         <table class="min-w-full text-sm divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
+                                    <th class="px-3 py-2 text-left text-xs text-gray-500"></th>
                                     <th class="px-3 py-2 text-left text-xs text-gray-500">对象</th>
                                     <th class="px-3 py-2 text-left text-xs text-gray-500">文件</th>
                                     <th class="px-3 py-2 text-left text-xs text-gray-500">原因</th>
@@ -1728,6 +1747,7 @@
                             </thead>
                             <tbody class="divide-y divide-gray-200">
                                 <tr v-for="c in remoteSaveConflictsVisible" :key="c.object_url + ':' + c.path" data-testid="remote-save-conflict">
+                                    <td class="px-3 py-2"><input type="checkbox" :checked="remoteSaveConflictSelected(c)" @change="toggleRemoteSaveConflict(c)" :aria-label="'选择冲突 ' + c.path"></td>
                                     <td class="px-3 py-2 max-w-xs truncate" :title="c.object_url">{{ c.object_url }}</td>
                                     <td class="px-3 py-2 max-w-xs">
                                         <div class="truncate" :title="c.remote_path">{{ c.path }}</div>

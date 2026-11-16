@@ -53,6 +53,18 @@ func (s *Server) getRemoteSaveStatus(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// getRemoteSaveMetrics 返回任务级 remote-save 指标。
+func (s *Server) getRemoteSaveMetrics(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	out, err := s.mgr.RemoteSaveMetrics(taskID)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "remote_save_metrics_failed", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "metrics": out})
+}
+
 // getRemoteSaveConflicts 返回逐文件冲突列表（GET /api/tasks/{id}/remote_save/conflicts）。
 func (s *Server) getRemoteSaveConflicts(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
