@@ -1631,6 +1631,15 @@
                             </table>
                         </div>
                     </div>
+                    <div v-if="remoteSaveMetrics" class="mb-4 grid grid-cols-2 md:grid-cols-4 gap-2" data-testid="remote-save-metrics">
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">上传文件</div><div class="font-semibold">{{ remoteSaveMetrics.files_uploaded || 0 }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">复用文件</div><div class="font-semibold">{{ remoteSaveMetrics.files_reused || 0 }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">失败/冲突</div><div class="font-semibold">{{ (remoteSaveMetrics.files_failed || 0) + '/' + (remoteSaveMetrics.conflicts || 0) }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">上传字节</div><div class="font-semibold">{{ remoteSaveBytesLabel(remoteSaveMetrics.bytes_uploaded) }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">跳过</div><div class="font-semibold">{{ remoteSaveMetrics.files_skipped || 0 }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">mirror 删除</div><div class="font-semibold">{{ remoteSaveMetrics.mirror_deleted || 0 }}</div></div>
+                        <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">云端文件</div><div class="font-semibold">{{ remoteSaveMetrics.cloud_files || 0 }}</div></div>
+                    </div>
                     <div v-if="remoteSaveStatus && !remoteSaveStatus.enabled" class="text-sm text-gray-500 py-6 text-center">
                         该任务未启用 remote_save。
                     </div>

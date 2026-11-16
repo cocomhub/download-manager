@@ -101,6 +101,7 @@
         showRemoteSaveModal: false,
         remoteSaveStatus: null,
         remoteSaveObjects: [],
+        remoteSaveMetrics: null,
         remoteSaveConflicts: [],
         remoteSaveBusy: false,
 
@@ -615,11 +616,13 @@
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
-          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
+          AppAPI.get('/api/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
+          self.remoteSaveMetrics = (data[3] && data[3].remote_save) || null
         }).catch(function(e) {
           UiHelpers.showToast('加载远程保存状态失败: ' + e.message, 'error')
           self.showRemoteSaveModal = false
@@ -656,6 +659,7 @@
       closeRemoteSaveModal: function() {
         this.showRemoteSaveModal = false
         this.remoteSaveObjects = []
+        this.remoteSaveMetrics = null
         this.remoteSaveConflicts = []
         this.remoteSaveStatus = null
       },
@@ -666,11 +670,13 @@
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
-          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts')
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
+          AppAPI.get('/api/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
+          self.remoteSaveMetrics = (data[3] && data[3].remote_save) || null
         }).catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
@@ -711,6 +717,13 @@
           })
           .catch(function(e) { UiHelpers.showToast('批量处理失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
+      },
+      remoteSaveBytesLabel: function(n) {
+        n = Number(n) || 0
+        if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GiB'
+        if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + ' MiB'
+        if (n >= 1024) return (n / 1024).toFixed(2) + ' KiB'
+        return n + ' B'
       },
       remoteSaveStatusLabel: function(status) {
         var m = { pending: '待同步', syncing: '同步中', synced: '已同步', conflict: '冲突', failed: '失败', skipped: '已跳过' }
