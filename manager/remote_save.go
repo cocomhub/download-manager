@@ -73,6 +73,48 @@ func (m *Manager) RemoteSaveStatus(taskID string) (map[string]any, error) {
 	return out, nil
 }
 
+// RemoteSaveObjects 返回任务下对象的远程保存状态摘要（供 UI 状态面板）。
+func (m *Manager) RemoteSaveObjects(taskID string) ([]map[string]any, error) {
+	t, ok := m.getTask(taskID)
+	if !ok {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	objs, err := m.listRemoteSaveObjects(t)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(objs))
+	for _, obj := range objs {
+		rs := obj.GetRemoteSave()
+		item := map[string]any{
+			"object_url":      obj.URL,
+			"object_id":       obj.GetID(),
+			"download_status": obj.GetStatus(),
+		}
+		if rs == nil {
+			item["status"] = model.RemoteSaveStatusPending
+			out = append(out, item)
+			continue
+		}
+		item["status"] = rs.Status
+		item["volume"] = rs.Volume
+		item["dir"] = rs.Dir
+		item["files_total"] = rs.FilesTotal
+		item["files_done"] = rs.FilesDone
+		item["bytes_total"] = rs.BytesTotal
+		item["bytes_done"] = rs.BytesDone
+		item["conflicts"] = rs.Conflicts
+		item["retries"] = rs.Retries
+		item["next_retry_at"] = rs.NextRetryAt
+		item["last_error"] = rs.LastError
+		item["remote_path"] = rs.RemotePath
+		item["play_url"] = rs.PlayURL
+		item["updated_at"] = rs.UpdatedAt
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 // ResolveRemoteSaveConflict 对单个冲突文件执行人工处理动作。
 func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectURL, rel, action string) error {
 	if m.remoteSave == nil {

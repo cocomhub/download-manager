@@ -30,6 +30,20 @@ test.describe('Remote Save Conflict Panel', () => {
         body: JSON.stringify({ enabled: true, volume: 'baidu', dir: 'hanime/2.5D', objects_total: 1, conflicts: 1 }),
       });
     });
+    await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          objects: [{
+            object_url: conflict.object_url, object_id: 1, download_status: 'completed',
+            status: 'conflict', files_total: 1, files_done: 0, conflicts: 1, retries: 0,
+            last_error: 'checksum_mismatch',
+          }],
+          total: 1,
+        }),
+      });
+    });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({
         status: 200,
@@ -54,6 +68,8 @@ test.describe('Remote Save Conflict Panel', () => {
 
     const modal = page.locator('[data-testid="remote-save-modal"]');
     await expect(modal).toBeVisible();
+    await expect(page.locator('[data-testid="remote-save-object"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('冲突');
     await expect(page.locator('[data-testid="remote-save-conflict"]')).toHaveCount(1);
     await expect(modal).toContainText('sha256 不一致');
     await expect(modal).toContainText('ABC-001/video-0.mp4');
@@ -67,6 +83,9 @@ test.describe('Remote Save Conflict Panel', () => {
   test('RSP2: empty state when no conflicts', async ({ page }) => {
     await page.route('**/api/tasks/*/remote_save', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: true, conflicts: 0 }) });
+    });
+    await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ objects: [], total: 0 }) });
     });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ conflicts: [], total: 0 }) });
