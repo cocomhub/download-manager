@@ -1106,3 +1106,36 @@ func TestSyncObject_RetryBackoffSkipsBeforeNextRetry(t *testing.T) {
 		t.Fatalf("force uploads=%d", client.uploads)
 	}
 }
+
+func TestSyncObject_FileConcurrency(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"a.mp4", "b.jpg"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: filepath.Join(dir, "a.mp4"), Status: model.StatusCompleted}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}},
+		small: []core.SmallObjectInfo{{SavePath: filepath.Join(dir, "b.jpg")}}}
+	client := &fakeClient{files: map[string]*FileInfo{}, metas: map[string]MetaInfo{}, afterUpload: func(local, _ string) string {
+		b, _ := os.ReadFile(local)
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}}
+	svc := newTestService(t, task, client, nil)
+	svc.opts.Cfg().RemoteSave.FileConcurrency = 2
+	cfg, _ := svc.taskConfig(task)
+	svc.syncObject(task, cfg, obj, false)
+	if client.uploads != 2 {
+		t.Fatalf("uploads=%d", client.uploads)
+	}
+	if state := obj.GetRemoteSave(); state == nil || state.Status != model.RemoteSaveStatusSynced || state.FilesDone != 2 {
+		t.Fatalf("state=%+v", state)
+	}
+}

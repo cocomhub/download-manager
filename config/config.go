@@ -199,6 +199,7 @@ type Sproxy struct {
 // RemoteSaveSettings 是远程保存引擎的全局默认值（不涉及账号；任务级只配路径）。
 type RemoteSaveSettings struct {
 	Concurrency           int           `yaml:"concurrency" json:"concurrency"`
+	FileConcurrency       int           `yaml:"file_concurrency" json:"file_concurrency"`
 	ReconcileInterval     time.Duration `yaml:"reconcile_interval" json:"reconcile_interval"`
 	DeepReconcileInterval time.Duration `yaml:"deep_reconcile_interval" json:"deep_reconcile_interval"`
 	SettleSeconds         int           `yaml:"settle_seconds" json:"settle_seconds"`
@@ -351,6 +352,12 @@ func (c *Config) setSproxyDefaults() {
 // setRemoteSaveDefaults 填充远程保存引擎默认值（配置默认值纪律：bool 默认 false）。
 func (c *Config) setRemoteSaveDefaults() {
 	rs := &c.RemoteSave
+	if rs.FileConcurrency <= 0 {
+		rs.FileConcurrency = 1
+	}
+	if rs.FileConcurrency > 8 {
+		rs.FileConcurrency = 8
+	}
 	if rs.Concurrency <= 0 {
 		rs.Concurrency = 2
 	}
