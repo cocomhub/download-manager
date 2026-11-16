@@ -103,8 +103,18 @@
         remoteSaveObjects: [],
         remoteSaveMetrics: null,
         remoteSaveMigrations: [],
+        remoteSaveAudit: [],
         remoteSaveConflicts: [],
+        remoteSaveObjectFilter: '',
+        remoteSaveConflictFilter: '',
+        remoteSaveMigrationFilter: '',
+        remoteSaveObjectLimit: 50,
+        remoteSaveConflictLimit: 50,
+        remoteSaveMigrationLimit: 100,
         remoteSaveBusy: false,
+        remoteSaveError: '',
+        remoteSavePoll: null,
+        remoteSaveMigrationBatchSize: 100,
 
         // Hover
         hoverObj: null,
@@ -188,6 +198,11 @@
         get: function () { return UiHelpers.getConfigDomainLimits(this) },
         set: function (v) { UiHelpers.setConfigDomainLimits(this, v) }
       },
+      remoteSaveEnabled: function () {
+        var extra = (this.selectedTask && this.selectedTask.extra) || {}
+        var cfg = extra.remote_save || {}
+        return cfg.enabled !== false
+      },
       cloudDownloadAvailable: function () {
         var f = (this.runtime || {}).features || {}
         return f.cloud_download !== false
@@ -204,6 +219,44 @@
       },
       aggFilteredObjects: function () { return this.aggObjects || [] },
       aggPagedObjects: function () { return this.aggFilteredObjects || [] },
+      remoteSaveObjectsFiltered: function () {
+        var q = (this.remoteSaveObjectFilter || '').trim().toLowerCase()
+        var list = this.remoteSaveObjects || []
+        if (!q) return list
+        return list.filter(function (o) {
+          return String(o.object_url || '').toLowerCase().indexOf(q) >= 0 ||
+            String(o.remote_path || '').toLowerCase().indexOf(q) >= 0
+        })
+      },
+      remoteSaveObjectsVisible: function () {
+        return this.remoteSaveObjectsFiltered.slice(0, this.remoteSaveObjectLimit)
+      },
+      remoteSaveConflictsFiltered: function () {
+        var q = (this.remoteSaveConflictFilter || '').trim().toLowerCase()
+        var list = this.remoteSaveConflicts || []
+        if (!q) return list
+        return list.filter(function (c) {
+          return String(c.object_url || '').toLowerCase().indexOf(q) >= 0 ||
+            String(c.path || '').toLowerCase().indexOf(q) >= 0 ||
+            String(c.reason || '').toLowerCase().indexOf(q) >= 0
+        })
+      },
+      remoteSaveConflictsVisible: function () {
+        return this.remoteSaveConflictsFiltered.slice(0, this.remoteSaveConflictLimit)
+      },
+      remoteSaveMigrationsFiltered: function () {
+        var q = (this.remoteSaveMigrationFilter || '').trim().toLowerCase()
+        var list = this.remoteSaveMigrations || []
+        if (!q) return list
+        return list.filter(function (m) {
+          return String(m.object_url || '').toLowerCase().indexOf(q) >= 0 ||
+            String(m.old_remote || '').toLowerCase().indexOf(q) >= 0 ||
+            String(m.new_remote || '').toLowerCase().indexOf(q) >= 0
+        })
+      },
+      remoteSaveMigrationsVisible: function () {
+        return this.remoteSaveMigrationsFiltered.slice(0, this.remoteSaveMigrationLimit)
+      },
       groupModalSafety: function () {
         var list = Array.isArray(this.groupModal.list) ? this.groupModal.list : []
         var priorityCounts = {}
@@ -614,36 +667,72 @@
         var self = this
         this.remoteSaveBusy = true
         this.showRemoteSaveModal = true
+        this.remoteSaveObjectFilter = ''
+        this.remoteSaveConflictFilter = ''
+        this.remoteSaveMigrationFilter = ''
+        this.remoteSaveObjectLimit = 50
+        this.remoteSaveConflictLimit = 50
+        this.remoteSaveMigrationLimit = 100
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
-          AppAPI.get('/api/metrics').catch(function() { return null })
+          AppAPI.get('/api/metrics').catch(function() { return null }),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
           self.remoteSaveMigrations = (data[3] && data[3].items) || []
           self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
+          self.remoteSaveAudit = (data[5] && data[5].entries) || []
+          self.remoteSaveError = ''
+          self.startRemoteSavePolling()
         }).catch(function(e) {
-          UiHelpers.showToast('加载远程保存状态失败: ' + e.message, 'error')
+          self.remoteSaveError = '加载远程保存状态失败: ' + e.message
+          UiHelpers.showToast(self.remoteSaveError, 'error')
           self.showRemoteSaveModal = false
         }).finally(function() { self.remoteSaveBusy = false })
+      },
+      remoteSaveShowMore: function(kind) {
+        if (kind === 'objects') this.remoteSaveObjectLimit += 50
+        else if (kind === 'conflicts') this.remoteSaveConflictLimit += 50
+        else if (kind === 'migrations') this.remoteSaveMigrationLimit += 100
+      },
+      startRemoteSavePolling: function() {
+        var self = this
+        this.stopRemoteSavePolling()
+        this.remoteSavePoll = setInterval(function() {
+          if (document.hidden || !self.showRemoteSaveModal || !self.selectedTaskId) return
+          self.refreshRemoteSaveConflicts(true)
+        }, 5000)
+      },
+      stopRemoteSavePolling: function() {
+        if (this.remoteSavePoll) {
+          clearInterval(this.remoteSavePoll)
+          this.remoteSavePoll = null
+        }
       },
       applyRemoteSaveMigration: function() {
         if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
         if (this.remoteSaveBusy || !this.remoteSaveMigrations.length) return
-        if (!window.confirm('执行 ' + this.remoteSaveMigrations.length + ' 条远端目录迁移？目标已存在将失败，不会删除文件。')) return
+        var total = this.remoteSaveMigrations.length
+        var batch = Math.min(this.remoteSaveMigrationBatchSize || 100, total)
+        var remaining = Math.max(0, total - batch)
+        var msg = '执行本批 ' + batch + ' 条远端目录迁移？目标已存在将失败，不会删除文件。'
+        if (remaining > 0) msg += ' 执行后剩余 ' + remaining + ' 条。'
+        if (!window.confirm(msg)) return
         var self = this
         this.remoteSaveBusy = true
-        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/apply', { limit: 100 })
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/apply', { limit: batch })
           .then(function(res) {
             if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '迁移失败') })
             return res.json()
           })
           .then(function(data) {
-            UiHelpers.showToast('迁移：成功 ' + (data.succeeded || 0) + '，失败 ' + (data.failed || 0), data.failed ? 'error' : 'success')
+            var suffix = remaining > 0 ? '，剩余 ' + remaining + ' 条待处理' : ''
+            UiHelpers.showToast('迁移：成功 ' + (data.succeeded || 0) + '，失败 ' + (data.failed || 0) + suffix, data.failed ? 'error' : 'success')
             self.refreshRemoteSaveConflicts()
           })
           .catch(function(e) { UiHelpers.showToast('迁移失败: ' + e.message, 'error') })
@@ -678,31 +767,40 @@
           .finally(function() { self.remoteSaveBusy = false })
       },
       closeRemoteSaveModal: function() {
+        this.stopRemoteSavePolling()
         this.showRemoteSaveModal = false
         this.remoteSaveObjects = []
         this.remoteSaveMetrics = null
         this.remoteSaveMigrations = []
+        this.remoteSaveAudit = []
         this.remoteSaveConflicts = []
         this.remoteSaveStatus = null
+        this.remoteSaveError = ''
       },
-      refreshRemoteSaveConflicts: function() {
+      refreshRemoteSaveConflicts: function(silent) {
         var self = this
         if (!this.selectedTaskId) return
-        this.remoteSaveBusy = true
+        if (!silent) this.remoteSaveBusy = true
         Promise.all([
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
-          AppAPI.get('/api/metrics').catch(function() { return null })
+          AppAPI.get('/api/metrics').catch(function() { return null }),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
           self.remoteSaveMigrations = (data[3] && data[3].items) || []
           self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
-        }).catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
-          .finally(function() { self.remoteSaveBusy = false })
+          self.remoteSaveAudit = (data[5] && data[5].entries) || []
+          self.remoteSaveError = ''
+        }).catch(function(e) {
+          self.remoteSaveError = '加载远程保存状态失败: ' + e.message
+          if (!silent) UiHelpers.showToast(self.remoteSaveError, 'error')
+        })
+          .finally(function() { if (!silent) self.remoteSaveBusy = false })
       },
       resolveRemoteSaveConflict: function(conflict, action) {
         if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
@@ -752,7 +850,37 @@
           conflicts += Number(tail[i].conflicts) || 0
           mirror += Number(tail[i].mirror_deleted) || 0
         }
-        return '最近 5 分钟：上传 ' + uploaded + ' · 失败 ' + failed + ' · 冲突 ' + conflicts + ' · mirror ' + mirror
+        return '全局最近 5 分钟：上传 ' + uploaded + ' · 失败 ' + failed + ' · 冲突 ' + conflicts + ' · mirror ' + mirror
+      },
+      remoteSaveAuditTime: function(t) {
+        if (!t) return '-'
+        var d = new Date(t)
+        if (isNaN(d.getTime())) return t
+        return d.toLocaleString()
+      },
+      exportRemoteSaveAudit: function() {
+        var blob = new Blob([JSON.stringify(this.remoteSaveAudit || [], null, 2)], { type: 'application/json' })
+        var a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = 'remote-save-migration-audit.json'
+        a.click()
+        setTimeout(function() { URL.revokeObjectURL(a.href) }, 1000)
+      },
+      remoteSaveNextRetryLabel: function(o) {
+        var t = o && o.next_retry_at
+        if (!t) return ''
+        var ms = new Date(t).getTime() - Date.now()
+        if (isNaN(ms)) return ''
+        if (ms <= 0) return '即将重试'
+        var sec = Math.ceil(ms / 1000)
+        if (sec < 60) return '约 ' + sec + ' 秒后重试'
+        var min = Math.ceil(sec / 60)
+        if (min < 60) return '约 ' + min + ' 分钟后重试'
+        return '约 ' + Math.ceil(min / 60) + ' 小时后重试'
+      },
+      remoteSaveByteProgress: function(o) {
+        if (!o || !o.bytes_total) return ''
+        return this.remoteSaveBytesLabel(o.bytes_done || 0) + ' / ' + this.remoteSaveBytesLabel(o.bytes_total)
       },
       remoteSaveBytesLabel: function(n) {
         n = Number(n) || 0

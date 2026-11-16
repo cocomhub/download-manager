@@ -114,6 +114,7 @@ func (m *Manager) RemoteSaveObjects(taskID string) ([]map[string]any, error) {
 		item["files_done"] = rs.FilesDone
 		item["bytes_total"] = rs.BytesTotal
 		item["bytes_done"] = rs.BytesDone
+		item["files_truncated"] = rs.FilesTruncated
 		item["conflicts"] = rs.Conflicts
 		item["retries"] = rs.Retries
 		item["next_retry_at"] = rs.NextRetryAt
@@ -135,6 +136,17 @@ func (m *Manager) RemoteSaveMigrationReport(taskID string) ([]remotesave.Migrati
 		return nil, fmt.Errorf("任务不存在: %s", taskID)
 	}
 	return m.remoteSave.MigrationReport(taskID)
+}
+
+// RemoteSaveMigrationAudit 返回最近迁移审计记录。
+func (m *Manager) RemoteSaveMigrationAudit(taskID string, limit int) ([]remotesave.MigrationAuditEntry, error) {
+	if m.remoteSave == nil {
+		return nil, fmt.Errorf("remote-save 未装配")
+	}
+	if _, ok := m.getTask(taskID); !ok {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	return m.remoteSave.ListMigrationAudit(taskID, limit)
 }
 
 // ApplyRemoteSaveMigration 执行对象目录迁移（远端 rename，不删除）。

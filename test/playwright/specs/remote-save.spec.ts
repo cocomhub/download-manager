@@ -26,6 +26,8 @@ test.describe('Remote Save Conflict Panel', () => {
     let triggerBody: any = null;
     let migrationApplied = false;
     let migrationLimit: any = null;
+    let migrationConfirm = '';
+    let objectsCalls = 0;
 
     await page.route('**/api/tasks/*/remote_save', async (route) => {
       if (route.request().method() === 'POST') {
@@ -51,13 +53,16 @@ test.describe('Remote Save Conflict Panel', () => {
       });
     });
     await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
+      objectsCalls++;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           objects: [{
             object_url: conflict.object_url, object_id: 1, download_status: 'completed',
-            status: 'conflict', files_total: 1, files_done: 0, conflicts: 1, retries: 0,
+            status: 'conflict', files_total: 10, files_done: 3, conflicts: 1, retries: 2,
+            bytes_total: 2048, bytes_done: 1024, files_truncated: true,
+            next_retry_at: new Date(Date.now() + 60000).toISOString(),
             last_error: 'checksum_mismatch', play_url: 'https://example.invalid/play.mp4',
           }],
           total: 1,
@@ -77,7 +82,22 @@ test.describe('Remote Save Conflict Panel', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ items: [{ object_url: conflict.object_url, path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4' }], total: 1 }),
+        body: JSON.stringify({
+          items: Array.from({ length: 150 }, (_, i) => ({
+            object_url: conflict.object_url,
+            path: 'video-' + i + '.mp4',
+            old_remote: 'hanime/OLD/video-' + i + '.mp4',
+            new_remote: 'hanime/NEW/video-' + i + '.mp4',
+          })),
+          total: 150,
+        }),
+      });
+    });
+    await page.route('**/api/tasks/*/remote_save/migration/audit?limit=100', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ entries: [{ task_id: 'test', time: '2026-11-16T12:00:00Z', path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4', success: true }], total: 1 }),
       });
     });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
@@ -112,16 +132,28 @@ test.describe('Remote Save Conflict Panel', () => {
 
     const modal = page.locator('[data-testid="remote-save-modal"]');
     await expect(modal).toBeVisible();
+    await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('全局累计指标');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('1.00 KiB');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('mirror 删除');
     await expect(page.locator('[data-testid="remote-save-trend"]')).toContainText('最近 5 分钟');
+    await expect(page.locator('[data-testid="remote-save-migration-item"]')).toHaveCount(100);
+    await page.getByText('显示更多迁移').click();
+    await expect(page.locator('[data-testid="remote-save-migration-item"]')).toHaveCount(150);
+    await page.locator('[data-testid="remote-save-migration-filter"]').fill('video-149');
     await expect(page.locator('[data-testid="remote-save-migration-item"]')).toHaveCount(1);
+    await page.locator('[data-testid="remote-save-migration-filter"]').fill('');
+    await expect(page.locator('[data-testid="remote-save-audit-item"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="remote-save-audit"]')).toContainText('成功');
     await expect(page.locator('[data-testid="remote-save-object"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('冲突');
+    await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('已截断');
+    await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('1.00 KiB / 2.00 KiB');
+    await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('分钟后重试');
     await expect(page.locator('[data-testid="remote-save-conflict"]')).toHaveCount(1);
     await expect(modal).toContainText('sha256 不一致');
     await expect(modal).toContainText('ABC-001/video-0.mp4');
     await expect(page.locator('[data-testid="remote-save-play"]')).toHaveAttribute('href', 'https://example.invalid/play.mp4');
+    await expect.poll(() => objectsCalls, { timeout: 8000 }).toBeGreaterThan(1);
 
     await page.locator('[data-testid="remote-save-object-trigger"]').click();
     await expect.poll(() => triggerBody && triggerBody.url).toBe(conflict.object_url);
@@ -130,10 +162,15 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect.poll(() => triggerBody && triggerBody.force).toBe(true);
     expect(triggerBody.url || '').toBe('');
 
-    page.once('dialog', async (dialog) => { await dialog.accept(); });
+    page.once('dialog', async (dialog) => {
+      migrationConfirm = dialog.message();
+      await dialog.accept();
+    });
     await page.locator('[data-testid="remote-save-migration-apply"]').click();
     await expect.poll(() => migrationApplied).toBe(true);
     expect(migrationLimit).toBe(100);
+    expect(migrationConfirm).toContain('本批 100 条');
+    expect(migrationConfirm).toContain('剩余 50 条');
 
     await page.locator('[data-testid="remote-save-bulk-skip"]').click();
     await expect.poll(() => batchBody && batchBody.action).toBe('skip');
@@ -158,6 +195,13 @@ test.describe('Remote Save Conflict Panel', () => {
     });
     await page.route('**/api/tasks/*/remote_save/migration', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0 }) });
+    });
+    await page.route('**/api/tasks/*/remote_save/migration/audit?limit=100', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ entries: [{ task_id: 'test', time: '2026-11-16T12:00:00Z', path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4', success: true }], total: 1 }),
+      });
     });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ conflicts: [], total: 0 }) });

@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/cocomhub/download-manager/remotesave"
 	"github.com/gorilla/mux"
@@ -60,8 +61,12 @@ func (s *Server) getRemoteSaveConflicts(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusNotFound, "remote_save_not_found", err.Error())
 		return
 	}
+	total := len(out)
+	start, end := remoteSavePageBounds(r, total)
 	w.Header().Set(hdrContentType, "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "conflicts": out, "total": len(out)})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"task_id": taskID, "conflicts": out[start:end], "total": total, "offset": start, "limit": end - start,
+	})
 }
 
 // getRemoteSaveObjects 返回任务下对象级远程保存状态摘要。
@@ -72,8 +77,12 @@ func (s *Server) getRemoteSaveObjects(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "remote_save_not_found", err.Error())
 		return
 	}
+	total := len(out)
+	start, end := remoteSavePageBounds(r, total)
 	w.Header().Set(hdrContentType, "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "objects": out, "total": len(out)})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"task_id": taskID, "objects": out[start:end], "total": total, "offset": start, "limit": end - start,
+	})
 }
 
 // getRemoteSaveMigration 返回对象目录迁移报告（只读，不移动文件）。
@@ -84,8 +93,12 @@ func (s *Server) getRemoteSaveMigration(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusNotFound, "remote_save_migration_failed", err.Error())
 		return
 	}
+	total := len(out)
+	start, end := remoteSavePageBounds(r, total)
 	w.Header().Set(hdrContentType, "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "items": out, "total": len(out)})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"task_id": taskID, "items": out[start:end], "total": total, "offset": start, "limit": end - start,
+	})
 }
 
 // applyRemoteSaveMigration 执行对象目录迁移（远端 rename，不删除）。
@@ -115,6 +128,49 @@ func (s *Server) applyRemoteSaveMigration(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"task_id": taskID, "results": out, "succeeded": succeeded, "failed": len(out) - succeeded,
 	})
+}
+
+func remoteSavePageBounds(r *http.Request, total int) (int, int) {
+	if total == 0 {
+		return 0, 0
+	}
+	offset := 0
+	limit := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if offset >= total {
+		return total, total
+	}
+	if limit == 0 || offset+limit > total {
+		return offset, total
+	}
+	return offset, offset + limit
+}
+
+// getRemoteSaveMigrationAudit 返回最近迁移审计记录。
+func (s *Server) getRemoteSaveMigrationAudit(w http.ResponseWriter, r *http.Request) {
+	taskID := mux.Vars(r)["id"]
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+	out, err := s.mgr.RemoteSaveMigrationAudit(taskID, limit)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "remote_save_migration_audit_failed", err.Error())
+		return
+	}
+	w.Header().Set(hdrContentType, "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"task_id": taskID, "entries": out, "total": len(out)})
 }
 
 // resolveRemoteSaveConflict 对单个冲突文件执行人工处理（B 阶段 UI 后端）。

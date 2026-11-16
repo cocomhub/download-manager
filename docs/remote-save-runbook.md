@@ -122,6 +122,7 @@ download-manager 在 task 404 时按 `transfer_volume/transfer_path` 回读目�
 ```
 
 每行包含 task/object/path/old_remote/new_remote/success/error，可用于审计和回滚决策。
+UI 的“最近迁移审计”读取 `GET /api/tasks/{id}/remote_save/migration/audit?limit=100`，并支持导出 JSON。
 
 ## 4. 日志与指标建议
 
