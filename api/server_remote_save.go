@@ -91,7 +91,16 @@ func (s *Server) getRemoteSaveMigration(w http.ResponseWriter, r *http.Request) 
 // applyRemoteSaveMigration 执行对象目录迁移（远端 rename，不删除）。
 func (s *Server) applyRemoteSaveMigration(w http.ResponseWriter, r *http.Request) {
 	taskID := mux.Vars(r)["id"]
-	out, err := s.mgr.ApplyRemoteSaveMigration(r.Context(), taskID)
+	limit := 0
+	if r.Body != nil && r.ContentLength != 0 {
+		var req struct {
+			Limit int `json:"limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			limit = req.Limit
+		}
+	}
+	out, err := s.mgr.ApplyRemoteSaveMigration(r.Context(), taskID, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "remote_save_migration_failed", err.Error())
 		return

@@ -637,7 +637,7 @@
         if (!window.confirm('执行 ' + this.remoteSaveMigrations.length + ' 条远端目录迁移？目标已存在将失败，不会删除文件。')) return
         var self = this
         this.remoteSaveBusy = true
-        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/apply', {})
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/apply', { limit: 100 })
           .then(function(res) {
             if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '迁移失败') })
             return res.json()
