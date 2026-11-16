@@ -25,6 +25,7 @@ test.describe('Remote Save Conflict Panel', () => {
     let batchBody: any = null;
     let triggerBody: any = null;
     let migrationApplied = false;
+    let migrationLimit: any = null;
 
     await page.route('**/api/tasks/*/remote_save', async (route) => {
       if (route.request().method() === 'POST') {
@@ -65,6 +66,7 @@ test.describe('Remote Save Conflict Panel', () => {
     });
     await page.route('**/api/tasks/*/remote_save/migration/apply', async (route) => {
       migrationApplied = true;
+      migrationLimit = JSON.parse(route.request().postData() || '{}').limit;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -131,6 +133,7 @@ test.describe('Remote Save Conflict Panel', () => {
     page.once('dialog', async (dialog) => { await dialog.accept(); });
     await page.locator('[data-testid="remote-save-migration-apply"]').click();
     await expect.poll(() => migrationApplied).toBe(true);
+    expect(migrationLimit).toBe(100);
 
     await page.locator('[data-testid="remote-save-bulk-skip"]').click();
     await expect.poll(() => batchBody && batchBody.action).toBe('skip');

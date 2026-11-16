@@ -95,7 +95,7 @@ download-manager 在 task 404 时按 `transfer_volume/transfer_path` 回读目�
 `GET /api/tasks/{task_id}/remote_save/migration` 返回 manifest 旧路径与当前
 `object_dirs` 计算路径的差异；当前只生成报告，不自动移动/删除远端文件。
 确认后调用 `POST /api/tasks/{task_id}/remote_save/migration/apply` 执行远端 rename
-（目标已存在返回失败，不覆盖、不删除）；或由 mirror_delete 清理旧路径。
+（body `{"limit":100}` 分批；目标已存在返回失败，不覆盖、不删除）；或由 mirror_delete 清理旧路径。
 
 ### mirror_delete 未删除
 

@@ -1325,7 +1325,7 @@ func TestApplyMigration_RenamesOldPath(t *testing.T) {
 	}}
 	man := svc.manifest("t1")
 	man.Put(ManifestEntry{Path: "video.mp4", ObjectURL: "u1", RemotePath: oldRemote, Status: model.RemoteFileStatusUploaded})
-	results, err := svc.ApplyMigration(context.Background(), "t1")
+	results, err := svc.ApplyMigration(context.Background(), "t1", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -357,7 +357,7 @@ type MigrationResult struct {
 }
 
 // ApplyMigration 按当前迁移报告执行远端 rename（不删除文件）；目标已存在时 fail-closed。
-func (s *Service) ApplyMigration(ctx context.Context, taskID string) ([]MigrationResult, error) {
+func (s *Service) ApplyMigration(ctx context.Context, taskID string, limit int) ([]MigrationResult, error) {
 	task, ok := s.taskByID(taskID)
 	if !ok || task == nil {
 		return nil, fmt.Errorf("任务不存在: %s", taskID)
@@ -370,6 +370,9 @@ func (s *Service) ApplyMigration(ctx context.Context, taskID string) ([]Migratio
 	items, err := s.MigrationReport(taskID)
 	if err != nil {
 		return nil, err
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
 	}
 	cfg, err := s.taskConfig(task)
 	if err != nil {
