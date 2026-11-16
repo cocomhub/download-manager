@@ -102,11 +102,13 @@
         remoteSaveStatus: null,
         remoteSaveObjects: [],
         remoteSaveMetrics: null,
+        remoteSaveTaskMetrics: null,
         remoteSaveMigrations: [],
         remoteSaveAudit: [],
         remoteSaveConflicts: [],
         remoteSaveObjectFilter: '',
         remoteSaveConflictFilter: '',
+        remoteSaveSelectedConflicts: [],
         remoteSaveMigrationFilter: '',
         remoteSaveObjectLimit: 50,
         remoteSaveConflictLimit: 50,
@@ -669,6 +671,7 @@
         this.showRemoteSaveModal = true
         this.remoteSaveObjectFilter = ''
         this.remoteSaveConflictFilter = ''
+        this.remoteSaveSelectedConflicts = []
         this.remoteSaveMigrationFilter = ''
         this.remoteSaveObjectLimit = 50
         this.remoteSaveConflictLimit = 50
@@ -679,7 +682,8 @@
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
           AppAPI.get('/api/metrics').catch(function() { return null }),
-          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null })
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null }),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
@@ -687,6 +691,7 @@
           self.remoteSaveMigrations = (data[3] && data[3].items) || []
           self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
           self.remoteSaveAudit = (data[5] && data[5].entries) || []
+          self.remoteSaveTaskMetrics = (data[6] && data[6].metrics) || null
           self.remoteSaveError = ''
           self.startRemoteSavePolling()
         }).catch(function(e) {
@@ -694,6 +699,9 @@
           UiHelpers.showToast(self.remoteSaveError, 'error')
           self.showRemoteSaveModal = false
         }).finally(function() { self.remoteSaveBusy = false })
+      },
+      bulkResolveRemoteSave: function(action) {
+        this.resolveRemoteSaveBatch(action, this.remoteSaveConflicts, false)
       },
       remoteSaveShowMore: function(kind) {
         if (kind === 'objects') this.remoteSaveObjectLimit += 50
@@ -771,9 +779,11 @@
         this.showRemoteSaveModal = false
         this.remoteSaveObjects = []
         this.remoteSaveMetrics = null
+        this.remoteSaveTaskMetrics = null
         this.remoteSaveMigrations = []
         this.remoteSaveAudit = []
         this.remoteSaveConflicts = []
+        this.remoteSaveSelectedConflicts = []
         this.remoteSaveStatus = null
         this.remoteSaveError = ''
       },
@@ -787,7 +797,8 @@
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
           AppAPI.get('/api/metrics').catch(function() { return null }),
-          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null })
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/audit?limit=100').catch(function() { return null }),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
@@ -795,6 +806,7 @@
           self.remoteSaveMigrations = (data[3] && data[3].items) || []
           self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
           self.remoteSaveAudit = (data[5] && data[5].entries) || []
+          self.remoteSaveTaskMetrics = (data[6] && data[6].metrics) || null
           self.remoteSaveError = ''
         }).catch(function(e) {
           self.remoteSaveError = '加载远程保存状态失败: ' + e.message
@@ -814,18 +826,49 @@
         }).then(function(res) {
           if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '处理失败') })
           UiHelpers.showToast('已处理：' + (labels[action] || action), 'success')
+          var key = self.remoteSaveConflictKey(conflict)
+          self.remoteSaveSelectedConflicts = self.remoteSaveSelectedConflicts.filter(function(k) { return k !== key })
           self.refreshRemoteSaveConflicts()
           if (typeof fetchTaskDetails === 'function') fetchTaskDetails(self, self.selectedTaskId, true)
         }).catch(function(e) { UiHelpers.showToast('处理失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
-      bulkResolveRemoteSave: function(action) {
+      remoteSaveConflictKey: function(c) {
+        return String((c && c.object_url) || '') + '|' + String((c && c.path) || '')
+      },
+      remoteSaveConflictSelected: function(c) {
+        return this.remoteSaveSelectedConflicts.indexOf(this.remoteSaveConflictKey(c)) >= 0
+      },
+      toggleRemoteSaveConflict: function(c) {
+        var key = this.remoteSaveConflictKey(c)
+        var idx = this.remoteSaveSelectedConflicts.indexOf(key)
+        if (idx >= 0) this.remoteSaveSelectedConflicts.splice(idx, 1)
+        else this.remoteSaveSelectedConflicts.push(key)
+      },
+      toggleAllRemoteSaveConflicts: function() {
+        var keys = this.remoteSaveConflictsFiltered.map(function(c) { return this.remoteSaveConflictKey(c) }.bind(this))
+        var all = keys.length > 0 && keys.every(function(k) { return this.remoteSaveSelectedConflicts.indexOf(k) >= 0 }.bind(this))
+        if (all) {
+          var set = {}
+          keys.forEach(function(k) { set[k] = true })
+          this.remoteSaveSelectedConflicts = this.remoteSaveSelectedConflicts.filter(function(k) { return !set[k] })
+        } else {
+          var self = this
+          keys.forEach(function(k) { if (self.remoteSaveSelectedConflicts.indexOf(k) < 0) self.remoteSaveSelectedConflicts.push(k) })
+        }
+      },
+      bulkResolveRemoteSaveSelected: function(action) {
+        var selected = this.remoteSaveConflicts.filter(function(c) { return this.remoteSaveConflictSelected(c) }.bind(this))
+        if (!selected.length) { UiHelpers.showToast('请先选择冲突', 'error'); return }
+        this.resolveRemoteSaveBatch(action, selected, true)
+      },
+      resolveRemoteSaveBatch: function(action, conflicts, selectedOnly) {
         if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
-        if (this.remoteSaveBusy || !this.remoteSaveConflicts.length) return
+        if (this.remoteSaveBusy || !conflicts.length) return
         var labels = { reuse: '全部复用远端', overwrite: '全部覆盖远端', rename: '全部改名保留', skip: '全部跳过' }
-        if ((action === 'overwrite' || action === 'rename') && !window.confirm((labels[action] || action) + '：共 ' + this.remoteSaveConflicts.length + ' 条？')) return
+        if ((action === 'overwrite' || action === 'rename') && !window.confirm((labels[action] || action) + '：共 ' + conflicts.length + ' 条？')) return
         var self = this
-        var items = this.remoteSaveConflicts.map(function(c) { return { object_url: c.object_url, path: c.path } })
+        var items = conflicts.map(function(c) { return { object_url: c.object_url, path: c.path } })
         this.remoteSaveBusy = true
         AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts/resolve_batch', { action: action, items: items })
           .then(function(res) {
@@ -834,6 +877,7 @@
           })
           .then(function(data) {
             UiHelpers.showToast((labels[action] || action) + '：成功 ' + (data.succeeded || 0) + '，失败 ' + (data.failed || 0), data.failed ? 'error' : 'success')
+            if (selectedOnly) self.remoteSaveSelectedConflicts = []
             self.refreshRemoteSaveConflicts()
             if (typeof fetchTaskDetails === 'function') fetchTaskDetails(self, self.selectedTaskId, true)
           })

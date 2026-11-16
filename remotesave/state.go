@@ -69,6 +69,7 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 	state.Status = model.RemoteSaveStatusSyncing
 	state.Volume, state.Dir = cfg.Volume, cfg.Dir
 	state.FilesTotal, state.FilesDone, state.BytesTotal, state.BytesDone = 0, 0, 0, 0
+	state.FilesUploaded, state.FilesReused, state.FilesFailed, state.FilesSkipped = 0, 0, 0, 0
 	state.Conflicts, state.LastError = 0, ""
 	var failures, skipped, userSkipped, pendingSkipped int
 	state.RemotePath = ""
@@ -110,6 +111,11 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 		switch e.Status {
 		case model.RemoteFileStatusUploaded, model.RemoteFileStatusReused:
 			state.FilesDone++
+			if e.Status == model.RemoteFileStatusUploaded {
+				state.FilesUploaded++
+			} else {
+				state.FilesReused++
+			}
 			state.BytesDone += e.Size
 			if e.RemotePath != "" {
 				switch {
@@ -125,6 +131,7 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 				state.LastError = e.Reason
 			}
 		case model.RemoteFileStatusSkipped:
+			state.FilesSkipped++
 			skipped++
 			if e.Reason == "user skip" {
 				userSkipped++
@@ -132,6 +139,7 @@ func (s *Service) refreshObjectState(task core.Task, cfg TaskConfig, obj *model.
 				pendingSkipped++
 			}
 		case model.RemoteFileStatusFailed, model.RemoteFileStatusMissing:
+			state.FilesFailed++
 			failures++
 			if state.LastError == "" {
 				state.LastError = e.Reason

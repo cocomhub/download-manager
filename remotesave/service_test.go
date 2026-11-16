@@ -1094,6 +1094,9 @@ func TestRemoteSaveMetrics_UploadAndMirror(t *testing.T) {
 	if len(m.Trend) == 0 || m.Trend[len(m.Trend)-1].FilesUploaded != 1 {
 		t.Fatalf("trend=%+v", m.Trend)
 	}
+	if st := obj.GetRemoteSave(); st == nil || st.FilesUploaded != 1 || st.FilesReused != 0 {
+		t.Fatalf("state=%+v", st)
+	}
 	man := svc.manifest("t1")
 	man.Put(ManifestEntry{Path: "stale.mp4", ObjectURL: "u1", RemotePath: "hanime/2.5D/stale.mp4", Status: model.RemoteFileStatusUploaded})
 	cfg.MirrorDelete = true

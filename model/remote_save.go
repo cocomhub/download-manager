@@ -51,6 +51,10 @@ type RemoteSaveState struct {
 	Dir            string            `json:"dir" bson:"dir"`
 	FilesTotal     int               `json:"files_total" bson:"files_total"`
 	FilesDone      int               `json:"files_done" bson:"files_done"`
+	FilesUploaded  int               `json:"files_uploaded,omitempty" bson:"files_uploaded,omitempty"`
+	FilesReused    int               `json:"files_reused,omitempty" bson:"files_reused,omitempty"`
+	FilesFailed    int               `json:"files_failed,omitempty" bson:"files_failed,omitempty"`
+	FilesSkipped   int               `json:"files_skipped,omitempty" bson:"files_skipped,omitempty"`
 	BytesTotal     int64             `json:"bytes_total" bson:"bytes_total"`
 	BytesDone      int64             `json:"bytes_done" bson:"bytes_done"`
 	Conflicts      int               `json:"conflicts" bson:"conflicts"`

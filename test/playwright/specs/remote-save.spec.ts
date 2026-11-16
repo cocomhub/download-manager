@@ -52,6 +52,13 @@ test.describe('Remote Save Conflict Panel', () => {
         body: JSON.stringify({ remote_save: { files_uploaded: 2, files_reused: 1, files_failed: 1, conflicts: 1, bytes_uploaded: 1024, files_skipped: 0, mirror_deleted: 3, cloud_files: 4, trend: [{ minute: 1, files_uploaded: 2, files_failed: 1, conflicts: 1, mirror_deleted: 3 }] } }),
       });
     });
+    await page.route('**/api/tasks/*/remote_save/metrics', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ metrics: { objects_total: 1, objects_synced: 0, objects_conflict: 1, objects_failed: 0, files_uploaded: 2, files_reused: 1, files_failed: 1, files_skipped: 0, conflicts: 1, bytes_done: 1024, bytes_total: 2048, files_truncated_objects: 1 } }),
+      });
+    });
     await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
       objectsCalls++;
       await route.fulfill({
@@ -132,6 +139,8 @@ test.describe('Remote Save Conflict Panel', () => {
 
     const modal = page.locator('[data-testid="remote-save-modal"]');
     await expect(modal).toBeVisible();
+    await expect(page.locator('[data-testid="remote-save-task-metrics"]')).toContainText('当前任务指标');
+    await expect(page.locator('[data-testid="remote-save-task-metrics"]')).toContainText('1.00 KiB / 2.00 KiB');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('全局累计指标');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('1.00 KiB');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('mirror 删除');
@@ -171,6 +180,11 @@ test.describe('Remote Save Conflict Panel', () => {
     expect(migrationLimit).toBe(100);
     expect(migrationConfirm).toContain('本批 100 条');
     expect(migrationConfirm).toContain('剩余 50 条');
+
+    await page.locator('[data-testid="remote-save-conflict"] input[type="checkbox"]').check();
+    await page.locator('[data-testid="remote-save-selected-skip"]').click();
+    await expect.poll(() => batchBody && batchBody.action).toBe('skip');
+    expect(batchBody.items).toHaveLength(1);
 
     await page.locator('[data-testid="remote-save-bulk-skip"]').click();
     await expect.poll(() => batchBody && batchBody.action).toBe('skip');
