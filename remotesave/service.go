@@ -241,6 +241,36 @@ func (s *Service) TriggerTask(taskID string, force bool) error {
 	return nil
 }
 
+// TriggerObject 入队单个对象的 remote-save（url 必填）。
+func (s *Service) TriggerObject(taskID, url string, force bool) error {
+	if s == nil {
+		return fmt.Errorf("remote-save 未启动")
+	}
+	if url == "" {
+		return fmt.Errorf("对象 URL 为空")
+	}
+	s.mu.Lock()
+	started := s.started
+	s.mu.Unlock()
+	if !started {
+		return fmt.Errorf("remote-save 未启动")
+	}
+	task, ok := s.taskByID(taskID)
+	if !ok {
+		return fmt.Errorf("任务不存在: %s", taskID)
+	}
+	st := task.Storage()
+	if st == nil {
+		return fmt.Errorf("任务无存储")
+	}
+	obj, err := st.Get(url)
+	if err != nil || obj == nil {
+		return fmt.Errorf("对象不存在: %s", url)
+	}
+	s.enqueue(request{taskID: taskID, url: url, force: force})
+	return nil
+}
+
 func (s *Service) enqueue(r request) {
 	key := r.taskID + "\x00" + r.url
 	if _, loaded := s.inflight.LoadOrStore(key, struct{}{}); loaded {

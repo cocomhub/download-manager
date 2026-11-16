@@ -24,6 +24,17 @@ func (m *Manager) TriggerRemoteSave(taskID string, force bool) error {
 	return m.remoteSave.TriggerTask(taskID, force)
 }
 
+// TriggerRemoteSaveObject 手动触发单个对象的远程保存。
+func (m *Manager) TriggerRemoteSaveObject(taskID, objectURL string, force bool) error {
+	if m.remoteSave == nil {
+		return fmt.Errorf("remote-save 未装配")
+	}
+	if _, ok := m.getTask(taskID); !ok {
+		return fmt.Errorf("任务不存在: %s", taskID)
+	}
+	return m.remoteSave.TriggerObject(taskID, objectURL, force)
+}
+
 // RemoteSaveStatus 返回任务级远程保存聚合状态（同时包含任务配置视图）。
 func (m *Manager) RemoteSaveStatus(taskID string) (map[string]any, error) {
 	t, ok := m.getTask(taskID)

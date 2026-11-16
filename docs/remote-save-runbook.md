@@ -37,7 +37,7 @@ GET /api/tasks/{task_id}/remote_save/conflicts
 
 ```http
 POST /api/tasks/{task_id}/remote_save
-{"force": true}
+{"force": true, "url": "可选；空=全任务"}
 ```
 
 `force=true` 会忽略 manifest 成功缓存，重新校验本地 sha256 与远端 checksum。

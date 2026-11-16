@@ -94,8 +94,12 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect(modal).toContainText('ABC-001/video-0.mp4');
     await expect(page.locator('[data-testid="remote-save-play"]')).toHaveAttribute('href', 'https://example.invalid/play.mp4');
 
+    await page.locator('[data-testid="remote-save-object-trigger"]').click();
+    await expect.poll(() => triggerBody && triggerBody.url).toBe(conflict.object_url);
+
     await page.locator('[data-testid="remote-save-trigger"]').click();
     await expect.poll(() => triggerBody && triggerBody.force).toBe(true);
+    expect(triggerBody.url || '').toBe('');
 
     await page.locator('[data-testid="remote-save-bulk-skip"]').click();
     await expect.poll(() => batchBody && batchBody.action).toBe('skip');
