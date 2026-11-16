@@ -102,6 +102,7 @@
         remoteSaveStatus: null,
         remoteSaveObjects: [],
         remoteSaveMetrics: null,
+        remoteSaveMigrations: [],
         remoteSaveConflicts: [],
         remoteSaveBusy: false,
 
@@ -617,16 +618,36 @@
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
           AppAPI.get('/api/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
-          self.remoteSaveMetrics = (data[3] && data[3].remote_save) || null
+          self.remoteSaveMigrations = (data[3] && data[3].items) || []
+          self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
         }).catch(function(e) {
           UiHelpers.showToast('加载远程保存状态失败: ' + e.message, 'error')
           self.showRemoteSaveModal = false
         }).finally(function() { self.remoteSaveBusy = false })
+      },
+      applyRemoteSaveMigration: function() {
+        if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
+        if (this.remoteSaveBusy || !this.remoteSaveMigrations.length) return
+        if (!window.confirm('执行 ' + this.remoteSaveMigrations.length + ' 条远端目录迁移？目标已存在将失败，不会删除文件。')) return
+        var self = this
+        this.remoteSaveBusy = true
+        AppAPI.post('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration/apply', {})
+          .then(function(res) {
+            if (!res.ok) return res.json().then(function(j) { throw new Error((j && (j.message || j.error)) || '迁移失败') })
+            return res.json()
+          })
+          .then(function(data) {
+            UiHelpers.showToast('迁移：成功 ' + (data.succeeded || 0) + '，失败 ' + (data.failed || 0), data.failed ? 'error' : 'success')
+            self.refreshRemoteSaveConflicts()
+          })
+          .catch(function(e) { UiHelpers.showToast('迁移失败: ' + e.message, 'error') })
+          .finally(function() { self.remoteSaveBusy = false })
       },
       triggerRemoteSaveObject: function(obj) {
         if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
@@ -660,6 +681,7 @@
         this.showRemoteSaveModal = false
         this.remoteSaveObjects = []
         this.remoteSaveMetrics = null
+        this.remoteSaveMigrations = []
         this.remoteSaveConflicts = []
         this.remoteSaveStatus = null
       },
@@ -671,12 +693,14 @@
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/objects'),
           AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/conflicts'),
+          AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/remote_save/migration').catch(function() { return null }),
           AppAPI.get('/api/metrics').catch(function() { return null })
         ]).then(function(data) {
           self.remoteSaveStatus = data[0] || null
           self.remoteSaveObjects = (data[1] && data[1].objects) || []
           self.remoteSaveConflicts = (data[2] && data[2].conflicts) || []
-          self.remoteSaveMetrics = (data[3] && data[3].remote_save) || null
+          self.remoteSaveMigrations = (data[3] && data[3].items) || []
+          self.remoteSaveMetrics = (data[4] && data[4].remote_save) || null
         }).catch(function(e) { UiHelpers.showToast('加载冲突失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },

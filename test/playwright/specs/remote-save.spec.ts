@@ -24,6 +24,7 @@ test.describe('Remote Save Conflict Panel', () => {
     let resolveBody: any = null;
     let batchBody: any = null;
     let triggerBody: any = null;
+    let migrationApplied = false;
 
     await page.route('**/api/tasks/*/remote_save', async (route) => {
       if (route.request().method() === 'POST') {
@@ -62,6 +63,21 @@ test.describe('Remote Save Conflict Panel', () => {
         }),
       });
     });
+    await page.route('**/api/tasks/*/remote_save/migration/apply', async (route) => {
+      migrationApplied = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ succeeded: 1, failed: 0, results: [] }),
+      });
+    });
+    await page.route('**/api/tasks/*/remote_save/migration', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [{ object_url: conflict.object_url, path: 'video-0.mp4', old_remote: 'hanime/OLD/video-0.mp4', new_remote: 'hanime/NEW/video-0.mp4' }], total: 1 }),
+      });
+    });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({
         status: 200,
@@ -96,6 +112,7 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect(modal).toBeVisible();
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('1.00 KiB');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('mirror 删除');
+    await expect(page.locator('[data-testid="remote-save-migration-item"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="remote-save-object"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('冲突');
     await expect(page.locator('[data-testid="remote-save-conflict"]')).toHaveCount(1);
@@ -109,6 +126,10 @@ test.describe('Remote Save Conflict Panel', () => {
     await page.locator('[data-testid="remote-save-trigger"]').click();
     await expect.poll(() => triggerBody && triggerBody.force).toBe(true);
     expect(triggerBody.url || '').toBe('');
+
+    page.once('dialog', async (dialog) => { await dialog.accept(); });
+    await page.locator('[data-testid="remote-save-migration-apply"]').click();
+    await expect.poll(() => migrationApplied).toBe(true);
 
     await page.locator('[data-testid="remote-save-bulk-skip"]').click();
     await expect.poll(() => batchBody && batchBody.action).toBe('skip');
@@ -130,6 +151,9 @@ test.describe('Remote Save Conflict Panel', () => {
     });
     await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ objects: [], total: 0 }) });
+    });
+    await page.route('**/api/tasks/*/remote_save/migration', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0 }) });
     });
     await page.route('**/api/tasks/*/remote_save/conflicts', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ conflicts: [], total: 0 }) });
