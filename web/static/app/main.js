@@ -746,6 +746,32 @@
           .catch(function(e) { UiHelpers.showToast('迁移失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
+      refreshRemotePlay: function(o) {
+        if (!o || !o.object_url) return Promise.reject(new Error('缺少对象 URL'))
+        return AppAPI.get('/api/tasks/' + encodeURIComponent(this.selectedTaskId) + '/object/play_url?url=' + encodeURIComponent(o.object_url))
+          .then(function(data) {
+            if (!data || !data.url) throw new Error('播放地址为空')
+            o.play_url = data.url
+            return data.url
+          })
+      },
+      openRemotePlay: function(o) {
+        var win = window.open('', '_blank')
+        var self = this
+        this.refreshRemotePlay(o).then(function(url) {
+          if (win) win.location.href = url
+          else window.open(url, '_blank')
+        }).catch(function(e) {
+          if (win) win.close()
+          UiHelpers.showToast('打开播放失败: ' + e.message, 'error')
+        })
+        return false
+      },
+      refreshRemotePlayURL: function(o) {
+        var self = this
+        this.refreshRemotePlay(o).then(function() { UiHelpers.showToast('播放地址已刷新', 'success') })
+          .catch(function(e) { UiHelpers.showToast('刷新播放地址失败: ' + e.message, 'error') })
+      },
       triggerRemoteSaveObject: function(obj) {
         if (this.isWriteDisabled) { UiHelpers.showToast('UI-Only 模式下已禁用', 'error'); return }
         if (this.remoteSaveBusy || !obj || !obj.object_url) return
