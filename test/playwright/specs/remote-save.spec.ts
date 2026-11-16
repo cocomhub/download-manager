@@ -46,7 +46,7 @@ test.describe('Remote Save Conflict Panel', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ remote_save: { files_uploaded: 2, files_reused: 1, files_failed: 1, conflicts: 1, bytes_uploaded: 1024, files_skipped: 0, mirror_deleted: 3, cloud_files: 4 } }),
+        body: JSON.stringify({ remote_save: { files_uploaded: 2, files_reused: 1, files_failed: 1, conflicts: 1, bytes_uploaded: 1024, files_skipped: 0, mirror_deleted: 3, cloud_files: 4, trend: [{ minute: 1, files_uploaded: 2, files_failed: 1, conflicts: 1, mirror_deleted: 3 }] } }),
       });
     });
     await page.route('**/api/tasks/*/remote_save/objects', async (route) => {
@@ -112,6 +112,7 @@ test.describe('Remote Save Conflict Panel', () => {
     await expect(modal).toBeVisible();
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('1.00 KiB');
     await expect(page.locator('[data-testid="remote-save-metrics"]')).toContainText('mirror 删除');
+    await expect(page.locator('[data-testid="remote-save-trend"]')).toContainText('最近 5 分钟');
     await expect(page.locator('[data-testid="remote-save-migration-item"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="remote-save-object"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="remote-save-objects"]')).toContainText('冲突');

@@ -742,6 +742,18 @@
           .catch(function(e) { UiHelpers.showToast('批量处理失败: ' + e.message, 'error') })
           .finally(function() { self.remoteSaveBusy = false })
       },
+      remoteSaveTrendSummary: function() {
+        var trend = (this.remoteSaveMetrics && this.remoteSaveMetrics.trend) || []
+        var tail = trend.slice(-5)
+        var uploaded = 0, failed = 0, conflicts = 0, mirror = 0
+        for (var i = 0; i < tail.length; i++) {
+          uploaded += Number(tail[i].files_uploaded) || 0
+          failed += Number(tail[i].files_failed) || 0
+          conflicts += Number(tail[i].conflicts) || 0
+          mirror += Number(tail[i].mirror_deleted) || 0
+        }
+        return '最近 5 分钟：上传 ' + uploaded + ' · 失败 ' + failed + ' · 冲突 ' + conflicts + ' · mirror ' + mirror
+      },
       remoteSaveBytesLabel: function(n) {
         n = Number(n) || 0
         if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GiB'

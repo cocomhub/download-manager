@@ -1640,6 +1640,7 @@
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">mirror 删除</div><div class="font-semibold">{{ remoteSaveMetrics.mirror_deleted || 0 }}</div></div>
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">云端文件</div><div class="font-semibold">{{ remoteSaveMetrics.cloud_files || 0 }}</div></div>
                         <div class="rounded border bg-gray-50 px-3 py-2"><div class="text-xs text-gray-500">租约失败</div><div class="font-semibold">{{ (remoteSaveMetrics.lease_acquire_failures || 0) + '/' + (remoteSaveMetrics.lease_renew_failures || 0) }}</div></div>
+                        <div v-if="remoteSaveMetrics.trend && remoteSaveMetrics.trend.length" class="col-span-2 md:col-span-4 text-xs text-gray-600 px-1" data-testid="remote-save-trend">{{ remoteSaveTrendSummary() }}</div>
                     </div>
                     <div v-if="remoteSaveStatus && remoteSaveStatus.enabled && remoteSaveMigrations.length > 0" class="mb-4 border rounded" data-testid="remote-save-migration">
                         <div class="flex items-center justify-between px-3 py-2 bg-amber-50 border-b">

@@ -144,7 +144,8 @@ SPROXY_E2E_URL=http://127.0.0.1:18085 SPROXY_E2E_AK=... SPROXY_E2E_SK=... SPROXY
 ## 运行手册
 
 上线、冲突处理、故障恢复、mirror_delete 与 cloud-only auto-clean 操作见
-[`remote-save-runbook.md`](remote-save-runbook.md)。
+[`remote-save-runbook.md`](remote-save-runbook.md)；生产参数/告警/部署策略见
+[`remote-save-production.md`](remote-save-production.md)。
 
 ## 已知限制
 
