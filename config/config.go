@@ -206,6 +206,7 @@ type RemoteSaveSettings struct {
 	MaxRetries            int           `yaml:"max_retries" json:"max_retries"`
 	MaxFilesPerObject     int           `yaml:"max_files_per_object" json:"max_files_per_object"`
 	VerifyChecksum        bool          `yaml:"verify_checksum" json:"verify_checksum"`
+	BatchStat             bool          `yaml:"batch_stat" json:"batch_stat"`
 }
 
 // GopeedConfig 配置 Gopeed 下载器后端（磁力/直链，经 Gopeed REST API 下发与轮询）。
