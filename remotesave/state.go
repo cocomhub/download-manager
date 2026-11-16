@@ -4,6 +4,7 @@
 package remotesave
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cocomhub/download-manager/core"
 	"github.com/cocomhub/download-manager/model"
+	sproxyclient "github.com/cocomhub/sproxy/pkg/client"
 )
 
 // objectFileSet 是对象当前本地文件集合（去重、已按任务目录校验）。
@@ -329,5 +331,94 @@ func (s *Service) MigrationReport(taskID string) ([]MigrationItem, error) {
 		}
 		return out[i].Path < out[j].Path
 	})
+	return out, nil
+}
+
+// MigrationResult 是迁移执行结果。
+type MigrationResult struct {
+	ObjectURL string `json:"object_url"`
+	Path      string `json:"path"`
+	OldRemote string `json:"old_remote"`
+	NewRemote string `json:"new_remote"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ApplyMigration 按当前迁移报告执行远端 rename（不删除文件）；目标已存在时 fail-closed。
+func (s *Service) ApplyMigration(ctx context.Context, taskID string) ([]MigrationResult, error) {
+	task, ok := s.taskByID(taskID)
+	if !ok || task == nil {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	releaseLease, leaseOK := s.acquireTaskLease(task)
+	if !leaseOK {
+		return nil, fmt.Errorf("任务正被其它实例处理")
+	}
+	defer releaseLease()
+	items, err := s.MigrationReport(taskID)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.taskConfig(task)
+	if err != nil {
+		return nil, err
+	}
+	client, err := s.opts.ClientFor(s.sproxyCfg(), cfg.Volume)
+	if err != nil {
+		return nil, err
+	}
+	man := s.manifest(taskID)
+	out := make([]MigrationResult, 0, len(items))
+	changed := map[string]*model.DownloadObject{}
+	for _, item := range items {
+		res := MigrationResult{ObjectURL: item.ObjectURL, Path: item.Path, OldRemote: item.OldRemote, NewRemote: item.NewRemote}
+		_, serr := client.Stat(ctx, item.OldRemote)
+		if serr != nil && !errors.Is(serr, sproxyclient.ErrNotFound) {
+			res.Error = serr.Error()
+			out = append(out, res)
+			continue
+		}
+		if errors.Is(serr, sproxyclient.ErrNotFound) {
+			if _, nerr := client.Stat(ctx, item.NewRemote); nerr != nil {
+				res.Error = fmt.Sprintf("旧/新远端均不存在: %v / %v", serr, nerr)
+				out = append(out, res)
+				continue
+			}
+			res.Success = true
+		} else {
+			if _, nerr := client.Stat(ctx, item.NewRemote); nerr == nil {
+				res.Error = "目标已存在，拒绝覆盖: " + item.NewRemote
+				out = append(out, res)
+				continue
+			} else if !errors.Is(nerr, sproxyclient.ErrNotFound) {
+				res.Error = "检查目标失败: " + nerr.Error()
+				out = append(out, res)
+				continue
+			}
+			if rerr := client.Rename(ctx, item.OldRemote, item.NewRemote); rerr != nil {
+				res.Error = rerr.Error()
+				out = append(out, res)
+				continue
+			}
+			res.Success = true
+		}
+		if e, ok := man.GetFor(item.ObjectURL, item.Path); ok {
+			e.RemotePath = item.NewRemote
+			man.Put(e)
+		}
+		out = append(out, res)
+		if obj, gerr := task.Storage().Get(item.ObjectURL); gerr == nil && obj != nil {
+			changed[item.ObjectURL] = obj
+		}
+	}
+	_ = man.Flush()
+	for _, obj := range changed {
+		unlock := s.lockObject(obj.URL)
+		fs, ferr := s.collectObjectFileSet(task, obj)
+		if ferr == nil {
+			s.refreshObjectState(task, cfg, obj, man, fs, 0)
+		}
+		unlock()
+	}
 	return out, nil
 }

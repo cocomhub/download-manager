@@ -1302,3 +1302,40 @@ func TestMigrationReport_ObjectKeyChanged(t *testing.T) {
 		t.Fatalf("items=%+v", items)
 	}
 }
+
+func TestApplyMigration_RenamesOldPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	local := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(local, []byte("v"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	obj := &model.DownloadObject{TaskID: "t1", URL: "u1", SavePath: local, Status: model.StatusCompleted,
+		Metadata: map[string]string{"code": "NEW-001"}}
+	task := &fakeTask{id: "t1", saveDir: dir, store: &fakeStorage{objs: map[string]*model.DownloadObject{"u1": obj}}}
+	oldRemote := "hanime/2.5D/OLD-001/video.mp4"
+	newRemote := "hanime/2.5D/NEW-001/video.mp4"
+	client := &fakeClient{files: map[string]*FileInfo{oldRemote: {Name: "video.mp4", Size: 1, Checksum: "abc"}}, metas: map[string]MetaInfo{}}
+	svc := newTestService(t, task, client, nil)
+	svc.opts.Cfg().Tasks[0].Extra = map[string]any{"remote_save": map[string]any{
+		"enabled": true, "volume": "baidu", "dir": "hanime/2.5D", "object_dirs": true,
+	}}
+	man := svc.manifest("t1")
+	man.Put(ManifestEntry{Path: "video.mp4", ObjectURL: "u1", RemotePath: oldRemote, Status: model.RemoteFileStatusUploaded})
+	results, err := svc.ApplyMigration(context.Background(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("results=%+v", results)
+	}
+	if _, err := client.Stat(context.Background(), oldRemote); err == nil {
+		t.Fatal("old remote still exists")
+	}
+	if _, err := client.Stat(context.Background(), newRemote); err != nil {
+		t.Fatalf("new remote missing: %v", err)
+	}
+	if e, _ := man.GetFor("u1", "video.mp4"); e.RemotePath != newRemote {
+		t.Fatalf("manifest remote=%s", e.RemotePath)
+	}
+}

@@ -137,6 +137,17 @@ func (m *Manager) RemoteSaveMigrationReport(taskID string) ([]remotesave.Migrati
 	return m.remoteSave.MigrationReport(taskID)
 }
 
+// ApplyRemoteSaveMigration 执行对象目录迁移（远端 rename，不删除）。
+func (m *Manager) ApplyRemoteSaveMigration(ctx context.Context, taskID string) ([]remotesave.MigrationResult, error) {
+	if m.remoteSave == nil {
+		return nil, fmt.Errorf("remote-save 未装配")
+	}
+	if _, ok := m.getTask(taskID); !ok {
+		return nil, fmt.Errorf("任务不存在: %s", taskID)
+	}
+	return m.remoteSave.ApplyMigration(ctx, taskID)
+}
+
 // ResolveRemoteSaveConflict 对单个冲突文件执行人工处理动作。
 func (m *Manager) ResolveRemoteSaveConflict(ctx context.Context, taskID, objectURL, rel, action string) error {
 	if m.remoteSave == nil {
