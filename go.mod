@@ -4,8 +4,8 @@ go 1.27
 
 require (
 	github.com/cavaliergopher/grab/v3 v3.0.1
-	github.com/cocomhub/sproxy v0.25.1-0.20261114063722-f184db6345ae
-	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.24.1-0.20261028093500-97001375f3fc
+	github.com/cocomhub/sproxy v0.26.1-0.20261125203302-288ee5def9cc
+	github.com/cocomhub/sproxy/pkg/volume/ext/pikpak v0.26.1-0.20261125203302-288ee5def9cc
 	github.com/gofrs/flock v0.13.1
 	github.com/gorilla/mux v1.8.1
 	github.com/spf13/cast v1.10.0
@@ -24,6 +24,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cocomhub/sproxy/pkg/media/ext/mp4 v0.24.1-0.20261028093500-97001375f3fc // indirect
+	github.com/cocomhub/sproxy/pkg/volume/ext/baidupcs v0.26.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
