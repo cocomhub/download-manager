@@ -56,12 +56,13 @@ type cliFlags struct {
 	timeoutSec int
 	retry      int
 	// pikpak
-	shareRatio  float64
-	chunkSize   int64
-	concurrency int
-	autoDelete  bool
-	secretsDir  string
-	journal     bool // 进度 WAL（默认 true；--disable-progress-journal / config 可关）
+	shareRatio    float64
+	chunkSize     int64
+	concurrency   int
+	autoDelete    bool
+	resetMismatch bool
+	secretsDir    string
+	journal       bool // 进度 WAL（默认 true；--disable-progress-journal / config 可关）
 }
 
 // run 是命令入口（可测试：返回退出码，不直接 os.Exit）。
@@ -77,25 +78,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pikget", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		output     = fs.String("o", "", "输出文件路径或目录（默认：URL 文件名到当前目录）")
-		quiet      = fs.Bool("q", false, "静默模式（仅错误输出）")
-		noProgress = fs.Bool("no-progress", false, "禁用多行进度条（默认开启）")
-		force      = fs.Bool("force", false, "强制覆盖已存在文件（跳过 GCID 一致性检查）")
-		verbose    = fs.Bool("v", false, "详细日志（debug 级）")
-		userAgent  = fs.String("user-agent", "", "直链 User-Agent")
-		proxyURL   = fs.String("proxy", "", "HTTP 代理（直链与 PikPak 混合下载均生效）")
-		headerArg  = fs.String("header", "", "自定义请求头 'K: V'（可重复/逗号分隔）")
-		timeout    = fs.Int("timeout", 300, "HTTP 超时(秒)")
-		retry      = fs.Int("retry", 3, "重试次数（直链请求与 PikPak 接口瞬断）")
-		configPath = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
-		shareRatio = fs.Float64("share-ratio", 0, "匿名分享区比例上限：0=auto（探测 416 边界，默认）；>0 显式上限（≤1）")
-		noJournal  = fs.Bool("disable-progress-journal", false, "关闭下载进度 WAL（默认启用：分片完成即落盘，重启自动续传）")
-		chunkSize  = fs.Int64("chunk-size", 32<<20, "PikPak 分片大小(字节)")
-		concur     = fs.Int("concurrency", 4, "并发数")
-		autoDelete = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
-		secretsDir = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")
-		logFile    = fs.String("log-file", "", "hybrid 日志写文件（默认丢弃，不打断进度条）")
-		showVer    = fs.Bool("version", false, "显示版本")
+		output        = fs.String("o", "", "输出文件路径或目录（默认：URL 文件名到当前目录）")
+		quiet         = fs.Bool("q", false, "静默模式（仅错误输出）")
+		noProgress    = fs.Bool("no-progress", false, "禁用多行进度条（默认开启）")
+		force         = fs.Bool("force", false, "强制覆盖已存在文件（跳过 GCID 一致性检查）")
+		verbose       = fs.Bool("v", false, "详细日志（debug 级）")
+		userAgent     = fs.String("user-agent", "", "直链 User-Agent")
+		proxyURL      = fs.String("proxy", "", "HTTP 代理（直链与 PikPak 混合下载均生效）")
+		headerArg     = fs.String("header", "", "自定义请求头 'K: V'（可重复/逗号分隔）")
+		timeout       = fs.Int("timeout", 300, "HTTP 超时(秒)")
+		retry         = fs.Int("retry", 3, "重试次数（直链请求与 PikPak 接口瞬断）")
+		configPath    = fs.String("config", "", "配置文件路径（默认 ~/.config/pikget/config.yaml）")
+		shareRatio    = fs.Float64("share-ratio", 0, "匿名分享区比例上限：0=auto（探测 416 边界，默认）；>0 显式上限（≤1）")
+		noJournal     = fs.Bool("disable-progress-journal", false, "关闭下载进度 WAL（默认启用：分片完成即落盘，重启自动续传）")
+		chunkSize     = fs.Int64("chunk-size", 0, "PikPak 分片大小(字节)；0=自适应（按总大小取满足 ≤20 行的 2^k MiB，2–64MiB）")
+		concur        = fs.Int("concurrency", 4, "并发数")
+		autoDelete    = fs.Bool("disable-auto-remove", false, "保留 PikPak 转存副本（默认结束自动永久删除）")
+		resetMismatch = fs.Bool("reset-on-gcid-mismatch", false, "GCID 失配时清理续传状态并从零重下一次（默认 false=保持既有语义）")
+		secretsDir    = fs.String("pikpak-secrets-dir", "", "PikPak 账号凭据目录（非空启用多账号）")
+		logFile       = fs.String("log-file", "", "hybrid 日志写文件（默认丢弃，不打断进度条）")
+		showVer       = fs.Bool("version", false, "显示版本")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "用法: pikget [flags] <URL>\n\nFlags:\n")
@@ -141,10 +143,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		concurrency: *concur,
 		// 配置纪律：flag --disable-auto-remove 默认 false；config.yaml 同名字段同步。
 		// 默认（两者皆未设）→ autoDelete=true（结束自动删转存，安全默认）。
-		autoDelete: !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
-		secretsDir: *secretsDir,
-		logFile:    *logFile,
-		journal:    !*noJournal && !cfg.Downloader.Pikpak.DisableProgressJournal,
+		autoDelete:    !*autoDelete && !cfg.Downloader.Pikpak.DisableAutoRemove,
+		resetMismatch: *resetMismatch,
+		secretsDir:    *secretsDir,
+		logFile:       *logFile,
+		journal:       !*noJournal && !cfg.Downloader.Pikpak.DisableProgressJournal,
 	}
 	if len(cfg.Downloader.HTTP.Headers) > 0 {
 		fl.headers = append(fl.headers, cfg.Downloader.HTTP.Headers...)
@@ -291,17 +294,18 @@ func runHybrid(ctx context.Context, url string, fl cliFlags, stdout, stderr io.W
 		}
 	}
 	opts := pikpakOpts{
-		shareRatio:  fl.shareRatio,
-		chunkSize:   fl.chunkSize,
-		concurrency: fl.concurrency,
-		autoDelete:  fl.autoDelete,
-		secretsDir:  fl.secretsDir,
-		verbose:     fl.verbose,
-		chunkProg:   chunkProgress,
-		logFile:     fl.logFile,
-		proxyURL:    fl.proxyURL, // 此前 hybrid 路径忽略 --proxy（只有直链生效）
-		retry:       fl.retry,
-		journal:     fl.journal,
+		shareRatio:    fl.shareRatio,
+		chunkSize:     fl.chunkSize,
+		concurrency:   fl.concurrency,
+		autoDelete:    fl.autoDelete,
+		resetMismatch: fl.resetMismatch,
+		secretsDir:    fl.secretsDir,
+		verbose:       fl.verbose,
+		chunkProg:     chunkProgress,
+		logFile:       fl.logFile,
+		proxyURL:      fl.proxyURL, // 此前 hybrid 路径忽略 --proxy（只有直链生效）
+		retry:         fl.retry,
+		journal:       fl.journal,
 	}
 	// 聚合进度回调：sproxy 的 downloaded 是全局 prog（总文件累计）。total 行由 summary
 	// 累加所有 chunk worker 生成（不再单独 'total' worker，避免重复计数/两行）。

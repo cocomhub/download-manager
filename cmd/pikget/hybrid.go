@@ -26,21 +26,22 @@ import (
 
 // pikpakOpts 是 PikPak 分享后端的运行参数。
 type pikpakOpts struct {
-	shareRatio  float64
-	chunkSize   int64
-	zeroRun     int64 // rebuild：块尾连续零判定阈值（0 = 默认 64KiB）
-	concurrency int
-	autoDelete  bool
-	secretsDir  string                 // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
-	stateDir    string                 // 账号配额状态目录（默认 <UserConfigDir>/pikget/pikpak-account-state）
-	cliBinary   string                 // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
-	verbose     bool                   // -v：slog 提为 Debug 级
-	chunkProg   func(pikpak.ChunkInfo) // per-chunk 进度回调（pikget 逐行显示分片）
-	logFile     string                 // --log-file：hybrid 日志写文件（默认丢弃）
-	proxyURL    string                 // --proxy：hybrid 各层 HTTP 代理（此前只作用于直链路径）
-	retry       int                    // --retry：混合下载各层瞬断重试次数（此前只作用于直链路径）
-	noEscalate  bool                   // rebuild：禁用「校验失败→全量重建」自动升级
-	journal     bool                   // 启用进度 WAL（默认 true；分片完成即落盘，重启续传）
+	shareRatio    float64
+	chunkSize     int64
+	zeroRun       int64 // rebuild：块尾连续零判定阈值（0 = 默认 64KiB）
+	concurrency   int
+	autoDelete    bool
+	secretsDir    string                 // 非空 = 装配多账号轮换（FSSecretStore 落盘目录）
+	stateDir      string                 // 账号配额状态目录（默认 <UserConfigDir>/pikget/pikpak-account-state）
+	cliBinary     string                 // pikpak CLI 可执行路径（空 = 自动查找/安装；测试注入 fake）
+	verbose       bool                   // -v：slog 提为 Debug 级
+	chunkProg     func(pikpak.ChunkInfo) // per-chunk 进度回调（pikget 逐行显示分片）
+	logFile       string                 // --log-file：hybrid 日志写文件（默认丢弃）
+	proxyURL      string                 // --proxy：hybrid 各层 HTTP 代理（此前只作用于直链路径）
+	retry         int                    // --retry：混合下载各层瞬断重试次数（此前只作用于直链路径）
+	noEscalate    bool                   // rebuild：禁用「校验失败→全量重建」自动升级
+	journal       bool                   // 启用进度 WAL（默认 true；分片完成即落盘，重启续传）
+	resetMismatch bool                   // GCID 失配 ⇒ 清续传状态从零重下一次（与 sproxy 云端同能力）
 }
 
 // newHybridHTTPClients 构造 hybrid 各层 HTTP client（统一代理设置）。
@@ -137,16 +138,18 @@ func newHybrid(o pikpakOpts) (*pikpak.HybridDownloader, error) {
 	}
 
 	return pikpak.NewHybridDownloader(pikpak.HybridConfig{
-		Resolver:      r,
-		API:           pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli),
-		HTTPClient:    dlClient,
-		AccountPool:   pool,
-		ChunkSize:     o.chunkSize,
-		ShareRatio:    o.shareRatio,
-		Concurrency:   o.concurrency,
-		AutoDelete:    o.autoDelete,
-		Logger:        slogForPikget(o.verbose, o.logFile),
-		ChunkProgress: o.chunkProg,
+		Resolver:    r,
+		API:         pikpak.NewAPI(pikpak.APIConfig{MaxRetries: o.retry, HTTPClient: apiClient, Logger: slogForPikget(o.verbose, o.logFile)}, pinCli),
+		HTTPClient:  dlClient,
+		AccountPool: pool,
+		ChunkSize:   o.chunkSize,
+		ShareRatio:  o.shareRatio,
+		Concurrency: o.concurrency,
+		AutoDelete:  o.autoDelete,
+		// 与 sproxy 云端一致：GCID 失配 ⇒ 清续传状态从零重下一次（默认关闭，保持 CLI 既有语义）
+		ResetOnGCIDMismatch: o.resetMismatch,
+		Logger:              slogForPikget(o.verbose, o.logFile),
+		ChunkProgress:       o.chunkProg,
 		JournalFactory: func(_, sourceKey string) (pikpak.ProgressJournal, error) {
 			if !o.journal {
 				return nil, nil
