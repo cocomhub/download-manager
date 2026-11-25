@@ -24,6 +24,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cocomhub/sproxy/pkg/media/ext/mp4 v0.24.1-0.20261028093500-97001375f3fc // indirect
+	github.com/cocomhub/sproxy/pkg/volume/ext/baidupcs v0.26.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
