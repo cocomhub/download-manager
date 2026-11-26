@@ -1,5 +1,83 @@
 # Changelog
 
+## [0.7.0](https://github.com/cocomhub/download-manager/compare/v0.6.0...v0.7.0) (2026-11-26)
+
+
+### Added
+
+* **cli:** pikget 类 wget 下载器——URL 自动分发/直链+PikPak 混合下载/GCID 校验/进度/续传 ([#172](https://github.com/cocomhub/download-manager/issues/172)) ([54666b9](https://github.com/cocomhub/download-manager/commit/54666b913effb1f14916b2f4dac65b885b980f8b))
+* **downloader:** gopeed 下载器 + PikPak 免登录直链 + 状态持久化 ([04adde4](https://github.com/cocomhub/download-manager/commit/04adde4a463e7400c12049ee99d08bfde59532b8))
+* **downloader:** gopeed 下载器后端支持磁力/直链 ([#163](https://github.com/cocomhub/download-manager/issues/163)) ([ec861ee](https://github.com/cocomhub/download-manager/commit/ec861ee0793d5559b7be14b15a98d696a6843f10))
+* **downloader:** gopeed 支持 PikPak 分享免登录直链下载 ([#164](https://github.com/cocomhub/download-manager/issues/164)) ([93950a2](https://github.com/cocomhub/download-manager/commit/93950a2c4274d874e6219f62b5ab20a180a77b3b))
+* **downloader:** sproxy_cloud 云端下载后端——下载项级云端选项 + SproxySig 认证 + mongo 验证 ([#171](https://github.com/cocomhub/download-manager/issues/171)) ([8b392d4](https://github.com/cocomhub/download-manager/commit/8b392d46dd9c67e64bfc51e1438162240175718d))
+* **downloader:** sproxy_cloud 提交支持分享内目标文件（target_file → spx_target）+ 按对象 transfer_path 覆盖([#174](https://github.com/cocomhub/download-manager/issues/174)) ([6db0eca](https://github.com/cocomhub/download-manager/commit/6db0ecac0ec58aded5e41a8bb433b20ca58ba2c1))
+* **downloader:** sproxy_hybrid 混合下载后端——分享 URL 提交 sproxy 混合下载 ([#170](https://github.com/cocomhub/download-manager/issues/170)) ([3bb5de8](https://github.com/cocomhub/download-manager/commit/3bb5de861403f3d8dcd2dc974b54c4bba31e8027))
+* **m3u8d:** 下载后默认校验分片，两致对接重发保证可靠性 ([#160](https://github.com/cocomhub/download-manager/issues/160)) ([277e05e](https://github.com/cocomhub/download-manager/commit/277e05e1cedebdd14d3102b5d78e62b6bde5a9f9))
+* **manager:** 下载顺序化（任务内串行）配置开关 ([#169](https://github.com/cocomhub/download-manager/issues/169)) ([5dc9351](https://github.com/cocomhub/download-manager/commit/5dc935146e083c919304db03d740e2758723fafe))
+* **pikget:** chunk 默认自适应 + GCID 失配自愈开关（与 sproxy 对齐）（[#209](https://github.com/cocomhub/download-manager/issues/209)） ([e8f5f6e](https://github.com/cocomhub/download-manager/commit/e8f5f6e2c2a830219e21d67587b112b42eb39103))
+* **remote-save:** 云端直存路径与签名播放链接 ([#183](https://github.com/cocomhub/download-manager/issues/183)) ([95c2386](https://github.com/cocomhub/download-manager/commit/95c2386cb78305095b4a5380511df08d80ee463c))
+* **remote-save:** 任务级指标与冲突多选 ([#206](https://github.com/cocomhub/download-manager/issues/206)) ([aa67df9](https://github.com/cocomhub/download-manager/commit/aa67df9e0c9b4675c9436d41dab92f7c84b14d9b))
+* **remote-save:** 任务级跨进程租约 ([#197](https://github.com/cocomhub/download-manager/issues/197)) ([721917b](https://github.com/cocomhub/download-manager/commit/721917ba2256a7c5aa1ad869e21d13fda64a6998))
+* **remote-save:** 冲突 UI、云端冲突动作与镜像清理 ([#184](https://github.com/cocomhub/download-manager/issues/184)) ([d957cdd](https://github.com/cocomhub/download-manager/commit/d957cdd2031b0e916fa448e7305e7052cbe04de5))
+* **remote-save:** 分钟趋势与生产部署策略 ([#203](https://github.com/cocomhub/download-manager/issues/203)) ([0cee9fc](https://github.com/cocomhub/download-manager/commit/0cee9fc6d4bfc9091f89c66dacf9ae8254108cb2))
+* **remote-save:** 单对象文件并发 ([#190](https://github.com/cocomhub/download-manager/issues/190)) ([b920b90](https://github.com/cocomhub/download-manager/commit/b920b90496aa5e6c97019caada7bfd2f4ee244a7))
+* **remote-save:** 可配置重试退避 ([#201](https://github.com/cocomhub/download-manager/issues/201)) ([9d734c4](https://github.com/cocomhub/download-manager/commit/9d734c47c3c771d0a6303d8c74b9ad865d0dfdf2))
+* **remote-save:** 完善状态体验与迁移审计 ([#205](https://github.com/cocomhub/download-manager/issues/205)) ([76d450b](https://github.com/cocomhub/download-manager/commit/76d450b266bb489cdf82b2881c248916603e7d07))
+* **remote-save:** 对象目录迁移执行 ([#199](https://github.com/cocomhub/download-manager/issues/199)) ([3671fce](https://github.com/cocomhub/download-manager/commit/3671fceeabb7134a5606b99397f29edb11239ff1))
+* **remote-save:** 对象目录迁移报告 ([#198](https://github.com/cocomhub/download-manager/issues/198)) ([4220673](https://github.com/cocomhub/download-manager/commit/422067308001d7a6a54a41a87f0cf49bbbb64fa7))
+* **remote-save:** 对象级状态面板 ([#191](https://github.com/cocomhub/download-manager/issues/191)) ([06e43cd](https://github.com/cocomhub/download-manager/commit/06e43cde7fc0d62c9fff08fd387f97ffd6731cc8))
+* **remote-save:** 对象级立即对账 ([#195](https://github.com/cocomhub/download-manager/issues/195)) ([75bef57](https://github.com/cocomhub/download-manager/commit/75bef57c5a11b37fc0144f317772178478090e21))
+* **remote-save:** 已完成对象逐文件 sha256 同步到 sproxy 卷 ([#179](https://github.com/cocomhub/download-manager/issues/179)) ([6cf11f7](https://github.com/cocomhub/download-manager/commit/6cf11f731ddd77be64a0444d7143aa251b9f6ff8))
+* **remote-save:** 批量冲突处理 ([#194](https://github.com/cocomhub/download-manager/issues/194)) ([ffe4e3e](https://github.com/cocomhub/download-manager/commit/ffe4e3e1c4bd4dd6fd6991afc41bd2a01fac97d0))
+* **remote-save:** 批量远端 Stat ([#193](https://github.com/cocomhub/download-manager/issues/193)) ([4c83d70](https://github.com/cocomhub/download-manager/commit/4c83d7077321cba2703e98349f49c9a828fb32eb))
+* **remote-save:** 指标与失败重试退避 ([#189](https://github.com/cocomhub/download-manager/issues/189)) ([bf51df1](https://github.com/cocomhub/download-manager/commit/bf51df19370c8ef8ee166c16a63fabe1a14a8aac))
+* **remote-save:** 指标面板 ([#196](https://github.com/cocomhub/download-manager/issues/196)) ([45f1003](https://github.com/cocomhub/download-manager/commit/45f10033be5abd123bba8ada77114be21c792adc))
+* **remote-save:** 播放地址刷新与冲突操作说明 ([#208](https://github.com/cocomhub/download-manager/issues/208)) ([f340938](https://github.com/cocomhub/download-manager/commit/f340938129f9258409d6ffa6b7f2360f5e63cbc0))
+* **remote-save:** 状态面板立即对账与播放入口 ([#192](https://github.com/cocomhub/download-manager/issues/192)) ([39bef79](https://github.com/cocomhub/download-manager/commit/39bef79ea6305d60b91bfbb3e86087d5a8aeb492))
+* **remote-save:** 迁移分批执行 ([#204](https://github.com/cocomhub/download-manager/issues/204)) ([51ed412](https://github.com/cocomhub/download-manager/commit/51ed41269915b1b134e440a7facc498c91ec57f7))
+* **remote-save:** 迁移审计与租约指标 ([#202](https://github.com/cocomhub/download-manager/issues/202)) ([1d5ceb7](https://github.com/cocomhub/download-manager/commit/1d5ceb7ab53f8613d5c171234fb1318c3486da91))
+* **remote-save:** 迁移建议 UI ([#200](https://github.com/cocomhub/download-manager/issues/200)) ([23ce63b](https://github.com/cocomhub/download-manager/commit/23ce63bbe786b580029e11e5a4f11b5855f31665))
+* **remote-save:** 远端番号目录归档与逐文件冲突处理 ([#182](https://github.com/cocomhub/download-manager/issues/182)) ([45fe3d6](https://github.com/cocomhub/download-manager/commit/45fe3d61a95c33754bdf0f6b864ccc6d6e9ee7a4))
+* **sproxy_cloud:** 分卷全套/字幕逐文件提交 + 恢复 meta_extra/insecure_tls/BSON 归一（[#175](https://github.com/cocomhub/download-manager/issues/175)） ([9d33348](https://github.com/cocomhub/download-manager/commit/9d33348639bcd90ff65d7f41065c6c9e4eeb2cff))
+
+
+### Fixed
+
+* **cloud:** cloud_only 自动清理后从转存目标恢复 ([#187](https://github.com/cocomhub/download-manager/issues/187)) ([6ff5405](https://github.com/cocomhub/download-manager/commit/6ff5405e2e3b2ead32cee8a5d985e14440a7f23e))
+* **downloader:** gopeed 磁力候选按大小降序尝试 + 唯一文件兜底 ([#168](https://github.com/cocomhub/download-manager/issues/168)) ([5e10c3a](https://github.com/cocomhub/download-manager/commit/5e10c3a807117d9d865997919e27dec863dcf2d8))
+* **downloader:** gopeed 非磁力/非 PikPak URL 明确报错，不下页面 ([#166](https://github.com/cocomhub/download-manager/issues/166)) ([ca511f1](https://github.com/cocomhub/download-manager/commit/ca511f129b4b519dcdd84ab7a0d0b72c45533fbd))
+* **download:** MD5 无法比较时重复下载至两份一致，保证文件可靠 ([#167](https://github.com/cocomhub/download-manager/issues/167)) ([cb33c72](https://github.com/cocomhub/download-manager/commit/cb33c726dfe4bf988f2a13e1ed3a85c649820baa))
+* **manager:** 版本升级写回前合并最新状态，进度/状态不被旧快照覆盖 ([#162](https://github.com/cocomhub/download-manager/issues/162)) ([70518c2](https://github.com/cocomhub/download-manager/commit/70518c27c7c1a42e436f726e9bfdfed110e521ce))
+* **pikget:** 进度不谎报完成 + rebuild 零尾定点重建 + 凭证续期接线 ([#173](https://github.com/cocomhub/download-manager/issues/173)) ([dcf6249](https://github.com/cocomhub/download-manager/commit/dcf6249d62d6c015efbf27e0561e7eb769c09245))
+* **remote-save:** 使用 meta 本地 mtime 校验 ([#210](https://github.com/cocomhub/download-manager/issues/210)) ([0c68342](https://github.com/cocomhub/download-manager/commit/0c68342e5a8bc5f466fbfcf219b9adc7b7a13729))
+* **remote-save:** 冲突持久化、云端冲突与镜像清理可靠性 ([#185](https://github.com/cocomhub/download-manager/issues/185)) ([95665f9](https://github.com/cocomhub/download-manager/commit/95665f9d1ff6221e07f6737e75bb19473eeb7549))
+* **remote-save:** 失败结果落盘、对象级 manifest 与云端冲突 ([#186](https://github.com/cocomhub/download-manager/issues/186)) ([4a089c5](https://github.com/cocomhub/download-manager/commit/4a089c51e1109cf630f382ae016f32f1fb85e079))
+* **sproxy_cloud:** cloud_only 模式提交 save=false（转存后即删本地副本）（[#178](https://github.com/cocomhub/download-manager/issues/178)） ([8604fc8](https://github.com/cocomhub/download-manager/commit/8604fc8290c1144fe65f11871bec5d0a25b9edaf))
+* **sproxy_cloud:** 多目标失败坐标清理 + 产物坐标幂等 + 补齐场景覆盖（[#177](https://github.com/cocomhub/download-manager/issues/177)） ([1b18a4e](https://github.com/cocomhub/download-manager/commit/1b18a4eba05b9410ceb73337b960e2fa18ed11b2))
+
+
+### Changed
+
+* **deps:** 升级 sproxy 至 presign meta 支持 ([#213](https://github.com/cocomhub/download-manager/issues/213)) ([c9bfd30](https://github.com/cocomhub/download-manager/commit/c9bfd309f94dd60909c80633f3949161b341688a))
+* **deps:** 升级 sproxy 至 sclient 直连修复 ([#216](https://github.com/cocomhub/download-manager/issues/216)) ([c51ac80](https://github.com/cocomhub/download-manager/commit/c51ac8004a980b4ef22abe00f3879705fb9e84eb))
+* **deps:** 升级 sproxy 至最新 ([#214](https://github.com/cocomhub/download-manager/issues/214)) ([d7fdf72](https://github.com/cocomhub/download-manager/commit/d7fdf72368ea5e282d3002017efe3a6b36b36c65))
+* **deps:** 升级 sproxy 至最新 ([#215](https://github.com/cocomhub/download-manager/issues/215)) ([1f0b593](https://github.com/cocomhub/download-manager/commit/1f0b593d800ee575b1463ddf83477bb6f6fae48a))
+* **deps:** 升级 sproxy 至最新 ([#217](https://github.com/cocomhub/download-manager/issues/217)) ([c9c531d](https://github.com/cocomhub/download-manager/commit/c9c531d3865faeb80a4a051e924d556853af56e6))
+* **deps:** 升级 sproxy 至最新 ([#218](https://github.com/cocomhub/download-manager/issues/218)) ([118883a](https://github.com/cocomhub/download-manager/commit/118883a1dfe19ec871bb5afd5947fad871155489))
+* **deps:** 升级 sproxy 至最新 ([#219](https://github.com/cocomhub/download-manager/issues/219)) ([2fe1da4](https://github.com/cocomhub/download-manager/commit/2fe1da4fc965ee20f58da2287c78b8711945ecad))
+* **deps:** 升级 sproxy 至最新 ([#220](https://github.com/cocomhub/download-manager/issues/220)) ([d05129f](https://github.com/cocomhub/download-manager/commit/d05129f3545b5ce5b1c828fe474786702525f099))
+* **deps:** 升级 sproxy 至最新 ([#221](https://github.com/cocomhub/download-manager/issues/221)) ([d6c9c93](https://github.com/cocomhub/download-manager/commit/d6c9c9375d13536a69a44a9fc746be130328fa2f))
+* **deps:** 升级 sproxy 至最新 ([#222](https://github.com/cocomhub/download-manager/issues/222)) ([9606641](https://github.com/cocomhub/download-manager/commit/96066419991e87833de0cdee4236445d77e592db))
+* **deps:** 升级 sproxy 至最新 ([#223](https://github.com/cocomhub/download-manager/issues/223)) ([fe5984e](https://github.com/cocomhub/download-manager/commit/fe5984e652f32e1b02e77619d849848838ee908b))
+* **deps:** 升级 sproxy 至最新 ([#224](https://github.com/cocomhub/download-manager/issues/224)) ([44c3e25](https://github.com/cocomhub/download-manager/commit/44c3e25ff4d44ed6519e1372a5980b0701ce40ab))
+* **deps:** 升级 sproxy 至最新 ([#225](https://github.com/cocomhub/download-manager/issues/225)) ([086bee6](https://github.com/cocomhub/download-manager/commit/086bee62e19f11614d579da185b471f3e7a11d54))
+* **deps:** 升级 sproxy 至最新 ([#226](https://github.com/cocomhub/download-manager/issues/226)) ([fc0f109](https://github.com/cocomhub/download-manager/commit/fc0f10925c8e89bb0d4b22ce12aa9b68bccd36f6))
+* **deps:** 升级 sproxy 至最新 meta 修复 ([#211](https://github.com/cocomhub/download-manager/issues/211)) ([1bc260f](https://github.com/cocomhub/download-manager/commit/1bc260f2fe005f71f57c38d3301b6cb04dfc000d))
+* **deps:** 升级 sproxy 至外部卷 meta 更新修复 ([#212](https://github.com/cocomhub/download-manager/issues/212)) ([bb96d22](https://github.com/cocomhub/download-manager/commit/bb96d2252e797eaa20c93510e0d7f6c20be21a86))
+* **pikget:** 能力收敛到 sproxy 领域包 + 自动探测匿名区 + 进度 WAL 续传（[#176](https://github.com/cocomhub/download-manager/issues/176)） ([f43b3c1](https://github.com/cocomhub/download-manager/commit/f43b3c1d27850943a9038491acb187b01a745f84))
+* **remote-save:** 对齐 sproxy 最新版本并固化 cloud_only E2E ([#188](https://github.com/cocomhub/download-manager/issues/188)) ([9161f32](https://github.com/cocomhub/download-manager/commit/9161f322eb2d97a94fcf40eb29a3f939c94589cd))
+* **remote-save:** 真实 UI 冒烟用例 ([#207](https://github.com/cocomhub/download-manager/issues/207)) ([3236775](https://github.com/cocomhub/download-manager/commit/323677529bc0eeb91c8942593abb02b55c603e57))
+
 ## [0.6.0](https://github.com/cocomhub/download-manager/compare/v0.5.0...v0.6.0) (2026-09-29)
 
 
