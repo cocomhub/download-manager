@@ -23,6 +23,7 @@ test.describe('Remote Save Real UI', () => {
   test.skip(!baseURL || !taskID, '需要 REMOTE_SAVE_REAL_UI_URL + REMOTE_SAVE_REAL_TASK_ID');
 
   test('opens real remote-save panel', async ({ page }) => {
+    test.setTimeout(220000);
     await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const task = page.locator('[data-testid="task-' + taskID + '"]');
