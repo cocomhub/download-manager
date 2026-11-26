@@ -6,7 +6,7 @@ require github.com/cocomhub/download-manager v0.0.0
 
 require (
 	github.com/cavaliergopher/grab/v3 v3.0.1 // indirect
-	github.com/cocomhub/sproxy v0.26.1-0.20261126180254-cf6c2a1a6f76 // indirect
+	github.com/cocomhub/sproxy v0.26.1-0.20261126181513-5801d30e9952 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
