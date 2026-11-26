@@ -846,7 +846,7 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 		return model.RemoteFileState{Path: rel, Status: model.RemoteFileStatusFailed, Reason: "meta: " + err.Error()}
 	}
 	mi, gerr := client.GetMeta(ctx, remote)
-	remoteMTime, perr := time.Parse(time.RFC3339Nano, mi.MTime)
+	remoteMTime, perr := metaMTime(mi)
 	if gerr != nil || perr != nil || absInt64(remoteMTime.Unix()-st.ModTime().Unix()) > 1 {
 		s.Logger().Warn("remote-save meta mtime mismatch", "path", rel, "local", st.ModTime().UTC().Format(time.RFC3339Nano), "remote", mi.MTime, "error", gerr)
 		man.Put(ManifestEntry{Path: rel, ObjectURL: obj.URL, RemotePath: remote, Size: st.Size(), MTimeNs: st.ModTime().UnixNano(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: model.RemoteFileStatusFailed, Reason: "meta mtime mismatch"})
@@ -858,6 +858,20 @@ func (s *Service) syncFile(ctx context.Context, task core.Task, client Client, c
 	}
 	man.Put(entry)
 	return model.RemoteFileState{Path: rel, RemotePath: remote, Size: st.Size(), MTime: st.ModTime().UTC(), SHA256: sha, RemoteSHA256: fi.Checksum, Status: status}
+}
+
+// metaMTime 优先使用 x_dm_file.mtime（上传时写入的权威本地 mtime），
+// 回退到 sproxy 文件系统 mtime。上传是异步的，文件系统 mtime 是上传时刻，
+// 不能作为本地 mtime 一致性的唯一判据。
+func metaMTime(mi MetaInfo) (time.Time, error) {
+	if xf, ok := mi.Extra["x_dm_file"].(map[string]any); ok {
+		if raw, _ := xf["mtime"].(string); raw != "" {
+			if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+				return t, nil
+			}
+		}
+	}
+	return time.Parse(time.RFC3339Nano, mi.MTime)
 }
 
 type localFile struct {

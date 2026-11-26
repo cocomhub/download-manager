@@ -211,7 +211,10 @@ func TestService_UploadsCompletedObjectAndStoresSHA256(t *testing.T) {
 		return hex.EncodeToString(sum[:])
 	}}
 	remote := "hanime/2.5D/video.mp4"
-	client.metas[remote] = MetaInfo{MTime: st.ModTime().UTC().Format(time.RFC3339Nano)}
+	client.metas[remote] = MetaInfo{
+		MTime: time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano),
+		Extra: map[string]any{"x_dm_file": map[string]any{"mtime": st.ModTime().UTC().Format(time.RFC3339Nano)}},
+	}
 	var persisted *model.DownloadObject
 	svc := newTestService(t, task, client, func(_ core.Task, o *model.DownloadObject) { persisted = o })
 	// 绕过 settle 窗口：文件已是一小时前。
